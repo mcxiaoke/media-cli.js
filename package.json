@@ -1,0 +1,35 @@
+{
+  "name": "picexif",
+  "version": "0.1.0",
+  "description": "Photo and Video ExifTool Utilities",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node index.js",
+    "push": "git push origin master"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mcxiaoke/picexif.js.git"
+  },
+  "keywords": [
+    "exif",
+    "image",
+    "photo",
+    "exiftool"
+  ],
+  "author": "Big Cat <github@mcxiaoke.com>",
+  "license": "Apache-2.0",
+  "bugs": {
+    "url": "https://github.com/mcxiaoke/picexif.js/issues"
+  },
+  "homepage": "https://github.com/mcxiaoke/picexif.js#readme",
+  "dependencies": {
+    "chalk": "^4.1.1",
+    "date-fns": "^2.22.1",
+    "exiftool-vendored": "^15.2.0",
+    "fs-extra": "^10.0.0",
+    "klaw-sync": "^6.0.0",
+    "minimist": "^1.2.5"
+  }
+}
