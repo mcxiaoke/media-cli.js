@@ -2,51 +2,26 @@
 
 const os = require("os");
 const path = require("path");
-const readline = require("readline");
+const inquirer = require("inquirer");
 const fs = require("fs-extra");
 const dateFormat = require("date-fns/format");
 const klawSync = require("klaw-sync");
 const parseArgs = require("minimist");
+const chalk = require("chalk");
 const ExifTool = require("exiftool-vendored").ExifTool;
 const { ExifDateTime } = require("exiftool-vendored");
+const {
+  isVideoFile,
+  isMediaFile,
+  getExtname,
+  isImageFile,
+  isRawFile,
+} = require("./lib/constants");
 const et = new ExifTool({
   taskTimeoutMillis: 5000,
   maxTasksPerProcess: 1000,
   maxProcs: os.cpus().length,
 });
-
-const IMAGE_FORMATS = [
-  ".jpg",
-  ".jpeg",
-  ".png",
-  ".avif",
-  ".heic",
-  ".heif",
-  ".webp",
-  ".tiff",
-];
-const RAW_FORMATS = [
-  ".crw",
-  ".cr2",
-  ".cr3",
-  ".nef",
-  ".nrw",
-  ".arw",
-  ".srf",
-  ".sr2",
-  ".raw",
-  ".rw2",
-  ".raf",
-  ".dng",
-];
-const VIDEO_FORMATS = [".mp4", ".mov", ".wmv", ".avi", ".mkv"];
-
-const VALID_FORMATS = IMAGE_FORMATS + RAW_FORMATS + VIDEO_FORMATS;
-
-function isVideo(filename) {
-  const ext = path.extname(filename);
-  return ext && VIDEO_FORMATS.contains(ext.toLowerCase());
-}
 
 function fixSonyTag(tags) {
   // hack for sony 6300
@@ -59,7 +34,7 @@ function fixSonyTag(tags) {
     tags.MajorBrand.toLowerCase().includes("sony")
   ) {
     // console.log("Hack1:", tags.SourceFile);
-    return tags.FileModifyDate;
+    return ["FileModifyDate", tags.FileModifyDate];
   }
 }
 
@@ -68,32 +43,22 @@ function fixAppleTag(tags) {
   //  CreationDate rawValue: '2021:06:21 10:22:47+08:00',
   // CreateDate rawValue: '2021:06:21 02:22:47',
   if (
+    tags.MediaCreateDate &&
     tags.CreationDate instanceof ExifDateTime &&
     tags.MajorBrand &&
     tags.MajorBrand.toLowerCase().includes("apple")
   ) {
     // console.log("Hack2:", tags.SourceFile);
-    return tags.CreationDate;
+    return ["CreationDate", tags.CreationDate];
   }
 }
 
-function hackAndFix(tags) {
-  return fixSonyTag(tags) || fixAppleTag(tags);
+function fixScreenShot(tags) {
+  return getExtname(tags.FileName) == "png" && tags.FileModifyDate;
 }
 
-function convertDate(exifDate) {
-  return (
-    exifDate &&
-    new Date(
-      exifDate.year,
-      exifDate.month - 1,
-      exifDate.day,
-      exifDate.hour,
-      exifDate.minute,
-      exifDate.second,
-      exifDate.millisecond
-    )
-  );
+function hackAndFix(tags) {
+  return fixSonyTag(tags) || fixAppleTag(tags) || fixScreenShot(tags);
 }
 
 async function showExifDate(filename) {
@@ -108,26 +73,32 @@ async function showExifDate(filename) {
 }
 
 function selectDateTag(tags) {
-  let dateTags = [
-    tags.CreationDate,
-    tags.MediaCreateDate,
-    tags.MediaModifyDate,
-    tags.DateTimeOriginal,
-    tags.SubSecCreateDate,
-    tags.SubSecDateTimeOriginal,
-    tags.CreateDate,
-    tags.ModifyDate,
-    tags.FileModifyDate,
+  let keys = [
+    "CreationDate",
+    "MediaCreateDate",
+    "MediaModifyDate",
+    "SubSecCreateDate",
+    "SubSecDateTimeOriginal",
+    "DateTimeOriginal",
+    "CreateDate",
+    "ModifyDate",
+    "FileModifyDate",
   ];
-  dateTags = dateTags.filter((t) => t instanceof ExifDateTime);
-  //   console.log(dateTags);
-  return dateTags && dateTags[0];
+  // let dateTags = Object.entries(tags).filter((entry) => {
+  //   const [k, v] = entry;
+  //   return v instanceof ExifDateTime;
+  // });
+  for (const k of keys) {
+    if (tags[k] instanceof ExifDateTime) {
+      return [k, tags[k]];
+    }
+  }
 }
 
 async function getExifDate(filename) {
   try {
     const tags = await et.read(filename);
-    return hackAndFix(tags) || selectDateTag(tags);
+    return { exif: tags, date: hackAndFix(tags) || selectDateTag(tags) };
   } catch (error) {
     console.error(error);
   }
@@ -137,20 +108,19 @@ async function getExifDate(filename) {
 // eg. DSC_20210119_111546.ARW
 // eg. IMG_20210121_174456.JPG
 function createNameByDate(file) {
-  const date = file.rawDate;
-  const srcName = path.basename(file.path);
-  const ext = path.extname(file.path);
   let prefix;
-  if (IMAGE_FORMATS.includes(ext.toLowerCase())) {
+  if (isImageFile(file.path)) {
     prefix = "IMG_";
-  } else if (RAW_FORMATS.includes(ext.toLowerCase())) {
+  } else if (isRawFile(file.path)) {
     prefix = "DSC_";
   } else {
     prefix = "VID_";
   }
+  const ext = path.extname(file.path);
+  const rawDate = file.rawDate[1];
   let dateStr = dateFormat(file.date, "yyyyMMdd_HHmmss");
-  if (date.millisecond > 0) {
-    dstName = `${prefix}${dateStr}_${date.millisecond}${ext}`;
+  if (rawDate.millisecond > 0) {
+    dstName = `${prefix}${dateStr}_${rawDate.millisecond}${ext}`;
   } else {
     dstName = `${prefix}${dateStr}${ext}`;
   }
@@ -167,12 +137,7 @@ function buildNames(files) {
 
 async function listFiles(root) {
   const filterMedia = (item) => {
-    let ext = path.extname(item.path);
-    return (
-      ext &&
-      VALID_FORMATS.includes(ext.toLowerCase()) &&
-      item.stats.size > 100 * 1024
-    );
+    return isMediaFile(item.path) && item.stats.size > 100 * 1024;
   };
   let startMs = Date.now();
   let files = klawSync(root, {
@@ -180,30 +145,82 @@ async function listFiles(root) {
     traverseAll: true,
     filter: filterMedia,
   });
-  console.log(`listFiles time: ${Date.now() - startMs}ms`);
-  console.log(`listFiles count: ${files.length}`);
+  console.log(`listFiles ${files.length} files in ${Date.now() - startMs}ms`);
   return files;
 }
 
 async function parseFiles(files) {
   let startMs = Date.now();
-  const dstFiles = await Promise.all(
+  const exifFiles = await Promise.all(
     files.map(async (f) => {
-      const exifDate = await getExifDate(f.path);
-      const jsDate = convertDate(exifDate);
+      const { date, exif } = await getExifDate(f.path);
       return (
-        jsDate && {
+        date && {
           path: f.path,
           size: f.stats.size,
-          date: jsDate,
-          rawDate: exifDate,
+          date: date[1].toDate(),
+          rawDate: date,
+          rawExif: exif,
         }
       );
     })
   );
   await et.end();
-  console.log(`parseFiles time: ${Date.now() - startMs}ms`);
-  return dstFiles.filter(Boolean);
+  console.log(`parseFiles ${exifFiles.length} in ${Date.now() - startMs}ms`);
+  return exifFiles.filter(Boolean);
+}
+
+function checkFiles(files) {
+  files = files.filter((f) => {
+    if (isVideoFile(f.path) && f.size < 10 * 1024 * 1024) {
+      console.warn(
+        chalk.yellow(`Skip [Size]: `) + `${f.path} ${f.size / 1000}k`
+      );
+      return false;
+    }
+    if (f.date.getHours() < 7 || f.rawDate.hour < 7) {
+      console.warn(chalk.yellow(`Skip [Date]: `) + `${f.path} ${f.date}`);
+      return false;
+    }
+    const inName = path.basename(f.path, path.extname(f.path));
+    const outName = path.basename(f.outName, path.extname(f.outName));
+    if (
+      outName == inName ||
+      inName.includes(outName) ||
+      outName.includes(inName)
+    ) {
+      console.log(chalk.gray(`Skip [Name]: ${f.path}`));
+      return false;
+    } else {
+      return true;
+    }
+  });
+  const duplicateSet = new Set();
+  files = files.map((f) => {
+    const name = path.basename(f.path);
+    const ext = path.extname(name);
+    const originalOutName = path.basename(f.outName, ext);
+    let outName = originalOutName;
+    let outPath = path.join(path.dirname(f.path), outName + ext);
+    let dupSuffix = ["A", "B", "C", "D", "E", "F", "G", "H"];
+    let dupIndex = 0;
+    while (duplicateSet.has(outName)) {
+      outName = originalOutName + "_" + dupSuffix[dupIndex];
+      outPath = path.join(path.dirname(f.path), outName + ext);
+      dupIndex++;
+    }
+    duplicateSet.add(outName);
+    const newOutName = outName + ext;
+    if (f.outName != newOutName) {
+      console.log(chalk.green(`Confict: ${f.outName} to ${newOutName}`));
+    }
+    f.outName = outName + ext;
+    console.log(
+      chalk.green(`Prepared [Rename]:`) + ` ${name} ==> ${f.outName}`
+    );
+    return f;
+  });
+  return files;
 }
 
 async function renameFiles(files) {
@@ -212,7 +229,7 @@ async function renameFiles(files) {
       const outPath = path.join(path.dirname(f.path), f.outName);
       try {
         await fs.rename(f.path, outPath);
-        console.log(`Renamed: ${outPath}`);
+        console.log(chalk.green(`Renamed:`) + ` ${outPath}`);
         return f;
       } catch (error) {
         console.error(error);
@@ -221,7 +238,7 @@ async function renameFiles(files) {
   );
 }
 
-async function main() {
+async function executeRename() {
   const argv = parseArgs(process.argv.slice(2));
   console.log(argv);
   root = argv._[0];
@@ -238,55 +255,35 @@ async function main() {
   }
   console.log(`Root: ${root}`);
   let files = await listFiles(root);
-  console.log(`Total files count (dir): ${files.length}`);
+  console.log(`Total files found in root: ${files.length}`);
   files = await parseFiles(files);
-  console.log(`Total files count (exif): ${files.length}`);
+  console.log(`Total files has exif date: ${files.length}`);
   files = buildNames(files);
-  console.log(`Total files count (before): ${files.length}`);
-  files = files.filter((f) => {
-    // console.log(f);
-    if (f.date.getHours() < 7 || f.rawDate.hour < 7) {
-      console.warn("Invalid Date:", f);
-      return false;
-    }
-    const inName = path.basename(f.path, path.extname(f.path));
-    const outName = path.basename(f.outName, path.extname(f.outName));
-    if (
-      outName == inName ||
-      inName.includes(outName) ||
-      outName.includes(inName)
-    ) {
-      //   console.log(`Skip: ${f.path}`);
-      return false;
-    } else {
-      console.log(`Task: ${f.path} => ${f.outName}`);
-      return true;
-    }
-  });
-  console.log(`Total files count (after): ${files.length}`);
+  files = checkFiles(files);
+  console.log(`Total files need to rename: ${files.length}`);
   if (files.length == 0) {
-    console.log("Nothing to do, quit now.");
+    console.log(chalk.green("Nothing to do, exit now."));
     return;
   }
+  const answer = await inquirer.prompt([
+    {
+      type: "confirm",
+      name: "yes",
+      default: false,
+      message: chalk.red(`Are you sure to rename ${files.length} files?`),
+    },
+  ]);
+  if (answer.yes) {
+    renameFiles(files).then((files) => {
+      console.log(`There ${files.length} file were renamed.`);
+    });
+  } else {
+    console.log(chalk.yellowBright("Will do nothing, aborted by user."));
+  }
+}
 
-  const rdi = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
-
-  rdi.question(
-    `Are you sure to rename ${files.length} files？`,
-    function (answer) {
-      rdi.close();
-      if (answer == "y" || answer == "yes") {
-        renameFiles(files).then((files) => {
-          console.log(`Total files count (renamed): ${files.length}`);
-        });
-      } else {
-        console.log("Nothing to do, aborted by user.");
-      }
-    }
-  );
+async function main() {
+  await executeRename();
 }
 
 main();

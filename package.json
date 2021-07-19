@@ -6,6 +6,7 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node index.js",
+    "mp3toaac": "node ./scripts/mp3_to_aac.js",
     "push": "git push origin master"
   },
   "repository": {
@@ -16,7 +17,9 @@
     "exif",
     "image",
     "photo",
-    "exiftool"
+    "exiftool",
+    "ffmpeg",
+    "audio"
   ],
   "author": "Big Cat <github@mcxiaoke.com>",
   "license": "Apache-2.0",
@@ -26,10 +29,14 @@
   "homepage": "https://github.com/mcxiaoke/picexif.js#readme",
   "dependencies": {
     "chalk": "^4.1.1",
+    "cross-spawn": "^7.0.3",
     "date-fns": "^2.22.1",
     "exiftool-vendored": "^15.2.0",
     "fs-extra": "^10.0.0",
+    "iconv-lite": "^0.4.24",
+    "inquirer": "^8.1.2",
     "klaw-sync": "^6.0.0",
-    "minimist": "^1.2.5"
+    "minimist": "^1.2.5",
+    "workerpool": "^6.1.5"
   }
 }
