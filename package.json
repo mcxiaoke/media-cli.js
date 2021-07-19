@@ -29,8 +29,7 @@
   "homepage": "https://github.com/mcxiaoke/picexif.js#readme",
   "dependencies": {
     "chalk": "^4.1.1",
-    "cross-spawn": "^7.0.3",
-    "date-fns": "^2.22.1",
+    "dayjs": "^1.10.6",
     "exiftool-vendored": "^15.2.0",
     "fs-extra": "^10.0.0",
     "iconv-lite": "^0.4.24",
