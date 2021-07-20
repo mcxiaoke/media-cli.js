@@ -1,5 +1,5 @@
 {
-  "name": "media-cli",
+  "name": "mediac",
   "version": "0.1.0",
   "description": "Media and ExifTool Utilities",
   "main": "index.js",
