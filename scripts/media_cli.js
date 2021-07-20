@@ -2,16 +2,15 @@
 const path = require("path");
 const fs = require("fs-extra");
 const chalk = require("chalk");
-const d_ = require("../lib/debug");
+const d = require("../lib/debug");
 const exif = require("../lib/exif");
 
 const yargs = require("yargs/yargs")(process.argv.slice(2));
-
 // https://github.com/yargs/yargs/blob/master/docs/advanced.md
 const argv = yargs
   .usage("Usage: $0 <command> <source> [options]")
   .command(
-    ["rename <source> [options]", "rn", "r"],
+    ["rename <source> [options]", "rn", "$0"],
     "Rename media files in source dir by exif date",
     (yargs) => {
       yargs
@@ -55,12 +54,6 @@ const argv = yargs
       commandRename(argv);
     }
   )
-  .option("debug", {
-    alias: "d",
-    type: "boolean",
-    default: false,
-    description: "show verbose log messages",
-  })
   .count("verbose")
   .alias("v", "verbose")
   .alias("h", "help")
@@ -69,15 +62,14 @@ const argv = yargs
   .demandCommand()
   .showHelpOnFail()
   .help().argv;
-d_.setLevel(Math.max(argv.verbose, argv.debug ? 9 : 0));
+d.setLevel(argv.verbose);
+d.D(argv);
 
 async function commandRename(argv) {
   const root = path.resolve(argv.source);
   if (!root || !fs.pathExistsSync(root)) {
     yargs.showHelp();
-    console.error(
-      chalk.red(`ERROR! Source '${root}' is not exists or not a directory!`)
-    );
+    d.E(chalk.red(`ERROR! Source '${root}' is not exists or not a directory!`));
     return;
   }
   await exif.executeRename(root);

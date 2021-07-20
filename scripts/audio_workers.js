@@ -3,6 +3,8 @@ const iconv = require("iconv-lite");
 const workerpool = require("workerpool");
 const path = require("path");
 const fs = require("fs-extra");
+const d = require("../lib/debug");
+const h = require("../lib/helper");
 
 function executeCommand(command, args = []) {
   const argsStr = args.join(" ");
@@ -10,13 +12,14 @@ function executeCommand(command, args = []) {
   let output;
   if (result.status != 0) {
     output = iconv.decode(result.stderr, "utf8");
-    console.log(
-      `Command '${command} ${argsStr}' failed(${result.status}): ${output} (${process.pid})`
+    d.W(
+      `Command Failed: '${command} ${argsStr}' (${result.status}):${output} (${process.pid})`
     );
   } else {
     output = iconv.decode(result.stdout, "utf8");
-    console.log(`Command '${command} ${argsStr}' success. (${process.pid})`);
+    d.D(`Command Success: '${command} ${argsStr}' (${process.pid})`);
   }
+  output && d.D(`Execute Command output: ${output}`);
   return {
     command: command,
     args: args,
@@ -31,22 +34,22 @@ function exifRead(file) {
   try {
     return JSON.parse(iconv.decode(result.stdout, "utf8"))[0];
   } catch (error) {
-    console.warn(`===>>> ${error} <${file}>`);
+    d.E(`ERROR! exifRead ${error} <${file}>`);
   }
 }
 
-function ffmpegConvert(file) {
+function toAAC(file) {
   // convert mp3 to aac
   // ls *.mp3 | parallel ffmpeg -n -loglevel repeat+level+warning -i "{}" -map a:0 -c:a libfdk_aac -b:a 192k output/"{.}".m4a -hide_banner
   const fileSrc = path.resolve(file);
-  const nameBase = path.basename(fileSrc, path.extname(fileSrc));
+  const nameBase = path.basename(fileSrc, h.ext(fileSrc));
   const dstDir = path.join(path.dirname(fileSrc), "output");
   const fileDst = path.join(dstDir, `${nameBase}.m4a`);
   if (fs.existsSync(fileDst)) {
-    console.log(`Skip exists: ${fileDst}`);
+    d.L(`Skip exists: ${h.sps(fileDst)}`);
     return { status: 0, output: "", file: fileSrc };
   }
-  let args = "-n -loglevel repeat+level+warning -i".split(" ");
+  let args = "-n -loglevel repeat+level+info -i".split(" ");
   args.push(fileSrc);
   args = args.concat("-map a:0 -c:a libfdk_aac -b:a 192k".split(" "));
   args.push(fileDst);
@@ -55,11 +58,12 @@ function ffmpegConvert(file) {
   // console.log(`Converting: ${fileName}`);
   fs.ensureDirSync(dstDir);
   // const result = spawnSync("ffmpeg", args);
+  d.L(`Converting ${h.sps(fileSrc)}`);
   const result = executeCommand("ffmpeg", args);
   if (result.ok) {
-    console.log(`Convert failed: ${path.basename(fileSrc)} ${result.output}`);
+    d.L(`Convert Success: ${h.sps(fileDst)}`);
   } else {
-    console.log(`Converted to: ${path.basename(fileDst)}`);
+    d.W(`Convert Failed: ${h.sps(fileSrc)} ${result.output}`);
   }
   return result;
 }
@@ -68,5 +72,5 @@ function ffmpegConvert(file) {
 // https://www.npmjs.com/package/workerpool
 workerpool.worker({
   exifRead: exifRead,
-  ffmpegConvert: ffmpegConvert,
+  toAAC: toAAC,
 });
