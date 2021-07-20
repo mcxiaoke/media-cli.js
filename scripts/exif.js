@@ -186,13 +186,16 @@ function checkFiles(files) {
     if (helper.isVideoFile(f.path) && f.size < 10 * 1024 * 1024) {
       console.warn(
         chalk.yellow(`Skip [Size]: `) +
-          `${f.path} <${Math.round(f.size / 1024)}k>`
+          `${helper.shortPath(f.path)} <${Math.round(f.size / 1024)}k>`
       );
       return false;
     }
     if (f.date.getHours() < 7 || f.rawDate.hour < 7) {
       const dateStr = dayjs(f.date).format("YYYY-MM-DD HH:mm:ss Z");
-      console.warn(chalk.yellow(`Skip [Date]: `) + `${f.path} <${dateStr}>`);
+      console.warn(
+        chalk.yellow(`Skip [Date]: `) +
+          `${helper.shortPath(f.path)} <${dateStr}>`
+      );
       return false;
     }
     const inName = path.basename(f.path, path.extname(f.path));
@@ -203,7 +206,9 @@ function checkFiles(files) {
       inName.includes(outName) ||
       outName.includes(inName)
     ) {
-      console.log(chalk.gray(`Skip [Name]: ${f.path} <${f.outName}>`));
+      console.log(
+        chalk.gray(`Skip [Name]: ${helper.shortPath(f.path)} <${f.outName}>`)
+      );
       return false;
     } else {
       return true;
@@ -227,7 +232,7 @@ function checkFiles(files) {
     duplicateSet.add(outName);
     const newOutName = outName + ext;
     if (f.outName != newOutName) {
-      console.log(chalk.green(`Confict: ${f.outName} to ${newOutName}`));
+      console.log(chalk.yellow(`Confict: ${f.outName} to ${newOutName}`));
     }
     f.outName = outName + ext;
     console.log(
@@ -307,6 +312,8 @@ async function executeRename() {
     console.log(chalk.yellowBright("Will do nothing, aborted by user."));
   }
 }
+
+async function executeMove() {}
 
 async function main() {
   await executeRename();

@@ -1,3 +1,5 @@
+const path = require("path");
+
 const IMAGE_FORMATS = [
   ".jpg",
   ".jpeg",
@@ -40,7 +42,27 @@ const VIDEO_FORMATS = [".mp4", ".mov", ".wmv", ".avi", ".mkv", ".flv", ".webm"];
 
 const MEDIA_FORMATS = IMAGE_FORMATS + RAW_FORMATS + VIDEO_FORMATS;
 
-const path = require("path");
+function shortPath(s, width = 48) {
+  // shorten long path by segments
+  if (!s || s.length < width) {
+    return s;
+  }
+  let parts = s.split(path.sep);
+  if (parts.length < 4) {
+    return s;
+  }
+  let length = 0;
+  let index = 0;
+  for (let i = 0; i < parts.length; i++) {
+    length += parts[i].length;
+    index = i;
+    if (s.length - length < width) {
+      break;
+    }
+  }
+  // console.log(parts, s.length, length, index);
+  return path.join(...parts.slice(index));
+}
 
 function getExtname(filename) {
   const ext = path.extname(filename);
@@ -68,3 +90,4 @@ module.exports.isRawFile = isRawFile;
 module.exports.isVideoFile = isVideoFile;
 module.exports.isMediaFile = isMediaFile;
 module.exports.getExtname = getExtname;
+module.exports.shortPath = shortPath;

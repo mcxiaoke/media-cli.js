@@ -1,7 +1,7 @@
 {
-  "name": "picexif",
+  "name": "media-cli",
   "version": "0.1.0",
-  "description": "Photo and Video ExifTool Utilities",
+  "description": "Media and ExifTool Utilities",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
@@ -9,9 +9,12 @@
     "mp3toaac": "node ./scripts/mp3_to_aac.js",
     "push": "git push origin master"
   },
+  "bin": {
+    "prename": "./scripts/exif.js"
+  },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/mcxiaoke/picexif.js.git"
+    "url": "git+https://github.com/mcxiaoke/media-cli.js.git"
   },
   "keywords": [
     "exif",
@@ -19,14 +22,21 @@
     "photo",
     "exiftool",
     "ffmpeg",
-    "audio"
+    "mp4",
+    "raw",
+    "jpeg",
+    "audio",
+    "media",
+    "mp3",
+    "aac",
+    "picture"
   ],
   "author": "Big Cat <github@mcxiaoke.com>",
   "license": "Apache-2.0",
   "bugs": {
-    "url": "https://github.com/mcxiaoke/picexif.js/issues"
+    "url": "https://github.com/mcxiaoke/media-cli.js/issues"
   },
-  "homepage": "https://github.com/mcxiaoke/picexif.js#readme",
+  "homepage": "https://github.com/mcxiaoke/media-cli.js#readme",
   "dependencies": {
     "chalk": "^4.1.1",
     "dayjs": "^1.10.6",
