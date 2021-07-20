@@ -2,7 +2,7 @@ const path = require("path");
 const fs = require("fs-extra");
 const chalk = require("chalk");
 const d_ = require("../lib/debug");
-const exif = require("./exif");
+const exif = require("../lib/exif");
 
 const yargs = require("yargs/yargs")(process.argv.slice(2));
 

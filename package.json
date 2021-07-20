@@ -6,11 +6,12 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node index.js",
-    "mp3toaac": "node ./scripts/mp3_to_aac.js",
-    "push": "git push origin master"
+    "audio_cli": "node ./scripts/audio_cli.js",
+    "media_cli": "node ./scripts/media_cli.js"
   },
   "bin": {
-    "media_cli": "./scripts/exif_cli.js"
+    "audioc": "./scripts/audio_cli.js",
+    "mediac": "./scripts/media_cli.js"
   },
   "repository": {
     "type": "git",
