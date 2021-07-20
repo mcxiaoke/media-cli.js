@@ -218,7 +218,7 @@ function checkFiles(files) {
   const duplicateSet = new Set();
   files = files.map((f) => {
     const name = path.basename(f.path);
-    const ext = path.extname(name);
+    const ext = helper.getExtname(name);
     const originalOutName = path.basename(f.outName, ext);
     let outName = originalOutName;
     let outPath = path.join(path.dirname(f.path), outName + ext);
@@ -283,25 +283,32 @@ async function executeRename() {
   if (!root) {
     return;
   }
+  const startMs = Date.now();
   console.log(`Root: ${root}`);
   let files = await listFiles(root);
+  const filesCount = files.length;
   console.log(`Total media files found in root: ${files.length}`);
   files = await parseFiles(files);
   console.log(`Total media files has exif date: ${files.length}`);
   files = buildNames(files);
   files = checkFiles(files);
   console.log(`Total media files need to rename: ${files.length}`);
+  console.log(
+    `Processing ${filesCount} files using ${
+      (Date.now() - startMs) / 1000
+    }s in folder:`
+  );
+  console.log(chalk.yellow(`[${root}]`));
   if (files.length == 0) {
     console.log(chalk.green("Nothing to do, exit now."));
     return;
   }
-  console.log(`Root: ${root}`);
   const answer = await inquirer.prompt([
     {
       type: "confirm",
       name: "yes",
       default: false,
-      message: chalk.red(`Are you sure to rename ${files.length} files?`),
+      message: chalk.bold.red(`Are you sure to rename ${files.length} files?`),
     },
   ]);
   if (answer.yes) {

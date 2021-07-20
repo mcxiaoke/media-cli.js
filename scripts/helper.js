@@ -64,25 +64,25 @@ function shortPath(s, width = 48) {
   return path.join(...parts.slice(index));
 }
 
-function getExtname(filename) {
+function getExtname(filename, toLowerCase = false) {
   const ext = path.extname(filename);
-  return ext && ext.toLowerCase();
+  return toLowerCase ? ext?.toLowerCase() : ext;
 }
 
 function isImageFile(filename) {
-  return IMAGE_FORMATS.includes(getExtname(filename));
+  return IMAGE_FORMATS.includes(getExtname(filename, true));
 }
 
 function isRawFile(filename) {
-  return RAW_FORMATS.includes(getExtname(filename));
+  return RAW_FORMATS.includes(getExtname(filename, true));
 }
 
 function isVideoFile(filename) {
-  return VIDEO_FORMATS.includes(getExtname(filename));
+  return VIDEO_FORMATS.includes(getExtname(filename, true));
 }
 
 function isMediaFile(filename) {
-  return MEDIA_FORMATS.includes(getExtname(filename));
+  return MEDIA_FORMATS.includes(getExtname(filename, true));
 }
 
 module.exports.isImageFile = isImageFile;
