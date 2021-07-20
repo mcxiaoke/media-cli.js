@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 const klawSync = require("klaw-sync");
 const path = require("path");
 const fs = require("fs-extra");
