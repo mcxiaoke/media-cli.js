@@ -10,7 +10,7 @@
     "push": "git push origin master"
   },
   "bin": {
-    "prename": "./scripts/exif.js"
+    "media_cli": "./scripts/exif_cli.js"
   },
   "repository": {
     "type": "git",
@@ -46,6 +46,7 @@
     "inquirer": "^8.1.2",
     "klaw-sync": "^6.0.0",
     "minimist": "^1.2.5",
-    "workerpool": "^6.1.5"
+    "workerpool": "^6.1.5",
+    "yargs": "^17.0.1"
   }
 }

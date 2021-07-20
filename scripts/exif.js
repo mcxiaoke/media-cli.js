@@ -6,11 +6,13 @@ const inquirer = require("inquirer");
 const fs = require("fs-extra");
 const dayjs = require("dayjs");
 const klawSync = require("klaw-sync");
-const parseArgs = require("minimist");
 const chalk = require("chalk");
+const yargs = require("yargs/yargs");
+const { hideBin } = require("yargs/helpers");
 const ExifTool = require("exiftool-vendored").ExifTool;
 const { ExifDateTime } = require("exiftool-vendored");
-const helper = require("./helper");
+const h_ = require("./helper");
+const d_ = require("../lib/debug");
 const et = new ExifTool({
   taskTimeoutMillis: 5000,
   maxTasksPerProcess: 1000,
@@ -20,9 +22,9 @@ const et = new ExifTool({
 async function showExifDate(filename) {
   try {
     const tags = await et.read(filename);
-    console.log(tags);
+    d_.L(tags);
   } catch (error) {
-    console.error(error);
+    d_.E(error);
   } finally {
     await et.end();
   }
@@ -31,7 +33,7 @@ async function showExifDate(filename) {
 async function listFiles(root) {
   // list all files in root dir
   const filterMedia = (item) => {
-    return helper.isMediaFile(item.path) && item.stats.size > 100 * 1024;
+    return h_.isMediaFile(item.path) && item.stats.size > 100 * 1024;
   };
   let startMs = Date.now();
   let files = klawSync(root, {
@@ -43,7 +45,7 @@ async function listFiles(root) {
     f.root = root;
     return f;
   });
-  console.log(`listFiles ${files.length} files in ${Date.now() - startMs}ms`);
+  d_.I(`listFiles ${files.length} files in ${Date.now() - startMs}ms`);
   return files;
 }
 
@@ -57,7 +59,7 @@ function fixSonyTag(tags) {
     tags.MajorBrand &&
     tags.MajorBrand.toLowerCase().includes("sony")
   ) {
-    // console.log("Hack1:", tags.SourceFile);
+    d_.D("fixSonyTag:", tags.SourceFile);
     return ["FileModifyDate", tags.FileModifyDate];
   }
 }
@@ -72,14 +74,14 @@ function fixAppleTag(tags) {
     tags.MajorBrand &&
     tags.MajorBrand.toLowerCase().includes("apple")
   ) {
-    // console.log("Hack2:", tags.SourceFile);
+    d_.D("fixAppleTag:", tags.SourceFile);
     return ["CreationDate", tags.CreationDate];
   }
 }
 
 function fixScreenShot(tags) {
   return (
-    helper.getExtname(tags.FileName) == "png" && [
+    h_.getExtname(tags.FileName, true) == "png" && [
       "FileModifyDate",
       tags.FileModifyDate,
     ]
@@ -118,9 +120,13 @@ async function getExifDate(filename) {
   // read exif date using exiftool
   try {
     const tags = await et.read(filename);
+    // show exiftool error message
+    if (tags.Error) {
+      d_.W(tags.Error);
+    }
     return { exif: tags, date: hackAndFix(tags) || selectDateTag(tags) };
   } catch (error) {
-    console.error(error);
+    d_.E(error);
   }
 }
 
@@ -129,7 +135,9 @@ async function parseFiles(files) {
   let startMs = Date.now();
   const exifFiles = await Promise.all(
     files.map(async (f) => {
+      d_.D(`parseFiles start:${f.path}`);
       const { date, exif } = await getExifDate(f.path);
+      d_.D(`parseFiles end:${f.path} ${date}`);
       return (
         date && {
           path: f.path,
@@ -143,7 +151,7 @@ async function parseFiles(files) {
     })
   );
   await et.end();
-  console.log(`parseFiles ${exifFiles.length} in ${Date.now() - startMs}ms`);
+  d_.I(`parseFiles ${exifFiles.length} in ${Date.now() - startMs}ms`);
   return exifFiles.filter(Boolean);
 }
 
@@ -153,14 +161,14 @@ async function parseFiles(files) {
 function createNameByDate(file) {
   // create file name by exif date
   let prefix;
-  if (helper.isImageFile(file.path)) {
+  if (h_.isImageFile(file.path)) {
     prefix = "IMG_";
-  } else if (helper.isRawFile(file.path)) {
+  } else if (h_.isRawFile(file.path)) {
     prefix = "DSC_";
   } else {
     prefix = "VID_";
   }
-  const ext = helper.getExtname(file.path);
+  const ext = h_.getExtname(file.path);
   const ms = file.rawDate[1]?.millisecond || 0;
   // https://dayjs.gitee.io/docs/zh-CN/display/format
   const dateStr = dayjs(file.date).format("YYYYMMDD_HHmmss");
@@ -170,31 +178,32 @@ function createNameByDate(file) {
     dstName = `${prefix}${dateStr}${ext}`;
   }
   file["outName"] = dstName;
+  d_.D(`createNameByDate ${h_.shortPath(file.path)} ${file.outName}}`);
   return file;
 }
 
 function buildNames(files) {
   let startMs = Date.now();
   const newFiles = files.map((f) => createNameByDate(f));
-  console.log(`buildNames time: ${Date.now() - startMs}ms`);
+  d_.I(`buildNames time: ${Date.now() - startMs}ms`);
   return newFiles;
 }
 
 function checkFiles(files) {
   // filter small files and invalid date files
+  d_.D(`checkFiles before filter: ${files.length} files`);
   files = files.filter((f) => {
-    if (helper.isVideoFile(f.path) && f.size < 10 * 1024 * 1024) {
-      console.warn(
+    if (h_.isVideoFile(f.path) && f.size < 10 * 1024 * 1024) {
+      d_.I(
         chalk.yellow(`Skip [Size]: `) +
-          `${helper.shortPath(f.path)} <${Math.round(f.size / 1024)}k>`
+          `${h_.shortPath(f.path)} <${Math.round(f.size / 1024)}k>`
       );
       return false;
     }
     if (f.date.getHours() < 7 || f.rawDate.hour < 7) {
       const dateStr = dayjs(f.date).format("YYYY-MM-DD HH:mm:ss Z");
-      console.warn(
-        chalk.yellow(`Skip [Date]: `) +
-          `${helper.shortPath(f.path)} <${dateStr}>`
+      d_.W(
+        chalk.yellow(`Skip [Date]: `) + `${h_.shortPath(f.path)} <${dateStr}>`
       );
       return false;
     }
@@ -206,19 +215,18 @@ function checkFiles(files) {
       inName.includes(outName) ||
       outName.includes(inName)
     ) {
-      console.log(
-        chalk.gray(`Skip [Name]: ${helper.shortPath(f.path)} <${f.outName}>`)
-      );
+      d_.I(chalk.gray(`Skip [Name]: ${h_.shortPath(f.path)} <${f.outName}>`));
       return false;
     } else {
       return true;
     }
   });
+  d_.D(`checkFiles after filter: ${files.length} files`);
   // check name duplicate conficts and using name suffix
   const duplicateSet = new Set();
   files = files.map((f) => {
     const name = path.basename(f.path);
-    const ext = helper.getExtname(name);
+    const ext = h_.getExtname(name);
     const originalOutName = path.basename(f.outName, ext);
     let outName = originalOutName;
     let outPath = path.join(path.dirname(f.path), outName + ext);
@@ -232,11 +240,11 @@ function checkFiles(files) {
     duplicateSet.add(outName);
     const newOutName = outName + ext;
     if (f.outName != newOutName) {
-      console.log(chalk.yellow(`Confict: ${f.outName} to ${newOutName}`));
+      d_.INFO(chalk.yellow(`Duplicated: ${f.outName} to ${newOutName}`));
     }
-    f.outName = outName + ext;
-    console.log(
-      chalk.green(`Prepared [Rename]:`) + ` ${name} ==> ${f.outName}`
+    f.outName = newOutName;
+    d_.L(
+      chalk.green(`Prepared:`) + ` ${h_.shortPath(f.path)} ==> ${f.outName}`
     );
     return f;
   });
@@ -244,26 +252,25 @@ function checkFiles(files) {
 }
 
 async function renameFiles(files) {
+  d_.D(`renameFiles before: ${files.length} files`);
   // do rename all files
   return await Promise.all(
     files.map(async (f) => {
       const outPath = path.join(path.dirname(f.path), f.outName);
       try {
         await fs.rename(f.path, outPath);
-        console.log(chalk.green(`Renamed:`) + ` ${outPath}`);
+        d_.L(chalk.green(`Renamed:`) + ` ${outPath}`);
         return f;
       } catch (error) {
-        console.error(error);
+        d_.E(error);
       }
     })
   );
 }
 
-async function checkRoot() {
-  const argv = parseArgs(process.argv.slice(2));
-  //   console.log(argv);
-  root = argv._[0];
+async function checkRoot(root) {
   if (!root || !fs.existsSync(root)) {
+    d_.W(`checkRoot source '${root} is not exists'`);
     return;
   }
   if (fs.statSync(root).isFile()) {
@@ -271,36 +278,42 @@ async function checkRoot() {
     return;
   }
   if (!fs.statSync(root).isDirectory()) {
+    d_.W(`checkRoot source '${root} is not directory'`);
     await et.end();
     return;
   }
   return path.resolve(root);
 }
 
-async function executeRename() {
-  // action: rename media file by exif date
-  const root = await checkRoot();
+async function executeRename(root) {
+  root = await checkRoot(root);
   if (!root) {
+    d_.W(`executeRename Invalid Path: ${root}`);
     return;
   }
+  // action: rename media file by exif date
   const startMs = Date.now();
-  console.log(`Root: ${root}`);
+  d_.L(chalk.yellow(`Source: ${root}`));
   let files = await listFiles(root);
   const filesCount = files.length;
-  console.log(`Total media files found in root: ${files.length}`);
+  d_.L(`Total ${files.length} media files found`);
   files = await parseFiles(files);
-  console.log(`Total media files has exif date: ${files.length}`);
+  d_.L(`Total ${files.length} media files have exif date`);
   files = buildNames(files);
   files = checkFiles(files);
-  console.log(`Total media files need to rename: ${files.length}`);
-  console.log(
-    `Processing ${filesCount} files using ${
-      (Date.now() - startMs) / 1000
-    }s in folder:`
+  if (files.length > 0) {
+    d_.L(`Total ${files.length} media files need to rename`);
+  }
+  const skipCount = filesCount - files.length;
+  if (skipCount > 0) {
+    d_.L(`Total ${skipCount} media files are skipped`);
+  }
+  d_.L(
+    `Total ${filesCount} files processed in ${(Date.now() - startMs) / 1000}s`
   );
-  console.log(chalk.yellow(`[${root}]`));
+  d_.L(chalk.yellow(`Source: ${root}`));
   if (files.length == 0) {
-    console.log(chalk.green("Nothing to do, exit now."));
+    d_.L(chalk.green("Nothing to do, exit now."));
     return;
   }
   const answer = await inquirer.prompt([
@@ -313,22 +326,14 @@ async function executeRename() {
   ]);
   if (answer.yes) {
     renameFiles(files).then((files) => {
-      console.log(`There ${files.length} file were renamed.`);
+      d_.L(chalk.green9`There ${files.length} file were renamed.`);
     });
   } else {
-    console.log(chalk.yellowBright("Will do nothing, aborted by user."));
+    d_.L(chalk.yellowBright("Will do nothing, aborted by user."));
   }
 }
 
 async function executeMove() {}
-
-async function main() {
-  await executeRename();
-}
-
-if (require.main) {
-  main();
-}
 
 module.exports.showExifDate = showExifDate;
 module.exports.executeRename = executeRename;
