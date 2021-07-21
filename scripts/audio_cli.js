@@ -57,6 +57,34 @@ async function commandToAAC(argv) {
   await executeToAAC(root);
 }
 
+async function checkFiles(files) {
+  const results = await Promise.all(
+    // true means keep
+    // false mean skip
+    files.map(async (f, i) => {
+      const index = i + 1;
+      if (h.ext(f, true) == ".m4a") {
+        d.L(chalk.gray(`SkipAAC (${index}): ${h.sps(f)}`));
+        return false;
+      }
+      const aacName = h.getAACFileName(f);
+      const p1 = path.join(path.dirname(f), "output", aacName);
+      if (await fs.pathExists(p1)) {
+        d.W(chalk.gray(`SkipExists (${i}): ${h.sps(p1)}`));
+        return false;
+      }
+      const p2 = path.join(path.dirname(f), aacName);
+      if (await fs.pathExists(p2)) {
+        d.W(chalk.gray(`SkipExists (${index}): ${h.sps(p2)}`));
+        return false;
+      }
+      d.L(chalk.green(`Prepared (${index}): `) + `${h.sps(f)}`);
+      return true;
+    })
+  );
+  return files.filter((_v, i) => results[i]);
+}
+
 async function allToAAC(files) {
   const pool = workerpool.pool(__dirname + "/audio_workers.js", {
     maxWorkers: cpuCount,
@@ -64,9 +92,9 @@ async function allToAAC(files) {
   });
   const startMs = Date.now();
   const results = await Promise.all(
-    files.map(async (f) => {
+    files.map(async (f, i) => {
       const file = path.resolve(f);
-      const result = await pool.exec("toAAC", [file]);
+      const result = await pool.exec("toAAC", [file, i + 1]);
       return result;
     })
   );
@@ -76,26 +104,7 @@ async function allToAAC(files) {
   return results;
 }
 
-async function checkFiles(files) {
-  const results = await Promise.all(
-    files.map(async (f) => {
-      if (h.ext(f, true) == ".m4a") {
-        d.L(`Skip AAC: ${h.sps(f)}`);
-        return false;
-      }
-      const outPath = path.join(path.dirname(f), "output", h.getAACFileName(f));
-      const fileExists = await fs.pathExists(outPath);
-      if (fileExists) {
-        d.L(`Skip exists: ${h.sps(outPath)}`);
-      }
-      return !fileExists;
-    })
-  );
-  return files.filter((_v, i) => results[i]);
-}
-
 async function executeToAAC(root) {
-  d.L(`Input: ${root}`);
   const startMs = Date.now();
   // list all files in dir recursilly
   let files = klawSync(root, { nodir: true }).map((f) => f.path);
@@ -109,6 +118,7 @@ async function executeToAAC(root) {
     d.L(`Total ${skipCount} audio files are skipped`);
   }
   const output = path.join(root, "output");
+  d.L(`Input: ${root}`);
   d.L(`Output: ${output}`);
   if (files.length == 0) {
     d.L(chalk.green("Nothing to do, exit now."));

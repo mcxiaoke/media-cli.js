@@ -38,7 +38,7 @@ function exifRead(file) {
   }
 }
 
-function toAAC(file) {
+function toAAC(file, index) {
   // convert mp3 to aac
   // ls *.mp3 | parallel ffmpeg -n -loglevel repeat+level+warning -i "{}" -map a:0 -c:a libfdk_aac -b:a 192k output/"{.}".m4a -hide_banner
   const fileSrc = path.resolve(file);
@@ -46,7 +46,7 @@ function toAAC(file) {
   const dstDir = path.join(path.dirname(fileSrc), "output");
   const fileDst = path.join(dstDir, `${nameBase}.m4a`);
   if (fs.existsSync(fileDst)) {
-    d.L(`Skip exists: ${h.sps(fileDst)}`);
+    d.L(`SkipExists: ${h.sps(fileDst)} (${index})`);
     return { status: 0, output: "", file: fileSrc };
   }
   let args = "-n -loglevel repeat+level+info -i".split(" ");
@@ -58,12 +58,12 @@ function toAAC(file) {
   // console.log(`Converting: ${fileName}`);
   fs.ensureDirSync(dstDir);
   // const result = spawnSync("ffmpeg", args);
-  d.L(`Converting ${h.sps(fileSrc)}`);
+  d.L(`Converting: ${h.sps(fileSrc)} (${index})`);
   const result = executeCommand("ffmpeg", args);
   if (result.ok) {
-    d.L(`Convert Success: ${h.sps(fileDst)}`);
+    d.L(`Success: ${h.sps(fileDst)} (${index})`);
   } else {
-    d.W(`Convert Failed: ${h.sps(fileSrc)} ${result.output}`);
+    d.W(`Failed: ${h.sps(fileSrc)} ${result.output} (${index})`);
   }
   return result;
 }
