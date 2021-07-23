@@ -18,7 +18,9 @@ yargs
   .count("verbose")
   .alias("v", "verbose")
   .alias("h", "help")
-  .epilog("Copyright 2021 @ Zhang Xiaoke")
+  .epilog(
+    "<Audio Utilities>\nRename/Move/Convert audio files\nCopyright 2021 @ Zhang Xiaoke"
+  )
   .demandCommand()
   .showHelpOnFail()
   .help();
@@ -263,35 +265,40 @@ async function executeMoveByLng(root, lng = []) {
     if (t.Title && t.Artist) {
       if (un.strHasHiraKana(name + t.Title + t.Artist)) {
         d.I(chalk.yellow(`JA: ${name} ${t.Artist}-${t.Title}`));
-        outputs["ja"]?.input.push([
-          f.path,
-          path.join(outputs["ja"].output, name),
-        ]);
+        outputs["ja"] &&
+          outputs["ja"].input.push([
+            f.path,
+            path.join(outputs["ja"].output, name),
+          ]);
       } else if (un.strHasHangul(name + t.Title + t.Artist)) {
         d.I(chalk.cyan(`KR: ${name} ${t.Artist}-${t.Title}`));
-        outputs["kr"]?.input.push([
-          f.path,
-          path.join(outputs["kr"].output, name),
-        ]);
+        outputs["kr"] &&
+          outputs["kr"].input.push([
+            f.path,
+            path.join(outputs["kr"].output, name),
+          ]);
       } else if (un.strHasHanyu(name + t.Title + t.Artist)) {
         d.I(chalk.green(`CN: ${name} ${t.Artist}-${t.Title}`));
-        outputs["cn"]?.input.push([
-          f.path,
-          path.join(outputs["cn"].output, name),
-        ]);
+        outputs["cn"] &&
+          outputs["cn"].input.push([
+            f.path,
+            path.join(outputs["cn"].output, name),
+          ]);
       } else if (un.strOnlyASCII(name + t.Title + t.Artist)) {
         // only ascii = english
         d.I(chalk.gray(`EN: ${name} ${t.Artist}-${t.Title}`));
-        outputs["en"]?.input.push([
-          f.path,
-          path.join(outputs["en"].output, name),
-        ]);
+        outputs["en"] &&
+          outputs["en"].input.push([
+            f.path,
+            path.join(outputs["en"].output, name),
+          ]);
       } else {
         d.I(chalk.gray(`MISC: ${name} ${t.Artist}-${t.Title}`));
-        outputs["xx"]?.input.push([
-          f.path,
-          path.join(outputs["xx"].output, name),
-        ]);
+        outputs["xx"] &&
+          outputs["xx"].input.push([
+            f.path,
+            path.join(outputs["xx"].output, name),
+          ]);
       }
     } else {
       d.W(`Invalid: ${path.basename(f.path)}`);
@@ -304,7 +311,7 @@ async function executeMoveByLng(root, lng = []) {
     taskCount += v.input.length;
     d.L(
       `Prepared: [${v.id.toUpperCase()}] ${
-        v.input?.length || 0
+        v.input.length
       } files will be moved to "${v.output}"`
     );
   }
@@ -336,45 +343,54 @@ async function executeMoveByLng(root, lng = []) {
         d.W(`Duplicate:${src}`);
         await fs.move(src, path.join(dout, path.basename(src)));
       } else {
-        d.I(`Moving ${src}`);
+        d.D(`Moving to ${dst}`);
         await fs.move(src, dst);
         d.I(`Moved to ${dst}`);
       }
     }
     // https://zellwk.com/blog/async-await-in-loops/
-    outputs = await Promise.all(
-      Object.entries(outputs).map(async ([k, v]) => {
-        if (!fs.pathExistsSync(v.output)) {
-          fs.mkdirSync(v.output);
-        }
-        if (v.input.length == 0) {
-          return v;
-        }
-        v.results = await Promise.all(
-          v.input.map(async (a) => {
-            const [src, dst] = a;
-            await ensureMove(src, dst);
-            return dst;
-          })
-        );
-        d.L(`Progress: ${v.results.length} ${v.id} files moved to ${v.output}`);
-        return v;
-      })
-    );
-    // for (const [k, v] of Object.entries(outputs)) {
-    //   if (!fs.pathExistsSync(v.output)) {
-    //     fs.mkdirSync(v.output);
-    //   }
-    //   v.results = await Promise.all(
-    //     v.input.map(async (a) => {
-    //       const [src, dst] = a;
-    //       d.L(`Moved: ${dst}`);
-    //       await ensureMove(src, dst);
-    //       return dst;
-    //     })
-    //   );
-    //   d.L(`Moved: all ${k} files processed to ${v.output}`);
-    // }
+    // https://techbrij.com/javascript-async-await-parallel-sequence
+    // paralell execute
+    // outputs = await Promise.all(
+    //   Object.entries(outputs).map(async ([k, v]) => {
+    //     if (!fs.pathExistsSync(v.output)) {
+    //       fs.mkdirSync(v.output);
+    //     }
+    //     if (v.input.length == 0) {
+    //       return v;
+    //     }
+    //     v.results = await Promise.all(
+    //       v.input.map(async (a) => {
+    //         const [src, dst] = a;
+    //         await ensureMove(src, dst);
+    //         return dst;
+    //       })
+    //     );
+    //     d.L(`Progress: ${v.results.length} ${v.id} files moved to ${v.output}`);
+    //     return v;
+    //   })
+    // );
+    // sequential execute
+    for (const [k, v] of Object.entries(outputs)) {
+      if (!fs.pathExistsSync(v.output)) {
+        fs.mkdirSync(v.output);
+      }
+      if (v.input.length == 0) {
+        continue;
+      }
+      v.results = await Promise.all(
+        v.input.map(async (a) => {
+          const [src, dst] = a;
+          await ensureMove(src, dst);
+          return dst;
+        })
+      );
+      d.L(
+        chalk.magenta(
+          `Progress: ${v.results.length} ${v.id} files moved to ${v.output}`
+        )
+      );
+    }
 
     for (const [k, v] of Object.entries(outputs)) {
       v.results &&

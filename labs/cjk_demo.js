@@ -3,6 +3,7 @@
 // https://tc39.es/ecma262/#table-unicode-script-values
 // https://developer.mozilla.org/zh-CN/docs/orphaned/Web/JavaScript/Guide/Regular_Expressions
 // https://www.unicode.org/Public/UCD/latest/ucd/PropList.txt
+// https://zh.wikipedia.org/wiki/ISO_15924
 
 const REGEX_ASCII_ONLY = /^[\x00-\x7F]*$/; // or es2018: /^[\p{ASCII}]+$/u
 const strOnlyASCII = (str) => REGEX_ASCII_ONLY.test(str);

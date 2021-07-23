@@ -58,7 +58,9 @@ const argv = yargs
   .alias("v", "verbose")
   .alias("h", "help")
   .alias("i", "version")
-  .epilog("Copyright 2021 @ Zhang Xiaoke")
+  .epilog(
+    "<Media Utilities>\nRename Image/Raw/Video files by EXIF date tags\nCopyright 2021 @ Zhang Xiaoke"
+  )
   .demandCommand()
   .showHelpOnFail()
   .help().argv;
