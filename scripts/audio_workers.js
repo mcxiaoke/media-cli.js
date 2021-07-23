@@ -46,7 +46,7 @@ function toAAC(file, index) {
   const dstDir = path.join(path.dirname(fileSrc), "output");
   const fileDst = path.join(dstDir, `${nameBase}.m4a`);
   if (fs.existsSync(fileDst)) {
-    d.L(`SkipExists: ${h.sps(fileDst)} (${index})`);
+    d.L(`SkipExists: ${h.ps(fileDst)} (${index})`);
     return { status: 0, output: "", file: fileSrc };
   }
   let args = "-n -loglevel repeat+level+info -i".split(" ");
@@ -58,12 +58,12 @@ function toAAC(file, index) {
   // console.log(`Converting: ${fileName}`);
   fs.ensureDirSync(dstDir);
   // const result = spawnSync("ffmpeg", args);
-  d.L(`Converting: ${h.sps(fileSrc)} (${index})`);
+  d.L(`Converting: ${h.ps(fileSrc)} (${index})`);
   const result = executeCommand("ffmpeg", args);
   if (result.ok) {
-    d.L(`Success: ${h.sps(fileDst)} (${index})`);
+    d.L(`Success: ${h.ps(fileDst)} (${index})`);
   } else {
-    d.W(`Failed: ${h.sps(fileSrc)} ${result.output} (${index})`);
+    d.W(`Failed: ${h.ps(fileSrc)} ${result.output} (${index})`);
   }
   return result;
 }
