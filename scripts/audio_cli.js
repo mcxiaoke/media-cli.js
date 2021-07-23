@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-const os = require("os");
 const klawSync = require("klaw-sync");
 const path = require("path");
 const chalk = require("chalk");
@@ -12,8 +11,7 @@ const h = require("../lib/helper");
 const d = require("../lib/debug");
 const un = require("../lib/unicode");
 const exif = require("../lib/exif");
-const { boolean, options } = require("yargs");
-const sqlite3 = require("sqlite3");
+const { boolean } = require("yargs");
 const sanitize = require("sanitize-filename");
 
 const yargs = require("yargs/yargs")(process.argv.slice(2));
@@ -211,7 +209,7 @@ async function readTagsFromFile(file) {
     lines.map(async (line, i) => {
       try {
         const tags = JSON.parse(line);
-        const key = h.replaceAll("/", path.sep, tags.SourceFile);
+        const key = h.replaceAll(tags.SourceFile, "/", path.sep);
         tagMap.set(key, tags);
       } catch (error) {
         d.E(error);
@@ -248,7 +246,7 @@ async function executeCheckTags(root) {
     );
   }
   d.L(
-    `executeCheckTags: ${files.length}/${fileCount} files has tags (${h.ht(
+    `executeCheckTags: (${files.length}/${fileCount}) files has tags (${h.ht(
       startMs
     )})`
   );
