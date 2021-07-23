@@ -1,8 +1,10 @@
 #!/usr/bin/env node
+const os = require("os");
 const klawSync = require("klaw-sync");
 const path = require("path");
 const chalk = require("chalk");
 const fs = require("fs-extra");
+const fsp = require("fs/promises");
 const inquirer = require("inquirer");
 const workerpool = require("workerpool");
 const cpuCount = require("os").cpus().length;
@@ -10,7 +12,9 @@ const h = require("../lib/helper");
 const d = require("../lib/debug");
 const un = require("../lib/unicode");
 const exif = require("../lib/exif");
-const { boolean } = require("yargs");
+const { boolean, options } = require("yargs");
+const sqlite3 = require("sqlite3");
+const sanitize = require("sanitize-filename");
 
 const yargs = require("yargs/yargs")(process.argv.slice(2));
 yargs
@@ -195,30 +199,97 @@ async function commandCheckTags(argv) {
   await executeCheckTags(root);
 }
 
+async function readTagsFromFile(file) {
+  const startMs = Date.now();
+  const data = await fsp.readFile(file, { encoding: "utf8" });
+  const lines = data
+    .split("\n")
+    .filter((l) => typeof l === "string" && l.startsWith("{"));
+  d.L(`readTagsFromFile: ${lines.length} lines from ${file}`);
+  const tagMap = new Map();
+  await Promise.all(
+    lines.map(async (line, i) => {
+      try {
+        const tags = JSON.parse(line);
+        const key = h.replaceAll("/", path.sep, tags.SourceFile);
+        tagMap.set(key, tags);
+      } catch (error) {
+        d.E(error);
+      }
+    })
+  );
+  // const tagMap = tagArr.reduce((map, obj) => {
+  //   map[obj.path] = obj.tags;
+  // }, {});
+  d.L(`readTagsFromFile: ${tagMap.size} tags has loaded (${h.ht(startMs)})`);
+  return tagMap;
+}
+
 async function executeCheckTags(root) {
   d.L(`Input: ${root}`);
+  const jsonName = sanitize(root, { replacement: "_" });
+  const jsonPath = path.join("data", `alltags.json`);
   const startMs = Date.now();
-  let files = exif.listFiles(root);
-  files = await exif.readTags(files);
+  let files = exif.listFiles(root, (f) => h.isAudioFile(f.path));
+  const fileCount = files.length;
+  d.L(`executeCheckTags: total ${fileCount} files found (${h.ht(startMs)})`);
+  const tagMap = await readTagsFromFile(jsonPath);
+  files = files.map((f) => {
+    f.tags = tagMap.get(f.path);
+    return f;
+  });
+  // files = await exif.readTags(files);
   files = files.filter((f) => f.tags);
-  files.forEach((f, i) => {
-    const t = f.tags;
-    // console.log(t);
-    if (!t.Title && !t.Artist) {
-      d.L(
-        `${path.basename(f.path)} ${t.MIMEType} Artist=${t.Artist} Title=${
-          t.Title
-        } Album=${t.Album} (${h.fz(f.stats.size)})`
-      );
-    } else {
-      // d.L(`Skip: ${path.basename(f.path)}`);
-    }
-  });
-  files = files.filter((f) => {
-    return f.tags && f.tags.Title && f.tags.Artist;
-  });
+  if (files.length < fileCount) {
+    d.W(
+      chalk.yellow(
+        `executeCheckTags: ${fileCount - files.length} files has no tags`
+      )
+    );
+  }
+  d.L(
+    `executeCheckTags: ${files.length}/${fileCount} files has tags (${h.ht(
+      startMs
+    )})`
+  );
+  // (await fs.pathExists(jsonPath)) &&
+  //   (await fs.move(jsonPath, jsonPath + `.${Date.now()}`));
+  // let i = 0;
+  // for (const f of files) {
+  //   await fs.appendFile(jsonPath, JSON.stringify(f.tags) + "\n");
+  //   if (++i % 1000 == 0) {
+  //     d.L(`WriteJson[${++i}/${files.length}]: ${h.ht(startMs)}`);
+  //   }
+  // }
+
+  // sqlite3.verbose();
+  // const db = new sqlite3.Database("./data/audio.db");
+  // await db.exec(
+  //   "CREATE TABLE IF NOT EXISTS tags (name TEXT, path TEXT, tags TEXT, PRIMARY KEY(path));"
+  // );
+
+  // const iout = path.join(path.dirname(root), "invalid");
+  // if (!fs.pathExistsSync(iout)) {
+  //   fs.mkdirSync(iout);
+  // }
+  // files.forEach((f, i) => {
+  //   const t = f.tags;
+  //   if (!t.Artist || !t.Title) {
+  //     d.L(`Move Invalid: ${f.path}`);
+  //     // fs.moveSync(f.path, path.join(iout, path.basename(f.path)));
+  //   }
+  // });
   d.L(`Input: ${root}`);
   d.L(`Processed ${files.length} files in ${h.ht(startMs)}`);
+
+  const answer = await inquirer.prompt([
+    {
+      type: "confirm",
+      name: "yes",
+      default: false,
+      message: chalk.bold.red(`Are you sure to check these files?`),
+    },
+  ]);
 }
 
 async function commandMoveByLng(argv) {
