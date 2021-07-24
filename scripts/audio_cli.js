@@ -2,8 +2,8 @@
 const klawSync = require("klaw-sync");
 const path = require("path");
 const chalk = require("chalk");
+const util = require("util");
 const fs = require("fs-extra");
-const fsp = require("fs/promises");
 const inquirer = require("inquirer");
 const workerpool = require("workerpool");
 const cpuCount = require("os").cpus().length;
@@ -13,6 +13,12 @@ const un = require("../lib/unicode");
 const exif = require("../lib/exif");
 const { boolean } = require("yargs");
 const sanitize = require("sanitize-filename");
+const id3 = require("node-id3").Promise;
+const sqlite = require("sqlite");
+const sqlite3 = require("sqlite3");
+
+// https://www.exiftool.org/index.html#supported
+// https://exiftool.org/TagNames/ID3.html
 
 const yargs = require("yargs/yargs")(process.argv.slice(2));
 yargs
@@ -28,7 +34,15 @@ yargs
   .help();
 d.setLevel(yargs.argv.verbose);
 d.D(yargs.argv);
-const argv = yargs
+yargs
+  .command(
+    "test",
+    "Test command",
+    (yargs) => {},
+    (argv) => {
+      readTagsFromDatabase(argv._[0]);
+    }
+  )
   .command(
     // format and name is important!
     // <> means required
@@ -197,13 +211,24 @@ async function commandCheckTags(argv) {
   await executeCheckTags(root);
 }
 
-async function readTagsFromFile(file) {
+async function updateID3Tag(files) {
+  // https://id3.org/id3v2.3.0
+  // https://www.npmjs.com/package/node-id3
+  for (const f of files) {
+    const tags = { title: f.tags.Title, artist: f.tags.Artist };
+    const ret = id3.update(tags, f);
+  }
+}
+
+async function readTagsFromFile(root) {
+  const jsonName = sanitize(root, { replacement: "_" });
+  const jsonPath = path.join("data", `alltags.json`);
   const startMs = Date.now();
-  const data = await fsp.readFile(file, { encoding: "utf8" });
+  const data = await fs.readFile(jsonPath, { encoding: "utf8" });
   const lines = data
     .split("\n")
     .filter((l) => typeof l === "string" && l.startsWith("{"));
-  d.L(`readTagsFromFile: ${lines.length} lines from ${file}`);
+  d.L(`readTagsFromFile: ${lines.length} lines from ${jsonPath}`);
   const tagMap = new Map();
   await Promise.all(
     lines.map(async (line, i) => {
@@ -223,21 +248,88 @@ async function readTagsFromFile(file) {
   return tagMap;
 }
 
+async function saveTagsToDatabase(files) {
+  sqlite3.verbose();
+  const db = await sqlite.open({
+    filename: "./data/audio.db",
+    driver: sqlite3.Database,
+  });
+  // https://www.npmjs.com/package/sqlite
+  await db.exec(
+    `CREATE TABLE IF NOT EXISTS tags (
+      size INTEGER, 
+      filename TEXT NOT NULL, 
+      path TEXT NOT NULL, 
+      title TEXT NOT NULL, 
+      artist TEXT NOT NULL, 
+      tags TEXT NOT NULL, 
+      UNIQUE(path),
+      PRIMARY KEY(path)
+    );`
+  );
+  const dbStartMs = Date.now();
+  db.run("BEGIN TRANSACTION");
+  try {
+    for (const f of files) {
+      const ret = await db.run(
+        "INSERT OR REPLACE INTO tags VALUES (?,?,?,?,?,?)",
+        f.stats.size,
+        path.basename(f.path),
+        f.path,
+        f.tags.Title,
+        f.tags.Artist,
+        JSON.stringify(f.tags)
+      );
+      d.I(`Insert row ${ret.lastID} for ${f.path} `);
+    }
+  } catch (error) {
+    d.E(error);
+  }
+  db.run("COMMIT TRANSACTION");
+  await db.close();
+  d.L(`Database insert ${files.length} rows in  ${h.ht(dbStartMs)}`);
+}
+
+async function readTagsFromDatabase(root) {
+  const dbStartMs = Date.now();
+  sqlite3.verbose();
+  const db = await sqlite.open({
+    filename: "./data/audio.db",
+    driver: sqlite3.Database,
+  });
+  const rows = await db.all("SELECT path,tags FROM tags");
+  const tagMap = new Map();
+  await Promise.all(
+    rows.map(async (row, i) => {
+      try {
+        const key = row.path;
+        const tags = JSON.parse(row.tags);
+        tagMap.set(key, tags);
+        d.I(`Read row ${i} for ${key}`);
+      } catch (error) {
+        d.E(error);
+      }
+    })
+  );
+  d.L(`Database read ${rows.length} rows in ${h.ht(dbStartMs)}`);
+  return tagMap;
+}
+
 async function executeCheckTags(root) {
   d.L(`Input: ${root}`);
-  const jsonName = sanitize(root, { replacement: "_" });
-  const jsonPath = path.join("data", `alltags.json`);
   const startMs = Date.now();
   let files = exif.listFiles(root, (f) => h.isAudioFile(f.path));
   const fileCount = files.length;
-  d.L(`executeCheckTags: total ${fileCount} files found (${h.ht(startMs)})`);
-  const tagMap = await readTagsFromFile(jsonPath);
+  d.L(`executeCheckTags: total ${fileCount} files found in (${h.ht(startMs)})`);
+  // const tagMap = await readTagsFromFile(root);
+  const tagMap = await readTagsFromDatabase(root);
   files = files.map((f) => {
     f.tags = tagMap.get(f.path);
     return f;
   });
   // files = await exif.readTags(files);
   files = files.filter((f) => f.tags);
+  // saveTagsToDatabase(files);
   if (files.length < fileCount) {
     d.W(
       chalk.yellow(
@@ -250,6 +342,7 @@ async function executeCheckTags(root) {
       startMs
     )})`
   );
+
   // (await fs.pathExists(jsonPath)) &&
   //   (await fs.move(jsonPath, jsonPath + `.${Date.now()}`));
   // let i = 0;
@@ -259,12 +352,6 @@ async function executeCheckTags(root) {
   //     d.L(`WriteJson[${++i}/${files.length}]: ${h.ht(startMs)}`);
   //   }
   // }
-
-  // sqlite3.verbose();
-  // const db = new sqlite3.Database("./data/audio.db");
-  // await db.exec(
-  //   "CREATE TABLE IF NOT EXISTS tags (name TEXT, path TEXT, tags TEXT, PRIMARY KEY(path));"
-  // );
 
   // const iout = path.join(path.dirname(root), "invalid");
   // if (!fs.pathExistsSync(iout)) {
