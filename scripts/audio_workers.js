@@ -41,29 +41,42 @@ function exifRead(file) {
 function toAAC(file, index) {
   // convert mp3 to aac
   // ls *.mp3 | parallel ffmpeg -n -loglevel repeat+level+warning -i "{}" -map a:0 -c:a libfdk_aac -b:a 192k output/"{.}".m4a -hide_banner
-  const fileSrc = path.resolve(file);
-  const nameBase = path.basename(fileSrc, h.ext(fileSrc));
-  const dstDir = path.join(path.dirname(fileSrc), "output");
-  const fileDst = path.join(dstDir, `${nameBase}.m4a`);
-  if (fs.existsSync(fileDst)) {
-    d.L(`SkipExists: ${h.ps(fileDst)} (${index})`);
+  d.D(`toAAC: processing1 ${index} ${file.path}`);
+  const fileSrc = path.resolve(file.path);
+  const [dir, base, ext] = h.pathSplit(fileSrc);
+  const dstDir = dir;
+  const fileDst = path.join(dstDir, `${base}.m4a`);
+  if (fs.pathExistsSync(fileDst)) {
+    d.W(`SkipExists: ${h.ps(fileDst)} (${index})`);
     return { status: 0, output: "", file: fileSrc };
   }
   let args = "-n -loglevel repeat+level+info -i".split(" ");
   args.push(fileSrc);
-  args = args.concat("-map a:0 -c:a libfdk_aac -b:a 192k".split(" "));
+  args = args.concat("-map a:0 -c:a libfdk_aac -b:a".split(" "));
+  if (file.loseless) {
+    args.push("320k");
+  } else {
+    args.push(file.bitRate > 192 ? "192k" : "128k");
+  }
   args.push(fileDst);
   args.push("-hide_banner");
-  // console.log("ffmpeg", args);
+  d.I("ffmpeg", args);
   // console.log(`Converting: ${fileName}`);
   fs.ensureDirSync(dstDir);
   // const result = spawnSync("ffmpeg", args);
-  d.L(`Converting: ${h.ps(fileSrc)} (${index})`);
+  d.L(`Converting (${index}): [${file.bitRate}k] ${h.ps(fileSrc)}`);
   const result = executeCommand("ffmpeg", args);
   if (result.ok) {
-    d.L(`Success: ${h.ps(fileDst)} (${index})`);
+    d.L(`OK (${index}): ${h.ps(fileDst)}`);
+    //caution: delete orignal audio file
+    // try {
+    //   fs.rmSync(fileSrc);
+    //   d.L(`Delete Original OK: (${index}): ${h.ps(fileSrc)}`);
+    // } catch (error) {
+    //   d.L(`Delete Original Error: (${index}): ${h.ps(fileSrc)} ${error}`);
+    // }
   } else {
-    d.W(`Failed: ${h.ps(fileSrc)} ${result.output} (${index})`);
+    d.W(`ERROR (${index}): ${h.ps(fileSrc)} ${result.output}`);
   }
   return result;
 }

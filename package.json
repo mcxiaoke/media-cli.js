@@ -1,7 +1,7 @@
 {
   "name": "mediac",
-  "version": "0.2.0",
-  "description": "Media and ExifTool Utilities",
+  "version": "0.3.0",
+  "description": "Media and ExifTool and File Utilities",
   "main": "index.js",
   "files": [
     "index.js",
