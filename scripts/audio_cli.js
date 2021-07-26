@@ -173,7 +173,7 @@ async function convertAllToAAC(files) {
   const startMs = Date.now();
   const results = await Promise.all(
     files.map(async (f, i) => {
-      const result = await pool.exec("toAAC", [f, i + 1]);
+      const result = await pool.exec("toAACFile", [f, i + 1]);
       return result;
     })
   );
