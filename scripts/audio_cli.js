@@ -228,8 +228,11 @@ async function checkFiles(files) {
     files.map(async (file, i) => {
       const f = file.path;
       const index = i + 1;
-      if (!(await fs.pathExists(f))) {
-        d.I(`SkipNotFound (${index}) ${h.ps(f)}`);
+      // if (!(await fs.pathExists(f))) {
+      //   d.I(`SkipNotFound (${index}) ${h.ps(f)}`);
+      //   return false;
+      // }
+      if (!h.isAudioFile(f)) {
         return false;
       }
       if (h.ext(f, true) == ".m4a") {
@@ -273,6 +276,11 @@ async function convertAllToAAC(files) {
 }
 
 function appendAudioBitRate(f) {
+  if (h.isLoselessAudio(f.path)) {
+    f.bitRate = 1000;
+    f.loseless = true;
+    return f;
+  }
   const bitRateTag = f.tags && f.tags.AudioBitrate;
   if (!bitRateTag) {
     return f;
@@ -298,14 +306,20 @@ async function executeConvert(root) {
   d.L(`executeConvert: ${root}`);
   const startMs = Date.now();
   // list all files in dir recursilly
-  const taskFiles = klawSync(root, { nodir: true });
+  // keep only non-m4a audio files
+  // todo add check to ensure is audio file
+  const taskFiles = await checkFiles(klawSync(root, { nodir: true }));
   const taskPaths = taskFiles.map((f) => f.path);
-  d.L(`Total ${taskPaths.length} files found in ${h.ht(startMs)}`);
+  d.L(`Total ${taskPaths.length} audio files found in ${h.ht(startMs)}`);
   // caution: slow on network drives
   // files = await exif.readAllTags(files);
   // files = files.filter((f) => h.isAudioFile(f.path));
   // saveAudioDBTags(files);
   // use cached file with tags database
+  if (!taskFiles || taskFiles.length == 0) {
+    d.L(chalk.green("Nothing to do, exit now."));
+    return;
+  }
   let files = await readAudioDBTags(root);
   d.L(`Total ${files.length} files parsed in ${h.ht(startMs)}`);
   files = files.filter((f) => taskPaths.includes(f.path));
@@ -313,16 +327,11 @@ async function executeConvert(root) {
     // new files not found in db
     // parse exif tags and save to db
     files = await exif.readAllTags(taskFiles);
-    console.log(files.length);
-    files = files.filter((f) => h.isAudioFile(f.path));
     await saveAudioDBTags(files);
   }
   files = files.map((f) => appendAudioBitRate(f));
   d.L(`Total ${files.length} files after filterd in ${h.ht(startMs)}`);
   const filesCount = files.length;
-  // keep only non-m4a audio files
-  // todo add check to ensure is audio file
-  files = await checkFiles(files);
 
   d.L(`Total ${filesCount} files checked in ${h.ht(startMs)}`);
   const skipCount = filesCount - files.length;
