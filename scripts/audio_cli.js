@@ -29,7 +29,6 @@ yargs
   .epilog(
     "<Audio Utilities>\nRename/Move/Convert audio files\nCopyright 2021 @ Zhang Xiaoke"
   )
-  .demandCommand()
   .showHelpOnFail()
   .help();
 d.setLevel(yargs.argv.verbose);
@@ -57,6 +56,25 @@ yargs
     (yargs) => {},
     (argv) => {
       cmdParseTags(argv.source);
+    }
+  )
+  .command(
+    ["cue-split <source> [options]", "cs"],
+    "Split audio files by cue to m4a(aac) format in source dir",
+    (yargs) => {
+      yargs
+        .positional("source", {
+          describe: "Source folder that contains audio files",
+          type: "string",
+        })
+        .option("force", {
+          alias: "f",
+          type: "boolean",
+          describe: "Force to override exists file",
+        });
+    },
+    (argv) => {
+      cmdCueSplit(argv);
     }
   )
   .command(
@@ -121,6 +139,78 @@ yargs
     }
   ).argv;
 
+async function cmdCueSplit(argv) {
+  console.log(argv);
+  const root = path.resolve(argv.source);
+  if (!root || !(await fs.pathExists(root))) {
+    yargs.showHelp();
+    d.E(chalk.red(`ERROR! Source '${root}' is not exists or not a directory!`));
+    return;
+  }
+  await executeCueSplit(root);
+}
+
+async function executeCueSplit(root) {
+  d.L(`executeCueSplit: ${root}`);
+  const startMs = Date.now();
+  let files = klawSync(root, { nodir: true });
+  files = files.filter((f) => h.ext(f.path, true) == ".cue");
+  for (const f of files) {
+    d.L(`Found CUE: ${h.ps(f.path)}`);
+  }
+  d.L(`Total ${files.length} cue files found in ${h.ht(startMs)}`);
+  const answer = await inquirer.prompt([
+    {
+      type: "confirm",
+      name: "yes",
+      default: false,
+      message: chalk.bold.red(
+        `Are you sure to split ${files.length} cue files?`
+      ),
+    },
+  ]);
+  if (answer.yes) {
+    const results = await splitAllCue(files);
+    for (const r of results) {
+      if (r.failed && r.failed.length > 0) {
+        for (const fd of r.failed) {
+          console.log(chalk.red(`executeCueSplit: ${fd.error} ${fd.file}`));
+        }
+      } else {
+        d.L(`executeCueSplit: all done for ${h.ps(r.file)}`);
+      }
+    }
+    d.L(
+      chalk.green(
+        `executeCueSplit: total ${results.length} audio files splitted by cue sheet.`
+      )
+    );
+  } else {
+    d.L(chalk.yellowBright("Will do nothing, aborted by user."));
+  }
+}
+
+async function splitAllCue(files) {
+  d.L(`splitAllCue: Adding ${files.length} tasks`);
+  const pool = workerpool.pool(__dirname + "/audio_workers.js", {
+    maxWorkers: cpuCount - 1,
+    workerType: "process",
+  });
+  const startMs = Date.now();
+  const results = await Promise.all(
+    files.map(async (f, i) => {
+      return await pool.exec("splitTracks", [f, i + 1]);
+    })
+  );
+  await pool.terminate();
+  d.L(
+    `splitAllCue: ${results.length} cue files splitted to tracks in ${h.ht(
+      startMs
+    )}.`
+  );
+  return results;
+}
+
 async function cmdConvert(argv) {
   const root = path.resolve(argv.source);
   if (!root || !fs.pathExistsSync(root)) {
@@ -167,7 +257,7 @@ async function checkFiles(files) {
 async function convertAllToAAC(files) {
   d.L(`convertAllToAAC: Adding ${files.length} tasks`);
   const pool = workerpool.pool(__dirname + "/audio_workers.js", {
-    maxWorkers: cpuCount,
+    maxWorkers: cpuCount - 1,
     workerType: "process",
   });
   const startMs = Date.now();

@@ -47,6 +47,7 @@
   "dependencies": {
     "@jhanssen/cue-parser": "^0.3.0",
     "chalk": "^4.1.1",
+    "chardet": "^0.7.0",
     "dayjs": "^1.10.6",
     "exiftool-vendored": "^15.2.0",
     "fluent-ffmpeg": "^2.1.2",
