@@ -1,6 +1,6 @@
 {
   "name": "mediac",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Media and ExifTool and File Utilities",
   "main": "index.js",
   "files": [
@@ -12,7 +12,6 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node index.js",
-    "audio_cli": "node ./scripts/audio_cli.js",
     "media_cli": "node ./scripts/media_cli.js"
   },
   "bin": {
