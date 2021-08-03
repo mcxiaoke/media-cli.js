@@ -3,94 +3,118 @@ const path = require("path");
 const chalk = require("chalk");
 const fs = require("fs-extra");
 const inquirer = require("inquirer");
-const klawSync = require("klaw-sync");
+const { walk } = require("../lib/file");
 const h = require("../lib/helper");
-const d = require("../lib/debug");
+const log = require("../lib/debug");
 const un = require("../lib/unicode");
+// debug and logging config
+const prettyError = require("pretty-error").start();
+prettyError.skipNodeFiles();
+
+const configCli = (argv) => {
+  // log.setName("AudioCli");
+  log.setLevel(argv.verbose);
+  log.debug(argv);
+};
 
 const yargs = require("yargs/yargs")(process.argv.slice(2));
 yargs
+  .positional("input", {
+    describe: "Input folder that contains files",
+    type: "string",
+    normalize: true,
+  })
+  .option("output", {
+    alias: "o",
+    type: "string",
+    describe: "Output put folder that store results",
+  })
+  .option("type", {
+    alias: "t",
+    type: "string",
+    default: "file",
+    choices: ["file", "dir", "all"],
+    describe: "file type for files to delete [-t file]",
+  })
+  .option("keyword", {
+    alias: "k",
+    type: "string",
+    describe: "filename keyword for files to delete [-k DSC_]",
+  })
+  .option("pattern", {
+    alias: "p",
+    type: "string",
+    describe: "filename regex pattern for files to delete [-p /d+/]",
+  })
+  .option("extension", {
+    alias: ["e", "ext"],
+    type: "array",
+    describe: "filename extension list for files to delete [-e jpg png zip]",
+  })
+  .option("size", {
+    alias: ["s", "sz"],
+    type: "array",
+    describe: "file size for files to delete (><) [-s >123k <10m",
+  })
+  .option("recursive", {
+    alias: "r",
+    type: "boolean",
+    describe: "handle files recursive in source dir [-r]",
+  })
   .command(
-    ["delete <source> [options]", "del", "d"],
-    "Delete files by pattern/extension/size in source dir",
-    (yargs) => {
-      yargs
-        .example(
-          '$0 delete C:\\Temp\\data -k DSC_ -p /d+/ -s ">123k" "<15m" -r -t file',
-          "Delete such files files meet condition: <filename has keyword:DSC_ and filename matches regex pattern:/d+/ and size above 123k and size below 15m and type is file (excluding dir), and recursive include files in sub dirs> in dir C:\\Temp\\data dir"
-        )
-        .positional("source", {
-          describe: "Source folder that contains files",
-          type: "string",
-          normalize: true,
-        })
-        .option("type", {
-          alias: "t",
-          type: "string",
-          default: "file",
-          choices: ["file", "dir", "all"],
-          describe: "file type for files to delete [-t file]",
-        })
-        .option("keyword", {
-          alias: "k",
-          type: "string",
-          describe: "filename keyword for files to delete [-k DSC_]",
-        })
-        .option("pattern", {
-          alias: "p",
-          type: "string",
-          describe: "filename regex pattern for files to delete [-p /d+/]",
-        })
-        .option("extension", {
-          alias: ["e", "ext"],
-          type: "array",
-          describe:
-            "filename extension list for files to delete [-e jpg png zip]",
-        })
-        .option("size", {
-          alias: ["s", "sz"],
-          type: "array",
-          describe: "file size for files to delete (><) [-s >123k <10m",
-        })
-        .option("recursive", {
-          alias: "r",
-          type: "boolean",
-          describe: "handle files recursive in source dir [-r]",
-        })
-        .epilog(
-          "One or more of options is required: [--keyword/--pattern/--extension/--size]"
-        );
-    },
+    ["test"],
+    "Test command, print arguments",
+    (yargs) => {},
     (argv) => {
-      console.log(argv);
-      // cmdDelete(argv);
+      yargs.showHelp();
+      log.show(argv);
     }
   )
-  .usage(`Usage: $0 <command> <source> [options]`)
+  .command(
+    ["delete <input>", "del"],
+    "Delete files by pattern/extension/size",
+    (yargs) => {},
+    (argv) => {
+      cmdDelete(argv);
+    }
+  )
+  .command(
+    ["move <input>", "mv"],
+    "Move files by pattern/date/extension/size",
+    (yargs) => {},
+    (argv) => {
+      cmdMove(argv);
+    }
+  )
+
+  .usage(`Usage: $0 <command> <input> [options]`)
   .count("verbose")
   .alias("v", "verbose")
   .alias("h", "help")
   .epilog(
-    "<File Utilities>\nFind/Delete/Rename/Move/Copy\nCopyright 2021 @ Zhang Xiaoke"
+    "File Utilities: Find/Delete/Rename/Move/Copy\nCopyright 2021 @ Zhang Xiaoke"
+  )
+  .example(
+    '$0 delete C:\\Temp\\data -k DSC_ -p /d+/ -s ">123k" "<15m" -r -t file',
+    "Delete such files files meet condition: <filename has keyword:DSC_ and filename matches regex pattern:/d+/ and size above 123k and size below 15m and type is file (excluding dir), and recursive include files in sub dirs> in dir C:\\Temp\\data dir"
   )
   .demandCommand(1, chalk.red("Missing sub command you want to execute!"))
   .showHelpOnFail()
-  .help();
+  .help()
+  .middleware([configCli]);
 const argv = yargs.argv;
-d.setLevel(argv.verbose);
-d.I(argv);
 
 async function cmdDelete(argv) {
-  d.L(`cmdDelete:`, argv);
-  const root = argv.source;
-  let files = klawSync(root, { nodir: true });
+  log.info(`cmdDelete:`, argv);
+  const root = argv.input;
+  let files = await walk(root);
   files = files.filter((f) => {
     const filename = path.basename(f.path);
     return filename.includes(keyword);
   });
   files.forEach((f) => d.L("Found:", f.path));
   if (files.length == 0 || !argv.keyword) {
-    d.L(`No files need to be processed, abort.`);
+    log.warn(`No files need to be processed, abort.`);
     return;
   }
   const answer = await inquirer.prompt([
@@ -106,14 +130,24 @@ async function cmdDelete(argv) {
   if (answer.yes) {
     files = files.map((f, i) => {
       try {
-        d.L(`Deleting `, i, h.ps(f.path));
-        fs.rmSync(f.path);
-        d.L(`Deleted `, i, h.ps(f.path));
+        log.info(`Deleting `, i, h.ps(f.path));
+        await fs.rm(f.path);
+        log.show(`Deleted `, i, h.ps(f.path));
       } catch (error) {
-        console.error(`Delete Failed: `, i, h.ps(f.path), error);
+        log.error(`Delete Failed: `, i, h.ps(f.path), error);
       }
     });
   } else {
-    d.L(`Nothing to do, abort by user.`);
+    log.warn(`Nothing to do, abort by user.`);
   }
+}
+
+async function cmdMove(argv) {
+  log.info(`cmdMove:`, argv);
+  const root = argv.input;
+  let files = await walk(root);
+  for (const f of files) {
+    log.show(f.path, f.stats.mtime);
+  }
+  files = files.sort((a, b) => {});
 }
