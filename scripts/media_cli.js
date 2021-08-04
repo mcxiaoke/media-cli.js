@@ -7,6 +7,7 @@ const chalk = require("chalk");
 const log = require("../lib/debug");
 const exif = require("../lib/exif");
 const helper = require("../lib/helper");
+const mf = require("../lib/file");
 // debug and logging config
 const prettyError = require("pretty-error").start();
 prettyError.skipNodeFiles();
@@ -79,6 +80,21 @@ yargs
     },
     (argv) => {
       cmdOrganize(argv);
+    }
+  )
+  .command(
+    ["lrmove <input>", "lv"],
+    "Move JPEG output of RAW files to other folder",
+    (yargs) => {
+      yargs.option("output", {
+        alias: "o",
+        type: "string",
+        normalize: true,
+        description: "Output folder",
+      });
+    },
+    (argv) => {
+      cmdLRMove(argv);
     }
   )
   .count("verbose")
@@ -199,9 +215,6 @@ async function cmdOrganize(argv) {
   log.show(`Organize: input:`, root);
   log.show(`Organize: output:`, output);
   let files = await exif.listMedia(root);
-  for (const f of files) {
-    if (!f.stats.isFile()) log.show("not file", f.path);
-  }
   log.show("Organize", `Total ${files.length} media files found`);
   pics = {};
   files.forEach((f, i) => {
@@ -298,6 +311,58 @@ async function cmdOrganize(argv) {
             `${movedFiles.length} files are moved to '${fileOutput}'`
           );
         }
+      }
+    }
+  } else {
+    log.showYellow("Will do nothing, aborted by user.");
+  }
+}
+
+async function cmdLRMove(argv) {
+  const root = path.resolve(argv.input);
+  if (!root || !(await fs.pathExists(root))) {
+    yargs.showHelp();
+    log.error("LRMove", `Invalid Input: '${root}'`);
+    return;
+  }
+  // const output = argv.output || root;
+  log.show(`LRMove: input:`, root);
+  // log.show(`LRMove: output:`, output);
+  let files = await mf.walk(root, {
+    entryFilter: (entry) =>
+      entry.stats.isDirectory() && path.basename(entry.path) === "JPEG",
+  });
+  log.show("LRMove:", `Total ${files.length} JPEG folders found`);
+  if (files.length == 0) {
+    log.showGreen("Nothing to do, abort.");
+    return;
+  }
+  for (const f of files) {
+    const fileSrc = f.path;
+    const fileBase = path.dirname(fileSrc);
+    const fileDst = fileBase.replace("RAW" + path.sep, "JPEG" + path.sep);
+    log.show(`SRC:`, f.path);
+    log.show("DST:", fileDst);
+    f.fileSrc = fileSrc;
+    f.fileDst = fileDst;
+  }
+  const answer = await inquirer.prompt([
+    {
+      type: "confirm",
+      name: "yes",
+      default: false,
+      message: chalk.bold.red(
+        `Are you sure to move these ${files.length} JPEG folder with files?`
+      ),
+    },
+  ]);
+  if (answer.yes) {
+    for (const f of files) {
+      try {
+        await fs.move(f.fileSrc, f.fileDst);
+        log.showGreen("Moved:", f.fileSrc, "to", f.fileDst);
+      } catch (error) {
+        log.error("Failed:", error, f.fileSrc, "to", f.fileDst);
       }
     }
   } else {
