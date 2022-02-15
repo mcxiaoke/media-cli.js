@@ -1,9 +1,13 @@
 #!/usr/bin/env node
+const assert = require("assert");
 const dayjs = require("dayjs");
 const inquirer = require("inquirer");
+const throat = require("throat");
+const sharp = require("sharp");
 const path = require("path");
 const fs = require("fs-extra");
 const chalk = require("chalk");
+const cpuCount = require("os").cpus().length;
 const log = require("../lib/debug");
 const exif = require("../lib/exif");
 const helper = require("../lib/helper");
@@ -68,33 +72,59 @@ yargs
     }
   )
   .command(
-    ["organize <input>", "oz"],
+    ["organize <input> [output]", "oz"],
     "Organize pictures by file modified date",
     (yargs) => {
-      yargs.option("output", {
-        alias: "o",
-        type: "string",
-        normalize: true,
-        description: "Output folder",
-      });
+      // yargs.option("output", {
+      //   alias: "o",
+      //   type: "string",
+      //   normalize: true,
+      //   description: "Output folder",
+      // });
     },
     (argv) => {
       cmdOrganize(argv);
     }
   )
   .command(
-    ["lrmove <input>", "lv"],
+    ["lrmove <input> [output]", "lv"],
     "Move JPEG output of RAW files to other folder",
     (yargs) => {
-      yargs.option("output", {
-        alias: "o",
-        type: "string",
-        normalize: true,
-        description: "Output folder",
-      });
+      // yargs.option("output", {
+      //   alias: "o",
+      //   type: "string",
+      //   normalize: true,
+      //   description: "Output folder",
+      // });
     },
     (argv) => {
       cmdLRMove(argv);
+    }
+  )
+  .command(
+    ["thumbs <input> [output]", "tb"],
+    "Make thumbs for input images",
+    (yargs) => {
+      yargs
+        // .option("output", {
+        //   alias: "o",
+        //   type: "string",
+        //   normalize: true,
+        //   description: "Output folder",
+        // })
+        .option("force", {
+          alias: "f",
+          type: "boolean",
+          description: "Force to override existing thumb files",
+        })
+        .option("max", {
+          alias: "m",
+          type: "number",
+          description: "Max size of long side of image thumb",
+        });
+    },
+    (argv) => {
+      cmdThumbs(argv);
     }
   )
   .count("verbose")
@@ -367,5 +397,142 @@ async function cmdLRMove(argv) {
     }
   } else {
     log.showYellow("Will do nothing, aborted by user.");
+  }
+}
+
+async function prepareThumbArgs(f, options) {
+  const year = new Date().getFullYear();
+  options = options || {};
+  const maxSize = options.maxSize || 3000;
+  const force = options.force || false;
+  const output = options.output || undefined;
+  let fileSrc = path.resolve(f.path);
+  const [dir, base, ext] = helper.pathSplit(fileSrc);
+  let fileDst;
+  if (output) {
+    fileDst = path.join(
+      output,
+      path.basename(path.dirname(dir)),
+      path.basename(dir),
+      `${base}_thumb.jpg`
+    );
+  } else {
+    let dir2;
+    if (dir.includes("JPEG")) {
+      const thumbPath = path.join("Thumbs", String(year), "相机小图");
+      dir2 = dir.replace("JPEG", thumbPath);
+      fileDst = path.join(dir2, `${base}_thumb.jpg`);
+    } else {
+      fileDst = path.join(dir, "thumbs", `${base}_thumb.jpg`);
+    }
+  }
+
+  fileSrc = path.resolve(fileSrc);
+  fileDst = path.resolve(fileDst);
+
+  if (await fs.pathExists(fileDst)) {
+    log.info("cmdThumbs exists:", fileDst, force ? "(Override)" : "");
+    if (!force) {
+      return;
+    }
+  }
+  try {
+    const s = sharp(fileSrc);
+    const m = await s.metadata();
+    if (m.width <= maxSize && m.height <= maxSize) {
+      log.debug("cmdThumbs skip:", fileSrc);
+      return;
+    }
+    const nw =
+      m.width > m.height ? maxSize : Math.round((maxSize * m.width) / m.height);
+    const nh = Math.round((nw * m.height) / m.width);
+
+    log.show(
+      "cmdThumbs prepared:",
+      fileDst,
+      `(${m.width}x${m.height} => ${nw}x${nh})`
+    );
+    return {
+      width: nw,
+      src: fileSrc,
+      dst: fileDst,
+    };
+  } catch (error) {
+    log.error("cmdThumbs error:", error, f.path);
+  }
+}
+
+async function cmdThumbs(argv) {
+  const root = path.resolve(argv.input);
+  assert.strictEqual("string", typeof root, "root must be string");
+  if (!root || !(await fs.pathExists(root))) {
+    yargs.showHelp();
+    log.error("cmdThumbs", `Invalid Input: '${root}'`);
+    return;
+  }
+  log.error(argv);
+  // return;
+  // const output = argv.output || root;
+  log.show(`cmdThumbs: input:`, root);
+  const maxSize = argv.maxSize || 3000;
+  const force = argv.force || false;
+  const output = argv.output;
+
+  const RE_THUMB = /(小图|精选|feature|web|thumb)/gi;
+  const walkOpts = {
+    entryFilter: (f) =>
+      f.stats.isFile() &&
+      f.stats.size > 100 * 1024 &&
+      helper.isImageFile(f.path) &&
+      !RE_THUMB.test(f.path),
+  };
+  const files = await mf.walk(root, walkOpts);
+  log.info("cmdThumbs", `total ${files.length} found`);
+
+  let tasks = await Promise.all(
+    files.map(
+      throat(cpuCount, (f) =>
+        prepareThumbArgs(f, {
+          maxSize: maxSize,
+          force: force,
+          output: output,
+        })
+      )
+    )
+  );
+  log.debug("cmdThumbs before filter: ", tasks.length);
+  tasks = tasks.filter((t) => t && t.dst);
+  log.debug("cmdThumbs after filter: ", tasks.length);
+  if (tasks.length == 0) {
+    log.showYellow("Nothing to do, abort.");
+    return;
+  }
+
+  const answer = await inquirer.prompt([
+    {
+      type: "confirm",
+      name: "yes",
+      default: false,
+      message: chalk.bold.red(
+        `Are you sure to make thumbs for ${files.length} files?`
+      ),
+    },
+  ]);
+
+  if (!answer.yes) {
+    log.showYellow("Will do nothing, aborted by user.");
+    return;
+  }
+
+  for (const t of tasks) {
+    await fs.ensureDir(path.dirname(t.dst));
+    // console.log(t.dst);
+    const s = sharp(t.src);
+    const r = await s
+      .resize({ width: t.width })
+      .withMetadata()
+      .jpeg({ quality: 85, chromaSubsampling: "4:4:4" })
+      .toFile(t.dst);
+    log.showGreen("cmdThumbs done:", t.dst, r.width, r.height);
   }
 }
