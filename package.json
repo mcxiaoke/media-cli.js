@@ -36,7 +36,7 @@
     "@nodelib/fs.walk": "^1.2.8",
     "chalk": "^4.1.1",
     "chardet": "^0.7.0",
-    "dayjs": "^1.10.6",
+    "dayjs": "^1.11.6",
     "exiftool-vendored": "^15.2.0",
     "fs-extra": "^10.0.0",
     "global-agent": "^3.0.0",

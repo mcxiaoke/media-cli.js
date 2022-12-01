@@ -64,7 +64,7 @@ yargs
   .command(
     ["test"],
     "Test command, print arguments",
-    (yargs) => {},
+    (yargs) => { },
     (argv) => {
       yargs.showHelp();
       log.show(argv);
@@ -73,7 +73,7 @@ yargs
   .command(
     ["delete <input>", "del"],
     "Delete files by pattern/extension/size",
-    (yargs) => {},
+    (yargs) => { },
     (argv) => {
       cmdDelete(argv);
     }
@@ -81,7 +81,7 @@ yargs
   .command(
     ["move <input>", "mv"],
     "Move files by pattern/date/extension/size",
-    (yargs) => {},
+    (yargs) => { },
     (argv) => {
       cmdMove(argv);
     }
@@ -128,7 +128,7 @@ async function cmdDelete(argv) {
     },
   ]);
   if (answer.yes) {
-    files = files.map((f, i) => {
+    files = files.map(async (f, i) => {
       try {
         log.info(`Deleting `, i, h.ps(f.path));
         await fs.rm(f.path);
@@ -149,5 +149,5 @@ async function cmdMove(argv) {
   for (const f of files) {
     log.show(f.path, f.stats.mtime);
   }
-  files = files.sort((a, b) => {});
+  files = files.sort((a, b) => { });
 }
