@@ -1,19 +1,24 @@
 #!/usr/bin/env node
-const assert = require("assert");
-const dayjs = require("dayjs");
-const inquirer = require("inquirer");
-const throat = require("throat");
-const sharp = require("sharp");
-const path = require("path");
-const fs = require("fs-extra");
-const chalk = require("chalk");
-const cpuCount = require("os").cpus().length;
-const log = require("../lib/debug");
-const exif = require("../lib/exif");
-const helper = require("../lib/helper");
-const mf = require("../lib/file");
+import assert from "assert";
+import dayjs from "dayjs";
+import inquirer from "inquirer";
+import throat from 'throat';
+import sharp from "sharp";
+import path from "path";
+import fs from 'fs-extra';
+import chalk from 'chalk';
+import yargs from "yargs";
+import PrettyError from 'pretty-error';
+import { cpus } from "os";
+
+import * as log from '../lib/debug.js'
+import * as exif from '../lib/exif.js'
+import * as helper from '../lib/helper.js'
+import * as mf from '../lib/file.js'
+
+const cpuCount = cpus().length;
 // debug and logging config
-const prettyError = require("pretty-error").start();
+const prettyError = PrettyError.start();
 prettyError.skipNodeFiles();
 
 const configCli = (argv) => {
@@ -22,9 +27,9 @@ const configCli = (argv) => {
   log.debug(argv);
 };
 
-const yargs = require("yargs/yargs")(process.argv.slice(2));
+const ya = yargs(process.argv.slice(2));
 // https://github.com/yargs/yargs/blob/master/docs/advanced.md
-yargs
+ya
   .usage("Usage: $0 <command> <input> [options]")
   .positional("input", {
     describe: "Input folder that contains files",
@@ -34,8 +39,8 @@ yargs
   .command(
     ["rename <input> [options]", "rn", "$0"],
     "Rename media files in input dir by exif date",
-    (yargs) => {
-      yargs
+    (ya) => {
+      ya
         .option("backup", {
           alias: "b",
           type: "boolean",
@@ -74,7 +79,7 @@ yargs
   .command(
     ["organize <input> [output]", "oz"],
     "Organize pictures by file modified date",
-    (yargs) => {
+    (ya) => {
       // yargs.option("output", {
       //   alias: "o",
       //   type: "string",
@@ -89,7 +94,7 @@ yargs
   .command(
     ["lrmove <input> [output]", "lv"],
     "Move JPEG output of RAW files to other folder",
-    (yargs) => {
+    (ya) => {
       // yargs.option("output", {
       //   alias: "o",
       //   type: "string",
@@ -104,8 +109,8 @@ yargs
   .command(
     ["thumbs <input> [output]", "tb"],
     "Make thumbs for input images",
-    (yargs) => {
-      yargs
+    (ya) => {
+      ya
         // .option("output", {
         //   alias: "o",
         //   type: "string",
@@ -137,7 +142,7 @@ yargs
   .showHelpOnFail()
   .help()
   .middleware([configCli]);
-const argv = yargs.argv;
+const argv = ya.argv;
 
 async function renameFiles(files) {
   log.info("Rename", `total ${files.length} files`);
@@ -218,7 +223,7 @@ async function cmdRename(argv) {
       default: false,
       message: chalk.bold.red(
         `Are you sure to rename ${files.length} files?` +
-          (fastMode ? " (FastMode)" : "")
+        (fastMode ? " (FastMode)" : "")
       ),
     },
   ]);
@@ -246,7 +251,7 @@ async function cmdOrganize(argv) {
   log.show(`Organize: output:`, output);
   let files = await exif.listMedia(root);
   log.show("Organize", `Total ${files.length} media files found`);
-  pics = {};
+  const pics = {};
   files.forEach((f, i) => {
     log.debug(`Processing(${i}):`, path.basename(f.path), f.stats.mtime);
     if (helper.isVideoFile(f.path)) {
@@ -330,8 +335,7 @@ async function cmdOrganize(argv) {
         if (v.length - movedFiles.length > 0) {
           log.showYellow(
             `Skipped:`,
-            `${
-              v.length - movedFiles.length
+            `${v.length - movedFiles.length
             } files are already in '${fileOutput}'`
           );
         }
