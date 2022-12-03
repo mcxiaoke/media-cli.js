@@ -3,6 +3,7 @@ import assert from "assert";
 import dayjs from "dayjs";
 import inquirer from "inquirer";
 import throat from 'throat';
+import pMap from 'p-map';
 import sharp from "sharp";
 import path from "path";
 import fs from 'fs-extra';
@@ -162,6 +163,7 @@ async function renameFiles(files) {
 }
 
 async function cmdRename(argv) {
+  log.show('cmdRename', argv);
   const root = path.resolve(argv.input);
   if (!root || !(await fs.pathExists(root))) {
     yargs.showHelp();
@@ -237,6 +239,7 @@ async function cmdRename(argv) {
 }
 
 async function cmdOrganize(argv) {
+  log.show('cmdOrganize', argv);
   const root = path.resolve(argv.input);
   if (!root || !(await fs.pathExists(root))) {
     yargs.showHelp();
@@ -353,6 +356,7 @@ async function cmdOrganize(argv) {
 }
 
 async function cmdLRMove(argv) {
+  log.show('cmdLRMove', argv);
   const root = path.resolve(argv.input);
   if (!root || !(await fs.pathExists(root))) {
     yargs.showHelp();
@@ -405,7 +409,6 @@ async function cmdLRMove(argv) {
 }
 
 async function prepareThumbArgs(f, options) {
-  const year = new Date().getFullYear();
   options = options || {};
   const maxSize = options.maxSize || 3000;
   const force = options.force || false;
@@ -413,24 +416,19 @@ async function prepareThumbArgs(f, options) {
   let fileSrc = path.resolve(f.path);
   const [dir, base, ext] = helper.pathSplit(fileSrc);
   let fileDst;
+  let dirDst;
   if (output) {
-    fileDst = path.join(
-      output,
-      path.basename(path.dirname(dir)),
-      path.basename(dir),
-      `${base}_thumb.jpg`
-    );
+    dirDst = helper.pathRewrite(dir, output);
   } else {
-    let dir2;
-    if (dir.includes("JPEG")) {
-      const thumbPath = path.join("Thumbs", String(year), "相机小图");
-      dir2 = dir.replace("JPEG", thumbPath);
-      fileDst = path.join(dir2, `${base}_thumb.jpg`);
-    } else {
-      fileDst = path.join(dir, "thumbs", `${base}_thumb.jpg`);
+    dirDst = dir.replace(/JPEG|Photos/i, 'Thumbs');
+    if (dirDst == dir) {
+      // input 'F:\\Temp\\照片\\202206\\'
+      // output 'F:\\Temp\\照片\\202206_thumbs\\'
+      dirDst = path.join(path.dirname(dir), path.basename(dir) + '_thumbs')
     }
   }
-
+  dirDst = dirDst.replace('相机照片', '相机小图');
+  fileDst = path.join(dirDst, `${base}_thumb.jpg`);
   fileSrc = path.resolve(fileSrc);
   fileDst = path.resolve(fileDst);
 
@@ -451,7 +449,7 @@ async function prepareThumbArgs(f, options) {
       m.width > m.height ? maxSize : Math.round((maxSize * m.width) / m.height);
     const nh = Math.round((nw * m.height) / m.width);
 
-    log.show(
+    log.debug(
       "cmdThumbs prepared:",
       fileDst,
       `(${m.width}x${m.height} => ${nw}x${nh})`
@@ -466,7 +464,21 @@ async function prepareThumbArgs(f, options) {
   }
 }
 
+async function makeThumbOne(t) {
+  await fs.ensureDir(path.dirname(t.dst));
+  // console.log(t.dst);
+  const s = sharp(t.src);
+  const r = await s
+    .resize({ width: t.width })
+    .withMetadata()
+    .jpeg({ quality: 85, chromaSubsampling: "4:4:4" })
+    .toFile(t.dst);
+  log.showGreen("cmdThumbs done:", t.dst, r.width, r.height);
+  return r;
+}
+
 async function cmdThumbs(argv) {
+  log.show('cmdThumbs', argv);
   const root = path.resolve(argv.input);
   assert.strictEqual("string", typeof root, "root must be string");
   if (!root || !(await fs.pathExists(root))) {
@@ -474,15 +486,15 @@ async function cmdThumbs(argv) {
     log.error("cmdThumbs", `Invalid Input: '${root}'`);
     return;
   }
-  log.error(argv);
-  // return;
-  // const output = argv.output || root;
-  log.show(`cmdThumbs: input:`, root);
   const maxSize = argv.maxSize || 3000;
   const force = argv.force || false;
   const output = argv.output;
+  // return;
+  // const output = argv.output || root;
+  log.show(`cmdThumbs: input:`, root);
+  log.show(`cmdThumbs: output:`, output);
 
-  const RE_THUMB = /(小图|精选|feature|web|thumb)/gi;
+  const RE_THUMB = /(小图|精选|feature|web|thumb)/i;
   const walkOpts = {
     entryFilter: (f) =>
       f.stats.isFile() &&
@@ -505,13 +517,18 @@ async function cmdThumbs(argv) {
     )
   );
   log.debug("cmdThumbs before filter: ", tasks.length);
+  const total = tasks.length;
   tasks = tasks.filter((t) => t && t.dst);
+  const skipped = total - tasks.length;
   log.debug("cmdThumbs after filter: ", tasks.length);
+  if (skipped > 0) {
+    log.showYellow(`cmdThumbs: ${skipped} thumbs skipped`)
+  }
   if (tasks.length == 0) {
     log.showYellow("Nothing to do, abort.");
     return;
   }
-
+  log.show(`cmdThumbs: task sample:`, tasks.slice(-1))
   const answer = await inquirer.prompt([
     {
       type: "confirm",
@@ -528,15 +545,9 @@ async function cmdThumbs(argv) {
     return;
   }
 
-  for (const t of tasks) {
-    await fs.ensureDir(path.dirname(t.dst));
-    // console.log(t.dst);
-    const s = sharp(t.src);
-    const r = await s
-      .resize({ width: t.width })
-      .withMetadata()
-      .jpeg({ quality: 85, chromaSubsampling: "4:4:4" })
-      .toFile(t.dst);
-    log.showGreen("cmdThumbs done:", t.dst, r.width, r.height);
-  }
+  const startMs = Date.now();
+  log.showGreen('cmdThumbs: startAt', dayjs().format())
+  const result = await pMap(tasks, makeThumbOne, { concurrency: cpuCount });
+  log.showGreen('cmdThumbs: endAt', dayjs().format())
+  log.showGreen(`cmdThumbs: ${result.length} thumbs generated in ${helper.humanTime(startMs)}`)
 }
