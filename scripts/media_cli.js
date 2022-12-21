@@ -38,7 +38,22 @@ ya
     normalize: true,
   })
   .command(
-    ["rename <input> [options]", "rn", "$0"],
+    ["test", "tt", "$0"],
+    "Test command, do nothing",
+    (ya) => {
+      // yargs.option("output", {
+      //   alias: "o",
+      //   type: "string",
+      //   normalize: true,
+      //   description: "Output folder",
+      // });
+    },
+    (argv) => {
+      ya.showHelp();
+    }
+  )
+  .command(
+    ["rename <input> [options]", "rn"],
     "Rename media files in input dir by exif date",
     (ya) => {
       ya
@@ -133,6 +148,21 @@ ya
       cmdThumbs(argv);
     }
   )
+  .command(
+    ["prefix <input> [output]", "px"],
+    "Rename files by append dir name or fixed string",
+    (ya) => {
+      ya.option("size", {
+        alias: "s",
+        type: "number",
+        default: 4,
+        description: "size[length] of prefix of base dir name",
+      });
+    },
+    (argv) => {
+      cmdPrefix(argv);
+    }
+  )
   .count("verbose")
   .alias("v", "verbose")
   .alias("h", "help")
@@ -160,6 +190,57 @@ async function renameFiles(files) {
       }
     })
   );
+}
+
+async function cmdPrefix(argv) {
+  log.show('cmdPrefix', argv);
+  const root = path.resolve(argv.input);
+  if (!root || !(await fs.pathExists(root))) {
+    yargs.showHelp();
+    log.error(`Invalid Input: '${root}'`);
+    return;
+  }
+  const fastMode = argv.fast || false;
+  const startMs = Date.now();
+  log.show("Prefix", `Input: ${root}`, fastMode ? "(FastMode)" : "");
+  let files = await mf.walk(root);
+  log.show("Prefix", `Total ${files.length} media files found`);
+  if (files.length == 0) {
+    log.showYellow("Prefix", "Nothing to do, exit now.");
+    return;
+  }
+  const tasks = []
+  for (const f of files) {
+    const [dir, base, ext] = helper.pathSplit(f.path);
+    const fPrefix = path.basename(dir).slice(0, argv.size || 4)
+    const newName = `${fPrefix}_${base}${ext}`
+    const newPath = path.join(dir, newName);
+    f.outName = newName;
+    log.show("Prefix", `New Name: ${helper.pathShort(newPath)}`);
+  }
+  log.show(
+    "Prefix",
+    `Total ${files.length} media files ready to rename`,
+    fastMode ? "(FastMode)" : ""
+  );
+  const answer = await inquirer.prompt([
+    {
+      type: "confirm",
+      name: "yes",
+      default: false,
+      message: chalk.bold.red(
+        `Are you sure to rename ${files.length} files?` +
+        (fastMode ? " (FastMode)" : "")
+      ),
+    },
+  ]);
+  if (answer.yes) {
+    renameFiles(files).then((files) => {
+      log.showGreen("Prefix", `There ${files.length} file were renamed.`);
+    });
+  } else {
+    log.showYellow("Prefix", "Will do nothing, aborted by user.");
+  }
 }
 
 async function cmdRename(argv) {
