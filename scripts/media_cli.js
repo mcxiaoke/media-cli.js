@@ -155,9 +155,19 @@ ya
       ya.option("size", {
         alias: "s",
         type: "number",
-        default: 4,
-        description: "size[length] of prefix of base dir name",
-      });
+        default: 12,
+        description: "size[length] of prefix of dir name",
+      })
+        .option("ignore", {
+          alias: "i",
+          type: "string",
+          description: "ignore string of prefix of dir name",
+        })
+        .option("prefix", {
+          alias: "p",
+          type: "string",
+          description: "filename prefix for output ",
+        })
     },
     (argv) => {
       cmdPrefix(argv);
@@ -204,16 +214,26 @@ async function cmdPrefix(argv) {
   const startMs = Date.now();
   log.show("Prefix", `Input: ${root}`, fastMode ? "(FastMode)" : "");
   let files = await mf.walk(root);
+  files.sort();
   log.show("Prefix", `Total ${files.length} media files found`);
   if (files.length == 0) {
     log.showYellow("Prefix", "Nothing to do, exit now.");
     return;
   }
-  const tasks = []
+  let nameIndex = 0;
   for (const f of files) {
     const [dir, base, ext] = helper.pathSplit(f.path);
-    const fPrefix = path.basename(dir).slice(0, argv.size || 4)
-    const newName = `${fPrefix}_${base}${ext}`
+    let dirPrefix = dir.replaceAll(/\W/gi, "").slice(0, 3);
+    let dirFix = dir.split(path.sep).slice(-2).join("")
+    let dirStr = dirFix.replaceAll(/[\.\\\/:"'\?]/gi, "")
+    if (argv.ignore && argv.ignore.length >= 2) {
+      dirStr = dirStr.replaceAll(argv.ignore, "");
+    } else {
+      dirStr = dirStr.replaceAll(/画师|图片|视频|\d+/gi, "");
+    }
+    const prefix = argv.prefix || dirPrefix || "IMG";
+    const fPrefix = dirStr.slice((argv.size || 12) * -1)
+    const newName = `${prefix}_${fPrefix}_${++nameIndex}${ext}`.toUpperCase()
     const newPath = path.join(dir, newName);
     f.outName = newName;
     log.show("Prefix", `New Name: ${helper.pathShort(newPath)}`);
