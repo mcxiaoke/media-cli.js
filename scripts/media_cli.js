@@ -385,7 +385,7 @@ async function cmdOrganize(argv) {
         pics["pngs"] = [];
       }
       pics["pngs"].push(f);
-      log.debug("Other Item:", f.path, helper.fileSize(f.stats.size));
+      log.debug("Other Item:", f.path, helper.fileSizeSI(f.stats.size));
     } else {
       const dateStr = dayjs(f.stats.mtime).format("YYYYMM");
       if (!pics[dateStr]) {
@@ -527,7 +527,6 @@ async function prepareThumbArgs(f, options) {
   let dirDst;
   if (output) {
     dirDst = helper.pathRewrite(dir, output);
-    dirDst = dirDst.replace("JPEG", "相机小图")
   } else {
     dirDst = dir.replace(/JPEG|Photos/i, 'Thumbs');
     if (dirDst == dir) {
@@ -644,7 +643,7 @@ async function cmdThumbs(argv) {
       name: "yes",
       default: false,
       message: chalk.bold.red(
-        `Are you sure to make thumbs for ${files.length} files?`
+        `Are you sure to make thumbs for ${tasks.length} files?`
       ),
     },
   ]);
