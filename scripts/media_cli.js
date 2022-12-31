@@ -213,7 +213,14 @@ async function cmdPrefix(argv) {
   const fastMode = argv.fast || false;
   const startMs = Date.now();
   log.show("Prefix", `Input: ${root}`, fastMode ? "(FastMode)" : "");
-  let files = await mf.walk(root);
+  let files = await mf.walk(root, {
+    entryFilter: (entry) =>
+      entry.stats.isFile() &&
+      entry.stats.size > 1024 &&
+      helper.isImageFile(entry.path),
+  });
+  // process only image files
+  // files = files.filter(x => helper.isImageFile(x.path));
   files.sort();
   log.show("Prefix", `Total ${files.length} media files found`);
   if (files.length == 0) {
@@ -520,6 +527,7 @@ async function prepareThumbArgs(f, options) {
   let dirDst;
   if (output) {
     dirDst = helper.pathRewrite(dir, output);
+    dirDst = dirDst.replace("JPEG", "相机小图")
   } else {
     dirDst = dir.replace(/JPEG|Photos/i, 'Thumbs');
     if (dirDst == dir) {
