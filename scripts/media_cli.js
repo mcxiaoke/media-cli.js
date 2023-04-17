@@ -236,7 +236,7 @@ async function cmdPrefix(argv) {
     if (argv.ignore && argv.ignore.length >= 2) {
       dirStr = dirStr.replaceAll(argv.ignore, "");
     } else {
-      dirStr = dirStr.replaceAll(/画师|图片|视频|\d+/gi, "");
+      dirStr = dirStr.replaceAll(/画师|图片|视频/gi, "");
     }
     const prefix = argv.prefix || dirPrefix || "IMG";
     const fPrefix = dirStr.slice((argv.size || 12) * -1)
