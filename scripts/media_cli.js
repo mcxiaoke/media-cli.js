@@ -217,7 +217,7 @@ async function cmdPrefix(argv) {
     entryFilter: (entry) =>
       entry.stats.isFile() &&
       entry.stats.size > 1024 &&
-      helper.isImageFile(entry.path),
+      helper.isMediaFile(entry.path),
   });
   // process only image files
   // files = files.filter(x => helper.isImageFile(x.path));
