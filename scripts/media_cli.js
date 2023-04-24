@@ -168,6 +168,11 @@ ya
           type: "string",
           description: "filename prefix for output ",
         })
+        .option("all", {
+          alias: "a",
+          type: "boolean",
+          description: "force rename all files ",
+        })
     },
     (argv) => {
       cmdPrefix(argv);
@@ -191,6 +196,10 @@ async function renameFiles(files) {
   return await Promise.all(
     files.map(async (f) => {
       const outPath = path.join(path.dirname(f.path), f.outName);
+      if (!f.outName || f.path == f.outPath) {
+        log.showYellow("Rename", "ignore", f.path);
+        return;
+      }
       try {
         await fs.rename(f.path, outPath);
         log.show(chalk.green(`Renamed:`) + ` ${outPath}`);
@@ -211,6 +220,7 @@ async function cmdPrefix(argv) {
     return;
   }
   const fastMode = argv.fast || false;
+  const allMode = argv.all || false;
   const startMs = Date.now();
   log.show("Prefix", `Input: ${root}`, fastMode ? "(FastMode)" : "");
   let files = await mf.walk(root, {
@@ -228,42 +238,59 @@ async function cmdPrefix(argv) {
     return;
   }
   let nameIndex = 0;
+  const reOnlyNum = /^\d+$/;
+  const tasks = [];
   for (const f of files) {
     const [dir, base, ext] = helper.pathSplit(f.path);
+    if (!reOnlyNum.test(base) && !allMode) {
+      log.showYellow("Prefix", `Ignore: ${helper.pathShort(f.path)}`);
+      continue;
+    }
     let dirPrefix = dir.replaceAll(/\W/gi, "").slice(0, 3);
-    let dirFix = dir.split(path.sep).slice(-2).join("")
-    let dirStr = dirFix.replaceAll(/[\.\\\/:"'\?]/gi, "")
+    let dirFix = dir.split(path.sep).slice(-2).join("");
+    let dirStr = dirFix.replaceAll(/[\.\\\/\[\]:"'\?]/gi, "");
     if (argv.ignore && argv.ignore.length >= 2) {
       dirStr = dirStr.replaceAll(argv.ignore, "");
     } else {
       dirStr = dirStr.replaceAll(/画师|图片|视频/gi, "");
     }
     const prefix = argv.prefix || dirPrefix || "IMG";
-    const fPrefix = dirStr.slice((argv.size || 12) * -1)
-    const newName = `${prefix}_${fPrefix}_${++nameIndex}${ext}`.toUpperCase()
+    const fPrefix = dirStr.slice((argv.size || 16) * -1)
+    const newName = `${fPrefix}_${++nameIndex}${ext}`.toUpperCase()
     const newPath = path.join(dir, newName);
     f.outName = newName;
     log.show("Prefix", `New Name: ${helper.pathShort(newPath)}`);
+    tasks.push(f);
   }
-  log.show(
-    "Prefix",
-    `Total ${files.length} media files ready to rename`,
-    fastMode ? "(FastMode)" : ""
-  );
+  if (tasks.length > 0) {
+    log.showGreen(
+      "Prefix",
+      `Total ${files.length} media files ready to rename`,
+      allMode ? "(allMode)" : ""
+    );
+  } else {
+    log.showYellow(
+      "Prefix",
+      `Nothing to do, abort.`,
+      allMode ? "(allMode)" : ""
+    );
+    return;
+  }
+
   const answer = await inquirer.prompt([
     {
       type: "confirm",
       name: "yes",
       default: false,
       message: chalk.bold.red(
-        `Are you sure to rename ${files.length} files?` +
-        (fastMode ? " (FastMode)" : "")
+        `Are you sure to rename ${tasks.length} files?` +
+        (allMode ? " (allMode)" : "")
       ),
     },
   ]);
   if (answer.yes) {
-    renameFiles(files).then((files) => {
-      log.showGreen("Prefix", `There ${files.length} file were renamed.`);
+    renameFiles(tasks).then((tasks) => {
+      log.showGreen("Prefix", `There ${tasks.length} file were renamed.`);
     });
   } else {
     log.showYellow("Prefix", "Will do nothing, aborted by user.");
