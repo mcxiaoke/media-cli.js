@@ -149,6 +149,22 @@ ya
     }
   )
   .command(
+    ["moveup <input> [output]", "mu"],
+    "Move files to sub folder in top folder",
+    (ya) => {
+      ya
+        .option("output", {
+          alias: "o",
+          type: "string",
+          normalize: true,
+          description: "Output sub folder name",
+        });
+    },
+    (argv) => {
+      cmdMoveUp(argv);
+    }
+  )
+  .command(
     ["prefix <input> [output]", "px"],
     "Rename files by append dir name or fixed string",
     (ya) => {
@@ -371,6 +387,55 @@ async function cmdRename(argv) {
   } else {
     log.showYellow("Rename", "Will do nothing, aborted by user.");
   }
+}
+
+async function cmdMoveUp(argv) {
+  log.show('cmdMoveUp', argv);
+  const root = path.resolve(argv.input);
+  if (!root || !(await fs.pathExists(root))) {
+    yargs.showHelp();
+    log.error("MoveUp", `Invalid Input: '${root}'`);
+    return;
+  }
+  // 读取顶级目录下所有的子目录
+  const outputDirName = argv.output || "图片";
+  let subDirs = await fs.readdir(root, { withFileTypes: true });
+  subDirs = subDirs.filter(x => x.isDirectory()).map(x => x.name);
+  log.show(subDirs)
+  // 移动各个子目录的文件到 子目录/图片 目录
+  let movedCount = 0;
+  for (const subDir of subDirs) {
+    let curDir = path.join(root, subDir)
+    let files = await exif.listMedia(curDir)
+    log.show("MoveUp", `Total ${files.length} media files found in ${subDir}`);
+    const fileOutput = path.join(curDir, outputDirName)
+    log.show("MoveUp", `fileOutput = ${fileOutput}`);
+    for (const f of files) {
+      const fileSrc = f.path;
+      const fileDst = path.join(fileOutput, path.basename(fileSrc));
+      if (!(await fs.pathExists(fileSrc))) {
+        log.info("Not Found:", fileSrc);
+        continue;
+      }
+      if (await fs.pathExists(fileDst)) {
+        log.info("Skip Exists:", fileDst);
+        continue;
+      }
+      if (!(await fs.pathExists(fileOutput))) {
+        await fs.mkdirp(fileOutput);
+      }
+      try {
+        await fs.move(fileSrc, fileDst);
+        // movedFiles.push([fileSrc, fileDst]);
+        movedCount++;
+        log.info("Moved:", fileSrc, "to", fileDst);
+      } catch (error) {
+        log.error("Failed:", error, fileSrc, "to", fileDst);
+      }
+      log.showGreen("MoveUp", `Files in ${curDir} are moved.`);
+    }
+  };
+  log.showGreen("MoveUp", `All ${movedCount} files moved.`);
 }
 
 async function cmdOrganize(argv) {
