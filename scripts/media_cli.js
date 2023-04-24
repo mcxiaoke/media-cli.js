@@ -401,7 +401,23 @@ async function cmdMoveUp(argv) {
   const outputDirName = argv.output || "图片";
   let subDirs = await fs.readdir(root, { withFileTypes: true });
   subDirs = subDirs.filter(x => x.isDirectory()).map(x => x.name);
-  log.show(subDirs)
+  log.show("MoveUp", "Folders:", subDirs)
+
+  const answer = await inquirer.prompt([
+    {
+      type: "confirm",
+      name: "yes",
+      default: false,
+      message: chalk.bold.red(
+        `Are you sure to move files in these folders to top sub folder?`
+      ),
+    },
+  ]);
+  if (!answer.yes) {
+    log.showYellow("MoveUp", "Will do nothing, aborted by user.");
+    return;
+  }
+
   // 移动各个子目录的文件到 子目录/图片 目录
   let movedCount = 0;
   for (const subDir of subDirs) {
@@ -418,7 +434,7 @@ async function cmdMoveUp(argv) {
         continue;
       }
       if (await fs.pathExists(fileDst)) {
-        log.info("Skip Exists:", fileDst);
+        log.showYellow("Skip Exists:", fileDst);
         continue;
       }
       if (!(await fs.pathExists(fileOutput))) {
@@ -432,8 +448,8 @@ async function cmdMoveUp(argv) {
       } catch (error) {
         log.error("Failed:", error, fileSrc, "to", fileDst);
       }
-      log.showGreen("MoveUp", `Files in ${curDir} are moved.`);
     }
+    log.showGreen("MoveUp", `Files in ${curDir} are moved to ${fileOutput}.`);
   };
   log.showGreen("MoveUp", `All ${movedCount} files moved.`);
 }
