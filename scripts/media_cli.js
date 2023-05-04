@@ -399,6 +399,7 @@ async function cmdMoveUp(argv) {
   }
   // 读取顶级目录下所有的子目录
   const outputDirName = argv.output || "图片";
+  const videoDirName = "视频"
   let subDirs = await fs.readdir(root, { withFileTypes: true });
   subDirs = subDirs.filter(x => x.isDirectory()).map(x => x.name);
   log.show("MoveUp", "Folders:", subDirs)
@@ -425,12 +426,17 @@ async function cmdMoveUp(argv) {
     let files = await exif.listMedia(curDir)
     log.show("MoveUp", `Total ${files.length} media files found in ${subDir}`);
     const fileOutput = path.join(curDir, outputDirName)
+    const videoOutput = path.join(curDir, videoDirName);
     log.show("MoveUp", `fileOutput = ${fileOutput}`);
     for (const f of files) {
       const fileSrc = f.path;
-      const fileDst = path.join(fileOutput, path.basename(fileSrc));
+      const fileDst = path.join(helper.isVideoFile(fileSrc) ? videoOutput : fileOutput, path.basename(fileSrc));
+      if (fileSrc === fileDst) {
+        log.info("Skip Same:", fileDst);
+        continue;
+      }
       if (!(await fs.pathExists(fileSrc))) {
-        log.info("Not Found:", fileSrc);
+        log.showYellow("Not Found:", fileSrc);
         continue;
       }
       if (await fs.pathExists(fileDst)) {
