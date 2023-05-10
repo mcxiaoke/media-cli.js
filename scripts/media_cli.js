@@ -149,6 +149,40 @@ ya
     }
   )
   .command(
+    ["compress <input> [output]", "cs"],
+    "Compress input images to target size",
+    (ya) => {
+      ya
+        .option("delete", {
+          alias: "d",
+          type: "boolean",
+          default: false,
+          description: "Delete original image file",
+        })
+        .option("quality", {
+          alias: "q",
+          type: "number",
+          default: 88,
+          description: "Target image file compress quality",
+        })
+        .option("size", {
+          alias: "s",
+          type: "number",
+          default: 3072,
+          description: "Processing file bigger than this size (unit:k)",
+        })
+        .option("width", {
+          alias: "w",
+          type: "number",
+          default: 4000,
+          description: "Max width of long side of image thumb",
+        });
+    },
+    (argv) => {
+      cmdCompress(argv);
+    }
+  )
+  .command(
     ["moveup <input> [output]", "mu"],
     "Move files to sub folder in top folder",
     (ya) => {
@@ -655,7 +689,7 @@ async function prepareThumbArgs(f, options) {
   fileDst = path.resolve(fileDst);
 
   if (await fs.pathExists(fileDst)) {
-    log.info("cmdThumbs exists:", fileDst, force ? "(Override)" : "");
+    log.info("prepareThumbArgs exists:", fileDst, force ? "(Override)" : "");
     if (!force) {
       return;
     }
@@ -664,7 +698,7 @@ async function prepareThumbArgs(f, options) {
     const s = sharp(fileSrc);
     const m = await s.metadata();
     if (m.width <= maxSize && m.height <= maxSize) {
-      log.debug("cmdThumbs skip:", fileSrc);
+      log.debug("prepareThumbArgs skip:", fileSrc);
       return;
     }
     const nw =
@@ -672,7 +706,7 @@ async function prepareThumbArgs(f, options) {
     const nh = Math.round((nw * m.height) / m.width);
 
     log.debug(
-      "cmdThumbs prepared:",
+      "prepareThumbArgs prepared:",
       fileDst,
       `(${m.width}x${m.height} => ${nw}x${nh})`
     );
@@ -682,20 +716,29 @@ async function prepareThumbArgs(f, options) {
       dst: fileDst,
     };
   } catch (error) {
-    log.error("cmdThumbs error:", error, f.path);
+    log.error("prepareThumbArgs error:", error, f.path);
   }
 }
 
 async function makeThumbOne(t) {
+  //log.show("makeThumbOne", t);
   await fs.ensureDir(path.dirname(t.dst));
   // console.log(t.dst);
   const s = sharp(t.src);
   const r = await s
     .resize({ width: t.width })
     .withMetadata()
-    .jpeg({ quality: 85, chromaSubsampling: "4:4:4" })
+    .jpeg({ quality: t.quality || 85, chromaSubsampling: "4:4:4" })
     .toFile(t.dst);
-  log.showGreen("cmdThumbs done:", t.dst, r.width, r.height);
+  log.showGreen("makeThumbOne done:", t.dst, r.width, r.height);
+  if (t.deleteOriginal) {
+    try {
+      await fs.remove(t.src);
+      log.debug("makeThumbOne", `deleteOriginal ok: '${t.src}'`);
+    } catch (error) {
+      log.error("makeThumbOne", `deleteOriginal failed: '${t.src}'`);
+    }
+  }
   return r;
 }
 
@@ -704,11 +747,11 @@ async function cmdThumbs(argv) {
   const root = path.resolve(argv.input);
   assert.strictEqual("string", typeof root, "root must be string");
   if (!root || !(await fs.pathExists(root))) {
-    yargs.showHelp();
+    ya.showHelp();
     log.error("cmdThumbs", `Invalid Input: '${root}'`);
     return;
   }
-  const maxSize = argv.maxSize || 3000;
+  const maxWidth = argv.max || 3000;
   const force = argv.force || false;
   const output = argv.output;
   // return;
@@ -731,7 +774,7 @@ async function cmdThumbs(argv) {
     files.map(
       throat(cpuCount, (f) =>
         prepareThumbArgs(f, {
-          maxSize: maxSize,
+          maxWidth: maxWidth,
           force: force,
           output: output,
         })
@@ -772,4 +815,129 @@ async function cmdThumbs(argv) {
   const result = await pMap(tasks, makeThumbOne, { concurrency: cpuCount });
   log.showGreen('cmdThumbs: endAt', dayjs().format())
   log.showGreen(`cmdThumbs: ${result.length} thumbs generated in ${helper.humanTime(startMs)}`)
+}
+
+async function prepareCompressArgs(f, options) {
+  options = options || {};
+  // log.show("prepareCompressArgs options:", options);
+  const maxWidth = options.maxWidth || 4000;
+  const force = options.force || false;
+  const deleteOriginal = options.deleteOriginal || false;
+  let fileSrc = path.resolve(f.path);
+  const [dir, base, ext] = helper.pathSplit(fileSrc);
+  let fileDst = path.join(dir, `${base}_Z4K.jpg`);
+  fileSrc = path.resolve(fileSrc);
+  fileDst = path.resolve(fileDst);
+
+  if (await fs.pathExists(fileDst)) {
+    log.info("prepareCompressArgs exists:", fileDst, force ? "(Override)" : "");
+    if (deleteOriginal) {
+      await fs.remove(fileSrc);
+      log.showYellow('prepareCompressArgs exists, delete', helper.pathShort(fileSrc));
+    }
+    if (!force) {
+      return;
+    }
+  }
+  try {
+    const s = sharp(fileSrc);
+    const m = await s.metadata();
+    const nw =
+      m.width > m.height ? maxWidth : Math.round((maxWidth * m.width) / m.height);
+    const nh = Math.round((nw * m.height) / m.width);
+
+    const dw = nw > m.width ? m.width : nw;
+    const dh = nh > m.height ? m.height : nh;
+    log.show(
+      "prepareCompressArgs prepared:",
+      helper.pathShort(fileDst),
+      `(${m.width}x${m.height} => ${dw}x${dh})`
+    );
+    return {
+      width: dw,
+      height: dh,
+      src: fileSrc,
+      dst: fileDst,
+    };
+  } catch (error) {
+    log.error("prepareCompressArgs error:", error, fileSrc);
+  }
+}
+
+async function cmdCompress(argv) {
+  const root = path.resolve(argv.input);
+  assert.strictEqual("string", typeof root, "root must be string");
+  if (!root || !(await fs.pathExists(root))) {
+    ya.showHelp();
+    log.error("cmdCompress", `Invalid Input: '${root}'`);
+    return;
+  }
+  log.show('cmdCompress', argv);
+  const force = argv.force || false;
+  const quality = argv.quality || 88;
+  const minFileSize = (argv.size || 3072) * 1024;
+  const maxWidth = argv.width || 4000;
+  const deleteOriginal = argv.delete || false;
+  log.show(`cmdCompress: input:`, root);
+
+  const RE_THUMB = /(Z4K|feature|web|thumb)/i;
+  const walkOpts = {
+    entryFilter: (f) =>
+      f.stats.isFile() &&
+      f.stats.size > minFileSize &&
+      helper.isImageFile(f.path) &&
+      !RE_THUMB.test(f.path),
+  };
+  const files = await mf.walk(root, walkOpts);
+  log.show("cmdCompress", `total ${files.length} files found`);
+
+  let tasks = await Promise.all(
+    files.map(
+      throat(cpuCount, (f) =>
+        prepareCompressArgs(f, {
+          maxWidth: maxWidth,
+          force: force,
+          deleteOriginal: deleteOriginal
+        })
+      )
+    )
+  );
+  log.debug("cmdCompress before filter: ", tasks.length);
+  const total = tasks.length;
+  tasks = tasks.filter((t) => t && t.dst);
+  const skipped = total - tasks.length;
+  log.debug("cmdCompress after filter: ", tasks.length);
+  if (skipped > 0) {
+    log.showYellow(`cmdCompress: ${skipped} thumbs skipped`)
+  }
+  if (tasks.length == 0) {
+    log.showYellow("Nothing to do, abort.");
+    return;
+  }
+  tasks.forEach(t => {
+    t.quality = quality || 88;
+    t.deleteOriginal = deleteOriginal || false;
+  });
+  log.show(`cmdCompress: task sample:`, tasks.slice(-2))
+  const answer = await inquirer.prompt([
+    {
+      type: "confirm",
+      name: "yes",
+      default: false,
+      message: chalk.bold.red(
+        `Are you sure to compress ${tasks.length} files? \n[Apply to files bigger than ${minFileSize / 1024}K, and max long side is ${maxWidth}] \n${deleteOriginal ? "(Attention: you choose to delete original file!)" : "(Will keep original file)"}`
+      ),
+    },
+  ]);
+
+  if (!answer.yes) {
+    log.showYellow("Will do nothing, aborted by user.");
+    return;
+  }
+
+  const startMs = Date.now();
+  log.showGreen('cmdCompress: startAt', dayjs().format())
+  const result = await pMap(tasks, makeThumbOne, { concurrency: cpuCount / 2 + 1 });
+  log.showGreen('cmdCompress: endAt', dayjs().format())
+  log.showGreen(`cmdCompress: ${result.length} thumbs generated in ${helper.humanTime(startMs)}`)
 }
