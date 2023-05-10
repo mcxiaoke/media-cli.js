@@ -731,14 +731,19 @@ async function makeThumbOne(t) {
       .withMetadata()
       .jpeg({ quality: t.quality || 85, chromaSubsampling: "4:4:4" })
       .toFile(t.dst);
-    log.showGreen("makeThumbOne done:", t.dst, r.width, r.height);
+    log.showGreen("makeThumbOne output:", helper.pathShort(t.dst), r.width, r.height);
     if (t.deleteOriginal) {
-      await fs.remove(t.src);
+      try {
+        await fs.remove(t.src);
+        log.show("makeThumbOne delete:", helper.pathShort(t.src));
+      } catch (error) {
+        log.error("makeThumbOne delete original", error);
+      }
     }
+    return r;
   } catch (error) {
     log.error("makeThumbOne", `error on '${t.src}'`);
   }
-  return r;
 }
 
 async function cmdThumbs(argv) {
