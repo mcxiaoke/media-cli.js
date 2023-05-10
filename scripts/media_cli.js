@@ -23,7 +23,7 @@ const prettyError = PrettyError.start();
 prettyError.skipNodeFiles();
 
 const configCli = (argv) => {
-  // log.setName("AudioCli");
+  // log.setName("MediaCli");
   log.setLevel(argv.verbose);
   log.debug(argv);
 };
@@ -168,7 +168,7 @@ ya
         .option("size", {
           alias: "s",
           type: "number",
-          default: 3072,
+          default: 4096,
           description: "Processing file bigger than this size (unit:k)",
         })
         .option("width", {
@@ -722,22 +722,21 @@ async function prepareThumbArgs(f, options) {
 
 async function makeThumbOne(t) {
   //log.show("makeThumbOne", t);
-  await fs.ensureDir(path.dirname(t.dst));
-  // console.log(t.dst);
-  const s = sharp(t.src);
-  const r = await s
-    .resize({ width: t.width })
-    .withMetadata()
-    .jpeg({ quality: t.quality || 85, chromaSubsampling: "4:4:4" })
-    .toFile(t.dst);
-  log.showGreen("makeThumbOne done:", t.dst, r.width, r.height);
-  if (t.deleteOriginal) {
-    try {
+  try {
+    await fs.ensureDir(path.dirname(t.dst));
+    // console.log(t.dst);
+    const s = sharp(t.src);
+    const r = await s
+      .resize({ width: t.width })
+      .withMetadata()
+      .jpeg({ quality: t.quality || 85, chromaSubsampling: "4:4:4" })
+      .toFile(t.dst);
+    log.showGreen("makeThumbOne done:", t.dst, r.width, r.height);
+    if (t.deleteOriginal) {
       await fs.remove(t.src);
-      log.debug("makeThumbOne", `deleteOriginal ok: '${t.src}'`);
-    } catch (error) {
-      log.error("makeThumbOne", `deleteOriginal failed: '${t.src}'`);
     }
+  } catch (error) {
+    log.error("makeThumbOne", `error on '${t.src}'`);
   }
   return r;
 }
@@ -875,7 +874,7 @@ async function cmdCompress(argv) {
   log.show('cmdCompress', argv);
   const force = argv.force || false;
   const quality = argv.quality || 88;
-  const minFileSize = (argv.size || 3072) * 1024;
+  const minFileSize = (argv.size || 4096) * 1024;
   const maxWidth = argv.width || 4000;
   const deleteOriginal = argv.delete || false;
   log.show(`cmdCompress: input:`, root);
