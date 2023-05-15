@@ -168,7 +168,7 @@ ya
         .option("size", {
           alias: "s",
           type: "number",
-          default: 4096,
+          default: 3072,
           description: "Processing file bigger than this size (unit:k)",
         })
         .option("width", {
@@ -731,13 +731,13 @@ async function makeThumbOne(t) {
       .withMetadata()
       .jpeg({ quality: t.quality || 85, chromaSubsampling: "4:4:4" })
       .toFile(t.dst);
-    log.showGreen("makeThumbOne output:", helper.pathShort(t.dst), r.width, r.height);
+    log.showGreen("makeThumb output:", helper.pathShort(t.dst), r.width, r.height);
     if (t.deleteOriginal) {
       try {
         await fs.remove(t.src);
-        log.show("makeThumbOne delete:", helper.pathShort(t.src));
+        log.show("makeThumb delete:", helper.pathShort(t.src));
       } catch (error) {
-        log.error("makeThumbOne delete original", error);
+        log.error("makeThumb delete original", error);
       }
     }
     return r;
@@ -879,7 +879,7 @@ async function cmdCompress(argv) {
   log.show('cmdCompress', argv);
   const force = argv.force || false;
   const quality = argv.quality || 88;
-  const minFileSize = (argv.size || 4096) * 1024;
+  const minFileSize = (argv.size || 3072) * 1024;
   const maxWidth = argv.width || 4000;
   const deleteOriginal = argv.delete || false;
   log.show(`cmdCompress: input:`, root);
