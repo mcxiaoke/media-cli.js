@@ -297,15 +297,15 @@ async function cmdPrefix(argv) {
       continue;
     }
     let dirPrefix = dir.replaceAll(/\W/gi, "").slice(0, 3);
-    let dirFix = dir.split(path.sep).slice(-2).join("");
-    let dirStr = dirFix.replaceAll(/[\.\\\/\[\]:"'\?]/gi, "");
+    let dirFix = dir.split(path.sep).slice(-2).join("") + base;
+    let dirStr = dirFix.replaceAll(/[\.\\\/\[\]:"'\?\(\)]/gi, "");
     if (argv.ignore && argv.ignore.length >= 2) {
       dirStr = dirStr.replaceAll(argv.ignore, "");
     } else {
       dirStr = dirStr.replaceAll(/画师|图片|视频/gi, "");
     }
     const prefix = argv.prefix || dirPrefix || "IMG";
-    const fPrefix = dirStr.slice((argv.size || 16) * -1)
+    const fPrefix = dirStr.replaceAll(/\W/gi, "").slice((argv.size || 16) * -1)
     const newName = `${fPrefix}_${++nameIndex}${ext}`.toUpperCase()
     const newPath = path.join(dir, newName);
     f.outName = newName;
