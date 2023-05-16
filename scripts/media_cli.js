@@ -779,7 +779,12 @@ async function makeThumbOne(t) {
       .jpeg({ quality: t.quality || 85, chromaSubsampling: "4:4:4" })
       .toFile(t.dst);
     log.showGreen("makeThumb output:", helper.pathShort(t.dst), r.width, r.height);
-    if (t.deleteOriginal) {
+    const fst = await fs.stat(t.dst);
+    // file may be corrupted, del it
+    if (fst.size < 200 * 1024) {
+      await fs.remove(t.dst);
+      log.showRed("makeThumbOne", `file too small, del ${t.dst}`);
+    } else if (t.deleteOriginal) {
       try {
         await fs.remove(t.src);
         log.show("makeThumb delete:", helper.pathShort(t.src));
@@ -789,7 +794,10 @@ async function makeThumbOne(t) {
     }
     return r;
   } catch (error) {
-    log.error("makeThumbOne", `error on '${t.src}'`);
+    log.error("makeThumbOne", `error on '${t.src}'`, error);
+    try {
+      await fs.remove(t.dst);
+    } catch (error) { }
   }
 }
 
@@ -1235,6 +1243,6 @@ async function cmdRemove(argv) {
   }
 
   log.showGreen("cmdRemove", 'task endAt', dayjs().format())
-  log.showGreen(`cmdRemove: ${removedCount} files removed in ${helper.humanTime(startMs)}`)
+  log.showGreen("cmdRemove", `${removedCount} files removed in ${helper.humanTime(startMs)}`)
   log.show("cmdRemove", `task logs are written to ${log.fileLogName()}`);
 }
