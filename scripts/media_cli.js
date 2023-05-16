@@ -287,7 +287,7 @@ async function cmdPrefix(argv) {
     log.showYellow("Prefix", "Nothing to do, exit now.");
     return;
   }
-  let nameIndex = 0;
+  //let nameIndex = 0;
   const reOnlyNum = /^\d+$/;
   const tasks = [];
   for (const f of files) {
@@ -296,20 +296,19 @@ async function cmdPrefix(argv) {
       log.showYellow("Prefix", `Ignore: ${helper.pathShort(f.path)}`);
       continue;
     }
-    let dirPrefix = dir.replaceAll(/\W/gi, "").slice(0, 3);
-    let dirFix = dir.split(path.sep).slice(-2).join("") + base;
-    let dirStr = dirFix.replaceAll(/[\.\\\/\[\]:"'\?\(\)]/gi, "");
+    let dirFix = dir.split(path.sep).slice(-2).join("");
+    let dirStr = dirFix.replaceAll(/[\.\\\/\[\]:"'\?\(\)\ \-\_\+\!\#\@\d]/gi, "");
     if (argv.ignore && argv.ignore.length >= 2) {
       dirStr = dirStr.replaceAll(argv.ignore, "");
     } else {
-      dirStr = dirStr.replaceAll(/画师|图片|视频/gi, "");
+      dirStr = dirStr.replaceAll(/画师|图片|视频|PIC|NO/gi, "");
     }
-    const prefix = argv.prefix || dirPrefix || "IMG";
-    const fPrefix = dirStr.replaceAll(/\W/gi, "").slice((argv.size || 16) * -1)
-    const newName = `${fPrefix}_${++nameIndex}${ext}`.toUpperCase()
+    const oldBase = base.replaceAll(/\W-_\ \+/gi, "").slice(-6);
+    const fPrefix = (dirStr + "_" + oldBase).slice((argv.size || 16) * -1);
+    const newName = `${fPrefix}${ext}`.toUpperCase();
     const newPath = path.join(dir, newName);
     f.outName = newName;
-    log.show("Prefix", `New Name: ${helper.pathShort(newPath)}`);
+    log.show("Prefix", `Output: ${helper.pathShort(newPath)}`);
     tasks.push(f);
   }
   if (tasks.length > 0) {
