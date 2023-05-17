@@ -539,7 +539,7 @@ async function cmdMoveUp(argv) {
     log.show("MoveUp", `fileOutput = ${fileOutput}`);
     for (const f of files) {
       const fileSrc = f.path;
-      const fileDst = path.join(helper.isVideoFile(fileSrc) ? videoOutput : fileOutput, path.basename(fileSrc));
+      let fileDst = path.join(helper.isVideoFile(fileSrc) ? videoOutput : fileOutput, path.basename(fileSrc));
       if (fileSrc === fileDst) {
         log.info("Skip Same:", fileDst);
         continue;
@@ -547,6 +547,16 @@ async function cmdMoveUp(argv) {
       if (!(await fs.pathExists(fileSrc))) {
         log.showYellow("Not Found:", fileSrc);
         continue;
+      }
+      if (await fs.pathExists(fileDst)) {
+        const stSrc = await fs.stat(fileSrc);
+        const stDst = await fs.stat(fileDst);
+        if (stSrc.size !== stDst.size) {
+          // same name ,but not same file
+          const [dstDir, dstBase, dstExt] = helper.pathSplit(fileDst);
+          fileDst = path.join(dstDir, `${dstBase}_1${dstExt}`);
+          log.showYellow("New Name:", fileDst);
+        }
       }
       if (await fs.pathExists(fileDst)) {
         log.showYellow("Skip Exists:", fileDst);
