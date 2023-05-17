@@ -97,6 +97,30 @@ ya
     }
   )
   .command(
+    ["normalize <input>", "nz"],
+    "Normalize file names according given rules",
+    (ya) => {
+      ya.option("chars", {
+        alias: "c",
+        type: "string",
+        description: "Delete chars(in given string) from filename",
+      })
+        .option("words", {
+          alias: "w",
+          type: "string",
+          description: "Delete words(multi words seperated by comma) from filename",
+        })
+        .option("all", {
+          alias: "a",
+          type: "boolean",
+          description: "force rename all files ",
+        })
+    },
+    (argv) => {
+      cmdNormalize(argv);
+    }
+  )
+  .command(
     ["organize <input> [output]", "oz"],
     "Organize pictures by file modified date",
     (ya) => {
@@ -468,6 +492,10 @@ async function cmdRename(argv) {
   } else {
     log.showYellow("Rename", "Will do nothing, aborted by user.");
   }
+}
+
+async function cmdNormalize(argv) {
+  // todo
 }
 
 async function cmdMoveUp(argv) {
