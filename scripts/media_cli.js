@@ -752,15 +752,17 @@ async function prepareThumbArgs(f, options) {
       m.width > m.height ? maxSize : Math.round((maxSize * m.width) / m.height);
     const nh = Math.round((nw * m.height) / m.width);
 
-    log.debug(
-      "prepareThumbArgs prepared:",
+    log.info(
+      "prepareThumbArgs add:",
       fileDst,
       `(${m.width}x${m.height} => ${nw}x${nh})`
     );
     return {
       width: nw,
+      height: nh,
       src: fileSrc,
       dst: fileDst,
+      index: f.index,
     };
   } catch (error) {
     log.error("prepareThumbArgs error:", error, f.path);
@@ -778,23 +780,23 @@ async function makeThumbOne(t) {
       .withMetadata()
       .jpeg({ quality: t.quality || 85, chromaSubsampling: "4:4:4" })
       .toFile(t.dst);
-    log.showGreen("makeThumb output:", helper.pathShort(t.dst), r.width, r.height);
     const fst = await fs.stat(t.dst);
+    log.showGreen("makeThumb ==>", helper.pathShort(t.dst), r.width, r.height, `${fst.size / 1024}k`, t.index);
     // file may be corrupted, del it
     if (fst.size < 200 * 1024) {
       await fs.remove(t.dst);
-      log.showRed("makeThumbOne", `file too small, del ${t.dst}`);
+      log.showRed("makeThumb", `file too small, del ${t.dst}`);
     } else if (t.deleteOriginal) {
       try {
         await fs.remove(t.src);
-        log.show("makeThumb delete:", helper.pathShort(t.src));
+        log.showGray("makeThumb delete:", helper.pathShort(t.src));
       } catch (error) {
-        log.error("makeThumb delete original", error);
+        log.error("makeThumb delete error", error);
       }
     }
     return r;
   } catch (error) {
-    log.error("makeThumbOne", `error on '${t.src}'`, error);
+    log.error("makeThumb", `error on '${t.src}'`, error);
     try {
       await fs.remove(t.dst);
     } catch (error) { }
@@ -822,7 +824,7 @@ async function cmdThumbs(argv) {
   const walkOpts = {
     entryFilter: (f) =>
       f.stats.isFile() &&
-      f.stats.size > 100 * 1024 &&
+      f.stats.size > 500 * 1024 &&
       helper.isImageFile(f.path) &&
       !RE_THUMB.test(f.path),
   };
@@ -917,6 +919,7 @@ async function prepareCompressArgs(f, options) {
       height: dh,
       src: fileSrc,
       dst: fileDst,
+      index: f.index,
     };
   } catch (error) {
     log.error("prepareCompress error:", error, fileSrc);
