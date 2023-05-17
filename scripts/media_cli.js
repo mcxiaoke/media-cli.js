@@ -781,7 +781,7 @@ async function makeThumbOne(t) {
       .jpeg({ quality: t.quality || 85, chromaSubsampling: "4:4:4" })
       .toFile(t.dst);
     const fst = await fs.stat(t.dst);
-    log.showGreen("makeThumb ==>", helper.pathShort(t.dst), r.width, r.height, `${fst.size / 1024}k`, t.index);
+    log.showGreen("makeThumb", helper.pathShort(t.dst), `${r.width}x${r.height}`, `${helper.fileSizeSI(fst.size)}`, t.index);
     // file may be corrupted, del it
     if (fst.size < 200 * 1024) {
       await fs.remove(t.dst);
@@ -789,9 +789,9 @@ async function makeThumbOne(t) {
     } else if (t.deleteOriginal) {
       try {
         await fs.remove(t.src);
-        log.showGray("makeThumb delete:", helper.pathShort(t.src));
+        log.showGray("makeThumb del:", helper.pathShort(t.src));
       } catch (error) {
-        log.error("makeThumb delete error", error);
+        log.error("makeThumb", "del error", error);
       }
     }
     return r;
