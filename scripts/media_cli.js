@@ -1089,63 +1089,62 @@ async function prepareRemoveArgs(f, options) {
   // 文件名匹配文本
   const cPattern = conditions.pattern || "";
 
+  const hasName = cPattern && cPattern.length > 0;//1
+  const hasSize = cSize > 0;//2
+  const hasMeasure = cWidth > 0 || cHeight > 0;//3
+
   //log.show("prepareRM", `${cWidth}x${cHeight} ${cSize} /${cPattern}/`);
 
   const fileSrc = path.resolve(f.path);
   const fileName = path.basename(fileSrc);
   const [dir, base, ext] = helper.pathSplit(fileSrc);
 
+  let testName = false;
+  let testSize = false;
+  let testMeasure = false;
+
+  let itemDesc = "";
+
   try {
-    const fst = await fs.stat(fileSrc);
-    const s = sharp(fileSrc);
-    const m = await s.metadata();
-
-    const fWidth = m.width || 0;
-    const fHeight = m.height || 0;
-    const fSize = fst.size || 0;
-    const fName = fileName;
-
-    const hasName = cPattern && cPattern.length > 0;//1
-    const hasSize = cSize > 0;//2
-    const hasMeasure = cWidth > 0 || cHeight > 0;//3
-
-    let testName = false;
-    let testSize = false;
-    let testMeasure = false;
-
     // 首先检查名字正则匹配
     if (hasName) {
+      const fName = fileName;
       const rp = new RegExp(cPattern, "gi");
+      itemDesc += ` PT=${cPattern}`
       // 开头匹配，或末尾匹配，或正则匹配
       if (fName.startsWith(cPattern) || fName.endsWith(cPattern) || rp.test(fName)) {
         log.info(
-          "prepareRM[Name]:",
-          `${fileName} ${Math.round(fSize / 1024)}k ${fWidth}x${fHeight} [PT=${rp}]`
+          "prepareRM[Name]:", `${fileName} [NamePattern=${rp}]`
         );
         testName = true;
       } else {
         log.debug(
-          "prepareRM[Name]:",
-          `${fileName} ${Math.round(fSize / 1024)}k ${fWidth}x${fHeight} [PT=${rp}]`
+          "prepareRM[Name]:", `${fileName} [NamePattern=${rp}]`
         );
       }
     }
-    //if (!shouldRemove) {
+
     // 其次检查文件大小是否满足条件
     if (hasSize) {
+      const fst = await fs.stat(fileSrc);
+      const fSize = fst.size || 0;
+      itemDesc += ` ${Math.round(fSize / 1024)}k`
       if (fSize > 0 && fSize <= cSize) {
         log.info(
           "prepareRM[Size]:",
-          `${fileName} [${Math.round(fSize / 1024)}k] ${fWidth}x${fHeight} [Size=${cSize / 1024}k]`
+          `${fileName} [${Math.round(fSize / 1024)}k] [Size=${cSize / 1024}k]`
         );
         testSize = true;
       }
     }
-    //}
 
-    //if (!shouldRemove) {
     // 再次检查宽高是否满足条件
     if (hasMeasure) {
+      const s = sharp(fileSrc);
+      const m = await s.metadata();
+      const fWidth = m.width || 0;
+      const fHeight = m.height || 0;
+      itemDesc += ` ${fWidth}x${fHeight}`
       if (cWidth > 0 && cHeight > 0) {
         // 宽高都提供时，要求都满足才能删除
         if (fWidth <= cWidth && fHeight <= cHeight) {
@@ -1174,7 +1173,6 @@ async function prepareRemoveArgs(f, options) {
         }
       }
     }
-    //}
 
     // 满足名字规则/文件大小/宽高任一规则即会被删除，或关系
     let shouldRemove = false;
@@ -1191,12 +1189,12 @@ async function prepareRemoveArgs(f, options) {
     if (shouldRemove) {
       log.show(
         "prepareRM add:",
-        `${helper.pathShort(fileSrc)} ${Math.round(fSize / 1024)}k ${fWidth}x${fHeight}`, f.index
+        `${helper.pathShort(fileSrc)} ${itemDesc}`, f.index
       );
     } else {
       (testName || testSize || testMeasure) && log.info(
         "prepareRM ignore:",
-        `${helper.pathShort(fileSrc)} ${Math.round(fSize / 1024)}k ${fWidth}x${fHeight} (${testName} ${testSize} ${testMeasure})`, f.index
+        `${helper.pathShort(fileSrc)} ${itemDesc} (${testName} ${testSize} ${testMeasure})`, f.index
       );
     }
 
@@ -1206,9 +1204,7 @@ async function prepareRemoveArgs(f, options) {
       // testSize: testSize,
       // testMeasure: testMeasure,
       index: f.index,
-      width: fWidth,
-      height: fHeight,
-      size: fSize,
+      desc: itemDesc,
       shouldRemove: shouldRemove,
       src: fileSrc,
     };
