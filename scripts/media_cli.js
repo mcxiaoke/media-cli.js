@@ -19,19 +19,21 @@ import * as mf from '../lib/file.js'
 
 const cpuCount = cpus().length;
 // debug and logging config
+// 配置错误信息输出
 const prettyError = PrettyError.start();
 prettyError.skipNodeFiles();
-
+// 配置调试等级
 const configCli = (argv) => {
   // log.setName("MediaCli");
   log.setLevel(argv.verbose);
   log.debug(argv);
 };
-
+// 日志文件
 const fileLog = function (msg, tag) {
   log.fileLog(msg, tag, "mediac");
 }
 
+// 命令行参数解析
 const ya = yargs(process.argv.slice(2));
 // https://github.com/yargs/yargs/blob/master/docs/advanced.md
 ya
@@ -41,6 +43,7 @@ ya
     type: "string",
     normalize: true,
   })
+  // 测试命令，无作用
   .command(
     ["test", "tt", "$0"],
     "Test command, do nothing",
@@ -56,35 +59,42 @@ ya
       ya.showHelp();
     }
   )
+  // 命令：重命名
+  // 默认按照EXIF拍摄日期重命名，可提供自定义模板
   .command(
     ["rename <input> [options]", "rn"],
     "Rename media files in input dir by exif date",
     (ya) => {
       ya
         .option("backup", {
+          // 备份原石文件
           alias: "b",
           type: "boolean",
           default: false,
           description: "backup original file before rename",
         })
         .option("fast", {
+          // 快速模式，使用文件修改时间，不解析EXIF
           alias: "f",
           type: "boolean",
           description: "fast mode (use file modified time, no exif parse)",
         })
         .option("prefix", {
+          // 重命名后的文件前缀
           alias: "p",
           type: "string",
           default: "IMG_/DSC_/VID_",
           description: "custom filename prefix for raw/image/video files'",
         })
         .option("suffix", {
+          // 重命名后的后缀
           alias: "s",
           type: "string",
           default: "",
           description: "custom filename suffix",
         })
         .option("template", {
+          // 文件名模板，使用dayjs日期格式
           alias: "t",
           type: "string",
           default: "YYYYMMDD_HHmmss",
@@ -96,30 +106,34 @@ ya
       cmdRename(argv);
     }
   )
+  // 命令 文件名规范化
+  // 去除文件名中的特殊字符和非法字符，仅保留ASCII和CJK字符
+  // 可自定义要去掉的字符和字符串
+  // TODO
   .command(
     ["normalize <input>", "nz"],
     "Normalize file names according given rules",
     (ya) => {
       ya.option("chars", {
+        // 需要从文件名中清除的字符列表
         alias: "c",
         type: "string",
         description: "Delete chars(in given string) from filename",
       })
         .option("words", {
+          // 需要从文件名中清除的单词列表，逗号分割
           alias: "w",
           type: "string",
           description: "Delete words(multi words seperated by comma) from filename",
-        })
-        .option("all", {
-          alias: "a",
-          type: "boolean",
-          description: "force rename all files ",
         })
     },
     (argv) => {
       cmdNormalize(argv);
     }
   )
+  // 命令 分类图片文件
+  // 按照文件类型，图片或视频，分类整理
+  // 按照EXIF拍摄日期的年份和月份整理图片
   .command(
     ["organize <input> [output]", "oz"],
     "Organize pictures by file modified date",
@@ -135,6 +149,8 @@ ya
       cmdOrganize(argv);
     }
   )
+  // 命令 LR输出文件移动
+  // 移动RAW目录下LR输出的JPEG目录到单独的图片目录
   .command(
     ["lrmove <input> [output]", "lv"],
     "Move JPEG output of RAW files to other folder",
@@ -150,6 +166,8 @@ ya
       cmdLRMove(argv);
     }
   )
+  // 命令 生成缩略图
+  // 生成指定大小的缩略图，可指定最大边长
   .command(
     ["thumbs <input> [output]", "tb"],
     "Make thumbs for input images",
@@ -176,6 +194,9 @@ ya
       cmdThumbs(argv);
     }
   )
+  // 命令 压缩图片
+  // 压缩满足条件的图片，可指定最大边长和文件大小，输出质量
+  // 可选删除压缩后的源文件
   .command(
     ["compress <input> [output]", "cs"],
     "Compress input images to target size",
@@ -210,6 +231,9 @@ ya
       cmdCompress(argv);
     }
   )
+  // 命令 删除图片
+  // 按照指定规则删除文件，条件包括宽度高度、文件大小、文件名规则
+  // 支持严格模式和宽松模式
   .command(
     ["remove <input> [output]", "rm"],
     "Remove files by given size/width-height/name-pattern",
@@ -254,6 +278,8 @@ ya
       cmdRemove(argv);
     }
   )
+  // 命令 向上移动文件
+  // 把多层嵌套目录下的文件移动到顶层目录，按图片和视频分类
   .command(
     ["moveup <input> [output]", "mu"],
     "Move files to sub folder in top folder",
@@ -270,6 +296,8 @@ ya
       cmdMoveUp(argv);
     }
   )
+  // 命令 重命名文件
+  // 按照规则，将多个上级目录的名字附加到文件名，防止文件名冲突
   .command(
     ["prefix <input> [output]", "px"],
     "Rename files by append dir name or fixed string",
@@ -277,7 +305,7 @@ ya
       ya.option("size", {
         alias: "s",
         type: "number",
-        default: 12,
+        default: 16,
         description: "size[length] of prefix of dir name",
       })
         .option("ignore", {
@@ -304,13 +332,13 @@ ya
   .alias("v", "verbose")
   .alias("h", "help")
   .epilog(
-    "Media Utilities: Rename Image/Raw/Video files by EXIF date tags\nCopyright 2021 @ Zhang Xiaoke"
+    "Media Utilities: Process Image/Raw/Video files by EXIF date tags\nCopyright 2021-2023 @ Zhang Xiaoke"
   )
   .demandCommand(1, chalk.red("Missing sub command you want to execute!"))
   .showHelpOnFail()
   .help()
   .middleware([configCli]);
-const argv = ya.argv;
+//const argv = ya.argv;
 
 async function renameFiles(files) {
   log.info("Rename", `total ${files.length} files`);
@@ -1050,10 +1078,15 @@ async function prepareRemoveArgs(f, options) {
   // name pattern top1
   // width && height top2
   // size top3
+  // 宽松模式，采用 OR 匹配条件，默认是 AND
   const cLoose = conditions.loose || false;
+  // 最大宽度
   const cWidth = conditions.width || 0;
+  // 最大高度
   const cHeight = conditions.height || 0;
+  // 最大文件大小，单位k
   const cSize = conditions.size || 0;
+  // 文件名匹配文本
   const cPattern = conditions.pattern || "";
 
   //log.show("prepareRM", `${cWidth}x${cHeight} ${cSize} /${cPattern}/`);
@@ -1083,7 +1116,8 @@ async function prepareRemoveArgs(f, options) {
     // 首先检查名字正则匹配
     if (hasName) {
       const rp = new RegExp(cPattern, "gi");
-      if (rp.test(fName)) {
+      // 开头匹配，或末尾匹配，或正则匹配
+      if (fName.startsWith(cPattern) || fName.endsWith(cPattern) || rp.test(fName)) {
         log.info(
           "prepareRM[Name]:",
           `${fileName} ${Math.round(fSize / 1024)}k ${fWidth}x${fHeight} [PT=${rp}]`
