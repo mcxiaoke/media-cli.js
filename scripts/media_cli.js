@@ -338,7 +338,7 @@ ya
   .showHelpOnFail()
   .help()
   .middleware([configCli]);
-//const argv = ya.argv;
+const yargv = ya.argv;
 
 async function renameFiles(files) {
   log.info("Rename", `total ${files.length} files`);
