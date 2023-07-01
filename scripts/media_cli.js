@@ -17,6 +17,7 @@ import * as exif from '../lib/exif.js'
 import * as helper from '../lib/helper.js'
 import * as mf from '../lib/file.js'
 import * as tools from '../lib/tools.js'
+import * as unicode from '../lib/unicode.js'
 
 const cpuCount = cpus().length;
 // debug and logging config
@@ -306,7 +307,7 @@ ya
       ya.option("size", {
         alias: "s",
         type: "number",
-        default: 16,
+        default: 20,
         description: "size[length] of prefix of dir name",
       })
         .option("ignore", {
@@ -389,7 +390,10 @@ async function cmdPrefix(argv) {
     return;
   }
   //let nameIndex = 0;
+  // 正则：仅包含数字
   const reOnlyNum = /^\d+$/;
+  // 正则：匹配除 中日韩俄英 之外的特殊字符
+  const reNonChars = /[^\p{sc=Hani}\p{sc=Hira}\p{sc=Kana}\p{sc=Hang}\p{sc=Cyrl}\w]/ugi;
   const tasks = [];
   for (const f of files) {
     const [dir, base, ext] = helper.pathSplit(f.path);
@@ -397,15 +401,23 @@ async function cmdPrefix(argv) {
       log.showYellow("Prefix", `Ignore: ${helper.pathShort(f.path)}`);
       continue;
     }
+    // 取目录项的最后两级目录名
     let dirFix = dir.split(path.sep).slice(-2).join("");
-    let dirStr = dirFix.replaceAll(/[\.\\\/\[\]:"'\?\(\)\ \-\_\+\!\#\@\d]/gi, "");
+    // 去掉目录名中的年月日
+    let dirStr = dirFix.replaceAll(/\d{4}-\d{2}-\d{2}/gi, "");
+    //dirStr = dirStr.replaceAll(/[\.\\\/\[\]:"'\?\(\)\s\-\_\+\!\#\@\$\~]/gi, "");
+    // 去掉所有特殊字符
+    dirStr = dirStr.replaceAll(reNonChars, "");
     if (argv.ignore && argv.ignore.length >= 2) {
       dirStr = dirStr.replaceAll(argv.ignore, "");
     } else {
-      dirStr = dirStr.replaceAll(/画师|图片|视频|PIC|NO/gi, "");
+      dirStr = dirStr.replaceAll(/更新|合集|画师|图片|视频|插画|限定|差分|R18|PSD|PIXIV|PIC|NO|ZIP|RAR/gi, "");
     }
-    const oldBase = base.replaceAll(/\W-_\ \+/gi, "").slice(-6);
-    const fPrefix = (dirStr + "_" + oldBase).slice((argv.size || 16) * -1);
+    const nameSlice = (argv.size || 20) * -1;
+    // 去掉所有特殊字符
+    let oldBase = base.replaceAll(reNonChars, "");
+    //oldBase = oldBase.replaceAll(/\s/gi, "").slice(nameSlice);
+    const fPrefix = (dirStr + "_" + oldBase).slice(nameSlice);
     const newName = `${fPrefix}${ext}`.toUpperCase();
     const newPath = path.join(dir, newName);
     f.outName = newName;
