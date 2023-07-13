@@ -1100,7 +1100,7 @@ async function prepareRemoveArgs(f, options) {
   // 最大文件大小，单位k
   const cSize = conditions.size || 0;
   // 文件名匹配文本
-  const cPattern = conditions.pattern || "";
+  const cPattern = (conditions.pattern || "").toLowerCase();
 
   const hasName = cPattern && cPattern.length > 0;//1
   const hasSize = cSize > 0;//2
@@ -1121,7 +1121,7 @@ async function prepareRemoveArgs(f, options) {
   try {
     // 首先检查名字正则匹配
     if (hasName) {
-      const fName = fileName;
+      const fName = fileName.toLowerCase();
       const rp = new RegExp(cPattern, "gi");
       itemDesc += ` PT=${cPattern}`
       // 开头匹配，或末尾匹配，或正则匹配
@@ -1151,39 +1151,46 @@ async function prepareRemoveArgs(f, options) {
       }
     }
 
+    // 图片文件才检查宽高
+    const isImage = helper.isImageFile(fileSrc);
+
     // 再次检查宽高是否满足条件
     if (hasMeasure) {
-      const s = sharp(fileSrc);
-      const m = await s.metadata();
-      const fWidth = m.width || 0;
-      const fHeight = m.height || 0;
-      itemDesc += ` ${fWidth}x${fHeight}`
-      if (cWidth > 0 && cHeight > 0) {
-        // 宽高都提供时，要求都满足才能删除
-        if (fWidth <= cWidth && fHeight <= cHeight) {
-          log.info(
-            "prepareRM[Measure]:",
-            `${fileName} ${fWidth}x${fHeight} [${cWidth}x${cHeight}]`
-          );
-          testMeasure = true;
+      if (isImage) {
+        const s = sharp(fileSrc);
+        const m = await s.metadata();
+        const fWidth = m.width || 0;
+        const fHeight = m.height || 0;
+        itemDesc += ` ${fWidth}x${fHeight}`
+        if (cWidth > 0 && cHeight > 0) {
+          // 宽高都提供时，要求都满足才能删除
+          if (fWidth <= cWidth && fHeight <= cHeight) {
+            log.info(
+              "prepareRM[Measure]:",
+              `${fileName} ${fWidth}x${fHeight} [${cWidth}x${cHeight}]`
+            );
+            testMeasure = true;
+          }
         }
-      }
-      else {
-        if (cWidth > 0 && fWidth <= cWidth) {
-          // 只提供宽要求
-          log.info(
-            "prepareRM[Measure]:",
-            `${fileName} ${fWidth}x${fHeight} [W=${cWidth}]`
-          );
-          testMeasure = true;
-        } else if (cHeight > 0 && fHeight <= cHeight) {
-          // 只提供高要求
-          log.info(
-            "prepareRM[Measure]:",
-            `${fileName} ${fWidth}x${fHeight} [H=${cHeight}]`
-          );
-          testMeasure = true;
+        else {
+          if (cWidth > 0 && fWidth <= cWidth) {
+            // 只提供宽要求
+            log.info(
+              "prepareRM[Measure]:",
+              `${fileName} ${fWidth}x${fHeight} [W=${cWidth}]`
+            );
+            testMeasure = true;
+          } else if (cHeight > 0 && fHeight <= cHeight) {
+            // 只提供高要求
+            log.info(
+              "prepareRM[Measure]:",
+              `${fileName} ${fWidth}x${fHeight} [H=${cHeight}]`
+            );
+            testMeasure = true;
+          }
         }
+      } else {
+        log.info("prepareRM[Measure]:", `${fileName} is not image file`);
       }
     }
 
@@ -1196,7 +1203,7 @@ async function prepareRemoveArgs(f, options) {
       // 必须同时满足所有用户已提供的条件，与关系
       shouldRemove = ((hasName && testName) || !hasName)
         && ((hasSize && testSize) || !hasSize)
-        && ((hasMeasure && testMeasure) || !hasMeasure);
+        && ((isImage && hasMeasure && testMeasure) || !hasMeasure);
     }
 
     if (shouldRemove) {
@@ -1264,8 +1271,7 @@ async function cmdRemove(argv) {
 
   const walkOpts = {
     entryFilter: (f) =>
-      f.stats.isFile() &&
-      helper.isImageFile(f.path),
+      f.stats.isFile(),
     withIndex: true,
   };
   const files = await mf.walk(root, walkOpts);
