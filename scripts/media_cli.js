@@ -274,6 +274,18 @@ ya
           type: "string",
           default: "",
           description: "Files name pattern matche value will be removed",
+        })
+        .option("list", {
+          alias: "n",
+          type: "string",
+          normalize: true,
+          description: "File name list file",
+        })
+        .option("reverse", {
+          alias: "r",
+          type: "boolean",
+          default: false,
+          description: "If true, delete files in list (default keep) Only for list mode",
         });
     },
     (argv) => {
@@ -618,6 +630,41 @@ async function cmdMoveUp(argv) {
     log.showGreen("MoveUp", `Files in ${curDir} are moved to ${fileOutput}.`);
   };
   log.showGreen("MoveUp", `All ${movedCount} files moved.`);
+}
+
+
+// 整理合并到remove命令里
+async function cmdKeepFile(argv) {
+  log.show('cmdKeepFile', argv);
+  const list = path.resolve(argv.list);
+  if (!list || !(await fs.pathExists(list))) {
+    ya.showHelp();
+    log.error("KeepFile", `Invalid list file: '${list}'`);
+    return;
+  }
+  const root = path.resolve(argv.input);
+  if (!root || !(await fs.pathExists(root))) {
+    ya.showHelp();
+    log.error("KeepFile", `Invalid Input: '${root}'`);
+    return;
+  }
+  // 默认保留列表中的文件（删除其它其它所有文件），
+  // 如果反转，则是删除列表中的文件
+  const reverse = argv.reverse || false;
+  const listContent = await fs.readFile(list, 'utf-8') || "";
+  const nameList = listContent.split(/\r?\n/).map(x => path.parse(x).name.trim()).filter(Boolean);
+  const names = new Set(nameList);
+  const files = await fs.readdir(root);
+  let tasks = null;
+  if (reverse) {
+    tasks = files.filter(x => names.has(path.parse(x).name.trim()));
+  } else {
+    tasks = files.filter(x => !names.has(path.parse(x).name.trim()));
+  }
+  tasks = tasks.map(x => path.join(root, x));
+  for (const t of tasks) {
+    // log.show(t);
+  }
 }
 
 async function cmdOrganize(argv) {
@@ -1083,9 +1130,48 @@ async function cmdCompress(argv) {
   log.showGreen(`cmdCompress: ${result.length} thumbs generated in ${helper.humanTime(startMs)}`)
 }
 
+function buildRemoveArgs(index, desc, shouldRemove, src) {
+  return {
+    index: index,
+    desc: desc,
+    shouldRemove: shouldRemove,
+    src: src,
+  };
+}
+
 async function prepareRemoveArgs(f, options) {
+  const fileSrc = path.resolve(f.path);
+  const fileName = path.basename(fileSrc);
+  const [dir, base, ext] = helper.pathSplit(fileSrc);
+
   let conditions = options || {};
   //log.show("prepareRM options:", options);
+  // 文件名列表规则
+  const cNames = conditions.names || new Set();
+  // 是否反转文件名列表
+  const cReverse = conditions.reverse;
+  const hasList = cNames && cNames.size > 0;
+
+  let itemDesc = "";
+  //----------------------------------------------------------------------
+  log.showGreen(hasList);
+  if (hasList) {
+    let shouldRemove = false;
+    const nameInList = cNames.has(base.trim());
+    if (cReverse) {
+      shouldRemove = nameInList;
+    } else {
+      shouldRemove = !nameInList;
+    }
+    itemDesc = `IN=${nameInList} R=${cReverse}`;
+    log.show(
+      "prepareRM[List] add:",
+      `${helper.pathShort(fileSrc)} ${itemDesc}`, f.index
+    );
+    return buildRemoveArgs(f.index, itemDesc, shouldRemove, fileSrc);
+  }
+  // 文件名列表是单独规则，优先级最高，如果存在，直接返回，忽略其它条件
+  //----------------------------------------------------------------------
 
   // three args group
   // name pattern top1
@@ -1108,22 +1194,16 @@ async function prepareRemoveArgs(f, options) {
 
   //log.show("prepareRM", `${cWidth}x${cHeight} ${cSize} /${cPattern}/`);
 
-  const fileSrc = path.resolve(f.path);
-  const fileName = path.basename(fileSrc);
-  const [dir, base, ext] = helper.pathSplit(fileSrc);
-
   let testName = false;
   let testSize = false;
   let testMeasure = false;
-
-  let itemDesc = "";
 
   try {
     // 首先检查名字正则匹配
     if (hasName) {
       const fName = fileName.toLowerCase();
       const rp = new RegExp(cPattern, "gi");
-      itemDesc += ` PT=${cPattern}`
+      itemDesc += ` PT=${cPattern}`;
       // 开头匹配，或末尾匹配，或正则匹配
       if (fName.startsWith(cPattern) || fName.endsWith(cPattern) || rp.test(fName)) {
         log.info(
@@ -1236,6 +1316,12 @@ async function prepareRemoveArgs(f, options) {
   }
 }
 
+async function readNameList(list) {
+  const listContent = await fs.readFile(list, 'utf-8') || "";
+  const nameList = listContent.split(/\r?\n/).map(x => path.parse(x).name.trim()).filter(Boolean);
+  return new Set(nameList);
+}
+
 async function cmdRemove(argv) {
   const root = path.resolve(argv.input);
   assert.strictEqual("string", typeof root, "root must be string");
@@ -1245,28 +1331,35 @@ async function cmdRemove(argv) {
     return;
   }
   log.show('cmdRemove', argv);
+
   const cLoose = argv.loose || false;
   const cWidth = argv.width || 0;
   const cHeight = argv.height || 0;
   const cSize = argv.size * 1024 || 0;
   const cPattern = argv.pattern || "";
+  const list = path.resolve(argv.list);
+  const reverse = argv.reverse || false;
 
   if (argv.dimension && argv.dimension.length > 0) {
     // parse dimension arg 2160x4680
   }
 
-  if (cWidth == 0 && cHeight == 0 && cSize == 0 && !cPattern) {
-    log.error("cmdRemove", `invalid arguments: width/height/size/pattern supplied`);
+  if (cWidth == 0 && cHeight == 0 && cSize == 0 && !cPattern && !list) {
+    log.error("cmdRemove", `invalid arguments: width/height/size/pattern/list supplied`);
     return;
   }
+  const cNames = (await readNameList(list)) || new Set();
   log.show("cmdRemove", `input:`, root);
   fileLog(`<Input> ${root}`, "cmdRemove");
+
   const conditions = {
     loose: cLoose,
     width: cWidth,
     height: cHeight,
     size: cSize,
     pattern: cPattern,
+    names: cNames,
+    reverse: reverse,
   }
 
   const walkOpts = {
@@ -1299,7 +1392,10 @@ async function cmdRemove(argv) {
 
   log.show("cmdRemove", `task sample:`, tasks.slice(-1));
   log.showYellow("cmdRemove", conditions);
-  fileLog(`<Conditions> loose=${cLoose},width=${cWidth},height=${cHeight},size=${cSize / 1024}k,name=${cPattern}`, "cmdRemove");
+  if (cNames && cNames.size > 0) {
+    log.showYellow("cmdRemove", `Attention: use file name list, ignore all other conditions`);
+  }
+  fileLog(`<Conditions> list=${cNames.size},loose=${cLoose},width=${cWidth},height=${cHeight},size=${cSize / 1024}k,name=${cPattern}`, "cmdRemove");
   const answer = await inquirer.prompt([
     {
       type: "confirm",
