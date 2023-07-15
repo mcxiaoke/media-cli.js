@@ -238,54 +238,67 @@ ya
   // 支持严格模式和宽松模式
   .command(
     ["remove <input> [output]", "rm"],
-    "Remove files by given size/width-height/name-pattern",
+    "Remove files by given size/width-height/name-pattern/file-list",
     (ya) => {
       ya
+        .option("safe", {
+          type: "boolean",
+          default: true,
+          // 使用安全删除，默认开启，移动到Deleted目录，关闭后是永久删除
+          description: "If true, moved to Deleted dir, instead real delete",
+        })
         .option("loose", {
           alias: "l",
           type: "boolean",
           default: false,
-          description: "If true, operation of conditions is OR, else is AND",
+          // 宽松模式，默认不开启，宽松模式条件或，默认严格模式条件与
+          description: "If true, operation of conditions is OR, default AND",
         })
         .option("width", {
           type: "number",
           default: 0,
+          // 图片文件的最大宽度
           description: "Files width smaller than value will be removed",
         })
         .option("height", {
           type: "number",
           default: 0,
+          // 图片文件的最大高度
           description: "Files height smaller than value will be removed",
         })
         .option("dimension", {
           alias: "d",
           type: "string",
           default: "",
+          // 图片文件的长宽字符串形式
           description: "File dimension, width and height, eg: '123x456'",
         })
         .option("size", {
           alias: "s",
           type: "number",
           default: 0,
+          // 图片文件的文件大小数值，最大，单位为k
           description: "Files size smaller than value will be removed (unit:k)",
         })
         .option("pattern", {
           alias: "p",
           type: "string",
           default: "",
+          // 文件名匹配，字符串或正则表达式
           description: "Files name pattern matche value will be removed",
         })
         .option("list", {
-          alias: "n",
           type: "string",
-          normalize: true,
-          description: "File name list file",
+          default: null,
+          // 文件名列表文本文件，或者一个目录，里面包含的文件作为文件名列表来源
+          description: "File name list file, or dir contains files for file name",
         })
         .option("reverse", {
           alias: "r",
           type: "boolean",
           default: false,
-          description: "If true, delete files in list (default keep) Only for list mode",
+          // 文件名列表反转，默认为否，即删除列表中的文件，反转则删除不在列表中的文件
+          description: "delete files in list, if true delete files not in the list",
         });
     },
     (argv) => {
@@ -914,7 +927,7 @@ async function makeThumbOne(t) {
       log.showRed("makeThumb", `file too small, del ${t.dst}`);
     } else if (t.deleteOriginal) {
       try {
-        await fs.remove(t.src);
+        await helper.safeRemove(t.src);
         log.showGray("makeThumb del:", helper.pathShort(t.src));
       } catch (error) {
         log.error("makeThumb", "del error", error);
@@ -1019,7 +1032,7 @@ async function prepareCompressArgs(f, options) {
   if (await fs.pathExists(fileDst)) {
     log.info("prepareCompress exists:", fileDst, force ? "(Override)" : "");
     if (deleteOriginal) {
-      await fs.remove(fileSrc);
+      await helper.safeRemove(fileSrc);
       log.showYellow('prepareCompress exists, delete', helper.pathShort(fileSrc));
     }
     if (!force) {
@@ -1159,9 +1172,9 @@ async function prepareRemoveArgs(f, options) {
     let shouldRemove = false;
     const nameInList = cNames.has(base.trim());
     if (cReverse) {
-      shouldRemove = nameInList;
-    } else {
       shouldRemove = !nameInList;
+    } else {
+      shouldRemove = nameInList;
     }
     itemDesc = `IN=${nameInList} R=${cReverse}`;
     log.show(
@@ -1323,32 +1336,57 @@ async function readNameList(list) {
 }
 
 async function cmdRemove(argv) {
-  const root = path.resolve(argv.input);
-  assert.strictEqual("string", typeof root, "root must be string");
-  if (!root || !(await fs.pathExists(root))) {
+  assert.strictEqual("string", typeof argv.input, "root must be string");
+  if (!argv.input || !(await fs.pathExists(argv.input))) {
     ya.showHelp();
-    log.error("cmdRemove", `Invalid Input: '${root}'`);
+    log.error("cmdRemove", `Invalid Input: '${argv.input}'`);
     return;
   }
+  const root = path.resolve(argv.input);
   log.show('cmdRemove', argv);
+  // 如果没有提供任何一个参数，报错，显示帮助
+  if (argv.width == 0 && argv.height == 0 && argv.size == 0
+    && !argv.pattern && !argv.list) {
+    ya.showHelp();
+    log.error("cmdRemove", `no arguments: width/height/size/pattern/list not supplied`);
+    return;
+  }
 
+  const useSafeRemove = argv.safe || true;
   const cLoose = argv.loose || false;
   const cWidth = argv.width || 0;
   const cHeight = argv.height || 0;
   const cSize = argv.size * 1024 || 0;
   const cPattern = argv.pattern || "";
-  const list = path.resolve(argv.list);
-  const reverse = argv.reverse || false;
+  const cReverse = argv.reverse || false;
 
   if (argv.dimension && argv.dimension.length > 0) {
-    // parse dimension arg 2160x4680
+    // 解析文件长宽字符串，例如 2160x4680
   }
 
-  if (cWidth == 0 && cHeight == 0 && cSize == 0 && !cPattern && !list) {
-    log.error("cmdRemove", `invalid arguments: width/height/size/pattern/list supplied`);
+  const list = path.resolve(argv.list);
+  if (!list || !await fs.pathExists(list)) {
+    log.error("cmdRemove", `invalid arguments: list file path not exists`);
     return;
   }
-  const cNames = (await readNameList(list)) || new Set();
+
+  let cNames = [];
+  try {
+    const listStat = await fs.stat(list);
+    if (listStat.isFile()) {
+      cNames = (await readNameList(list)) || new Set();
+    } else if (listStat.isDirectory()) {
+      const dirFiles = (await fs.readdir(list)) || [];
+      cNames = new Set(dirFiles.map(x => path.parse(x).name.trim()));
+    } else {
+      log.error("cmdRemove", `invalid arguments: list file invalid`);
+      return;
+    }
+  } catch (error) {
+    log.error("cmdRemove", `invalid arguments: list file invalid`);
+    return;
+  }
+
   log.show("cmdRemove", `input:`, root);
   fileLog(`<Input> ${root}`, "cmdRemove");
 
@@ -1359,7 +1397,8 @@ async function cmdRemove(argv) {
     size: cSize,
     pattern: cPattern,
     names: cNames,
-    reverse: reverse,
+    reverse: cReverse,
+    safe: useSafeRemove,
   }
 
   const walkOpts = {
@@ -1380,9 +1419,9 @@ async function cmdRemove(argv) {
   const total = tasks.length;
   tasks = tasks.filter((t) => t && t.shouldRemove);
   const skipped = total - tasks.length;
-  log.show("cmdRemove", `${tasks.length} files to be removed`);
+  log.showYellow("cmdRemove", `${tasks.length} files to be removed`);
   if (skipped > 0) {
-    log.show("cmdRemove", `${skipped} files are ignored`)
+    log.showYellow("cmdRemove", `${skipped} files are ignored`)
   }
   if (tasks.length == 0) {
     log.show("cmdRemove", conditions);
@@ -1393,7 +1432,9 @@ async function cmdRemove(argv) {
   log.show("cmdRemove", `task sample:`, tasks.slice(-1));
   log.showYellow("cmdRemove", conditions);
   if (cNames && cNames.size > 0) {
+    // 默认仅删除列表中的文件，反转则仅保留列表中的文件，其它的全部删除，谨慎操作
     log.showYellow("cmdRemove", `Attention: use file name list, ignore all other conditions`);
+    log.showRed("cmdRemove", `Attention: Will DELETE all files ${cReverse ? "NOT IN" : "IN"} the name list!`);
   }
   fileLog(`<Conditions> list=${cNames.size},loose=${cLoose},width=${cWidth},height=${cHeight},size=${cSize / 1024}k,name=${cPattern}`, "cmdRemove");
   const answer = await inquirer.prompt([
@@ -1419,10 +1460,11 @@ async function cmdRemove(argv) {
   let index = 0;
   for (const task of tasks) {
     try {
-      await fs.remove(task.src);
+
+      await useSafeRemove ? helper.safeRemove(task.src) : fs.remove(task.src);
       ++removedCount;
       fileLog(`<Removed> ${task.src} (${task.index})`, "cmdRemove");
-      log.show("cmdRemove", `removed ${task.src} (${task.index}) (${++index}/${tasks.length})`);
+      log.show("cmdRemove", `${useSafeRemove ? "Moved" : "Deleted"} ${task.src} (${task.index}) (${++index}/${tasks.length})`);
     } catch (error) {
       log.error("cmdRemove", `failed to remove file ${task.src}`, error);
     }
