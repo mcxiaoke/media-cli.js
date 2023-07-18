@@ -1387,6 +1387,8 @@ async function cmdRemove(argv) {
     return;
   }
 
+  cNames = cNames || new Set();
+
   log.show("cmdRemove", `input:`, root);
   fileLog(`<Input> ${root}`, "cmdRemove");
 
@@ -1396,7 +1398,7 @@ async function cmdRemove(argv) {
     height: cHeight,
     size: cSize,
     pattern: cPattern,
-    names: cNames,
+    names: cNames || new Set(),
     reverse: cReverse,
     safe: useSafeRemove,
   }
@@ -1416,6 +1418,7 @@ async function cmdRemove(argv) {
       )
     )
   );
+  conditions.names = Array.from(cNames).slice(-5);
   const total = tasks.length;
   tasks = tasks.filter((t) => t && t.shouldRemove);
   const skipped = total - tasks.length;
