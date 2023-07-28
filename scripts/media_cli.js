@@ -1167,7 +1167,6 @@ async function prepareRemoveArgs(f, options) {
 
   let itemDesc = "";
   //----------------------------------------------------------------------
-  log.showGreen(hasList);
   if (hasList) {
     let shouldRemove = false;
     const nameInList = cNames.has(base.trim());
@@ -1359,32 +1358,31 @@ async function cmdRemove(argv) {
   const cSize = argv.size * 1024 || 0;
   const cPattern = argv.pattern || "";
   const cReverse = argv.reverse || false;
+  const cList = argv.list || "-not-exists";
 
   if (argv.dimension && argv.dimension.length > 0) {
     // 解析文件长宽字符串，例如 2160x4680
   }
 
-  const list = path.resolve(argv.list);
-  if (!list || !await fs.pathExists(list)) {
-    log.error("cmdRemove", `invalid arguments: list file path not exists`);
-    return;
-  }
-
   let cNames = [];
-  try {
-    const listStat = await fs.stat(list);
-    if (listStat.isFile()) {
-      cNames = (await readNameList(list)) || new Set();
-    } else if (listStat.isDirectory()) {
-      const dirFiles = (await fs.readdir(list)) || [];
-      cNames = new Set(dirFiles.map(x => path.parse(x).name.trim()));
-    } else {
-      log.error("cmdRemove", `invalid arguments: list file invalid`);
+  if (await fs.pathExists(path.resolve(cList))) {
+    try {
+      const list = path.resolve(cList);
+      const listStat = await fs.stat(list);
+      if (listStat.isFile()) {
+        cNames = (await readNameList(list)) || new Set();
+      } else if (listStat.isDirectory()) {
+        const dirFiles = (await fs.readdir(list)) || [];
+        cNames = new Set(dirFiles.map(x => path.parse(x).name.trim()));
+      } else {
+        log.error("cmdRemove", `invalid arguments: list file invalid 1`);
+        return;
+      }
+    } catch (error) {
+      log.error(error);
+      log.error("cmdRemove", `invalid arguments: list file invalid 2`);
       return;
     }
-  } catch (error) {
-    log.error("cmdRemove", `invalid arguments: list file invalid`);
-    return;
   }
 
   cNames = cNames || new Set();
@@ -1463,7 +1461,6 @@ async function cmdRemove(argv) {
   let index = 0;
   for (const task of tasks) {
     try {
-
       await useSafeRemove ? helper.safeRemove(task.src) : fs.remove(task.src);
       ++removedCount;
       fileLog(`<Removed> ${task.src} (${task.index})`, "cmdRemove");
