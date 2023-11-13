@@ -28,7 +28,7 @@ async function downloadUrl(url, options) {
   const filename = sanitizeFilename(path.basename(filepath));
   const dirDst = path.resolve(
     options.output ||
-      path.join("Downloads", sanitizeFilename(path.dirname(filepath)))
+    path.join("Downloads", sanitizeFilename(path.dirname(filepath)))
   );
   // console.log(`Downloading ${url}`);
   const fileDst = path.join(dirDst, filename);
