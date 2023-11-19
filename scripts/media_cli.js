@@ -219,13 +219,13 @@ ya
         .option("size", {
           alias: "s",
           type: "number",
-          default: 3072,
+          default: 2048,
           description: "Processing file bigger than this size (unit:k)",
         })
         .option("width", {
           alias: "w",
           type: "number",
-          default: 4000,
+          default: 6000,
           description: "Max width of long side of image thumb",
         });
     },
@@ -1076,22 +1076,35 @@ async function cmdCompress(argv) {
   log.show('cmdCompress', argv);
   const force = argv.force || false;
   const quality = argv.quality || 88;
-  const minFileSize = (argv.size || 3072) * 1024;
-  const maxWidth = argv.width || 4000;
+  const minFileSize = (argv.size || 2048) * 1024;
+  const maxWidth = argv.width || 6000;
   const deleteOriginal = argv.delete || false;
   log.show(`cmdCompress: input:`, root);
 
   const RE_THUMB = /(Z4K|feature|web|thumb)/i;
   const walkOpts = {
     entryFilter: (f) =>
-      f.stats.isFile() &&
-      f.stats.size > minFileSize &&
-      helper.isImageFile(f.path) &&
-      !RE_THUMB.test(f.path),
+      f.stats.isFile()
+      && f.stats.size > minFileSize
+      && helper.isImageFile(f.path)
+      && !RE_THUMB.test(f.path)
   };
-  const files = await mf.walk(root, walkOpts);
-  log.show("cmdCompress", `total ${files.length} files found`);
-
+  let files = await mf.walk(root, walkOpts);
+  log.show("cmdCompress", `total ${files.length} files found (all)`);
+  files = files.filter(f => !RE_THUMB.test(f.path));
+  log.show("cmdCompress", `total ${files.length} files found (filtered)`);
+  const confirmFiles = await inquirer.prompt([
+    {
+      type: "confirm",
+      name: "yes",
+      default: false,
+      message: chalk.bold.green(`Press y to continue processing...`),
+    },
+  ]);
+  if (!confirmFiles.yes) {
+    log.showYellow("Will do nothing, aborted by user.");
+    return;
+  }
   let tasks = await Promise.all(
     files.map(
       throat(cpuCount, (f) =>
