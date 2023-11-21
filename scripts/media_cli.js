@@ -808,24 +808,25 @@ async function cmdLRMove(argv) {
   // const output = argv.output || root;
   log.show(`LRMove: input:`, root);
   // log.show(`LRMove: output:`, output);
-  let files = await mf.walk(root, {
-    entryFilter: (entry) =>
-      entry.stats.isDirectory() && path.basename(entry.path) === "JPEG",
-  });
-  log.show("LRMove:", `Total ${files.length} JPEG folders found`);
-  if (files.length == 0) {
+  let filenames = await mf.walkDir(root);
+  filenames = filenames.filter(f => path.basename(f) === "JPEG");
+  log.show("LRMove:", `Total ${filenames.length} JPEG folders found`);
+  if (filenames.length == 0) {
     log.showGreen("Nothing to do, abort.");
     return;
   }
-  for (const f of files) {
-    const fileSrc = f.path;
+  const files = filenames.map(f => {
+    const fileSrc = f;
     const fileBase = path.dirname(fileSrc);
     const fileDst = fileBase.replace("RAW" + path.sep, "JPEG" + path.sep);
-    log.show(`SRC:`, f.path);
+    const task = {
+      fileSrc: fileSrc,
+      fileDst: fileDst
+    }
+    log.show(`SRC:`, fileSrc);
     log.show("DST:", fileDst);
-    f.fileSrc = fileSrc;
-    f.fileDst = fileDst;
-  }
+    return task;
+  })
   const answer = await inquirer.prompt([
     {
       type: "confirm",
