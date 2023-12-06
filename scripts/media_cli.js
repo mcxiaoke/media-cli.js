@@ -16,8 +16,6 @@ import * as log from '../lib/debug.js'
 import * as exif from '../lib/exif.js'
 import * as helper from '../lib/helper.js'
 import * as mf from '../lib/file.js'
-import * as tools from '../lib/tools.js'
-import * as unicode from '../lib/unicode.js'
 
 const cpuCount = cpus().length;
 // debug and logging config
@@ -367,21 +365,33 @@ ya
   .middleware([configCli]);
 const yargv = ya.argv;
 
+// 这个函数是一个异步函数，用于重命名文件  
 async function renameFiles(files) {
+  // 打印日志信息，显示要重命名的文件总数  
   log.info("Rename", `total ${files.length} files`);
-  // do rename all files
+
+  // 使用 Promise.all 方法异步处理所有文件  
+  // rename all files  
   return await Promise.all(
     files.map(async (f) => {
+      // 生成输出文件的路径  
       const outPath = path.join(path.dirname(f.path), f.outName);
+
+      // 如果输出文件名不存在或者输入文件路径等于输出文件路径，忽略该文件并打印警告信息  
       if (!f.outName || f.path == f.outPath) {
         log.showYellow("Rename", "ignore", f.path);
         return;
       }
+
       try {
+        // 使用 fs 模块的 rename 方法重命名文件，并等待操作完成  
         await fs.rename(f.path, outPath);
+
+        // 打印重命名成功的日志信息，显示输出文件的路径  
         log.show(chalk.green(`Renamed:`) + ` ${outPath}`);
         return f;
       } catch (error) {
+        // 捕获并打印重命名过程中出现的错误信息，显示错误原因和输入文件的路径  
         log.error("Rename", error, f.path);
       }
     })
@@ -645,41 +655,6 @@ async function cmdMoveUp(argv) {
   log.showGreen("MoveUp", `All ${movedCount} files moved.`);
 }
 
-
-// 整理合并到remove命令里
-async function cmdKeepFile(argv) {
-  log.show('cmdKeepFile', argv);
-  const list = path.resolve(argv.list);
-  if (!list || !(await fs.pathExists(list))) {
-    ya.showHelp();
-    log.error("KeepFile", `Invalid list file: '${list}'`);
-    return;
-  }
-  const root = path.resolve(argv.input);
-  if (!root || !(await fs.pathExists(root))) {
-    ya.showHelp();
-    log.error("KeepFile", `Invalid Input: '${root}'`);
-    return;
-  }
-  // 默认保留列表中的文件（删除其它其它所有文件），
-  // 如果反转，则是删除列表中的文件
-  const reverse = argv.reverse || false;
-  const listContent = await fs.readFile(list, 'utf-8') || "";
-  const nameList = listContent.split(/\r?\n/).map(x => path.parse(x).name.trim()).filter(Boolean);
-  const names = new Set(nameList);
-  const files = await fs.readdir(root);
-  let tasks = null;
-  if (reverse) {
-    tasks = files.filter(x => names.has(path.parse(x).name.trim()));
-  } else {
-    tasks = files.filter(x => !names.has(path.parse(x).name.trim()));
-  }
-  tasks = tasks.map(x => path.join(root, x));
-  for (const t of tasks) {
-    // log.show(t);
-  }
-}
-
 async function cmdOrganize(argv) {
   log.show('cmdOrganize', argv);
   const root = path.resolve(argv.input);
@@ -851,30 +826,44 @@ async function cmdLRMove(argv) {
   }
 }
 
+// 文心一言注释
+// 准备缩略图参数的异步函数  
 async function prepareThumbArgs(f, options) {
+  // 默认选项为空对象  
   options = options || {};
+  // 最大尺寸，默认为3000  
   const maxSize = options.maxSize || 3000;
+  // 是否强制，默认为false  
   const force = options.force || false;
+  // 输出路径，默认为undefined  
   const output = options.output || undefined;
+  // 文件源路径，解析后  
   let fileSrc = path.resolve(f.path);
+  // 使用helper.pathSplit分割路径，得到目录、基本名称和扩展名  
   const [dir, base, ext] = helper.pathSplit(fileSrc);
+  // 文件目标路径  
   let fileDst;
+  // 目录目标路径  
   let dirDst;
+  // 如果output存在，使用output重写目录目标路径  
   if (output) {
     dirDst = helper.pathRewrite(dir, output);
   } else {
+    // 否则，将目录目标路径替换为'Thumbs'文件夹，或者如果目录目标路径和目录相同，则创建一个新目录（例如'202206_thumbs'）  
     dirDst = dir.replace(/JPEG|Photos/i, 'Thumbs');
     if (dirDst == dir) {
-      // input 'F:\\Temp\\照片\\202206\\'
-      // output 'F:\\Temp\\照片\\202206_thumbs\\'
-      dirDst = path.join(path.dirname(dir), path.basename(dir) + '_thumbs')
+      dirDst = path.join(path.dirname(dir), path.basename(dir) + '_thumbs');
     }
   }
+  // 将目录目标路径中的'相机照片'替换为'相机小图'  
   dirDst = dirDst.replace('相机照片', '相机小图');
+  // 文件目标路径，加入新的基本名称和扩展名（例如'_thumb.jpg'）  
   fileDst = path.join(dirDst, `${base}_thumb.jpg`);
+  // 解析文件源路径和文件目标路径为绝对路径  
   fileSrc = path.resolve(fileSrc);
   fileDst = path.resolve(fileDst);
 
+  // 检查文件目标路径是否存在，如果存在并且不强制执行，则返回空对象；否则，如果强制执行，则继续执行下面的代码块  
   if (await fs.pathExists(fileDst)) {
     log.info("prepareThumbArgs exists:", fileDst, force ? "(Override)" : "");
     if (!force) {
@@ -882,47 +871,50 @@ async function prepareThumbArgs(f, options) {
     }
   }
   try {
+    // 使用sharp库创建图像对象，并传入文件源路径  
     const s = sharp(fileSrc);
+    // 获取图像元数据对象，并等待操作完成  
     const m = await s.metadata();
+    // 如果图像宽度和高度都小于等于最大尺寸，则打印调试信息并返回空对象；否则，继续执行下面的代码块  
     if (m.width <= maxSize && m.height <= maxSize) {
       log.debug("prepareThumbArgs skip:", fileSrc);
       return;
     }
-    const nw =
-      m.width > m.height ? maxSize : Math.round((maxSize * m.width) / m.height);
+    // 根据图像宽度和高度计算新的宽度和高度，使宽度不超过最大尺寸，并保持高度比例不变  
+    const nw = m.width > m.height ? maxSize : Math.round((maxSize * m.width) / m.height);
     const nh = Math.round((nw * m.height) / m.width);
-
-    log.info(
-      "prepareThumbArgs add:",
-      fileDst,
-      `(${m.width}x${m.height} => ${nw}x${nh})`
-    );
-    return {
-      width: nw,
-      height: nh,
-      src: fileSrc,
-      dst: fileDst,
-      index: f.index,
-    };
+    // 打印信息，显示文件目标路径、原始尺寸和新尺寸（例如'F:\Temp\照片\202206_thumbs\202206_thumb.jpg (3072x2048 => 300x200)'）  
+    log.info("prepareThumbArgs add:", fileDst, `(${m.width}x${m.height} => ${nw}x${nh})`);
+    // 返回一个对象，包含新尺寸、文件源路径和文件目标路径等属性，同时包含索引属性（如果原始对象存在）  
+    return { width: nw, height: nh, src: fileSrc, dst: fileDst, index: f.index };
   } catch (error) {
     log.error("prepareThumbArgs error:", error, f.path);
   }
 }
 
+// 文心一言注释
+// 这是一个异步函数，用于创建缩略图  
 async function makeThumbOne(t) {
-  //log.show("makeThumbOne", t);
+  // 试图确保目标文件目录存在，如果不存在则创建  
   try {
     await fs.ensureDir(path.dirname(t.dst));
-    // console.log(t.dst);
+    // 初始化一个sharp对象，用于图像处理  
+    // 尝试读取源图像文件  
     const s = sharp(t.src);
+    // 对图像进行重新调整尺寸，设置宽度为 t.width，保持原始宽高比  
+    // 同时应用质量为 t.quality（默认值为85）的JPEG压缩，并使用"4:4:4"的色度子采样  
     const r = await s
       .resize({ width: t.width })
       .withMetadata()
       .jpeg({ quality: t.quality || 85, chromaSubsampling: "4:4:4" })
+      // 将处理后的图像保存到目标文件  
       .toFile(t.dst);
+    // 获取目标文件的文件信息  
     const fst = await fs.stat(t.dst);
+    // 显示创建的缩略图的相关信息（包括路径、尺寸和文件大小）  
     log.showGreen("makeThumb", helper.pathShort(t.dst), `${r.width}x${r.height}`, `${helper.fileSizeSI(fst.size)}`, t.index);
-    // file may be corrupted, del it
+    // 如果目标文件大小小于200KB，则可能文件损坏，删除该文件  
+    // file may be corrupted, del it  
     if (fst.size < 200 * 1024) {
       await fs.remove(t.dst);
       log.showRed("makeThumb", `file too small, del ${t.dst}`);
@@ -934,14 +926,15 @@ async function makeThumbOne(t) {
         log.error("makeThumb", "del error", error);
       }
     }
-    return r;
+    return r; // 返回处理后的图像信息对象  
   } catch (error) {
+    // 如果在处理过程中出现错误，则捕获并处理错误信息  
     log.error("makeThumb", `error on '${t.src}'`, error);
-    try {
+    try { // 尝试删除已创建的目标文件，防止错误文件占用空间  
       await fs.remove(t.dst);
-    } catch (error) { }
+    } catch (error) { } // 忽略删除操作的错误，不进行额外处理  
   }
-}
+} // 结束函数定义
 
 async function cmdThumbs(argv) {
   log.show('cmdThumbs', argv);
@@ -1018,43 +1011,46 @@ async function cmdThumbs(argv) {
   log.showGreen(`cmdThumbs: ${result.length} thumbs generated in ${helper.humanTime(startMs)}`)
 }
 
+
+// 文心一言注释 20231206
+// 准备压缩图片的参数，并进行相应的处理  
 async function prepareCompressArgs(f, options) {
   options = options || {};
-  // log.show("prepareCompressArgs options:", options);
-  const maxWidth = options.maxWidth || 4000;
-  const force = options.force || false;
-  const deleteOriginal = options.deleteOriginal || false;
-  let fileSrc = path.resolve(f.path);
-  const [dir, base, ext] = helper.pathSplit(fileSrc);
-  let fileDst = path.join(dir, `${base}_Z4K.jpg`);
-  fileSrc = path.resolve(fileSrc);
-  fileDst = path.resolve(fileDst);
+  // log.show("prepareCompressArgs options:", options); // 打印日志，显示选项参数  
+  const maxWidth = options.maxWidth || 4000; // 获取最大宽度限制，默认为4000  
+  const force = options.force || false; // 获取强制压缩标志位，默认为false  
+  const deleteOriginal = options.deleteOriginal || false; // 获取删除原文件标志位，默认为false  
+  let fileSrc = path.resolve(f.path); // 解析源文件路径  
+  const [dir, base, ext] = helper.pathSplit(fileSrc); // 将路径分解为目录、基本名和扩展名  
+  let fileDst = path.join(dir, `${base}_Z4K.jpg`); // 构建目标文件路径，添加压缩后的文件名后缀  
+  fileSrc = path.resolve(fileSrc); // 解析源文件路径（再次确认）  
+  fileDst = path.resolve(fileDst); // 解析目标文件路径（再次确认）  
 
-  if (await fs.pathExists(fileDst)) {
-    log.info("prepareCompress exists:", fileDst, force ? "(Override)" : "");
-    if (deleteOriginal) {
-      await helper.safeRemove(fileSrc);
-      log.showYellow('prepareCompress exists, delete', helper.pathShort(fileSrc));
+  if (await fs.pathExists(fileDst)) { // 如果目标文件已存在，则进行相应的处理  
+    log.info("prepareCompress exists:", fileDst, force ? "(Override)" : ""); // 打印日志，显示目标文件存在的情况，以及是否进行覆盖处理  
+    if (deleteOriginal) { // 如果设置了删除原文件标志位  
+      await helper.safeRemove(fileSrc); // 删除源文件，并打印日志  
+      log.showYellow('prepareCompress exists, delete', helper.pathShort(fileSrc)); // 打印日志，显示删除源文件信息，并以黄色字体显示警告信息  
     }
-    if (!force) {
+    if (!force) { // 如果未设置强制标志位，则直接返回（不再进行后续处理）  
       return;
     }
   }
-  try {
-    const s = sharp(fileSrc);
-    const m = await s.metadata();
-    const nw =
+  try { // 尝试执行后续操作，可能会抛出异常  
+    const s = sharp(fileSrc); // 使用sharp库对源文件进行处理，返回sharp对象实例  
+    const m = await s.metadata(); // 获取源文件的元数据信息（包括宽度和高度）  
+    const nw = // 计算新的宽度，如果原始宽度大于高度，则使用最大宽度限制；否则按比例计算新的宽度  
       m.width > m.height ? maxWidth : Math.round((maxWidth * m.width) / m.height);
-    const nh = Math.round((nw * m.height) / m.width);
+    const nh = Math.round((nw * m.height) / m.width); // 计算新的高度，按比例计算新的高度  
 
-    const dw = nw > m.width ? m.width : nw;
-    const dh = nh > m.height ? m.height : nh;
-    log.show(
+    const dw = nw > m.width ? m.width : nw; // 计算最终输出的宽度，如果新的宽度大于原始宽度，则使用原始宽度；否则使用新的宽度  
+    const dh = nh > m.height ? m.height : nh; // 计算最终输出的高度，按比例计算最终输出高度，如果新的高度大于原始高度，则使用原始高度；否则使用新的高度  
+    log.show(// 打印日志，显示压缩后的文件信息  
       "prepareCompress:",
       helper.pathShort(fileDst),
       `(${m.width}x${m.height} => ${dw}x${dh})`
     );
-    return {
+    return { // 返回压缩后的参数对象，包括输出文件的宽度、高度、源文件路径、目标文件路径以及索引信息等属性  
       width: dw,
       height: dh,
       src: fileSrc,
