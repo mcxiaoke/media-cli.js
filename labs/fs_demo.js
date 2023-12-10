@@ -1,6 +1,4 @@
 const fs = require("fs-extra");
-const path = require("path");
-const klawSync = require("klaw-sync");
 
 const root = process.argv.slice(2)[0];
 console.log(root);
