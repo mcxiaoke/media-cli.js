@@ -674,13 +674,7 @@ async function cmdOrganize(argv) {
   const pics = {};
   files.forEach((f, i) => {
     log.debug(`Processing(${i}):`, path.basename(f.path), f.stats.mtime);
-    if (helper.isVideoFile(f.path)) {
-      if (!pics["vids"]) {
-        pics["vids"] = [];
-      }
-      pics["vids"].push(f);
-      log.debug("Video Item:", f.path);
-    } else if ([".png", ".gif"].includes(helper.pathExt(f.path, true))) {
+    if ([".png", ".gif"].includes(helper.pathExt(f.path, true))) {
       if (!pics["pngs"]) {
         pics["pngs"] = [];
       }
@@ -696,15 +690,18 @@ async function cmdOrganize(argv) {
       pics["pngs"].push(f);
       log.debug("Other Item:", f.path, helper.fileSizeSI(f.stats.size));
     } else {
-      const dateStr = dayjs(f.stats.mtime).format("YYYYMM");
-      if (!pics[dateStr]) {
-        pics[dateStr] = [];
+      let dirName;
+      const dateStr = dayjs(f.stats.mtime).format("YYYYMM");;
+      if (helper.isVideoFile(f.path)) {
+        dirName = path.join("vids", dateStr);
+      } else {
+        dirName = dateStr;
       }
-      pics[dateStr].push(f);
-      log.debug("Image Item:", f.path, dateStr);
-      if (dateStr.includes("08")) {
-        log.show(f.path, f.stats.mtime);
+      if (!pics[dirName]) {
+        pics[dirName] = [];
       }
+      pics[dirName].push(f);
+      log.debug("Image Item:", f.path, dirName);
     }
   });
   for (const [k, v] of Object.entries(pics)) {
