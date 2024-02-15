@@ -330,7 +330,7 @@ ya
       ya.option("size", {
         alias: "s",
         type: "number",
-        default: 20,
+        default: 24,
         description: "size[length] of prefix of dir name",
       })
         .option("ignore", {
@@ -428,7 +428,7 @@ async function cmdPrefix(argv) {
   // 正则：仅包含数字
   const reOnlyNum = /^\d+$/;
   // 正则：匹配除 中日韩俄英 之外的特殊字符
-  const reNonChars = /[^\p{sc=Hani}\p{sc=Hira}\p{sc=Kana}\p{sc=Hang}\p{sc=Cyrl}\w]/ugi;
+  const reNonChars = /[^\p{sc=Hani}\p{sc=Hira}\p{sc=Kana}\p{sc=Hang}\p{sc=Cyrl}\w_]/ugi;
   const tasks = [];
   for (const f of files) {
     const [dir, base, ext] = helper.pathSplit(f.path);
@@ -440,20 +440,24 @@ async function cmdPrefix(argv) {
     let dirFix = dir.split(path.sep).slice(-2).join("");
     // 去掉目录名中的年月日
     let dirStr = dirFix.replaceAll(/\d{4}-\d{2}-\d{2}/gi, "");
-    //dirStr = dirStr.replaceAll(/[\.\\\/\[\]:"'\?\(\)\s\-\_\+\!\#\@\$\~]/gi, "");
+    dirStr = dirStr.replaceAll(/\d+年\d+月/gi, "");
+    // 去掉附加说明
+    dirStr = dirStr.replaceAll(/\[.+\]/gi, "");
+    dirStr = dirStr.replaceAll(/\(.+\)/gi, "");
+    dirStr = dirStr.replaceAll(/\d+P(\d+V)?/gi, "");
     // 去掉所有特殊字符
     dirStr = dirStr.replaceAll(reNonChars, "");
     if (argv.ignore && argv.ignore.length >= 2) {
       dirStr = dirStr.replaceAll(argv.ignore, "");
     } else {
-      dirStr = dirStr.replaceAll(/更新|合集|画师|图片|视频|插画|限定|差分|R18|PSD|PIXIV|PIC|NO|ZIP|RAR/gi, "");
+      dirStr = dirStr.replaceAll(/更新|合集|画师|图片|视频|插画|视图|订阅|限定|差分|R18|PSD|PIXIV|PIC|NO|ZIP|RAR/gi, "");
     }
-    const nameSlice = (argv.size || 20) * -1;
+    const nameSlice = (argv.size || 24) * -1;
     // 去掉所有特殊字符
     let oldBase = base.replaceAll(reNonChars, "");
     //oldBase = oldBase.replaceAll(/\s/gi, "").slice(nameSlice);
     const fPrefix = (dirStr + "_" + oldBase).slice(nameSlice);
-    const newName = `${fPrefix}${ext}`.toUpperCase();
+    const newName = `${fPrefix}${ext}`;
     const newPath = path.join(dir, newName);
     f.outName = newName;
     log.show("Prefix", `Output: ${helper.pathShort(newPath)}`);
