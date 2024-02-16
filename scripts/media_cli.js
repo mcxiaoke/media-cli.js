@@ -437,7 +437,7 @@ async function cmdPrefix(argv) {
       continue;
     }
     // 取目录项的最后两级目录名
-    let dirFix = dir.split(path.sep).slice(-2).join("");
+    let dirFix = dir.split(path.sep).slice(-2).join("_");
     // 去掉目录名中的年月日
     let dirStr = dirFix.replaceAll(/\d{4}-\d{2}-\d{2}/gi, "");
     dirStr = dirStr.replaceAll(/\d+年\d+月/gi, "");
