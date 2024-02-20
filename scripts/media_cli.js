@@ -413,13 +413,12 @@ async function cmdPrefix(argv) {
   let files = await mf.walk(root, {
     entryFilter: (entry) =>
       entry.stats.isFile() &&
-      entry.stats.size > 1024 &&
-      helper.isMediaFile(entry.path),
+      entry.stats.size > 1024
   });
   // process only image files
   // files = files.filter(x => helper.isImageFile(x.path));
   files.sort();
-  log.show("Prefix", `Total ${files.length} media files found`);
+  log.show("Prefix", `Total ${files.length} files found`);
   if (files.length == 0) {
     log.showYellow("Prefix", "Nothing to do, exit now.");
     return;
@@ -913,7 +912,7 @@ async function makeThumbOne(t) {
     // 获取目标文件的文件信息  
     const fst = await fs.stat(t.dst);
     // 显示创建的缩略图的相关信息（包括路径、尺寸和文件大小）  
-    log.showGreen("makeThumb", helper.pathShort(t.dst), `${r.width}x${r.height}`, `${helper.fileSizeSI(fst.size)}`, t.index);
+    log.showGreen("makeThumb", helper.pathShort(t.dst), `${r.width}x${r.height}`, `${helper.fileSizeSI(fst.size)}`, t.index, t.total);
     // 如果目标文件大小小于200KB，则可能文件损坏，删除该文件  
     // file may be corrupted, del it  
     if (fst.size < 200 * 1024) {
@@ -1127,6 +1126,7 @@ async function cmdCompress(argv) {
     return;
   }
   tasks.forEach(t => {
+    t.total = tasks.length;
     t.quality = quality || 88;
     t.deleteOriginal = deleteOriginal || false;
   });
