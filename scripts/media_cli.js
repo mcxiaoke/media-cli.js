@@ -912,12 +912,12 @@ async function makeThumbOne(t) {
     // 获取目标文件的文件信息  
     const fst = await fs.stat(t.dst);
     // 显示创建的缩略图的相关信息（包括路径、尺寸和文件大小）  
-    log.showGreen("makeThumb", helper.pathShort(t.dst), `${r.width}x${r.height}`, `${helper.fileSizeSI(fst.size)}`, t.index, t.total);
+    log.showGreen("makeThumb", helper.pathShort(t.dst), `${r.width}x${r.height}`, `${helper.fileSizeSI(fst.size)}`, `${t.index}/${t.total}`);
     // 如果目标文件大小小于200KB，则可能文件损坏，删除该文件  
     // file may be corrupted, del it  
     if (fst.size < 200 * 1024) {
       await fs.remove(t.dst);
-      log.showRed("makeThumb", `file too small, del ${t.dst}`);
+      log.showRed("makeThumb", `file too small, del ${t.dst} ${t.index}/${t.total}`);
     } else if (t.deleteOriginal) {
       try {
         await helper.safeRemove(t.src);
@@ -929,7 +929,7 @@ async function makeThumbOne(t) {
     return r; // 返回处理后的图像信息对象  
   } catch (error) {
     // 如果在处理过程中出现错误，则捕获并处理错误信息  
-    log.error("makeThumb", `error on '${t.src}'`, error);
+    log.error("makeThumb", `error on '${t.src} ${t.index}'`, error);
     try { // 尝试删除已创建的目标文件，防止错误文件占用空间  
       await fs.remove(t.dst);
     } catch (error) { } // 忽略删除操作的错误，不进行额外处理  
