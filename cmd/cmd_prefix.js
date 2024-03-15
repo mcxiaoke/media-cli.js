@@ -148,12 +148,11 @@ function createNewNameByPrefix(f, argv) {
 }
 
 const handler = async function cmdPrefix(argv) {
-    log.show('cmdPrefix', argv);
+    log.info('cmdPrefix', argv);
     const root = path.resolve(argv.input);
     if (!root || !(await fs.pathExists(root))) {
-        yargs.showHelp();
-        log.error(`Invalid Input: '${root}'`);
-        return;
+        log.error("Invalid Input: " + root);
+        throw new Error("Invalid Input: " + root);
     }
     const forceAll = argv.all || false;
     const mode = argv.mode || MODE_AUTO;
@@ -194,7 +193,8 @@ const handler = async function cmdPrefix(argv) {
         );
         return;
     }
-    log.info("Argments:", JSON.stringify(argv));
+    log.showYellow("Prefix:", argv);
+    argv.test && log.showGreen("++++++++++ TEST MODE (DRY RUN) ++++++++++")
     const answer = await inquirer.prompt([
         {
             type: "confirm",
