@@ -86,6 +86,8 @@ const handler = async function cmdMoveUp(argv) {
         log.show("MoveUp", `fileOutput = ${fileOutput}`);
         let dupCount = 0;
         for (const f of files) {
+            const st = await fs.stat(f.path)
+            log.showRed(f.path, st.isDirectory())
             ++dupCount;
             const fileSrc = f.path;
             const [srcDir, srcBase, srcExt] = helper.pathSplit(fileSrc);
@@ -133,7 +135,7 @@ const handler = async function cmdMoveUp(argv) {
 
             try {
                 if (testMode) {
-                    log.info("MoveUp", "Moved[DryRun]:", fileSrc, "to", fileDst);
+                    log.info("MoveUp", "NotMoved:", fileSrc, "to", fileDst);
                 } else {
                     await fs.move(fileSrc, fileDst);
                     // movedFiles.push([fileSrc, fileDst]);
@@ -147,5 +149,5 @@ const handler = async function cmdMoveUp(argv) {
         }
         log.showGreen("MoveUp", `Files in ${curDir} are moved to ${fileOutput}.`, testMode ? "[DRY RUN]" : "");
     };
-    log.showGreen("MoveUp", `All ${movedCount} files moved.`, testMode ? "[DRY RUN]" : "");
+    log.showGreen("MoveUp", `${movedCount} files moved.`, testMode ? "[DRY RUN]" : "");
 }
