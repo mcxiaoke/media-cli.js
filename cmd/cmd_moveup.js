@@ -1,17 +1,12 @@
 #!/usr/bin/env node
-import assert from "assert";
-import dayjs from "dayjs";
+
 import inquirer from "inquirer";
-import throat from 'throat';
-import pMap from 'p-map';
-import sharp from "sharp";
 import path from "path";
 import fs from 'fs-extra';
 import chalk from 'chalk';
-import yargs from "yargs";
-import { cpus } from "os";
+import dayjs from "dayjs";
+
 import * as log from '../lib/debug.js'
-import * as exif from '../lib/exif.js'
 import * as helper from '../lib/helper.js'
 import * as mf from '../lib/file.js'
 
@@ -32,8 +27,8 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             description: "Output sub folder name",
         })
         // 移动所有文件到根目录的指定目录
-        .option("to-root", {
-            alias: "topmost",
+        .option("topmost", {
+            alias: "r",
             type: "boolean",
             description: "move files to sub dirs in root dir",
         })
@@ -53,11 +48,12 @@ const handler = async function cmdMoveUp(argv) {
         log.error("MoveUp", `Invalid Input: '${root}'`);
         throw new Error("Invalid Input: " + argv.input);
     }
-    const testMode = !argv.doit || true;
-    const toRoot = argv.toRoot || false;
+    const testMode = !argv.doit;
+    const toRoot = argv.topmost || false;
     // 读取顶级目录下所有的子目录
     const outputDirName = argv.output || "图片";
-    const videoDirName = "视频"
+    const videoDirName = "视频";
+    const trashDirName = "_Trash";
     let subDirs = await fs.readdir(root, { withFileTypes: true });
     subDirs = toRoot ? ["."] : subDirs.filter(x => x.isDirectory()).map(x => x.name);
     log.show("MoveUp", "to folders:", subDirs)
@@ -78,14 +74,15 @@ const handler = async function cmdMoveUp(argv) {
         return;
     }
 
-    // 移动各个子目录的文件到 子目录/图片 目录
+    // 移动深层子目录的文件到 子目录或根目录的 图片/视频 目录
     let movedCount = 0;
     for (const subDir of subDirs) {
         let curDir = toRoot ? root : path.join(root, subDir)
-        let files = await exif.listMedia(curDir)
+        let files = await mf.walk(curDir)
         log.show("MoveUp", `Total ${files.length} media files found in ${subDir}`);
         const fileOutput = path.join(curDir, outputDirName)
         const videoOutput = path.join(curDir, videoDirName);
+        const trashOutput = path.join(curDir, trashDirName);
         log.show("MoveUp", `fileOutput = ${fileOutput}`);
         let dupCount = 0;
         for (const f of files) {
@@ -93,15 +90,32 @@ const handler = async function cmdMoveUp(argv) {
             const fileSrc = f.path;
             const [srcDir, srcBase, srcExt] = helper.pathSplit(fileSrc);
             const srcDirName = path.basename(srcDir);
-            let fileDst = path.join(helper.isVideoFile(fileSrc) ? videoOutput : fileOutput, path.basename(fileSrc));
+            let fileDst;
+            if (helper.isVideoFile(fileSrc)) {
+                fileDst = path.join(videoOutput, path.basename(fileSrc));
+            } else if (helper.isImageFile(fileSrc)) {
+                fileDst = path.join(fileOutput, path.basename(fileSrc));
+            } else {
+                if (helper.isArchiveFile(fileSrc)) {
+                    log.showYellow("MoveUp", `archive file: ${fileSrc}`);
+                }
+                fileDst = path.join(trashOutput, `${srcBase}_${dupCount}${srcExt}`);
+            }
+            if (srcDir === path.dirname(fileDst)) {
+                log.info("MoveUp", "Skip InDst:", fileDst);
+                continue;
+            }
             if (fileSrc === fileDst) {
-                log.info("Skip Same:", fileDst);
+                log.info("MoveUp", "Skip Same:", fileDst);
                 continue;
             }
             if (!(await fs.pathExists(fileSrc))) {
-                log.showYellow("Not Found:", fileSrc);
+                log.showYellow("MoveUp", "Not Found:", fileSrc);
                 continue;
             }
+
+            await fs.ensureDir(path.dirname(fileDst));
+
             if (await fs.pathExists(fileDst)) {
                 const stSrc = await fs.stat(fileSrc);
                 const stDst = await fs.stat(fileDst);
@@ -109,28 +123,26 @@ const handler = async function cmdMoveUp(argv) {
                     // same name ,but not same file
                     const [dstDir, dstBase, dstExt] = helper.pathSplit(fileDst);
                     fileDst = path.join(dstDir, `${srcDirName}_${dstBase}_${dupCount}${dstExt}`);
-                    log.showYellow("New Name:", fileDst);
+                    log.showYellow("MoveUp", "New Name:", fileDst);
                 }
             }
             if (await fs.pathExists(fileDst)) {
-                log.showYellow("Skip Exists:", fileDst);
+                log.showYellow("MoveUp", "Skip Exists:", fileDst);
                 continue;
             }
-            if (!(await fs.pathExists(fileOutput))) {
-                await fs.mkdirp(fileOutput);
-            }
+
             try {
                 if (testMode) {
-                    log.info("Moved[DryRun]:", fileSrc, "to", fileDst);
+                    log.info("MoveUp", "Moved[DryRun]:", fileSrc, "to", fileDst);
                 } else {
                     await fs.move(fileSrc, fileDst);
                     // movedFiles.push([fileSrc, fileDst]);
                     movedCount++;
-                    log.info("Moved:", fileSrc, "to", fileDst);
+                    log.info("MoveUp", "Moved:", fileSrc, "to", fileDst);
                 }
 
             } catch (error) {
-                log.error("Failed:", error, fileSrc, "to", fileDst);
+                log.error("MoveUp", "Failed:", error, fileSrc, "to", fileDst);
             }
         }
         log.showGreen("MoveUp", `Files in ${curDir} are moved to ${fileOutput}.`, testMode ? "[DRY RUN]" : "");

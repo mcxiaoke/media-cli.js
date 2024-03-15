@@ -4,7 +4,7 @@ import inquirer from "inquirer";
 import path from "path";
 import { cpus } from "os";
 import fs from 'fs-extra';
-import throat from 'throat';
+import pMap from 'p-map';
 import chalk from 'chalk';
 import dayjs from "dayjs";
 import sharp from "sharp";
@@ -109,7 +109,7 @@ const handler = async function cmdRemove(argv) {
         throw new Error("width/height/size/pattern/list not supplied");
     }
 
-    const testMode = !argv.doit || true;
+    const testMode = !argv.doit;
     const useSafeRemove = argv.safe || true;
     const cLoose = argv.loose || false;
     const cWidth = argv.width || 0;
@@ -168,14 +168,11 @@ const handler = async function cmdRemove(argv) {
     };
     const files = await mf.walk(root, walkOpts);
     log.show("cmdRemove", `total ${files.length} files found`);
+    const prepareFunc = async f => {
+        return prepareRemoveArgs(f, conditions)
+    }
+    let tasks = pMap(files, prepareFunc, { concurrency: cpus().length * 2 })
 
-    let tasks = await Promise.all(
-        files.map(
-            throat(2 * cpus().length, (f) =>
-                prepareRemoveArgs(f, conditions)
-            )
-        )
-    );
     conditions.names = Array.from(cNames).slice(-5);
     const total = tasks.length;
     tasks = tasks.filter((t) => t && t.shouldRemove);

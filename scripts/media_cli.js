@@ -2,7 +2,6 @@
 import assert from "assert";
 import dayjs from "dayjs";
 import inquirer from "inquirer";
-import throat from 'throat';
 import pMap from 'p-map';
 import sharp from "sharp";
 import path from "path";
@@ -606,18 +605,15 @@ async function cmdThumbs(argv) {
   };
   const files = await mf.walk(root, walkOpts);
   log.info("cmdThumbs", `total ${files.length} found`);
-
-  let tasks = await Promise.all(
-    files.map(
-      throat(cpuCount, (f) =>
-        prepareThumbArgs(f, {
-          maxWidth: maxWidth,
-          force: force,
-          output: output,
-        })
-      )
-    )
-  );
+  const conditions = {
+    maxWidth: maxWidth,
+    force: force,
+    output: output,
+  };
+  const prepareFunc = async f => {
+    return prepareThumbArgs(f, conditions)
+  }
+  let tasks = pMap(files, prepareFunc, { concurrency: cpus().length })
   log.debug("cmdThumbs before filter: ", tasks.length);
   const total = tasks.length;
   tasks = tasks.filter((t) => t && t.dst);

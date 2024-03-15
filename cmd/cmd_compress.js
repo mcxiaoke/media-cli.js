@@ -2,7 +2,6 @@
 import assert from "assert";
 import dayjs from "dayjs";
 import inquirer from "inquirer";
-import throat from 'throat';
 import pMap from 'p-map';
 import sharp from "sharp";
 import path from "path";
@@ -14,7 +13,6 @@ import * as log from '../lib/debug.js'
 import * as exif from '../lib/exif.js'
 import * as helper from '../lib/helper.js'
 import * as mf from '../lib/file.js'
-
 
 export { command, aliases, describe, builder, handler }
 
@@ -68,7 +66,7 @@ const handler = async function cmdCompress(argv) {
         throw new Error("Invalid Input: " + root);
     }
     log.show('cmdCompress', argv);
-    const testMode = !argv.doit || true;
+    const testMode = !argv.doit;
     const force = argv.force || false;
     const quality = argv.quality || 88;
     const minFileSize = (argv.size || 2048) * 1024;
@@ -100,17 +98,17 @@ const handler = async function cmdCompress(argv) {
         log.showYellow("Will do nothing, aborted by user.");
         return;
     }
-    let tasks = await Promise.all(
-        files.map(
-            throat(cpus().length, (f) =>
-                prepareCompressArgs(f, {
-                    maxWidth: maxWidth,
-                    force: force,
-                    deleteOriginal: deleteOriginal
-                })
-            )
-        )
-    );
+
+    const conditions = {
+        maxWidth: maxWidth,
+        force: force,
+        deleteOriginal: deleteOriginal
+    };
+    const prepareFunc = async f => {
+        return prepareCompressArgs(f, conditions)
+    }
+    let tasks = pMap(files, prepareFunc, { concurrency: cpus().length })
+
     log.debug("cmdCompress before filter: ", tasks.length);
     const total = tasks.length;
     tasks = tasks.filter((t) => t && t.dst);
@@ -149,7 +147,7 @@ const handler = async function cmdCompress(argv) {
 
     const startMs = Date.now();
     log.showGreen('cmdCompress: startAt', dayjs().format())
-    const result = await pMap(tasks, makeThumbOne, { concurrency: cpuCount / 2 + 1 });
+    const result = await pMap(tasks, makeThumbOne, { concurrency: cpus().length / 2 + 1 });
     log.showGreen('cmdCompress: endAt', dayjs().format())
     log.showGreen(`cmdCompress: ${result.length} thumbs generated in ${helper.humanTime(startMs)}`)
 }

@@ -154,7 +154,7 @@ const handler = async function cmdPrefix(argv) {
         log.error("Invalid Input: " + root);
         throw new Error("Invalid Input: " + root);
     }
-    const testMode = !argv.doit || true;
+    const testMode = !argv.doit;
     const forceAll = argv.all || false;
     const mode = argv.mode || MODE_AUTO;
     const prefix = argv.prefix;
