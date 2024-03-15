@@ -84,11 +84,12 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             // 文件名列表反转，默认为否，即删除列表中的文件，反转则删除不在列表中的文件
             description: "delete files in list, if true delete files not in the list",
         })
-        // 测试模式，不执行实际操作，如删除和重命名和移动操作
-        .option("test", {
-            alias: "t",
+        // 确认执行所有系统操作，非测试模式，如删除和重命名和移动操作
+        .option("doit", {
+            alias: "not-dry-run",
             type: "boolean",
-            description: "enable dry run/test mode, no real operations",
+            default: false,
+            description: "execute os operations in real mode, not dry run",
         })
 }
 
@@ -108,7 +109,7 @@ const handler = async function cmdRemove(argv) {
         throw new Error("width/height/size/pattern/list not supplied");
     }
 
-    const testMode = argv.test || false;
+    const testMode = !argv.doit || true;
     const useSafeRemove = argv.safe || true;
     const cLoose = argv.loose || false;
     const cWidth = argv.width || 0;
@@ -197,7 +198,7 @@ const handler = async function cmdRemove(argv) {
         log.showRed("cmdRemove", `Attention: Will DELETE all files ${cReverse ? "NOT IN" : "IN"} the name list!`);
     }
     fileLog(`<Conditions> list=${cNames.size},loose=${cLoose},width=${cWidth},height=${cHeight},size=${cSize / 1024}k,name=${cPattern}`, "cmdRemove");
-    argv.test && log.showGreen("++++++++++ TEST MODE (DRY RUN) ++++++++++")
+    testMode && log.showGreen("++++++++++ TEST MODE (DRY RUN) ++++++++++")
     const answer = await inquirer.prompt([
         {
             type: "confirm",

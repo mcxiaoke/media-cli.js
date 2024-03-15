@@ -48,11 +48,12 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             type: "boolean",
             description: "force rename all files",
         })
-        // 测试模式，不执行实际操作，如删除和重命名和移动操作
-        .option("test", {
-            alias: "t",
+        // 确认执行所有系统操作，非测试模式，如删除和重命名和移动操作
+        .option("doit", {
+            alias: "not-dry-run",
             type: "boolean",
-            description: "enable dry run/test mode, no real operations",
+            default: false,
+            description: "execute os operations in real mode, not dry run",
         })
 }
 
@@ -153,6 +154,7 @@ const handler = async function cmdPrefix(argv) {
         log.error("Invalid Input: " + root);
         throw new Error("Invalid Input: " + root);
     }
+    const testMode = !argv.doit || true;
     const forceAll = argv.all || false;
     const mode = argv.mode || MODE_AUTO;
     const prefix = argv.prefix;
@@ -193,7 +195,7 @@ const handler = async function cmdPrefix(argv) {
         return;
     }
     log.showYellow("Prefix:", argv);
-    argv.test && log.showGreen("++++++++++ TEST MODE (DRY RUN) ++++++++++")
+    testMode && log.showGreen("++++++++++ TEST MODE (DRY RUN) ++++++++++")
     const answer = await inquirer.prompt([
         {
             type: "confirm",
@@ -206,7 +208,7 @@ const handler = async function cmdPrefix(argv) {
         },
     ]);
     if (answer.yes) {
-        if (argv.test) {
+        if (testMode) {
             log.showYellow("Prefix", `All ${tasks.length} files, BUT NO file renamed in TEST MODE.`);
         }
         else {

@@ -30,23 +30,33 @@ const builder = function addOptions(ya, helpOrVersionSet) {
         default: false,
         description: "Delete original image file",
     })
+        // 压缩后文件质量参数  
         .option("quality", {
             alias: "q",
             type: "number",
             default: 88,
             description: "Target image file compress quality",
         })
+        // 需要处理的最小文件大小
         .option("size", {
             alias: "s",
             type: "number",
             default: 2048,
             description: "Processing file bigger than this size (unit:k)",
         })
+        // 需要处理的图片最小尺寸
         .option("width", {
             alias: "w",
             type: "number",
             default: 6000,
             description: "Max width of long side of image thumb",
+        })
+        // 确认执行所有系统操作，非测试模式，如删除和重命名和移动操作
+        .option("doit", {
+            alias: "not-dry-run",
+            type: "boolean",
+            default: false,
+            description: "execute os operations in real mode, not dry run",
         })
 }
 
@@ -58,6 +68,7 @@ const handler = async function cmdCompress(argv) {
         throw new Error("Invalid Input: " + root);
     }
     log.show('cmdCompress', argv);
+    const testMode = !argv.doit || true;
     const force = argv.force || false;
     const quality = argv.quality || 88;
     const minFileSize = (argv.size || 2048) * 1024;
@@ -118,6 +129,8 @@ const handler = async function cmdCompress(argv) {
         t.deleteOriginal = deleteOriginal || false;
     });
     log.show(`cmdCompress: task sample:`, tasks.slice(-2))
+    log.showYellow("cmdCompress:", argv);
+    testMode && log.showGreen("++++++++++ TEST MODE (DRY RUN) ++++++++++")
     const answer = await inquirer.prompt([
         {
             type: "confirm",
