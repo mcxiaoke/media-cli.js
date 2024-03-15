@@ -3,7 +3,6 @@ import inquirer from "inquirer";
 import path from "path";
 import fs from 'fs-extra';
 import chalk from 'chalk';
-import yargs from "yargs";
 
 import { renameFiles } from "../lib/functions.js";
 

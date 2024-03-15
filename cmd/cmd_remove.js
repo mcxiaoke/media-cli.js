@@ -8,13 +8,10 @@ import throat from 'throat';
 import chalk from 'chalk';
 import dayjs from "dayjs";
 import sharp from "sharp";
-import yargs from "yargs";
 
 import * as log from '../lib/debug.js'
 import * as helper from '../lib/helper.js'
 import * as mf from '../lib/file.js'
-
-const cpuCount = cpus().length;
 
 // 日志文件
 const fileLog = function (msg, tag) {
@@ -173,7 +170,7 @@ const handler = async function cmdRemove(argv) {
 
     let tasks = await Promise.all(
         files.map(
-            throat(2 * cpuCount, (f) =>
+            throat(2 * cpus().length, (f) =>
                 prepareRemoveArgs(f, conditions)
             )
         )
