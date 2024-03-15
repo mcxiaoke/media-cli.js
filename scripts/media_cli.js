@@ -204,22 +204,7 @@ ya
   .command(await import("../cmd/cmd_remove.js"))
   // 命令 向上移动文件
   // 把多层嵌套目录下的文件移动到顶层目录，按图片和视频分类
-  .command(
-    ["moveup <input> [output]", "mu"],
-    "Move files to sub folder in top folder",
-    (ya) => {
-      ya
-        .option("output", {
-          alias: "o",
-          type: "string",
-          normalize: true,
-          description: "Output sub folder name",
-        });
-    },
-    (argv) => {
-      cmdMoveUp(argv);
-    }
-  )
+  .command(await import("../cmd/cmd_moveup.js"))
   // 命令 重命名文件 添加前缀
   .command(await import("../cmd/cmd_prefix.js"))
   .count("verbose")
@@ -314,87 +299,6 @@ async function cmdRename(argv) {
 
 async function cmdNormalize(argv) {
   // todo
-}
-
-async function cmdMoveUp(argv) {
-  log.show('cmdMoveUp', argv);
-  const root = path.resolve(argv.input);
-  if (!root || !(await fs.pathExists(root))) {
-    yargs.showHelp();
-    log.error("MoveUp", `Invalid Input: '${root}'`);
-    return;
-  }
-  // 读取顶级目录下所有的子目录
-  const outputDirName = argv.output || "图片";
-  const videoDirName = "视频"
-  let subDirs = await fs.readdir(root, { withFileTypes: true });
-  subDirs = subDirs.filter(x => x.isDirectory()).map(x => x.name);
-  log.show("MoveUp", "Folders:", subDirs)
-
-  const answer = await inquirer.prompt([
-    {
-      type: "confirm",
-      name: "yes",
-      default: false,
-      message: chalk.bold.red(
-        `Are you sure to move files in these folders to top sub folder?`
-      ),
-    },
-  ]);
-  if (!answer.yes) {
-    log.showYellow("MoveUp", "Will do nothing, aborted by user.");
-    return;
-  }
-
-  // 移动各个子目录的文件到 子目录/图片 目录
-  let movedCount = 0;
-  for (const subDir of subDirs) {
-    let curDir = path.join(root, subDir)
-    let files = await exif.listMedia(curDir)
-    log.show("MoveUp", `Total ${files.length} media files found in ${subDir}`);
-    const fileOutput = path.join(curDir, outputDirName)
-    const videoOutput = path.join(curDir, videoDirName);
-    log.show("MoveUp", `fileOutput = ${fileOutput}`);
-    for (const f of files) {
-      const fileSrc = f.path;
-      let fileDst = path.join(helper.isVideoFile(fileSrc) ? videoOutput : fileOutput, path.basename(fileSrc));
-      if (fileSrc === fileDst) {
-        log.info("Skip Same:", fileDst);
-        continue;
-      }
-      if (!(await fs.pathExists(fileSrc))) {
-        log.showYellow("Not Found:", fileSrc);
-        continue;
-      }
-      if (await fs.pathExists(fileDst)) {
-        const stSrc = await fs.stat(fileSrc);
-        const stDst = await fs.stat(fileDst);
-        if (stSrc.size !== stDst.size) {
-          // same name ,but not same file
-          const [dstDir, dstBase, dstExt] = helper.pathSplit(fileDst);
-          fileDst = path.join(dstDir, `${dstBase}_1${dstExt}`);
-          log.showYellow("New Name:", fileDst);
-        }
-      }
-      if (await fs.pathExists(fileDst)) {
-        log.showYellow("Skip Exists:", fileDst);
-        continue;
-      }
-      if (!(await fs.pathExists(fileOutput))) {
-        await fs.mkdirp(fileOutput);
-      }
-      try {
-        await fs.move(fileSrc, fileDst);
-        // movedFiles.push([fileSrc, fileDst]);
-        movedCount++;
-        log.info("Moved:", fileSrc, "to", fileDst);
-      } catch (error) {
-        log.error("Failed:", error, fileSrc, "to", fileDst);
-      }
-    }
-    log.showGreen("MoveUp", `Files in ${curDir} are moved to ${fileOutput}.`);
-  };
-  log.showGreen("MoveUp", `All ${movedCount} files moved.`);
 }
 
 async function cmdOrganize(argv) {
