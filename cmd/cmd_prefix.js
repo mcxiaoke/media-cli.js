@@ -57,9 +57,9 @@ const builder = function addOptions(ya, helpOrVersionSet) {
         })
 }
 
-const MODE_AUTO = "auto"
-const MODE_DIR = "dirname"
-const MODE_PREFIX = "prefix"
+const MODE_AUTO = "auto";
+const MODE_DIR = "dirname";
+const MODE_PREFIX = "prefix";
 
 // 正则：仅包含数字
 const reOnlyNum = /^\d+$/;
@@ -107,7 +107,7 @@ function createNewNameByDir(f, argv) {
     const nameLength = argv.length || 24;
     const [dir, base, ext] = helper.pathSplit(f.path);
     const prefix = path.basename(dir);
-    const nameSlice = nameLength * -3;
+    const nameSlice = nameLength * -10;
     // 不添加重复前缀
     if (base.startsWith(prefix)) {
         log.showGray("Prefix[DIR]", `Ignore: ${helper.pathShort(f.path)}`);
@@ -131,7 +131,7 @@ function createNewNameByPrefix(f, argv) {
         log.showYellow("Prefix", `Ignore: ${helper.pathShort(f.path)}`);
         return;
     }
-    const nameSlice = nameLength * -3;
+    const nameSlice = nameLength * -10;
     // 不添加重复前缀
     if (base.startsWith(prefix)) {
         log.showGray("Prefix[PREFIX]", `Skip: ${helper.pathShort(f.path)}`);
@@ -173,12 +173,12 @@ const handler = async function cmdPrefix(argv) {
         log.showYellow("Prefix", "Nothing to do, exit now.");
         return;
     }
-    const nameFuncMap = {
-        MODE_DIR: createNewNameByDir,
-        MODE_PREFIX: createNewNameByPrefix,
-        MODE_AUTO: createNewNameByAuto
-    }
-    const createNameFunc = nameFuncMap[mode] || createNewNameByAuto;
+    const nameFuncMap = new Map([
+        [MODE_DIR, createNewNameByDir],
+        [MODE_PREFIX, createNewNameByPrefix],
+        [MODE_AUTO, createNewNameByAuto]
+    ])
+    const createNameFunc = nameFuncMap.get(mode) || createNewNameByAuto;
     const tasks = files.map(f => createNameFunc(f, argv)).filter(Boolean)
     if (tasks.length > 0) {
         log.showGreen(
