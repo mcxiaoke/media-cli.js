@@ -71,7 +71,7 @@ function createNewNameByAuto(f, argv) {
     const nameLength = argv.length || 24;
     const [dir, base, ext] = helper.pathSplit(f.path);
     if (!reOnlyNum.test(base) && !forceAll) {
-        log.showYellow("Prefix", `Ignore: ${helper.pathShort(f.path)}`);
+        log.showYellow("Prefix[AUTO]", `Ignore: ${helper.pathShort(f.path)}`);
         return;
     }
     // 取目录项的最后两级目录名
@@ -99,22 +99,27 @@ function createNewNameByAuto(f, argv) {
     const newName = `${fPrefix}${ext}`;
     const newPath = path.join(dir, newName);
     f.outName = newName;
-    log.show("NewName[AUTO]", `=> ${helper.pathShort(newPath)}`);
+    log.show("Prefix[AUTO]", `=> ${helper.pathShort(newPath)}`);
     return f;
 }
 
 function createNewNameByDir(f, argv) {
     const nameLength = argv.length || 24;
     const [dir, base, ext] = helper.pathSplit(f.path);
-    const dirName = path.basename(dir);
+    const prefix = path.basename(dir);
     const nameSlice = nameLength * -3;
+    // 不添加重复前缀
+    if (base.startsWith(prefix)) {
+        log.showGray("Prefix[DIR]", `Ignore: ${helper.pathShort(f.path)}`);
+        return;
+    }
     // 是否去掉所有特殊字符
     const oldBase = argv.clean ? base.replaceAll(reNonChars, "") : base;
-    const fPrefix = (dirName + "_" + oldBase).slice(nameSlice);
+    const fPrefix = (prefix + "_" + oldBase).slice(nameSlice);
     const newName = `${fPrefix}${ext}`;
     const newPath = path.join(dir, newName);
     f.outName = newName;
-    log.show("NewName[DIR]", `=> ${helper.pathShort(newPath)}`);
+    log.show("Prefix[DIR]", `=> ${helper.pathShort(newPath)}`);
     return f;
 }
 
@@ -123,16 +128,22 @@ function createNewNameByPrefix(f, argv) {
     const [dir, base, ext] = helper.pathSplit(f.path);
     const prefix = argv.prefix;
     if (!prefix || prefix.length == 0) {
+        log.showYellow("Prefix", `Ignore: ${helper.pathShort(f.path)}`);
         return;
     }
     const nameSlice = nameLength * -3;
+    // 不添加重复前缀
+    if (base.startsWith(prefix)) {
+        log.showGray("Prefix[PREFIX]", `Skip: ${helper.pathShort(f.path)}`);
+        return;
+    }
     // 是否去掉所有特殊字符
     const oldBase = argv.clean ? base.replaceAll(reNonChars, "") : base;
     const fPrefix = (prefix + "_" + oldBase).slice(nameSlice);
     const newName = `${fPrefix}${ext}`;
     const newPath = path.join(dir, newName);
     f.outName = newName;
-    log.show("NewName[PREFIX]", `=> ${helper.pathShort(newPath)}`);
+    log.show("Prefix[PREFIX]", `=> ${helper.pathShort(newPath)}`);
     return f;
 }
 
@@ -162,67 +173,13 @@ const handler = async function cmdPrefix(argv) {
         log.showYellow("Prefix", "Nothing to do, exit now.");
         return;
     }
-    const tasks = [];
-
-    switch (mode) {
-        case MODE_DIR:
-            for (const f of files) {
-                const t = createNewNameByDir(f, argv)
-                t && t.outName && tasks.push(t)
-            }
-            break;
-        case MODE_PREFIX:
-            if (prefix && prefix.length > 0) {
-                for (const f of files) {
-                    const t = createNewNameByPrefix(f, argv)
-                    t && t.outName && tasks.push(t)
-                }
-            }
-            break;
-        case MODE_AUTO:
-        default:
-            for (const f of files) {
-                const t = createNewNameByAuto(f, argv)
-                t && t.outName && tasks.push(t)
-            }
-            break;
+    const nameFuncMap = {
+        MODE_DIR: createNewNameByDir,
+        MODE_PREFIX: createNewNameByPrefix,
+        MODE_AUTO: createNewNameByAuto
     }
-
-    ///////////////////////////////////////////////
-    // for (const f of files) {
-    //     const [dir, base, ext] = helper.pathSplit(f.path);
-    //     if (!reOnlyNum.test(base) && !forceAll) {
-    //         log.showYellow("Prefix", `Ignore: ${helper.pathShort(f.path)}`);
-    //         continue;
-    //     }
-    //     // 取目录项的最后两级目录名
-    //     let dirFix = dir.split(path.sep).slice(-2).join("_");
-    //     // 去掉目录名中的年月日
-    //     let dirStr = dirFix.replaceAll(/\d{4}-\d{2}-\d{2}/gi, "");
-    //     dirStr = dirStr.replaceAll(/\d+年\d+月/gi, "");
-    //     // 去掉附加说明
-    //     dirStr = dirStr.replaceAll(/\[.+\]/gi, "");
-    //     dirStr = dirStr.replaceAll(/\(.+\)/gi, "");
-    //     dirStr = dirStr.replaceAll(/\d+P(\d+V)?/gi, "");
-    //     // 去掉所有特殊字符
-    //     dirStr = dirStr.replaceAll(reNonChars, "");
-    //     if (argv.ignore && argv.ignore.length >= 2) {
-    //         dirStr = dirStr.replaceAll(argv.ignore, "");
-    //     } else {
-    //         dirStr = dirStr.replaceAll(/更新|合集|画师|图片|视频|插画|视图|订阅|限定|差分|R18|PSD|PIXIV|PIC|NO|ZIP|RAR/gi, "");
-    //     }
-    //     const nameSlice = nameLength * -1;
-    //     // 去掉所有特殊字符
-    //     let oldBase = base.replaceAll(reNonChars, "");
-    //     //oldBase = oldBase.replaceAll(/\s/gi, "").slice(nameSlice);
-    //     const fPrefix = (dirStr + "_" + oldBase).slice(nameSlice);
-    //     const newName = `${fPrefix}${ext}`;
-    //     const newPath = path.join(dir, newName);
-    //     f.outName = newName;
-    //     log.show("Prefix", `Output: ${helper.pathShort(newPath)}`);
-    //     tasks.push(f);
-    // }
-    ///////////////////////////////////////////////
+    const createNameFunc = nameFuncMap[mode] || createNewNameByAuto;
+    const tasks = files.map(f => createNameFunc(f, argv)).filter(Boolean)
     if (tasks.length > 0) {
         log.showGreen(
             "Prefix",
