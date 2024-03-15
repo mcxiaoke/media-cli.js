@@ -1,6 +1,6 @@
 {
   "name": "mediac",
-  "version": "0.8.1",
+  "version": "1.0.1",
   "type": "module",
   "description": "Media and ExifTool and File Utilities",
   "main": "index.js",
