@@ -11,8 +11,13 @@ import * as log from '../lib/debug.js'
 import * as helper from '../lib/helper.js'
 import * as mf from '../lib/file.js'
 
-export function cmdPrefixBuilder(ya) {
-    ya.option("size", {
+export { command, aliases, describe, builder, handler }
+
+const command = "prefix <input> [output]"
+const aliases = ["pf", "px"]
+const describe = 'Rename files by append dir name or string'
+const builder = function addOptions(ya, helpOrVersionSet) {
+    return ya.option("size", {
         alias: "s",
         type: "number",
         default: 24,
@@ -35,7 +40,7 @@ export function cmdPrefixBuilder(ya) {
         })
 }
 
-export async function cmdPrefix(argv) {
+const handler = async function cmdPrefix(argv) {
     log.show('cmdPrefix', argv);
     const root = path.resolve(argv.input);
     if (!root || !(await fs.pathExists(root))) {
@@ -43,10 +48,10 @@ export async function cmdPrefix(argv) {
         log.error(`Invalid Input: '${root}'`);
         return;
     }
-    const fastMode = argv.fast || false;
+    const size = argv.size || 24;
     const allMode = argv.all || false;
     const startMs = Date.now();
-    log.show("Prefix", `Input: ${root}`, fastMode ? "(FastMode)" : "");
+    log.show("Prefix", `Input: ${root}`, allMode ? "(force all)" : "");
     let files = await mf.walk(root, {
         entryFilter: (entry) =>
             entry.stats.isFile() &&
@@ -88,7 +93,7 @@ export async function cmdPrefix(argv) {
         } else {
             dirStr = dirStr.replaceAll(/更新|合集|画师|图片|视频|插画|视图|订阅|限定|差分|R18|PSD|PIXIV|PIC|NO|ZIP|RAR/gi, "");
         }
-        const nameSlice = (argv.size || 24) * -1;
+        const nameSlice = size * -1;
         // 去掉所有特殊字符
         let oldBase = base.replaceAll(reNonChars, "");
         //oldBase = oldBase.replaceAll(/\s/gi, "").slice(nameSlice);

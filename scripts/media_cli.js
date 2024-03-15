@@ -10,9 +10,8 @@ import fs from 'fs-extra';
 import chalk from 'chalk';
 import yargs from "yargs";
 import PrettyError from 'pretty-error';
-import { cpus, tmpdir } from "os";
+import { cpus } from "os";
 import { renameFiles } from "../lib/functions.js";
-import { cmdPrefix, cmdPrefixBuilder } from "../cmd/cmd_prefix.js";
 import * as log from '../lib/debug.js'
 import * as exif from '../lib/exif.js'
 import * as helper from '../lib/helper.js'
@@ -322,16 +321,8 @@ ya
       cmdMoveUp(argv);
     }
   )
-  // 命令 重命名文件
-  // 按照规则，将多个上级目录的名字附加到文件名，防止文件名冲突
-  .command(
-    ["prefix <input> [output]", "px"],
-    "Rename files by append dir name or fixed string",
-    (ya) => cmdPrefixBuilder(ya),
-    (argv) => {
-      cmdPrefix(argv);
-    }
-  )
+  // 命令 重命名文件 添加前缀
+  .command(await import("../cmd/cmd_prefix.js"))
   .count("verbose")
   .alias("v", "verbose")
   .alias("h", "help")
