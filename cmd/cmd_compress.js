@@ -128,7 +128,7 @@ const handler = async function cmdCompress(argv) {
     });
     log.show(`cmdCompress: task sample:`, tasks.slice(-2))
     log.showYellow("cmdCompress:", argv);
-    testMode && log.showGreen("++++++++++ TEST MODE (DRY RUN) ++++++++++")
+    testMode && log.showYellow("++++++++++ TEST MODE (DRY RUN) ++++++++++")
     const answer = await inquirer.prompt([
         {
             type: "confirm",

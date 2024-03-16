@@ -195,7 +195,7 @@ const handler = async function cmdRemove(argv) {
         log.showRed("cmdRemove", `Attention: Will DELETE all files ${cReverse ? "NOT IN" : "IN"} the name list!`);
     }
     fileLog(`<Conditions> list=${cNames.size},loose=${cLoose},width=${cWidth},height=${cHeight},size=${cSize / 1024}k,name=${cPattern}`, "cmdRemove");
-    testMode && log.showGreen("++++++++++ TEST MODE (DRY RUN) ++++++++++")
+    testMode && log.showYellow("++++++++++ TEST MODE (DRY RUN) ++++++++++")
     const answer = await inquirer.prompt([
         {
             type: "confirm",
@@ -225,7 +225,7 @@ const handler = async function cmdRemove(argv) {
                 await useSafeRemove ? helper.safeRemove(task.src) : fs.remove(task.src);
                 ++removedCount;
                 fileLog(`<Removed> ${task.src} (${task.index})`, "cmdRemove");
-                log.show("cmdRemove", `${useSafeRemove ? "Moved" : "Deleted"} ${task.src} (${task.index}) (${++index}/${tasks.length})`);
+                log.show("cmdRemove", `${useSafeRemove ? "SafeDel" : "Deleted"} ${task.src} (${task.index}) (${++index}/${tasks.length})`);
             } catch (error) {
                 log.error("cmdRemove", `failed to remove file ${task.src}`, error);
             }
