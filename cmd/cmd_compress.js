@@ -14,6 +14,8 @@ import * as exif from '../lib/exif.js'
 import * as helper from '../lib/helper.js'
 import * as mf from '../lib/file.js'
 
+import { makeThumbOne } from "../lib/functions.js";
+
 export { command, aliases, describe, builder, handler }
 
 const command = "compress <input> [output]"
@@ -22,17 +24,17 @@ const describe = 'Compress input images to target size'
 
 
 const builder = function addOptions(ya, helpOrVersionSet) {
-    return ya.option("delete", {
-        alias: "d",
+    return ya.option("purge", {
+        alias: "p",
         type: "boolean",
         default: false,
-        description: "Delete original image file",
+        description: "Purge original image files",
     })
         // 压缩后文件质量参数  
         .option("quality", {
             alias: "q",
             type: "number",
-            default: 88,
+            default: 86,
             description: "Target image file compress quality",
         })
         // 需要处理的最小文件大小
@@ -71,7 +73,7 @@ const handler = async function cmdCompress(argv) {
     const quality = argv.quality || 88;
     const minFileSize = (argv.size || 2048) * 1024;
     const maxWidth = argv.width || 6000;
-    const deleteOriginal = argv.delete || false;
+    const deleteOriginal = argv.purge || false;
     log.show(`cmdCompress: input:`, root);
 
     const RE_THUMB = /(Z4K|feature|web|thumb)/i;

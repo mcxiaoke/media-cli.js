@@ -10,6 +10,12 @@ import * as log from '../lib/debug.js'
 import * as helper from '../lib/helper.js'
 import * as mf from '../lib/file.js'
 
+const MODE_AUTO = "auto";
+const MODE_DIR = "dirname";
+const MODE_PREFIX = "prefix";
+
+const NAME_LENGTH = 24;
+
 export { command, aliases, describe, builder, handler }
 
 const command = "prefix <input> [output]"
@@ -19,7 +25,7 @@ const builder = function addOptions(ya, helpOrVersionSet) {
     return ya.option("length", {
         alias: "l",
         type: "number",
-        default: 24,
+        default: NAME_LENGTH,
         description: "max length of prefix string",
     })
         // 仅用于PREFIX模式，文件名添加指定前缀字符串
@@ -57,16 +63,14 @@ const builder = function addOptions(ya, helpOrVersionSet) {
         })
 }
 
-const MODE_AUTO = "auto";
-const MODE_DIR = "dirname";
-const MODE_PREFIX = "prefix";
-
 // 正则：仅包含数字
 const reOnlyNum = /^\d+$/gi;
 // 视频文件名各种前后缀
 const reVideoName = /HD1080P|2160p|1080p|720p|BDRip|H264|H265|X265|HEVC|AVC|8BIT|10bit|WEB-DL|SMURF|Web|AAC5\.1|Atmos|H\.264|DD5\.1|DDP5\.1|AAC|DJWEB|Play|VINEnc|DSNP|END|高清|特效|字幕组|公众号|\[.+\]/gi;
+// 图片文件名各种前后缀
+const reImageName = /更新|合集|画师|图片|视频|插画|视图|订阅|限定|差分|R18|PSD|PIXIV|PIC|NO\.\d+|ZIP|RAR/gi
 // 正则：匹配除 中日韩俄英 之外的特殊字符
-const reNonChars = /[^\p{sc=Hani}\p{sc=Hira}\p{sc=Kana}\p{sc=Hang}\p{sc=Cyrl}\w_]/ugi;
+const reNonChars = /[^\p{sc=Hani}\p{sc=Hira}\p{sc=Kana}\p{sc=Hang}\p{sc=Cyrl}\w_\.]/ugi;
 // 匹配空白字符和特殊字符
 const reUglyChars = /[《》【】\s_\-+=\.@#$%&\|]+/gi;
 // 匹配开头的空白和特殊字符
@@ -75,58 +79,84 @@ const reStripUglyChars = /(^[\s_\-+=\.@#$%&\|]+)|([\s_\-+=\.@#$%&\|]+$)/gi;
 // 重复文件名Set，检测重复，防止覆盖
 const nameDuplicateSet = new Set();
 
+function cleanAlbumPicName(nameString, ext) {
+    let nameStr = nameString;
+    nameStr = nameStr.replaceAll(/\d{4}-\d{2}-\d{2}/gi, "");
+    // 括号改为下划线
+    nameStr = nameStr.replaceAll(/[\(\)]/gi, "_");
+    nameStr = nameStr.replaceAll(/\d+年\d+月/gi, "");
+    // 去掉附加说明
+    nameStr = nameStr.replaceAll(/\[.+\]/gi, "");
+    nameStr = nameStr.replaceAll(/\d+P(\d+V)?/gi, "");
+    // 去掉所有特殊字符
+    nameStr = nameStr.replaceAll(reNonChars, "");
+    nameStr = nameStr.replaceAll(reImageName, "");
+
+    return nameStr;
+}
+
 function createNewNameByAuto(f, argv) {
     const forceAll = argv.all || false;
-    const nameLength = argv.length || 24;
+    const nameLength = argv.length || NAME_LENGTH;
     const [dir, base, ext] = helper.pathSplit(f.path);
+    const logTag = "Prefix[A]";
     if (!reOnlyNum.test(base) && !forceAll) {
-        log.showYellow("Prefix[AUTO]", `Ignore: ${helper.pathShort(f.path)}`);
+        log.showYellow(logTag, `Ignore: ${helper.pathShort(f.path)}`);
         return;
     }
+    const sep = helper.isVideoFile(f.path) || helper.isSubtitleFile(f.path) ? "." : "_";
+    // 原始文件名是否去掉所有特殊字符
+    const oldBase = argv.clean ? cleanAlbumPicName(base) : base;
     // 取目录项的最后两级目录名
-    let dirFix = dir.split(path.sep).slice(-2).join("_");
+    let dirParts = dir.split(path.sep).slice(-2);
+    // 两侧目录名重复则取最深层目录名
+    let dirFix = dirParts[1].includes(dirParts[0]) ? dirParts[1] : dirParts.join(sep);
     // 去掉目录名中的年月日
-    let dirStr = dirFix.replaceAll(/\d{4}-\d{2}-\d{2}/gi, "");
-    dirStr = dirStr.replaceAll(/\d+年\d+月/gi, "");
-    // 去掉附加说明
-    dirStr = dirStr.replaceAll(/\[.+\]/gi, "");
-    dirStr = dirStr.replaceAll(/\(.+\)/gi, "");
-    dirStr = dirStr.replaceAll(/\d+P(\d+V)?/gi, "");
-    // 去掉所有特殊字符
-    dirStr = dirStr.replaceAll(reNonChars, "");
+    let prefix = cleanAlbumPicName(dirFix);
     if (argv.ignore && argv.ignore.length >= 2) {
-        dirStr = dirStr.replaceAll(argv.ignore, "");
-    } else {
-        dirStr = dirStr.replaceAll(/更新|合集|画师|图片|视频|插画|视图|订阅|限定|差分|R18|PSD|PIXIV|PIC|NO|ZIP|RAR/gi, "");
+        prefix = prefix.replaceAll(argv.ignore, "");
     }
     const nameSlice = nameLength * -1;
-    // 是否去掉所有特殊字符
-    const oldBase = argv.clean ? base.replaceAll(reNonChars, "") : base;
 
-    let fullBase = (prefix ? (prefix + "." + oldBase) : oldBase);
+    let fullBase = prefix + "_" + oldBase;
     fullBase = fullBase.replaceAll(reStripUglyChars, "");
+    fullBase = fullBase.replaceAll(/[-_\s\.]+/gi, sep);
     fullBase = fullBase.slice(nameSlice);
 
-    fullBase = fullBase.replaceAll(/[-_]+/gi, "_");
     const newName = `${fullBase}${ext}`;
     const newPath = path.join(dir, newName);
-    fPrefix.length > 8 && (f.outName = newName);
-    log.show("Prefix[AUTO]", `=> ${helper.pathShort(newPath)}`);
+    if (fullBase === base) {
+        log.showGray(logTag, `NoChange: ${helper.pathShort(newPath)}`);
+        return;
+    }
+    if (fs.existsSync(newPath)) {
+        log.showGray(logTag, `Exists: ${helper.pathShort(newPath)}`);
+        return;
+    }
+    if (nameDuplicateSet.has(newPath)) {
+        log.showGray(logTag, `Duplicate: ${helper.pathShort(newPath)}`);
+        return;
+    }
+    f.outName = newName;
+    log.show(logTag, `=> ${newPath}`);
     return f;
 }
 
 function createNewNameCommon(f, argv, useDirName) {
-    const nameLength = argv.length || 24;
+    const nameLength = argv.length || NAME_LENGTH;
     const [dir, base, ext] = helper.pathSplit(f.path);
+    const logTag = useDirName ? "Prefix[D]" : "Prefix[P]";
     if (path.basename(dir).startsWith("_")) {
         return;
     }
-    const logTag = useDirName ? "Prefix[D]" : "Prefix[P]";
+
+    const sep = helper.isVideoFile(f.path) || helper.isSubtitleFile(f.path) ? "." : "_";
+    log.info(logTag, `Processing ${f.path}`);
     let prefix = argv.prefix;
     if (useDirName) {
         prefix = path.basename(dir);
         // 忽略深层文件夹如 S1 S2
-        if (prefix.length < 4 && /^[A-Za-z0-9]+$/.test(prefix)) {
+        if (prefix.length < 8 && /^[A-Za-z0-9 ]+$/.test(prefix)) {
             prefix = path.basename(path.dirname(dir));
         }
     }
@@ -136,39 +166,49 @@ function createNewNameCommon(f, argv, useDirName) {
     }
     const nameSlice = nameLength * -10;
     // 不添加重复前缀
-    if (base.startsWith(prefix)) {
+    if (base.includes(prefix)) {
         log.info(logTag, `IgnorePrefix: ${helper.pathShort(f.path)}`);
         prefix = "";
     }
-    let oldBase = base;
+
+
+    // 原始文件名是否去掉所有特殊字符
+    let oldBase = argv.clean ? cleanAlbumPicName(base) : base;
     // 去掉所有视频文件描述前缀后缀等，
     // 是否去掉所有特殊字符
     if (argv.clean) {
         if (helper.isVideoFile(f.path) || helper.isSubtitleFile(f.path)) {
             oldBase = oldBase.replaceAll(reVideoName, "");
         }
-        oldBase = oldBase.replaceAll(reUglyChars, ".");
+        oldBase = oldBase.replaceAll(reUglyChars, sep);
     }
-    let fullBase = (prefix ? (prefix + "." + oldBase) : oldBase);
+    let fullBase = prefix + sep + oldBase;
+    if (helper.isImageFile(f.path)) {
+        fullBase = cleanAlbumPicName(fullBase);
+    }
+
     fullBase = fullBase.replaceAll(reStripUglyChars, "");
+    // 多余空白和字符替换为一个字符 _或.
+    fullBase = fullBase.replaceAll(/[-_\s\.]+/gi, sep);
     fullBase = fullBase.slice(nameSlice);
+
     const newName = `${fullBase}${ext}`;
     const newPath = path.join(dir, newName);
     if (fullBase === base) {
-        log.showGray(logTag, `NoChange: ${helper.pathShort(f.path)}`);
+        log.showGray(logTag, `NoChange: ${helper.pathShort(newPath)}`);
         return;
     }
     if (fs.existsSync(newPath)) {
-        log.showGray(logTag, `Exists: ${helper.pathShort(f.path)}`);
+        log.showGray(logTag, `Exists: ${helper.pathShort(newPath)}`);
         return;
     }
     if (nameDuplicateSet.has(newPath)) {
-        log.showGray(logTag, `Duplicate: ${helper.pathShort(f.path)}`);
+        log.showGray(logTag, `Duplicate: ${helper.pathShort(newPath)}`);
         return;
     }
     f.outName = newName;
     nameDuplicateSet.add(newPath);
-    log.show(logTag, `=> ${helper.pathShort(newPath)}`);
+    log.show(logTag, `=> ${newPath}`);
     return f;
 }
 
