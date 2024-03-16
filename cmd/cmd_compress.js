@@ -51,7 +51,7 @@ const builder = function addOptions(ya, helpOrVersionSet) {
         })
         // 确认执行所有系统操作，非测试模式，如删除和重命名和移动操作
         .option("doit", {
-            alias: "not-dry-run",
+            alias: "d",
             type: "boolean",
             default: false,
             description: "execute os operations in real mode, not dry run",
