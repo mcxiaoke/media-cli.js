@@ -613,7 +613,7 @@ async function cmdThumbs(argv) {
   const prepareFunc = async f => {
     return prepareThumbArgs(f, conditions)
   }
-  let tasks = pMap(files, prepareFunc, { concurrency: cpus().length })
+  let tasks = await pMap(files, prepareFunc, { concurrency: cpus().length })
   log.debug("cmdThumbs before filter: ", tasks.length);
   const total = tasks.length;
   tasks = tasks.filter((t) => t && t.dst);

@@ -107,7 +107,7 @@ const handler = async function cmdCompress(argv) {
     const prepareFunc = async f => {
         return prepareCompressArgs(f, conditions)
     }
-    let tasks = pMap(files, prepareFunc, { concurrency: cpus().length })
+    let tasks = await pMap(files, prepareFunc, { concurrency: cpus().length })
 
     log.debug("cmdCompress before filter: ", tasks.length);
     const total = tasks.length;

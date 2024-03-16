@@ -171,7 +171,7 @@ const handler = async function cmdRemove(argv) {
     const prepareFunc = async f => {
         return prepareRemoveArgs(f, conditions)
     }
-    let tasks = pMap(files, prepareFunc, { concurrency: cpus().length * 2 })
+    let tasks = await pMap(files, prepareFunc, { concurrency: cpus().length * 2 })
 
     conditions.names = Array.from(cNames).slice(-5);
     const total = tasks.length;
