@@ -62,9 +62,18 @@ const MODE_DIR = "dirname";
 const MODE_PREFIX = "prefix";
 
 // 正则：仅包含数字
-const reOnlyNum = /^\d+$/;
+const reOnlyNum = /^\d+$/gi;
+// 视频文件名各种前后缀
+const reVideoName = /HD1080P|2160p|1080p|720p|BDRip|H264|H265|X265|HEVC|AVC|8BIT|10bit|WEB-DL|SMURF|Web|AAC5\.1|Atmos|H\.264|DD5\.1|DDP5\.1|AAC|DJWEB|Play|VINEnc|DSNP|END|高清|特效|字幕组|公众号|\[.+\]/gi;
 // 正则：匹配除 中日韩俄英 之外的特殊字符
 const reNonChars = /[^\p{sc=Hani}\p{sc=Hira}\p{sc=Kana}\p{sc=Hang}\p{sc=Cyrl}\w_]/ugi;
+// 匹配空白字符和特殊字符
+const reUglyChars = /[《》【】\s_\-+=\.@#$%&\|]+/gi;
+// 匹配开头的空白和特殊字符
+const reStripUglyChars = /(^[\s_\-+=\.@#$%&\|]+)|([\s_\-+=\.@#$%&\|]+$)/gi;
+
+// 重复文件名Set，检测重复，防止覆盖
+const nameDuplicateSet = new Set();
 
 function createNewNameByAuto(f, argv) {
     const forceAll = argv.all || false;
@@ -93,58 +102,82 @@ function createNewNameByAuto(f, argv) {
     const nameSlice = nameLength * -1;
     // 是否去掉所有特殊字符
     const oldBase = argv.clean ? base.replaceAll(reNonChars, "") : base;
-    //oldBase = oldBase.replaceAll(/\s/gi, "").slice(nameSlice);
-    let fPrefix = (dirStr + "_" + oldBase).slice(nameSlice);
-    fPrefix = fPrefix.replaceAll(/[-_]+/gi, "_");
-    const newName = `${fPrefix}${ext}`;
+
+    let fullBase = (prefix ? (prefix + "." + oldBase) : oldBase);
+    fullBase = fullBase.replaceAll(reStripUglyChars, "");
+    fullBase = fullBase.slice(nameSlice);
+
+    fullBase = fullBase.replaceAll(/[-_]+/gi, "_");
+    const newName = `${fullBase}${ext}`;
     const newPath = path.join(dir, newName);
-    f.outName = newName;
+    fPrefix.length > 8 && (f.outName = newName);
     log.show("Prefix[AUTO]", `=> ${helper.pathShort(newPath)}`);
     return f;
 }
 
-function createNewNameByDir(f, argv) {
+function createNewNameCommon(f, argv, useDirName) {
     const nameLength = argv.length || 24;
     const [dir, base, ext] = helper.pathSplit(f.path);
-    const prefix = path.basename(dir);
+    if (path.basename(dir).startsWith("_")) {
+        return;
+    }
+    const logTag = useDirName ? "Prefix[D]" : "Prefix[P]";
+    let prefix = argv.prefix;
+    if (useDirName) {
+        prefix = path.basename(dir);
+        // 忽略深层文件夹如 S1 S2
+        if (prefix.length < 4 && /^[A-Za-z0-9]+$/.test(prefix)) {
+            prefix = path.basename(path.dirname(dir));
+        }
+    }
+    if (!prefix || prefix.length == 0) {
+        log.warn(logTag, `Invalid Prefix: ${helper.pathShort(f.path)}`);
+        throw new Error(`Invalid Prefix`);
+    }
     const nameSlice = nameLength * -10;
     // 不添加重复前缀
     if (base.startsWith(prefix)) {
-        log.showGray("Prefix[DIR]", `Ignore: ${helper.pathShort(f.path)}`);
+        log.info(logTag, `IgnorePrefix: ${helper.pathShort(f.path)}`);
+        prefix = "";
+    }
+    let oldBase = base;
+    // 去掉所有视频文件描述前缀后缀等，
+    // 是否去掉所有特殊字符
+    if (argv.clean) {
+        if (helper.isVideoFile(f.path) || helper.isSubtitleFile(f.path)) {
+            oldBase = oldBase.replaceAll(reVideoName, "");
+        }
+        oldBase = oldBase.replaceAll(reUglyChars, ".");
+    }
+    let fullBase = (prefix ? (prefix + "." + oldBase) : oldBase);
+    fullBase = fullBase.replaceAll(reStripUglyChars, "");
+    fullBase = fullBase.slice(nameSlice);
+    const newName = `${fullBase}${ext}`;
+    const newPath = path.join(dir, newName);
+    if (fullBase === base) {
+        log.showGray(logTag, `NoChange: ${helper.pathShort(f.path)}`);
         return;
     }
-    // 是否去掉所有特殊字符
-    const oldBase = argv.clean ? base.replaceAll(reNonChars, "") : base;
-    const fPrefix = (prefix + "_" + oldBase).slice(nameSlice);
-    const newName = `${fPrefix}${ext}`;
-    const newPath = path.join(dir, newName);
+    if (fs.existsSync(newPath)) {
+        log.showGray(logTag, `Exists: ${helper.pathShort(f.path)}`);
+        return;
+    }
+    if (nameDuplicateSet.has(newPath)) {
+        log.showGray(logTag, `Duplicate: ${helper.pathShort(f.path)}`);
+        return;
+    }
     f.outName = newName;
-    log.show("Prefix[DIR]", `=> ${helper.pathShort(newPath)}`);
+    nameDuplicateSet.add(newPath);
+    log.show(logTag, `=> ${helper.pathShort(newPath)}`);
     return f;
 }
 
+function createNewNameByDir(f, argv) {
+    return createNewNameCommon(f, argv, true)
+}
+
 function createNewNameByPrefix(f, argv) {
-    const nameLength = argv.length || 24;
-    const [dir, base, ext] = helper.pathSplit(f.path);
-    const prefix = argv.prefix;
-    if (!prefix || prefix.length == 0) {
-        log.showYellow("Prefix", `Ignore: ${helper.pathShort(f.path)}`);
-        return;
-    }
-    const nameSlice = nameLength * -10;
-    // 不添加重复前缀
-    if (base.startsWith(prefix)) {
-        log.showGray("Prefix[PREFIX]", `Skip: ${helper.pathShort(f.path)}`);
-        return;
-    }
-    // 是否去掉所有特殊字符
-    const oldBase = argv.clean ? base.replaceAll(reNonChars, "") : base;
-    const fPrefix = (prefix + "_" + oldBase).slice(nameSlice);
-    const newName = `${fPrefix}${ext}`;
-    const newPath = path.join(dir, newName);
-    f.outName = newName;
-    log.show("Prefix[PREFIX]", `=> ${helper.pathShort(newPath)}`);
-    return f;
+    return createNewNameCommon(f, argv, false)
 }
 
 const handler = async function cmdPrefix(argv) {
@@ -160,6 +193,11 @@ const handler = async function cmdPrefix(argv) {
     const prefix = argv.prefix;
     const startMs = Date.now();
     log.show("Prefix", `Input: ${root}`, forceAll ? "(force all)" : "");
+
+    if (mode === MODE_PREFIX && !prefix) {
+        throw new Error(`No prefix value supplied!`);
+    }
+
     let files = await mf.walk(root, {
         entryFilter: (entry) =>
             entry.stats.isFile() &&
@@ -179,11 +217,11 @@ const handler = async function cmdPrefix(argv) {
         [MODE_AUTO, createNewNameByAuto]
     ])
     const createNameFunc = nameFuncMap.get(mode) || createNewNameByAuto;
-    const tasks = files.map(f => createNameFunc(f, argv)).filter(Boolean)
+    const tasks = files.map(f => createNameFunc(f, argv)).filter(f => f && f.outName)
     if (tasks.length > 0) {
         log.showGreen(
             "Prefix",
-            `Total ${files.length} media files ready to rename`,
+            `Total ${tasks.length} media files ready to rename`,
             forceAll ? "(forceAll)" : ""
         );
     } else {

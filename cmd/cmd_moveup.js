@@ -199,7 +199,7 @@ const handler = async function cmdMoveUp(argv) {
             !testMode && ++delCount;
             log.showGreen('MoveUp', "SafeDel", helper.pathShort(td), testMode ? "[DRY RUN]" : "");
         }
-        log.showGreen('MoveUp', `${delCount} dirs were DELETED.`, testMode ? "[DRY RUN]" : "");
+        log.showGreen('MoveUp', `${delCount} dirs were`, testMode ? "[NOT DELETED]" : "SAFE DELETED");
     }
 }
 
