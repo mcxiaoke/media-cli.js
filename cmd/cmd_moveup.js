@@ -57,7 +57,7 @@ const handler = async function cmdMoveUp(argv) {
     let subDirs = await fs.readdir(root, { withFileTypes: true });
     subDirs = toRoot ? ["."] : subDirs.filter(x => x.isDirectory()).map(x => x.name);
     log.show("MoveUp", "to folders:", subDirs)
-    log.showYellow("MoveUp:", argv);
+    log.info("MoveUp:", argv);
     testMode && log.showYellow("++++++++++ TEST MODE (DRY RUN) ++++++++++")
     const answer = await inquirer.prompt([
         {

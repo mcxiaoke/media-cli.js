@@ -134,7 +134,7 @@ const handler = async function cmdRename(argv) {
         fastMode ? "(FastMode)" : ""
     );
     log.show(`Rename`, `task sample:`, files.slice(-2))
-    log.showYellow("Rename:", argv);
+    log.info("Rename:", argv);
     testMode && log.showYellow("++++++++++ TEST MODE (DRY RUN) ++++++++++")
     const answer = await inquirer.prompt([
         {

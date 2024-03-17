@@ -10,7 +10,6 @@ import chalk from 'chalk';
 import yargs from "yargs";
 import PrettyError from 'pretty-error';
 import { cpus } from "os";
-import { renameFiles } from "../lib/functions.js";
 import * as log from '../lib/debug.js'
 import * as exif from '../lib/exif.js'
 import * as helper from '../lib/helper.js'

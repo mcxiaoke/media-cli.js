@@ -129,7 +129,7 @@ const handler = async function cmdCompress(argv) {
         t.deleteOriginal = deleteOriginal || false;
     });
     log.show(`cmdCompress: task sample:`, tasks.slice(-2))
-    log.showYellow("cmdCompress:", argv);
+    log.info("cmdCompress:", argv);
     testMode && log.showYellow("++++++++++ TEST MODE (DRY RUN) ++++++++++")
     const answer = await inquirer.prompt([
         {

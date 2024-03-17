@@ -272,7 +272,7 @@ const handler = async function cmdPrefix(argv) {
         );
         return;
     }
-    log.showYellow("Prefix:", argv);
+    log.info("Prefix:", argv);
     testMode && log.showYellow("++++++++++ TEST MODE (DRY RUN) ++++++++++")
     const answer = await inquirer.prompt([
         {
