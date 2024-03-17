@@ -25,7 +25,7 @@ prettyError.skipNodeFiles();
 // 配置调试等级
 const configCli = (argv) => {
   // log.setName("MediaCli");
-  log.setLevel(argv.verbose);
+  log.setVerbose(argv.verbose);
   log.debug(argv);
 };
 // 日志文件

@@ -175,10 +175,10 @@ const handler = async function cmdMoveUp(argv) {
     subDirList = new Set([...subDirList].map(x => path.resolve(x)));
     let toRemoveDirList = setDifference(subDirList, keepDirList)
 
-    log.showYellow("MoveUp", `There are ${keepDirList.size} output dirs NOT TO DELETE`);
+    log.show("MoveUp", `There are ${keepDirList.size} output dirs ${chalk.red("DO NOTHING")}`);
     log.show(keepDirList)
-    log.showYellow("MoveUp", `There are ${toRemoveDirList.size} unused dirs to DELETE, samples:`)
-    log.showYellow([...toRemoveDirList].slice(-20));
+    log.showYellow("MoveUp", `There are ${toRemoveDirList.size} unused dirs to ${chalk.red("DELETE")}, samples:`)
+    log.show([...toRemoveDirList].slice(-20));
     testMode && log.showYellow("++++++++++ TEST MODE (DRY RUN) ++++++++++")
     const removeUnusedAnswer = await inquirer.prompt([
         {
