@@ -15,7 +15,7 @@ const MODE_DIR = "dirname";
 const MODE_PREFIX = "prefix";
 const MODE_MEDIA = "media";
 
-const NAME_LENGTH = 32;
+const NAME_LENGTH = 48;
 
 export { aliases, builder, command, describe, handler };
 
@@ -86,11 +86,11 @@ const reOnlyNum = /^\d+$/gi;
 const reVideoName = /HD1080P|2160p|1080p|720p|BDRip|H264|H265|X265|HEVC|AVC|8BIT|10bit|WEB-DL|SMURF|Web|AAC5\.1|Atmos|H\.264|DD5\.1|DDP5\.1|AAC|DJWEB|Play|VINEnc|DSNP|END|高清|特效|字幕组|公众号|\[.+?\]/gi;
 // 图片文件名各种前后缀
 const reImageName = /更新|合集|画师|图片|视频|插画|视图|订阅|限定|差分|R18|PSD|PIXIV|PIC|NO\.\d+|ZIP|RAR/gi
-// 正则：匹配除 中日韩俄英 之外的特殊字符
-const reNonChars = /[^\p{sc=Hani}\p{sc=Hira}\p{sc=Kana}\p{sc=Hang}\p{sc=Cyrl}\w\-_\.]/ugi;
+// 正则：匹配除 [中日韩俄英和中英文标点符号] 之外的特殊字符
+const reNonChars = /[^\p{sc=Hani}\p{sc=Hira}\p{sc=Kana}\p{sc=Hang}\p{sc=Cyrl}\p{P}\uFF01-\uFF5E\u3001-\u3011\w\-_\.]/ugi;
 // 匹配空白字符和特殊字符
 const reUglyChars = /[《》【】\s_\-+=\.@#$%&\|]+/gi;
-// 匹配开头的空白和特殊字符
+// 匹配开头和结尾的空白和特殊字符
 const reStripUglyChars = /(^[\s_\-+=\.@#$%&\|]+)|([\s_\-+=\.@#$%&\|]+$)/gi;
 // 图片视频子文件夹名过滤
 // 如果有表示，test() 会随机饭后true or false，是一个bug
@@ -129,17 +129,17 @@ function getAutoModePrefix(dir, sep) {
 }
 
 function createNewNameByMode(f, argv) {
-    const nameLength = argv.length || NAME_LENGTH;
-    const nameSlice = nameLength * -1;
-    const [dir, base, ext] = helper.pathSplit(f.path);
-    const dirParent = path.basename(path.dirname(dir));
-    const dirName = path.basename(dir);
     // 处理模式
     let mode = argv.mode || MODE_AUTO;
     if (argv.auto) { mode = MODE_AUTO; }
     if (argv.mprefix) { mode = MODE_PREFIX; }
     if (argv.dirname) { mode = MODE_DIR; }
     if (argv.media) { mode = MODE_MEDIA; }
+    let nameLength = (mode == MODE_MEDIA) ? 200 : argv.length || NAME_LENGTH;
+    const nameSlice = nameLength * -1;
+    const [dir, base, ext] = helper.pathSplit(f.path);
+    const dirParent = path.basename(path.dirname(dir));
+    const dirName = path.basename(dir);
     const logTag = "Prefix::" + mode.toUpperCase()[0];
     // 忽略 . _ 开头的目录
     if (/^[\._]/.test(dirName)) {
@@ -217,7 +217,7 @@ function createNewNameByMode(f, argv) {
     fullBase = fullBase.replaceAll(reStripUglyChars, "");
     // 多余空白和字符替换为一个字符 _或.
     fullBase = fullBase.replaceAll(/[\-_\s\.]+/gi, sep);
-    fullBase = fullBase.slice(nameSlice);
+    fullBase = unicodeStrLength(fullBase) > nameLength ? fullBase.slice(nameSlice) : fullBase;
     const newName = `${fullBase}${ext}`;
     const newPath = path.join(dir, newName);
     if (fullBase === base) {
@@ -307,5 +307,45 @@ const handler = async function cmdPrefix(argv) {
         }
     } else {
         log.showYellow("Prefix", "Will do nothing, aborted by user.");
+    }
+}
+
+// 计算字符串长度，中文算2，英文算1
+function unicodeStrLength(str) {
+    var len = 0;
+    for (var i = 0; i < str.length; i++) {
+        var c = str.charCodeAt(i);
+        //单字节加1 
+        if ((c >= 0x0001 && c <= 0x007e) || (0xff60 <= c && c <= 0xff9f)) {
+            len++;
+        }
+        else {
+            len += 2;
+        }
+    }
+    return len;
+}
+
+function unicodeStrSlice(str, len) {
+    var str_length = 0;
+    var str_len = 0;
+    str_cut = new String();
+    str_len = str.length;
+    for (var i = 0; i < str_len; i++) {
+        a = str.charAt(i);
+        str_length++;
+        if (encodeURI(a).length > 4) {
+            //中文字符的长度经编码之后大于4
+            str_length++;
+        }
+        str_cut = str_cut.concat(a);
+        if (str_length >= len) {
+            // str_cut = str_cut.concat("...");
+            return str_cut;
+        }
+    }
+    //如果给定字符串小于指定长度，则返回源字符串；
+    if (str_length < len) {
+        return str;
     }
 }
