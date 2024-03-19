@@ -98,7 +98,8 @@ const handler = async function cmdCompress(argv) {
         log.showYellow("Will do nothing, aborted by user.");
         return;
     }
-
+    log.showGreen(`cmdCompress: preparing compress arguments...`);
+    let startMs = Date.now();
     const conditions = {
         maxWidth: maxWidth,
         force: force,
@@ -107,7 +108,7 @@ const handler = async function cmdCompress(argv) {
     const prepareFunc = async f => {
         return prepareCompressArgs(f, conditions)
     }
-    let tasks = await pMap(files, prepareFunc, { concurrency: cpus().length })
+    let tasks = await pMap(files, prepareFunc, { concurrency: cpus().length * 4 })
 
     log.debug("cmdCompress before filter: ", tasks.length);
     const total = tasks.length;
@@ -126,6 +127,7 @@ const handler = async function cmdCompress(argv) {
         t.quality = quality || 88;
         t.deleteOriginal = deleteOriginal || false;
     });
+    log.show(`cmdCompress: time elapsed ${helper.humanTime(startMs)}`)
     log.show(`cmdCompress: task sample:`, tasks.slice(-2))
     log.info("cmdCompress:", argv);
     testMode && log.showYellow("++++++++++ TEST MODE (DRY RUN) ++++++++++")
@@ -145,7 +147,7 @@ const handler = async function cmdCompress(argv) {
         return;
     }
 
-    const startMs = Date.now();
+    startMs = Date.now();
     log.showGreen('cmdCompress: startAt', dayjs().format())
     const result = await pMap(tasks, makeThumbOne, { concurrency: cpus().length / 2 + 1 });
     log.showGreen('cmdCompress: endAt', dayjs().format())
@@ -185,7 +187,7 @@ async function prepareCompressArgs(f, options) {
 
         const dw = nw > m.width ? m.width : nw; // 计算最终输出的宽度，如果新的宽度大于原始宽度，则使用原始宽度；否则使用新的宽度  
         const dh = nh > m.height ? m.height : nh; // 计算最终输出的高度，按比例计算最终输出高度，如果新的高度大于原始高度，则使用原始高度；否则使用新的高度  
-        log.show(// 打印日志，显示压缩后的文件信息  
+        log.info(// 打印日志，显示压缩后的文件信息  
             "prepareCompress:",
             helper.pathShort(fileDst),
             `(${m.width}x${m.height} => ${dw}x${dh})`
