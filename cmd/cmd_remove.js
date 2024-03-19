@@ -1,24 +1,24 @@
 #!/usr/bin/env node
 import assert from "assert";
-import inquirer from "inquirer";
-import path from "path";
-import { cpus } from "os";
-import fs from 'fs-extra';
-import pMap from 'p-map';
 import chalk from 'chalk';
 import dayjs from "dayjs";
+import fs from 'fs-extra';
+import inquirer from "inquirer";
+import { cpus } from "os";
+import pMap from 'p-map';
+import path from "path";
 import sharp from "sharp";
 
-import * as log from '../lib/debug.js'
-import * as helper from '../lib/helper.js'
-import * as mf from '../lib/file.js'
+import * as log from '../lib/debug.js';
+import * as mf from '../lib/file.js';
+import * as helper from '../lib/helper.js';
 
 // 日志文件
 const fileLog = function (msg, tag) {
     log.fileLog(msg, tag, "mediac");
 }
 
-export { command, aliases, describe, builder, handler }
+export { aliases, builder, command, describe, handler };
 
 const command = "remove <input> [output]"
 const aliases = ["rm", "rmf"]

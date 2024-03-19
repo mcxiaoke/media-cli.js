@@ -1,22 +1,20 @@
 #!/usr/bin/env node
 import assert from "assert";
-import dayjs from "dayjs";
-import inquirer from "inquirer";
-import pMap from 'p-map';
-import sharp from "sharp";
-import path from "path";
-import fs from 'fs-extra';
 import chalk from 'chalk';
-import yargs from "yargs";
+import dayjs from "dayjs";
+import fs from 'fs-extra';
+import inquirer from "inquirer";
 import { cpus } from "os";
-import * as log from '../lib/debug.js'
-import * as exif from '../lib/exif.js'
-import * as helper from '../lib/helper.js'
-import * as mf from '../lib/file.js'
+import pMap from 'p-map';
+import path from "path";
+import sharp from "sharp";
+import * as log from '../lib/debug.js';
+import * as mf from '../lib/file.js';
+import * as helper from '../lib/helper.js';
 
 import { makeThumbOne } from "../lib/functions.js";
 
-export { command, aliases, describe, builder, handler }
+export { aliases, builder, command, describe, handler };
 
 const command = "compress <input> [output]"
 const aliases = ["cs", "cps"]

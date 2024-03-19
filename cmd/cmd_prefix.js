@@ -1,14 +1,14 @@
 #!/usr/bin/env node
+import chalk from 'chalk';
+import fs from 'fs-extra';
 import inquirer from "inquirer";
 import path from "path";
-import fs from 'fs-extra';
-import chalk from 'chalk';
 
 import { renameFiles } from "../lib/functions.js";
 
-import * as log from '../lib/debug.js'
-import * as helper from '../lib/helper.js'
-import * as mf from '../lib/file.js'
+import * as log from '../lib/debug.js';
+import * as mf from '../lib/file.js';
+import * as helper from '../lib/helper.js';
 
 const MODE_AUTO = "auto";
 const MODE_DIR = "dirname";
@@ -16,7 +16,7 @@ const MODE_PREFIX = "prefix";
 
 const NAME_LENGTH = 24;
 
-export { command, aliases, describe, builder, handler }
+export { aliases, builder, command, describe, handler };
 
 const command = "prefix <input> [output]"
 const aliases = ["pf", "px"]

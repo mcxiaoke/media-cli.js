@@ -1,17 +1,16 @@
 #!/usr/bin/env node
 
+import chalk from 'chalk';
+import fs from 'fs-extra';
 import inquirer from "inquirer";
 import path from "path";
-import fs from 'fs-extra';
-import chalk from 'chalk';
-import dayjs from "dayjs";
 
-import * as log from '../lib/debug.js'
-import * as helper from '../lib/helper.js'
-import * as mf from '../lib/file.js'
+import * as log from '../lib/debug.js';
+import * as mf from '../lib/file.js';
+import * as helper from '../lib/helper.js';
 
 
-export { command, aliases, describe, builder, handler }
+export { aliases, builder, command, describe, handler };
 
 const command = "moveup <input> [output]"
 const aliases = ["mu"]
