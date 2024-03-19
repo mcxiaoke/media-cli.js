@@ -112,6 +112,7 @@ function cleanAlbumName(nameString) {
     // 去掉日期字符串
     nameStr = nameStr.replaceAll(/\d+年\d+月/gi, "");
     nameStr = nameStr.replaceAll(/\d{4}-\d{2}-\d{2}/gi, "");
+    nameStr = nameStr.replaceAll(/\d{4}\.\d{2}\.\d{2}/gi, "");
     // 括号改为下划线
     nameStr = nameStr.replaceAll(/[\(\)]/gi, "_");
     // 去掉 100P5V 这种图片集说明
