@@ -13,8 +13,9 @@ import * as helper from '../lib/helper.js';
 const MODE_AUTO = "auto";
 const MODE_DIR = "dirname";
 const MODE_PREFIX = "prefix";
+const MODE_MEDIA = "media";
 
-const NAME_LENGTH = 24;
+const NAME_LENGTH = 32;
 
 export { aliases, builder, command, describe, handler };
 
@@ -32,15 +33,31 @@ const builder = function addOptions(ya, helpOrVersionSet) {
         .option("prefix", {
             alias: "p",
             type: "string",
-            description: "filename prefix for output ",
+            description: "filename prefix str for output ",
         })
         // 指定MODE，三种：自动，目录名，指定前缀
         .option("mode", {
             alias: "m",
             type: "string",
-            default: "auto",
-            description: "filename prefix for output ",
-            choices: ['auto', 'dirname', 'prefix'],
+            default: MODE_AUTO,
+            description: "filename prefix mode for output ",
+            choices: [MODE_AUTO, MODE_DIR, MODE_PREFIX, MODE_MEDIA],
+        })
+        .option("auto", {
+            type: "boolean",
+            description: "mode auto",
+        })
+        .option("dirname", {
+            type: "boolean",
+            description: "mode dirname",
+        })
+        .option("mprefix", {
+            type: "boolean",
+            description: "mode prefix",
+        })
+        .option("media", {
+            type: "boolean",
+            description: "mode media",
         })
         // 清理文件名中的特殊字符和非法字符
         .option("clean", {
@@ -66,7 +83,7 @@ const builder = function addOptions(ya, helpOrVersionSet) {
 // 正则：仅包含数字
 const reOnlyNum = /^\d+$/gi;
 // 视频文件名各种前后缀
-const reVideoName = /HD1080P|2160p|1080p|720p|BDRip|H264|H265|X265|HEVC|AVC|8BIT|10bit|WEB-DL|SMURF|Web|AAC5\.1|Atmos|H\.264|DD5\.1|DDP5\.1|AAC|DJWEB|Play|VINEnc|DSNP|END|高清|特效|字幕组|公众号|\[.+\]/gi;
+const reVideoName = /HD1080P|2160p|1080p|720p|BDRip|H264|H265|X265|HEVC|AVC|8BIT|10bit|WEB-DL|SMURF|Web|AAC5\.1|Atmos|H\.264|DD5\.1|DDP5\.1|AAC|DJWEB|Play|VINEnc|DSNP|END|高清|特效|字幕组|公众号|\[.+?\]/gi;
 // 图片文件名各种前后缀
 const reImageName = /更新|合集|画师|图片|视频|插画|视图|订阅|限定|差分|R18|PSD|PIXIV|PIC|NO\.\d+|ZIP|RAR/gi
 // 正则：匹配除 中日韩俄英 之外的特殊字符
@@ -75,12 +92,21 @@ const reNonChars = /[^\p{sc=Hani}\p{sc=Hira}\p{sc=Kana}\p{sc=Hang}\p{sc=Cyrl}\w\
 const reUglyChars = /[《》【】\s_\-+=\.@#$%&\|]+/gi;
 // 匹配开头的空白和特殊字符
 const reStripUglyChars = /(^[\s_\-+=\.@#$%&\|]+)|([\s_\-+=\.@#$%&\|]+$)/gi;
+// 图片视频子文件夹名过滤
+// 如果有表示，test() 会随机饭后true or false，是一个bug
+// 使用 string.match 函数没有问题
+// 参考 https://stackoverflow.com/questions/47060553
+// The g modifier causes the regex object to maintain state. 
+// It tracks the index after the last match.
+const reMediaDirName = /^图片|视频|Image|Video|Thumbs$/gi;
 
 // 重复文件名Set，检测重复，防止覆盖
 const nameDuplicateSet = new Set();
 
-function cleanAlbumPicName(nameString, ext) {
+function cleanAlbumName(nameString) {
     let nameStr = nameString;
+    // 去掉方括号 [xxx] 的内容
+    nameStr = nameStr.replaceAll(/\[.+?\]/gi, "");
     // 去掉图片集说明文字
     nameStr = nameStr.replaceAll(reImageName, "");
     // 去掉日期字符串
@@ -88,8 +114,6 @@ function cleanAlbumPicName(nameString, ext) {
     nameStr = nameStr.replaceAll(/\d{4}-\d{2}-\d{2}/gi, "");
     // 括号改为下划线
     nameStr = nameStr.replaceAll(/[\(\)]/gi, "_");
-    // 去掉方括号 [xxx] 的内容
-    nameStr = nameStr.replaceAll(/\[.+?\]/gi, "");
     // 去掉 100P5V 这种图片集说明
     nameStr = nameStr.replaceAll(/\d+P(\d+V)?/gi, "");
     // 去掉所有特殊字符
@@ -97,103 +121,97 @@ function cleanAlbumPicName(nameString, ext) {
     return nameStr;
 }
 
-function createNewNameByAuto(f, argv) {
-    const forceAll = argv.all || false;
-    const nameLength = argv.length || NAME_LENGTH;
-    const [dir, base, ext] = helper.pathSplit(f.path);
-    const logTag = "Prefix[A]";
-    if (!reOnlyNum.test(base) && !forceAll) {
-        log.showYellow(logTag, `Ignore: ${helper.pathShort(f.path)}`);
-        return;
-    }
-    const sep = helper.isVideoFile(f.path) || helper.isSubtitleFile(f.path) ? "." : "_";
-    // 原始文件名是否去掉所有特殊字符
-    const oldBase = argv.clean ? cleanAlbumPicName(base) : base;
-    // 取目录项的最后两级目录名
+function getAutoModePrefix(dir, sep) {
     let dirParts = dir.split(path.sep).slice(-2);
     // 两侧目录名重复则取最深层目录名
-    let dirFix = dirParts[1].includes(dirParts[0]) ? dirParts[1] : dirParts.join(sep);
-    // 去掉目录名中的年月日
-    let prefix = cleanAlbumPicName(dirFix);
-    if (argv.ignore && argv.ignore.length >= 2) {
-        prefix = prefix.replaceAll(argv.ignore, "");
-    }
-    const nameSlice = nameLength * -1;
-
-    let fullBase = prefix + "_" + oldBase;
-    fullBase = fullBase.replaceAll(reStripUglyChars, "");
-    fullBase = fullBase.replaceAll(/[-_\s\.]+/gi, sep);
-    fullBase = fullBase.slice(nameSlice);
-
-    const newName = `${fullBase}${ext}`;
-    const newPath = path.join(dir, newName);
-    if (fullBase === base) {
-        log.showGray(logTag, `NoChange: ${helper.pathShort(newPath)}`);
-        return;
-    }
-    if (fs.existsSync(newPath)) {
-        log.showGray(logTag, `Exists: ${helper.pathShort(newPath)}`);
-        return;
-    }
-    if (nameDuplicateSet.has(newPath)) {
-        log.showGray(logTag, `Duplicate: ${helper.pathShort(newPath)}`);
-        return;
-    }
-    f.outName = newName;
-    log.show(logTag, `=> ${newPath}`);
-    return f;
+    let prefix = dirParts[1].includes(dirParts[0]) ? dirParts[1] : dirParts.join(sep);
+    return prefix;
 }
 
-function createNewNameCommon(f, argv, useDirName) {
+function createNewNameByMode(f, argv) {
     const nameLength = argv.length || NAME_LENGTH;
+    const nameSlice = nameLength * -1;
     const [dir, base, ext] = helper.pathSplit(f.path);
+    const dirParent = path.basename(path.dirname(dir));
     const dirName = path.basename(dir);
-    const logTag = useDirName ? "Prefix[D]" : "Prefix[P]";
+    // 处理模式
+    let mode = argv.mode || MODE_AUTO;
+    if (argv.auto) { mode = MODE_AUTO; }
+    if (argv.mprefix) { mode = MODE_PREFIX; }
+    if (argv.dirname) { mode = MODE_DIR; }
+    if (argv.media) { mode = MODE_MEDIA; }
+    const logTag = "Prefix::" + mode.toUpperCase()[0];
     // 忽略 . _ 开头的目录
     if (/^[\._]/.test(dirName)) {
         return;
     }
-
-    const sep = helper.isVideoFile(f.path) || helper.isSubtitleFile(f.path) ? "." : "_";
     log.info(logTag, `Processing ${f.path}`);
+    let sep = "_";
     let prefix = argv.prefix;
-    if (useDirName) {
-        prefix = path.basename(dir);
-        // 忽略 图片/视频 等二级文件夹
-        if (/^图片|视频|Image|Video|Thumbs$/.test(prefix)) {
-            prefix = path.basename(path.dirname(dir));
-        }
-        // 忽略深层文件夹如 S1 S2
-        if (prefix.length < 8 && /^[A-Za-z0-9 ]+$/.test(prefix)) {
-            prefix = path.basename(path.dirname(dir));
-        }
-    }
-    if (!prefix || prefix.length == 0) {
-        log.warn(logTag, `Invalid Prefix: ${helper.pathShort(f.path)}`);
-        throw new Error(`Invalid Prefix`);
-    }
-    const nameSlice = nameLength * -10;
-    // 不添加重复前缀
-    if (base.includes(prefix)) {
-        log.info(logTag, `IgnorePrefix: ${helper.pathShort(f.path)}`);
-        prefix = "";
-    }
-    // 原始文件名是否去掉所有特殊字符
     let oldBase = base;
-    // 去掉所有视频文件描述前缀后缀等，
-    // 是否去掉所有特殊字符
+    switch (mode) {
+        case MODE_MEDIA:
+            {
+                sep = ".";
+                prefix = path.basename(dir);
+                if (prefix.match(reMediaDirName)) {
+                    prefix = dirParent;
+                }
+                if (prefix.length < 4 && /^[A-Za-z0-9]+$/.test(prefix)) {
+                    prefix = dirParent + sep + prefix;
+                }
+            }
+            break;
+        case MODE_PREFIX:
+            {
+                sep = "_";
+                prefix = argv.prefix;
+            }
+            break;
+        case MODE_DIR:
+            {
+                sep = "_";
+                prefix = path.basename(dir);
+                if (prefix.match(reMediaDirName)) {
+                    prefix = dirParent;
+                }
+            }
+            break;
+        case MODE_AUTO:
+        default:
+            {
+                sep = "_";
+                prefix = getAutoModePrefix(dir, sep);
+                const forceAll = argv.all || false;
+                if (!reOnlyNum.test(base) && !forceAll) {
+                    log.showYellow(logTag, `Ignore: ${helper.pathShort(f.path)}`);
+                    return;
+                }
+            }
+            break;
+    }
+    // 无有效前缀，报错退出
+    if (!prefix || prefix.length == 0) {
+        log.warn(logTag, `Invalid Prefix: ${helper.pathShort(f.path)} ${mode}`);
+        throw new Error(`No prefix supplied!`);
+    }
+    // 是否净化文件名，去掉各种特殊字符
     if (argv.clean) {
-        // 净化目录或前缀字符串
-        if (helper.isImageFile(f.path)) {
-            prefix = cleanAlbumPicName(prefix);
-        }
-        if (helper.isVideoFile(f.path) || helper.isSubtitleFile(f.path)) {
+        if (mode == MODE_MEDIA) {
             // 移除视频文件各种格式说明
             oldBase = oldBase.replaceAll(reVideoName, "");
         }
         // 净化原始文件名字符串
-        oldBase = cleanAlbumPicName(oldBase)
+        oldBase = cleanAlbumName(oldBase)
         oldBase = oldBase.replaceAll(reUglyChars, sep);
+        if (helper.isMediaFile(f.path)) {
+            prefix = cleanAlbumName(prefix);
+        }
+    }
+    // 不添加重复前缀
+    if (oldBase.includes(prefix)) {
+        log.info(logTag, `IgnorePrefix: ${helper.pathShort(f.path)}`);
+        prefix = "";
     }
     let fullBase = prefix + sep + oldBase;
     fullBase = fullBase.replaceAll(reStripUglyChars, "");
@@ -218,14 +236,6 @@ function createNewNameCommon(f, argv, useDirName) {
     nameDuplicateSet.add(newPath);
     log.show(logTag, `=> ${helper.pathShort(newPath)}`);
     return f;
-}
-
-function createNewNameByDir(f, argv) {
-    return createNewNameCommon(f, argv, true)
-}
-
-function createNewNameByPrefix(f, argv) {
-    return createNewNameCommon(f, argv, false)
 }
 
 const handler = async function cmdPrefix(argv) {
@@ -259,13 +269,7 @@ const handler = async function cmdPrefix(argv) {
         log.showYellow("Prefix", "Nothing to do, exit now.");
         return;
     }
-    const nameFuncMap = new Map([
-        [MODE_DIR, createNewNameByDir],
-        [MODE_PREFIX, createNewNameByPrefix],
-        [MODE_AUTO, createNewNameByAuto]
-    ])
-    const createNameFunc = nameFuncMap.get(mode) || createNewNameByAuto;
-    const tasks = files.map(f => createNameFunc(f, argv)).filter(f => f && f.outName)
+    const tasks = files.map(f => createNewNameByMode(f, argv)).filter(f => f && f.outName)
     if (tasks.length > 0) {
         log.showGreen(
             "Prefix",
