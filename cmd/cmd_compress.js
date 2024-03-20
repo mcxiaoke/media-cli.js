@@ -80,12 +80,15 @@ const handler = async function cmdCompress(argv) {
             f.stats.isFile()
             && f.stats.size > minFileSize
             && helper.isImageFile(f.path)
-            && !RE_THUMB.test(f.path)
     };
     let files = await mf.walk(root, walkOpts);
     log.show("cmdCompress", `total ${files.length} files found (all)`);
     files = files.filter(f => !RE_THUMB.test(f.path));
     log.show("cmdCompress", `total ${files.length} files found (filtered)`);
+    if (files.length == 0) {
+        log.showYellow("Nothing to do, abort.");
+        return;
+    }
     const confirmFiles = await inquirer.prompt([
         {
             type: "confirm",
@@ -122,9 +125,10 @@ const handler = async function cmdCompress(argv) {
         log.showYellow("Nothing to do, abort.");
         return;
     }
-    tasks.forEach(t => {
+    tasks.forEach((t, i) => {
         t.total = tasks.length;
-        t.quality = quality || 88;
+        t.index = i;
+        t.quality = quality || 86;
         t.deleteOriginal = deleteOriginal || false;
     });
     log.show(`cmdCompress: time elapsed ${helper.humanTime(startMs)}`)
@@ -149,9 +153,16 @@ const handler = async function cmdCompress(argv) {
 
     startMs = Date.now();
     log.showGreen('cmdCompress: startAt', dayjs().format())
-    const result = await pMap(tasks, makeThumbOne, { concurrency: cpus().length / 2 + 1 });
+    if (!testMode) {
+        const result = await pMap(tasks, makeThumbOne, { concurrency: cpus().length / 2 + 1 });
+        log.showGreen(`cmdCompress: ${result.length} thumbs generated in ${helper.humanTime(startMs)}`)
+        //todo 按照deleteOriginal标志，最后统一删除原始图片文件，避免单个删除多IO操作
+
+    } else {
+        log.showGreen(`cmdCompress: [DRY RUN], no thumbs generated.`)
+    }
     log.showGreen('cmdCompress: endAt', dayjs().format())
-    log.showGreen(`cmdCompress: ${result.length} thumbs generated in ${helper.humanTime(startMs)}`)
+
 }
 
 // 文心一言注释 20231206
@@ -170,7 +181,7 @@ async function prepareCompressArgs(f, options) {
 
     if (await fs.pathExists(fileDst)) { // 如果目标文件已存在，则进行相应的处理  
         log.info("prepareCompress exists:", fileDst, force ? "(Override)" : ""); // 打印日志，显示目标文件存在的情况，以及是否进行覆盖处理  
-        if (deleteOriginal) { // 如果设置了删除原文件标志位  
+        if (false && deleteOriginal) { // 如果设置了删除原文件标志位  
             await helper.safeRemove(fileSrc); // 删除源文件，并打印日志  
             log.showYellow('prepareCompress exists, delete', helper.pathShort(fileSrc)); // 打印日志，显示删除源文件信息，并以黄色字体显示警告信息  
         }
@@ -197,7 +208,6 @@ async function prepareCompressArgs(f, options) {
             height: dh,
             src: fileSrc,
             dst: fileDst,
-            index: f.index,
         };
     } catch (error) {
         log.error("prepareCompress error:", error, fileSrc);
