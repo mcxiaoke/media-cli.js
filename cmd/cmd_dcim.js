@@ -10,6 +10,8 @@ import * as log from '../lib/debug.js';
 import * as exif from '../lib/exif.js';
 import * as helper from '../lib/helper.js';
 
+const LOG_TAG = "DcimR";
+
 export { aliases, builder, command, describe, handler };
 
 const command = "dcimr <input> [options]"
@@ -63,7 +65,7 @@ const builder = function addOptions(ya, helpOrVersionSet) {
 
 
 const handler = async function cmdRename(argv) {
-    log.show('cmdRename', argv);
+    log.show(LOG_TAG, argv);
     const root = path.resolve(argv.input);
     if (!root || !(await fs.pathExists(root))) {
         log.error(`Invalid Input: '${root}'`);
@@ -73,10 +75,10 @@ const handler = async function cmdRename(argv) {
     const fastMode = argv.fast || false;
     // action: rename media file by exif date
     const startMs = Date.now();
-    log.show("Rename", `Input: ${root}`, fastMode ? "(FastMode)" : "");
+    log.show(LOG_TAG, `Input: ${root}`, fastMode ? "(FastMode)" : "");
     let files = await exif.listMedia(root);
     const fileCount = files.length;
-    log.show("Rename", `Total ${files.length} media files found`);
+    log.show(LOG_TAG, `Total ${files.length} media files found`);
 
     const confirmFiles = await inquirer.prompt([
         {
@@ -90,10 +92,10 @@ const handler = async function cmdRename(argv) {
         log.showYellow("Will do nothing, aborted by user.");
         return;
     }
-    log.show("Rename", `Processing files, reading EXIF data...`);
+    log.show(LOG_TAG, `Processing files, reading EXIF data...`);
     files = await exif.parseFiles(files, { fastMode: fastMode });
     log.show(
-        "Rename",
+        LOG_TAG,
         `Total ${files.length} media files parsed`,
         fastMode ? "(FastMode)" : ""
     );
@@ -102,38 +104,38 @@ const handler = async function cmdRename(argv) {
     files = validFiles;
     if (fileCount - files.length > 0) {
         log.warn(
-            "Rename",
+            LOG_TAG,
             `Total ${fileCount - files.length} media files skipped`
         );
     }
     log.show(
-        "Rename",
+        LOG_TAG,
         `Total ${fileCount} files processed in ${helper.humanTime(startMs)}`,
         fastMode ? "(FastMode)" : ""
     );
     if (skippedBySize.length > 0) {
         log.showYellow(
-            "Rename",
+            LOG_TAG,
             `Total ${skippedBySize.length} media files are skipped by size`
         );
     }
     if (skippedByDate.length > 0) {
         log.showYellow(
-            "Rename",
+            LOG_TAG,
             `Total ${skippedByDate.length} media files are skipped by date`
         );
     }
     if (files.length == 0) {
-        log.showYellow("Rename", "Nothing to do, exit now.");
+        log.showYellow(LOG_TAG, "Nothing to do, exit now.");
         return;
     }
     log.show(
-        "Rename",
+        LOG_TAG,
         `Total ${files.length} media files ready to rename by exif`,
         fastMode ? "(FastMode)" : ""
     );
-    log.show(`Rename`, `task sample:`, files.slice(-2))
-    log.info("Rename:", argv);
+    log.show(LOG_TAG, `task sample:`, files.slice(-2))
+    log.info(LOG_TAG, argv);
     testMode && log.showYellow("++++++++++ TEST MODE (DRY RUN) ++++++++++")
     const answer = await inquirer.prompt([
         {
@@ -148,13 +150,13 @@ const handler = async function cmdRename(argv) {
     ]);
     if (answer.yes) {
         if (testMode) {
-            log.showYellow("Rename", `All ${files.length} files, NO file renamed in TEST MODE.`);
+            log.showYellow(LOG_TAG, `All ${files.length} files, NO file renamed in TEST MODE.`);
         }
         else {
             const results = await renameFiles(files);
-            log.showGreen("Rename", `All ${files.length} file were renamed.`);
+            log.showGreen(LOG_TAG, `All ${files.length} file were renamed.`);
         }
     } else {
-        log.showYellow("Rename", "Will do nothing, aborted by user.");
+        log.showYellow(LOG_TAG, "Will do nothing, aborted by user.");
     }
 }
