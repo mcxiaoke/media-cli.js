@@ -50,13 +50,17 @@ const handler = async function cmdMoveUp(argv) {
     const testMode = !argv.doit;
     const toRoot = argv.topmost || false;
     // 读取顶级目录下所有的子目录
-    const outputDirName = argv.output || "图片";
+    const defaultDirName = "文件";
+    const picDirName = argv.output || "图片";
     const videoDirName = "视频";
-    const trashDirName = "其它";
-    let subDirs = await fs.readdir(root, { withFileTypes: true });
-    subDirs = toRoot ? ["."] : subDirs.filter(x => x.isDirectory()).map(x => x.name);
-    log.show("MoveUp", "to folders:", subDirs)
-    log.info("MoveUp:", argv);
+    const bookDirName = "电子书";
+    const otherDirName = "其它";
+    const outDirNames = [defaultDirName, picDirName, videoDirName, bookDirName, otherDirName];
+    let subDirs = (await fs.readdir(root, { withFileTypes: true }))
+        .filter(d => d.isDirectory() && !outDirNames.includes(d.name))
+        .map(d => d.name);
+    log.show("MoveUp", "found sub dirs:", subDirs);
+    log.info("MoveUp", argv);
     testMode && log.showYellow("++++++++++ TEST MODE (DRY RUN) ++++++++++")
     const answer = await inquirer.prompt([
         {
@@ -64,7 +68,7 @@ const handler = async function cmdMoveUp(argv) {
             name: "yes",
             default: false,
             message: chalk.bold.red(
-                `Are you sure to move files in these folders to top sub folder?`
+                `Are you sure to move all files to top sub folder?`
             ),
         },
     ]);
@@ -78,35 +82,36 @@ const handler = async function cmdMoveUp(argv) {
 
     // 移动深层子目录的文件到 子目录或根目录的 图片/视频 目录
     let movedCount = 0;
-    for (const subDir of subDirs) {
-        let curDir = toRoot ? root : path.join(root, subDir)
-        let files = await mf.walk(curDir)
-        log.info("MoveUp", `Total ${files.length} media files found in ${subDir}`);
-        const picOutput = path.join(curDir, outputDirName)
-        const videoOutput = path.join(curDir, videoDirName);
-        const otherOutput = path.join(curDir, trashDirName);
+    let totalCount = 0;
+    for (const subDirN of subDirs) {
+        const subDirPath = path.join(root, subDirN);
+        log.info("MoveUp", "processing files in ", subDirPath);
+        let curDir = toRoot ? root : subDirPath;
+        let files = await mf.walk(subDirPath);
+        totalCount += files.length;
+        log.show("MoveUp", `Total ${files.length} media files found in ${subDirPath}`);
+        const outDirPaths = outDirNames.map(x => path.join(curDir, x));
         keepDirList.add(curDir);
-        keepDirList.add(picOutput);
-        keepDirList.add(videoOutput);
-        keepDirList.add(otherOutput);
-        log.info("MoveUp", `picOutput = ${picOutput}`);
+        for (const odp of outDirPaths) {
+            keepDirList.add(odp);
+        }
+        if (outDirNames.includes(subDirN)) {
+            log.showYellow("MoveUp", `Skip dir ${subDirPath}`);
+        }
+
+        log.info("MoveUp", `output:${curDir}${path.sep}{${outDirNames}}`);
+        log.info("MoveUp", `moving ${files.length} files in ${subDirPath} ...`);
         let dupCount = 0;
         for (const f of files) {
             ++dupCount;
             const fileSrc = f.path;
             const [srcDir, srcBase, srcExt] = helper.pathSplit(fileSrc);
             const srcDirName = path.basename(srcDir);
-            let fileDst;
-            if (helper.isVideoFile(fileSrc)) {
-                fileDst = path.join(videoOutput, path.basename(fileSrc));
-            } else if (helper.isImageFile(fileSrc)) {
-                fileDst = path.join(picOutput, path.basename(fileSrc));
-            } else {
-                if (helper.isArchiveFile(fileSrc)) {
-                    log.showYellow("MoveUp", `archive file: ${fileSrc}`);
-                }
-                fileDst = path.join(otherOutput, `${srcBase}_${dupCount}${srcExt}`);
-            }
+            const fileType = helper.getFileTypeByExt(fileSrc);
+            let fileDst = path.join(outDirPaths[fileType], path.basename(fileSrc));
+            // if(helper.isArchiveFile(fileSrc)){
+            //     fileDst = path.join(otherOutput, `${srcBase}_${dupCount}${srcExt}`);
+            // }
             if (srcDir === path.dirname(fileDst)) {
                 log.info("MoveUp", "Skip InDst:", fileDst);
                 continue;
@@ -139,21 +144,21 @@ const handler = async function cmdMoveUp(argv) {
 
             try {
                 if (testMode) {
-                    log.info("MoveUp", "NotMoved:", fileSrc, "to", fileDst);
+                    log.debug("MoveUp", "NotMoved:", fileSrc, "to", fileDst);
                 } else {
                     await fs.move(fileSrc, fileDst);
                     // movedFiles.push([fileSrc, fileDst]);
                     movedCount++;
-                    log.info("MoveUp", "Moved:", fileSrc, "to", fileDst);
+                    log.debug("MoveUp", "Moved:", fileSrc, "to", fileDst);
                 }
 
             } catch (error) {
                 log.error("MoveUp", "Failed:", error, fileSrc, "to", fileDst);
             }
         }
-        log.showGreen("MoveUp", `Files in ${curDir} are moved to ${picOutput}.`, testMode ? "[DRY RUN]" : "");
+        log.showGreen("MoveUp", `${files.length} in ${helper.pathShort(subDirPath)} are moved.`, testMode ? "[DRY RUN]" : "");
     };
-    log.showGreen("MoveUp", `${movedCount} files moved.`, testMode ? "[DRY RUN]" : "");
+    log.showGreen("MoveUp", `Total ${movedCount}/${totalCount} files moved.`, testMode ? "[DRY RUN]" : "");
     log.showYellow("MoveUp", "There are some unused folders left after moving up operations.")
 
     const cleanupAnswer = await inquirer.prompt([
