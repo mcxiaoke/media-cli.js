@@ -12,8 +12,8 @@ import * as helper from '../lib/helper.js';
 
 export { aliases, builder, command, describe, handler };
 
-const command = "rename <input> [options]"
-const aliases = ["rn", "exifrename"]
+const command = "dcimr <input> [options]"
+const aliases = ["dm", "dcim"]
 const describe = 'Rename media files by exif metadata eg. date'
 
 const builder = function addOptions(ya, helpOrVersionSet) {

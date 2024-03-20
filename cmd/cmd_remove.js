@@ -50,12 +50,12 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             // 图片文件的最大高度
             description: "Files height smaller than value will be removed",
         })
-        .option("dimension", {
-            alias: "d",
+        .option("measure", {
+            alias: "m",
             type: "string",
             default: "",
             // 图片文件的长宽字符串形式
-            description: "File dimension, width and height, eg: '123x456'",
+            description: "File x*y dimension, width and height, eg: '123x456'",
         })
         .option("size", {
             alias: "s",
@@ -119,7 +119,7 @@ const handler = async function cmdRemove(argv) {
     const cReverse = argv.reverse || false;
     const cList = argv.list || "-not-exists";
 
-    if (argv.dimension && argv.dimension.length > 0) {
+    if (argv.measure && argv.measure.length > 0) {
         // 解析文件长宽字符串，例如 2160x4680
     }
 
