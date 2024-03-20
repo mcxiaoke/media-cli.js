@@ -317,7 +317,7 @@ async function prepareRemoveArgs(f, options) {
             const rp = new RegExp(cPattern, "gi");
             itemDesc += ` PT=${cPattern}`;
             // 开头匹配，或末尾匹配，或正则匹配
-            if (fName.startsWith(cPattern) || fName.endsWith(cPattern) || rp.test(fName)) {
+            if (fName.startsWith(cPattern) || fName.endsWith(cPattern) || fName.match(rp)) {
                 log.info(
                     "prepareRM[Name]:", `${fileName} [NamePattern=${rp}]`
                 );
