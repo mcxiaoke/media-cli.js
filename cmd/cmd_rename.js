@@ -28,8 +28,6 @@ import * as helper from '../lib/helper.js';
 // 说明：
 // 不涉及EXIF信息或文件内容
 
-const NAME_LENGTH = 48;
-
 export { aliases, builder, command, describe, handler };
 
 const command = "rename <input> [output]"
@@ -107,8 +105,8 @@ const handler = async function cmdRename(argv) {
     log.info('Rename', argv);
     const root = path.resolve(argv.input);
     if (!root || !(await fs.pathExists(root))) {
-        log.error("Invalid Input: " + root);
-        throw new Error("Invalid Input: " + root);
+        log.error(`Invalid Input: ${root}`);
+        throw new Error(`Invalid Input: ${root}`);
     }
     const testMode = !argv.doit;
     const forceAll = argv.all || false;

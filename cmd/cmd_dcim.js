@@ -67,7 +67,7 @@ const builder = function addOptions(ya, helpOrVersionSet) {
 const handler = async function cmdRename(argv) {
     log.show(LOG_TAG, argv);
     const root = path.resolve(argv.input);
-    if (!root || !(await fs.pathExists(root))) {
+    if (!(await fs.pathExists(root))) {
         log.error(`Invalid Input: '${root}'`);
         throw new Error(`Invalid Input: '${root}'`)
     }
@@ -75,7 +75,7 @@ const handler = async function cmdRename(argv) {
     const fastMode = argv.fast || false;
     // action: rename media file by exif date
     const startMs = Date.now();
-    log.show(LOG_TAG, `Input: ${root}`, fastMode ? "(FastMode)" : "");
+    log.show(LOG_TAG, `Input: ${root}`);
     let files = await exif.listMedia(root);
     const fileCount = files.length;
     log.show(LOG_TAG, `Total ${files.length} media files found`);
@@ -93,7 +93,7 @@ const handler = async function cmdRename(argv) {
         return;
     }
     log.show(LOG_TAG, `Processing files, reading EXIF data...`);
-    files = await exif.parseFiles(files, { fastMode: fastMode });
+    files = await exif.parseFiles(files, { fastMode });
     log.show(
         LOG_TAG,
         `Total ${files.length} media files parsed`,
@@ -154,7 +154,7 @@ const handler = async function cmdRename(argv) {
         }
         else {
             const results = await renameFiles(files);
-            log.showGreen(LOG_TAG, `All ${files.length} file were renamed.`);
+            log.showGreen(LOG_TAG, `All ${results.length} file were renamed.`,);
         }
     } else {
         log.showYellow(LOG_TAG, "Will do nothing, aborted by user.");

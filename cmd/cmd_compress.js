@@ -104,9 +104,9 @@ const handler = async function cmdCompress(argv) {
     log.showGreen(`cmdCompress: preparing compress arguments...`);
     let startMs = Date.now();
     const conditions = {
-        maxWidth: maxWidth,
-        force: force,
-        deleteOriginal: deleteOriginal
+        maxWidth,
+        force,
+        deleteOriginal
     };
     const prepareFunc = async f => {
         return prepareCompressArgs(f, conditions)
@@ -115,7 +115,7 @@ const handler = async function cmdCompress(argv) {
 
     log.debug("cmdCompress before filter: ", tasks.length);
     const total = tasks.length;
-    tasks = tasks.filter((t) => t && t.dst);
+    tasks = tasks.filter((t) => t?.dst);
     const skipped = total - tasks.length;
     log.debug("cmdCompress after filter: ", tasks.length);
     if (skipped > 0) {
@@ -153,13 +153,13 @@ const handler = async function cmdCompress(argv) {
 
     startMs = Date.now();
     log.showGreen('cmdCompress: startAt', dayjs().format())
-    if (!testMode) {
+    if (testMode) {
+        log.showGreen(`cmdCompress: [DRY RUN], no thumbs generated.`)
+    } else {
         const result = await pMap(tasks, makeThumbOne, { concurrency: cpus().length / 2 + 1 });
         log.showGreen(`cmdCompress: ${result.length} thumbs generated in ${helper.humanTime(startMs)}`)
         //todo 按照deleteOriginal标志，最后统一删除原始图片文件，避免单个删除多IO操作
 
-    } else {
-        log.showGreen(`cmdCompress: [DRY RUN], no thumbs generated.`)
     }
     log.showGreen('cmdCompress: endAt', dayjs().format())
 
@@ -167,8 +167,7 @@ const handler = async function cmdCompress(argv) {
 
 // 文心一言注释 20231206
 // 准备压缩图片的参数，并进行相应的处理  
-async function prepareCompressArgs(f, options) {
-    options = options || {};
+async function prepareCompressArgs(f, options = {}) {
     // log.show("prepareCompressArgs options:", options); // 打印日志，显示选项参数  
     const maxWidth = options.maxWidth || 4000; // 获取最大宽度限制，默认为4000  
     const force = options.force || false; // 获取强制压缩标志位，默认为false  
@@ -183,7 +182,7 @@ async function prepareCompressArgs(f, options) {
         log.info("prepareCompress exists:", fileDst, force ? "(Override)" : ""); // 打印日志，显示目标文件存在的情况，以及是否进行覆盖处理  
         if (false && deleteOriginal) { // 如果设置了删除原文件标志位  
             await helper.safeRemove(fileSrc); // 删除源文件，并打印日志  
-            log.showYellow('prepareCompress exists, delete', helper.pathShort(fileSrc)); // 打印日志，显示删除源文件信息，并以黄色字体显示警告信息  
+            log.showYellow('prepareCompress exists, delete', helper.pathShort(fileSrc));
         }
         if (!force) { // 如果未设置强制标志位，则直接返回（不再进行后续处理）  
             return;

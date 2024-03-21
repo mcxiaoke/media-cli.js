@@ -83,10 +83,19 @@ const builder = function addOptions(ya, helpOrVersionSet) {
 // 正则：仅包含数字
 const reOnlyNum = /^\d+$/gi;
 // 视频文件名各种前后缀
-const reVideoName = /HD1080P|2160p|1080p|720p|BDRip|H264|H265|X265|HEVC|AVC|8BIT|10bit|WEB-DL|SMURF|Web|AAC5\.1|Atmos|H\.264|DD5\.1|DDP5\.1|AAC|DJWEB|Play|VINEnc|DSNP|END|高清|特效|字幕组|公众号|\[.+?\]/gi;
+const reVideoName = helper.combineRegexG(
+    /HD1080P|2160p|1080p|720p|BDRip/,
+    /H264|H265|X265|HEVC|AVC|8BIT|10bit/,
+    /WEB-DL|SMURF|Web|AAC5\.1|Atmos/,
+    /H\.264|DD5\.1|DDP5\.1|AAC/,
+    /DJWEB|Play|VINEnc|DSNP|END/,
+    /高清|特效|字幕组|公众号/,
+    /\[.+?\]/,
+)
 // 图片文件名各种前后缀
 const reImageName = /更新|合集|画师|图片|视频|插画|视图|订阅|限定|差分|R18|PSD|PIXIV|PIC|NO\.\d+|ZIP|RAR/gi
 // 正则：匹配除 [中日韩俄英和中英文标点符号] 之外的特殊字符
+// u flag is required
 const reNonChars = /[^\p{sc=Hani}\p{sc=Hira}\p{sc=Kana}\p{sc=Hang}\p{sc=Cyrl}\p{P}\uFF01-\uFF5E\u3001-\u3011\w\-_\.]/ugi;
 // 匹配空白字符和特殊字符
 const reUglyChars = /[《》【】\s_\-+=\.@#$%&\|]+/gi;
@@ -118,30 +127,31 @@ function cleanAlbumName(nameString) {
     // 去掉 100P5V 这种图片集说明
     nameStr = nameStr.replaceAll(/\d+P(\d+V)?/gi, "");
     // 去掉所有特殊字符
-    nameStr = nameStr.replaceAll(reNonChars, "");
-    return nameStr;
+    return nameStr.replaceAll(reNonChars, "");
 }
 
 function getAutoModePrefix(dir, sep) {
-    let dirParts = dir.split(path.sep).slice(-2);
-    // 两侧目录名重复则取最深层目录名
-    let prefix = dirParts[1].includes(dirParts[0]) ? dirParts[1] : dirParts.join(sep);
-    return prefix;
+    const dirParts = dir.split(path.sep).slice(-2);
+    return dirParts[1].includes(dirParts[0]) ? dirParts[1] : dirParts.join(sep);
+}
+
+function parseNameMode(argv) {
+    let mode = argv.auto ? MODE_AUTO : argv.mode || MODE_AUTO;
+    if (argv.mprefix) { mode = MODE_PREFIX; }
+    if (argv.dirname) { mode = MODE_DIR; }
+    if (argv.media) { mode = MODE_MEDIA; }
+    return mode;
 }
 
 function createNewNameByMode(f, argv) {
     // 处理模式
-    let mode = argv.mode || MODE_AUTO;
-    if (argv.auto) { mode = MODE_AUTO; }
-    if (argv.mprefix) { mode = MODE_PREFIX; }
-    if (argv.dirname) { mode = MODE_DIR; }
-    if (argv.media) { mode = MODE_MEDIA; }
-    let nameLength = (mode == MODE_MEDIA) ? 200 : argv.length || NAME_LENGTH;
+    const mode = parseNameMode(argv);
+    const nameLength = (mode == MODE_MEDIA) ? 200 : argv.length || NAME_LENGTH;
     const nameSlice = nameLength * -1;
     const [dir, base, ext] = helper.pathSplit(f.path);
     const dirParent = path.basename(path.dirname(dir));
     const dirName = path.basename(dir);
-    const logTag = "Prefix::" + mode.toUpperCase()[0];
+    const logTag = `Prefix::${mode.toUpperCase()[0]}`;
     // 忽略 . _ 开头的目录
     if (/^[\._]/.test(dirName)) {
         return;
@@ -199,6 +209,7 @@ function createNewNameByMode(f, argv) {
     // 是否净化文件名，去掉各种特殊字符
     if (argv.clean) {
         if (mode == MODE_MEDIA) {
+            log.showYellow(reVideoName)
             // 移除视频文件各种格式说明
             oldBase = oldBase.replaceAll(reVideoName, "");
         }
@@ -310,6 +321,8 @@ const handler = async function cmdPrefix(argv) {
         log.showYellow("Prefix", "Will do nothing, aborted by user.");
     }
 }
+
+
 
 // 计算字符串长度，中文算2，英文算1
 function unicodeStrLength(str) {

@@ -177,7 +177,7 @@ const handler = async function cmdMoveUp(argv) {
     keepDirList = new Set([...keepDirList].map(x => path.resolve(x)));
     let subDirList = await mf.walkDir(root);
     subDirList = new Set([...subDirList].map(x => path.resolve(x)));
-    let toRemoveDirList = setDifference(subDirList, keepDirList)
+    const toRemoveDirList = setDifference(subDirList, keepDirList)
 
     log.show("MoveUp", `There are ${keepDirList.size} output dirs ${chalk.red("DO NOTHING")}`);
     log.show(keepDirList)
@@ -196,15 +196,14 @@ const handler = async function cmdMoveUp(argv) {
     if (!removeUnusedAnswer.yes) {
         log.showYellow("MoveUp", "Will do nothing, aborted by user.");
         return;
-    } else {
-        let delCount = 0;
-        for (const td of toRemoveDirList) {
-            !testMode && await helper.safeRemove(td);
-            !testMode && ++delCount;
-            log.showGreen('MoveUp', "SafeDel", helper.pathShort(td), testMode ? "[DRY RUN]" : "");
-        }
-        log.showGreen('MoveUp', `${delCount} dirs were`, testMode ? "[NOT DELETED]" : "SAFE DELETED");
     }
+    let delCount = 0;
+    for (const td of toRemoveDirList) {
+        !testMode && await helper.safeRemove(td);
+        if (!testMode) ++delCount;
+        log.showGreen('MoveUp', "SafeDel", helper.pathShort(td), testMode ? "[DRY RUN]" : "");
+    }
+    log.showGreen('MoveUp', `${delCount} dirs were`, testMode ? "[NOT DELETED]" : "SAFE DELETED");
 }
 
 function setDifference(setA, setB) {
