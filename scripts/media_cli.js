@@ -153,8 +153,10 @@ async function main() {
     // await ya.getHelp()
     log.showRed(`${err.message}`);
   } finally {
-    const filePath = log.fileLogName().split(path.sep).join("/");
-    log.showYellow(`See logs: file:///${filePath}`);
+    if (await fs.pathExists(log.fileLogName())) {
+      const filePath = log.fileLogName().split(path.sep).join("/");
+      log.showYellow(`See logs: file:///${filePath}`);
+    }
   }
 }
 

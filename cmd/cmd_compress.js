@@ -2,6 +2,7 @@
 import assert from "assert";
 import chalk from 'chalk';
 import dayjs from "dayjs";
+import exif from 'exif-reader';
 import fs from 'fs-extra';
 import inquirer from "inquirer";
 import { cpus } from "os";
@@ -10,9 +11,8 @@ import path from "path";
 import sharp from "sharp";
 import * as log from '../lib/debug.js';
 import * as mf from '../lib/file.js';
-import * as helper from '../lib/helper.js';
-
 import { compressImage } from "../lib/functions.js";
+import * as helper from '../lib/helper.js';
 
 export { aliases, builder, command, describe, handler };
 
@@ -68,6 +68,7 @@ const builder = function addOptions(ya, helpOrVersionSet) {
 }
 
 const handler = async function cmdCompress(argv) {
+    const testMode = !argv.doit;
     const logTag = "cmdCompress";
     const root = path.resolve(argv.input);
     assert.strictEqual("string", typeof root, "root must be string");
@@ -75,8 +76,11 @@ const handler = async function cmdCompress(argv) {
         log.error(logTag, `Invalid Input: '${root}'`);
         throw new Error(`Invalid Input: ${root}`);
     }
+    if (!testMode) {
+        log.fileLog(`Root:${root}`, logTag);
+        log.fileLog(`Argv:${JSON.stringify(argv)}`, logTag);
+    }
     log.show(logTag, argv);
-    const testMode = !argv.doit;
     const override = argv.override || false;
     const quality = argv.quality || QUALITY_DEFAULT;
     const minFileSize = (argv.size || SIZE_DEFAULT) * 1024;
@@ -132,11 +136,11 @@ const handler = async function cmdCompress(argv) {
     files = await Promise.all(files.map(addArgsFunc));
     let tasks = await pMap(files, preCompress, { concurrency: cpus().length * 4 })
 
-    log.debug(logTag, "before filter: ", tasks.length);
+    log.info(logTag, "before filter: ", tasks.length);
     const total = tasks.length;
     tasks = tasks.filter((t) => t?.dst);
     const skipped = total - tasks.length;
-    log.debug(logTag, "after filter: ", tasks.length);
+    log.info(logTag, "after filter: ", tasks.length);
     if (skipped > 0) {
         log.showYellow(logTag, `${skipped} thumbs skipped`)
     }
@@ -176,42 +180,54 @@ const handler = async function cmdCompress(argv) {
         log.showYellow(logTag, `[DRY RUN], no thumbs generated.`)
     } else {
         const results = await pMap(tasks, compressImage, { concurrency: cpus().length / 2 });
-        log.showGreen(logTag, `${results.length} thumbs generated in ${helper.humanTime(startMs)}`)
+        const done = results.filter(t => t?.done);
+        log.showGreen(logTag, `${done.length} thumbs generated in ${helper.humanTime(startMs)}`)
         if (deleteSrc) {
-            const toDelete = results.filter(t => t?.src && t.dst && t.dstExists);
-            const answer = await inquirer.prompt([
-                {
-                    type: "confirm",
-                    name: "yes",
-                    default: false,
-                    message: chalk.bold.red(
-                        `Are you sure to delete ${toDelete.length} original files?"}`
-                    ),
-                },
-            ]);
-            if (!answer.yes) {
-                log.showYellow("Will do nothing, aborted by user.");
-                return;
-            }
-            for (const td of toDelete) {
-                const srcExists = await fs.pathExists(td.src);
-                const dstExists = await fs.pathExists(td.dst);
-                // 多次确认，确保不会错误删除
-                if (srcExists && dstExists && td.dstExists) {
-                    await helper.safeRemove(td.src);
-                    log.showYellow(logTag, 'safedel', td.src);
-                }
-            }
-            log.showCyan(logTag, `${toDelete.length} files are safe removed`);
+            await deleteSrcExists(results);
         }
     }
     log.showGreen(logTag, 'endAt', dayjs().format(), helper.humanTime(startMs))
 
 }
 
+async function deleteSrcExists(results) {
+    const logTag = "cmdCompress";
+    const toDelete = results.filter(t => t?.src && t.dstExists && t.dst);
+    if (toDelete?.length <= 0) {
+        return;
+    }
+    const answer = await inquirer.prompt([
+        {
+            type: "confirm",
+            name: "yes",
+            default: false,
+            message: chalk.bold.red(
+                `Are you sure to delete ${toDelete.length} original files?}`
+            ),
+        },
+    ]);
+    if (!answer.yes) {
+        log.showYellow("Will do nothing, aborted by user.");
+        return;
+    }
+    for (const td of toDelete) {
+        const srcExists = await fs.pathExists(td.src);
+        const dstExists = await fs.pathExists(td.dst);
+        // 确认文件存在，确保不会误删除
+        if (srcExists && dstExists) {
+            await helper.safeRemove(td.src);
+            log.showYellow(logTag, `${td.src} REMOVED::SAFE`);
+            log.fileLog(`<${td.dst}> REMOVED::SAFE`, logTag);
+        }
+    }
+    log.showCyan(logTag, `${toDelete.length} files are safe removed`);
+
+}
+
 // 文心一言注释 20231206
 // 准备压缩图片的参数，并进行相应的处理  
 async function preCompress(f, options = {}) {
+    const logTag = 'preCompress'
     // log.debug("prepareCompressArgs options:", options); // 打印日志，显示选项参数  
     const maxWidth = options.maxWidth || 6000; // 获取最大宽度限制，默认为6000  
     let fileSrc = path.resolve(f.path); // 解析源文件路径  
@@ -222,7 +238,7 @@ async function preCompress(f, options = {}) {
 
     if (await fs.pathExists(fileDst)) {
         // 如果目标文件已存在，则进行相应的处理  
-        log.info("preCompress exists:", fileDst);
+        log.info(logTag, "exists:", fileDst);
         return {
             ...f,
             width: 0,
@@ -230,22 +246,42 @@ async function preCompress(f, options = {}) {
             src: fileSrc,
             dst: fileDst,
             dstExists: true,
+            shouldSkip: true,
+            skipReason: 'EXISTS',
         };
     }
     try {
-        const s = sharp(fileSrc);
-        const m = await s.metadata();
+        const st = await fs.stat(fileSrc);
+        const m = await sharp(fileSrc).metadata();
+
+        const md = exif(m.exif)?.Image;
+        if (md && (md.Copyright?.includes("mediac")
+            || md.Software?.includes("mediac")
+            || md.Artist?.includes("mediac"))
+            || md.XPComment?.includes("mediac")) {
+            log.info(logTag, "skip:", fileDst);
+            return {
+                ...f,
+                width: 0,
+                height: 0,
+                src: fileSrc,
+                dst: fileDst,
+                shouldSkip: true,
+                skipReason: 'MEDIAC',
+            };
+        }
         const nw =
             m.width > m.height ? maxWidth : Math.round((maxWidth * m.width) / m.height);
         const nh = Math.round((nw * m.height) / m.width);
 
         const dw = nw > m.width ? m.width : nw;
         const dh = nh > m.height ? m.height : nh;
-        log.show(
-            "preCompress:", `${f.index}/${f.total}`,
+        log.show(logTag, `${f.index}/${f.total}`,
             helper.pathShort(fileSrc),
-            `(${m.width}x${m.height} => ${dw}x${dh})`
+            `(${m.width}x${m.height} => ${dw}x${dh}) ${m.format} ${helper.humanSize(st.size)}`
         );
+        log.fileLog(`${f.index}/${f.total} <${fileSrc}> ` +
+            `${dw}x${dh}) ${m.format} ${helper.humanSize(st.size)}`, logTag);
         return {
             ...f,
             width: dw,
@@ -254,6 +290,6 @@ async function preCompress(f, options = {}) {
             dst: fileDst,
         };
     } catch (error) {
-        log.error("preCompress error:", error, fileSrc);
+        log.error(logTag, error, fileSrc);
     }
 }

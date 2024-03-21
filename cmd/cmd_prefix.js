@@ -256,16 +256,21 @@ function createNewNameByMode(f, argv) {
 }
 
 const handler = async function cmdPrefix(argv) {
-    log.info('Prefix', argv);
+    const testMode = !argv.doit;
+    const logTag = "cmdPrefix";
+    log.info(logTag, argv);
     const root = path.resolve(argv.input);
     if (!root || !(await fs.pathExists(root))) {
         throw new Error(`Invalid Input: ${root}`);
     }
-    const testMode = !argv.doit;
+    if (!testMode) {
+        log.fileLog(`Root:${root}`, logTag);
+        log.fileLog(`Argv:${JSON.stringify(argv)}`, logTag);
+    }
     const mode = argv.mode || MODE_AUTO;
     const prefix = argv.prefix;
     const startMs = Date.now();
-    log.show("Prefix", `Input: ${root}`);
+    log.show(logTag, `Input: ${root}`);
 
     if (mode === MODE_PREFIX && !prefix) {
         throw new Error(`No prefix value supplied!`);
@@ -280,7 +285,7 @@ const handler = async function cmdPrefix(argv) {
     // process only image files
     // files = files.filter(x => helper.isImageFile(x.path));
     files.sort();
-    log.show("Prefix", `Total ${files.length} files found in ${helper.humanTime(startMs)}`);
+    log.show(logTag, `Total ${files.length} files found in ${helper.humanTime(startMs)}`);
     if (files.length == 0) {
         log.showYellow("Prefix", "Nothing to do, exit now.");
         return;
@@ -289,20 +294,20 @@ const handler = async function cmdPrefix(argv) {
     const tasks = files.map(f => createNewNameByMode(f, argv)).filter(f => f?.outName)
     const tCount = tasks.length;
     log.showYellow(
-        "Prefix", `Total ${fCount - tCount} files are skipped.`
+        logTag, `Total ${fCount - tCount} files are skipped.`
     );
     if (tasks.length > 0) {
         log.showGreen(
-            "Prefix",
+            logTag,
             `Total ${tasks.length} media files ready to rename`
         );
     } else {
         log.showYellow(
-            "Prefix",
+            logTag,
             `Nothing to do, abort.`);
         return;
     }
-    log.info("Prefix:", argv);
+    log.info(logTag, argv);
     testMode && log.showYellow("++++++++++ TEST MODE (DRY RUN) ++++++++++")
     const answer = await inquirer.prompt([
         {
@@ -316,14 +321,14 @@ const handler = async function cmdPrefix(argv) {
     ]);
     if (answer.yes) {
         if (testMode) {
-            log.showYellow("Prefix", `All ${tasks.length} files, BUT NO file renamed in TEST MODE.`);
+            log.showYellow(logTag, `All ${tasks.length} files, BUT NO file renamed in TEST MODE.`);
         }
         else {
             const results = await renameFiles(tasks);
-            log.showGreen("Prefix", `All ${tasks.length} file were renamed.`);
+            log.showGreen(logTag, `All ${results.length} file were renamed.`);
         }
     } else {
-        log.showYellow("Prefix", "Will do nothing, aborted by user.");
+        log.showYellow(logTag, "Will do nothing, aborted by user.");
     }
 }
 
