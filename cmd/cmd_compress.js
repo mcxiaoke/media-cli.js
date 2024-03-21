@@ -12,7 +12,7 @@ import * as log from '../lib/debug.js';
 import * as mf from '../lib/file.js';
 import * as helper from '../lib/helper.js';
 
-import { makeThumbOne } from "../lib/functions.js";
+import { compressImage } from "../lib/functions.js";
 
 export { aliases, builder, command, describe, handler };
 
@@ -20,6 +20,9 @@ const command = "compress <input> [output]"
 const aliases = ["cs", "cps"]
 const describe = 'Compress input images to target size'
 
+const QUALITY_DEFAULT = 86;
+const SIZE_DEFAULT = 2048 // in kbytes
+const WIDTH_DEFAULT = 6000;
 
 const builder = function addOptions(ya, helpOrVersionSet) {
     return ya.option("purge", {
@@ -28,25 +31,31 @@ const builder = function addOptions(ya, helpOrVersionSet) {
         default: false,
         description: "Purge original image files",
     })
+        // 是否覆盖已存在的压缩后文件
+        .option("override", {
+            type: "boolean",
+            default: false,
+            description: "Override existing dst files",
+        })
         // 压缩后文件质量参数  
         .option("quality", {
             alias: "q",
             type: "number",
-            default: 86,
+            default: QUALITY_DEFAULT,
             description: "Target image file compress quality",
         })
         // 需要处理的最小文件大小
         .option("size", {
             alias: "s",
             type: "number",
-            default: 2048,
+            default: SIZE_DEFAULT,
             description: "Processing file bigger than this size (unit:k)",
         })
         // 需要处理的图片最小尺寸
         .option("width", {
             alias: "w",
             type: "number",
-            default: 6000,
+            default: WIDTH_DEFAULT,
             description: "Max width of long side of image thumb",
         })
         // 确认执行所有系统操作，非测试模式，如删除和重命名和移动操作
@@ -59,38 +68,38 @@ const builder = function addOptions(ya, helpOrVersionSet) {
 }
 
 const handler = async function cmdCompress(argv) {
+    const logTag = "cmdCompress";
     const root = path.resolve(argv.input);
     assert.strictEqual("string", typeof root, "root must be string");
     if (!root || !(await fs.pathExists(root))) {
-        log.error("cmdCompress", `Invalid Input: '${root}'`);
-        throw new Error("Invalid Input: " + root);
+        log.error(logTag, `Invalid Input: '${root}'`);
+        throw new Error(`Invalid Input: ${root}`);
     }
-    log.show('cmdCompress', argv);
+    log.show(logTag, argv);
     const testMode = !argv.doit;
-    const force = argv.force || false;
-    const quality = argv.quality || 88;
-    const minFileSize = (argv.size || 2048) * 1024;
-    const maxWidth = argv.width || 6000;
-    const deleteOriginal = argv.purge || false;
-    log.show(`cmdCompress: input:`, root);
+    const override = argv.override || false;
+    const quality = argv.quality || QUALITY_DEFAULT;
+    const minFileSize = (argv.size || SIZE_DEFAULT) * 1024;
+    const maxWidth = argv.width || WIDTH_DEFAULT;
+    const deleteSrc = argv.purge || false;
+    log.show(`${logTag} input:`, root);
 
-    const RE_THUMB = /(Z4K|feature|web|thumb)/i;
+    const RE_THUMB = /Z4K|feature|web|thumb$/i;
     const walkOpts = {
         needStats: true,
         entryFilter: (f) =>
             f.stats.isFile()
-            && !f.path.match(RE_THUMB)
+            && !RE_THUMB.test(f.path)
             && f.stats.size > minFileSize
             && helper.isImageFile(f.path)
     };
+    log.showGreen(logTag, `Walking files ...`);
     let files = await mf.walk(root, walkOpts);
     if (!files || files.length == 0) {
-        log.showYellow("cmdCompress", "no files found, abort.");
+        log.showYellow(logTag, "no files found, abort.");
         return;
     }
-    log.show("cmdCompress", `total ${files.length} files found (all)`);
-    // files = files.filter(f => !RE_THUMB.test(f.path));
-    log.show("cmdCompress", `total ${files.length} files found (filtered)`);
+    log.show(logTag, `total ${files.length} files found (all)`);
     if (files.length == 0) {
         log.showYellow("Nothing to do, abort.");
         return;
@@ -107,25 +116,29 @@ const handler = async function cmdCompress(argv) {
         log.showYellow("Will do nothing, aborted by user.");
         return;
     }
-    log.showGreen(`cmdCompress: preparing compress arguments...`);
+    log.showGreen(logTag, `preparing compress arguments...`);
     let startMs = Date.now();
-    const conditions = {
-        maxWidth,
-        force,
-        deleteOriginal
-    };
-    const prepareFunc = async f => {
-        return prepareCompressArgs(f, conditions)
+    const addArgsFunc = async (f, i) => {
+        return {
+            ...f,
+            total: files.length,
+            index: i,
+            quality,
+            override,
+            deleteSrc,
+            maxWidth,
+        }
     }
-    let tasks = await pMap(files, prepareFunc, { concurrency: cpus().length * 4 })
+    files = await Promise.all(files.map(addArgsFunc));
+    let tasks = await pMap(files, preCompress, { concurrency: cpus().length * 4 })
 
-    log.debug("cmdCompress before filter: ", tasks.length);
+    log.debug(logTag, "before filter: ", tasks.length);
     const total = tasks.length;
     tasks = tasks.filter((t) => t?.dst);
     const skipped = total - tasks.length;
-    log.debug("cmdCompress after filter: ", tasks.length);
+    log.debug(logTag, "after filter: ", tasks.length);
     if (skipped > 0) {
-        log.showYellow(`cmdCompress: ${skipped} thumbs skipped`)
+        log.showYellow(logTag, `${skipped} thumbs skipped`)
     }
     if (tasks.length == 0) {
         log.showYellow("Nothing to do, abort.");
@@ -134,12 +147,12 @@ const handler = async function cmdCompress(argv) {
     tasks.forEach((t, i) => {
         t.total = tasks.length;
         t.index = i;
-        t.quality = quality || 86;
-        t.deleteOriginal = deleteOriginal || false;
     });
-    log.show(`cmdCompress: time elapsed ${helper.humanTime(startMs)}`)
-    log.show(`cmdCompress: task sample:`, tasks.slice(-2))
-    log.info("cmdCompress:", argv);
+    log.show(logTag, `in ${helper.humanTime(startMs)} tasks:`)
+    tasks.slice(-2).forEach(t => {
+        log.show(helper._omit(t, "stats"));
+    })
+    log.info(logTag, argv);
     testMode && log.showYellow("++++++++++ TEST MODE (DRY RUN) ++++++++++")
     const answer = await inquirer.prompt([
         {
@@ -147,7 +160,7 @@ const handler = async function cmdCompress(argv) {
             name: "yes",
             default: false,
             message: chalk.bold.red(
-                `Are you sure to compress ${tasks.length} files? \n[Apply to files bigger than ${minFileSize / 1024}K, and max long side is ${maxWidth}] \n${deleteOriginal ? "(Attention: you choose to delete original file!)" : "(Will keep original file)"}`
+                `Are you sure to compress ${tasks.length} files? \n[Apply to files bigger than ${minFileSize / 1024}K, target long width is ${maxWidth}] \n${deleteSrc ? "(Attention: you choose to delete original file!)" : "(Will keep original file)"}`
             ),
         },
     ]);
@@ -158,63 +171,89 @@ const handler = async function cmdCompress(argv) {
     }
 
     startMs = Date.now();
-    log.showGreen('cmdCompress: startAt', dayjs().format())
+    log.showGreen(logTag, 'startAt', dayjs().format())
     if (testMode) {
-        log.showGreen(`cmdCompress: [DRY RUN], no thumbs generated.`)
+        log.showYellow(logTag, `[DRY RUN], no thumbs generated.`)
     } else {
-        const result = await pMap(tasks, makeThumbOne, { concurrency: cpus().length / 2 + 1 });
-        log.showGreen(`cmdCompress: ${result.length} thumbs generated in ${helper.humanTime(startMs)}`)
-        //todo 按照deleteOriginal标志，最后统一删除原始图片文件，避免单个删除多IO操作
-
+        const results = await pMap(tasks, compressImage, { concurrency: cpus().length / 2 });
+        log.showGreen(logTag, `${results.length} thumbs generated in ${helper.humanTime(startMs)}`)
+        if (deleteSrc) {
+            const toDelete = results.filter(t => t?.src && t.dst && t.dstExists);
+            const answer = await inquirer.prompt([
+                {
+                    type: "confirm",
+                    name: "yes",
+                    default: false,
+                    message: chalk.bold.red(
+                        `Are you sure to delete ${toDelete.length} original files?"}`
+                    ),
+                },
+            ]);
+            if (!answer.yes) {
+                log.showYellow("Will do nothing, aborted by user.");
+                return;
+            }
+            for (const td of toDelete) {
+                const srcExists = await fs.pathExists(td.src);
+                const dstExists = await fs.pathExists(td.dst);
+                // 多次确认，确保不会错误删除
+                if (srcExists && dstExists && td.dstExists) {
+                    await helper.safeRemove(td.src);
+                    log.showYellow(logTag, 'safedel', td.src);
+                }
+            }
+            log.showCyan(logTag, `${toDelete.length} files are safe removed`);
+        }
     }
-    log.showGreen('cmdCompress: endAt', dayjs().format())
+    log.showGreen(logTag, 'endAt', dayjs().format(), helper.humanTime(startMs))
 
 }
 
 // 文心一言注释 20231206
 // 准备压缩图片的参数，并进行相应的处理  
-async function prepareCompressArgs(f, options = {}) {
-    // log.show("prepareCompressArgs options:", options); // 打印日志，显示选项参数  
-    const maxWidth = options.maxWidth || 4000; // 获取最大宽度限制，默认为4000  
-    const force = options.force || false; // 获取强制压缩标志位，默认为false  
-    const deleteOriginal = options.deleteOriginal || false; // 获取删除原文件标志位，默认为false  
+async function preCompress(f, options = {}) {
+    // log.debug("prepareCompressArgs options:", options); // 打印日志，显示选项参数  
+    const maxWidth = options.maxWidth || 6000; // 获取最大宽度限制，默认为6000  
     let fileSrc = path.resolve(f.path); // 解析源文件路径  
     const [dir, base, ext] = helper.pathSplit(fileSrc); // 将路径分解为目录、基本名和扩展名  
     let fileDst = path.join(dir, `${base}_Z4K.jpg`); // 构建目标文件路径，添加压缩后的文件名后缀  
     fileSrc = path.resolve(fileSrc); // 解析源文件路径（再次确认）  
     fileDst = path.resolve(fileDst); // 解析目标文件路径（再次确认）  
 
-    if (await fs.pathExists(fileDst)) { // 如果目标文件已存在，则进行相应的处理  
-        log.info("prepareCompress exists:", fileDst, force ? "(Override)" : ""); // 打印日志，显示目标文件存在的情况，以及是否进行覆盖处理  
-        if (false && deleteOriginal) { // 如果设置了删除原文件标志位  
-            await helper.safeRemove(fileSrc); // 删除源文件，并打印日志  
-            log.showYellow('prepareCompress exists, delete', helper.pathShort(fileSrc));
-        }
-        if (!force) { // 如果未设置强制标志位，则直接返回（不再进行后续处理）  
-            return;
-        }
+    if (await fs.pathExists(fileDst)) {
+        // 如果目标文件已存在，则进行相应的处理  
+        log.info("preCompress exists:", fileDst);
+        return {
+            ...f,
+            width: 0,
+            height: 0,
+            src: fileSrc,
+            dst: fileDst,
+            dstExists: true,
+        };
     }
-    try { // 尝试执行后续操作，可能会抛出异常  
-        const s = sharp(fileSrc); // 使用sharp库对源文件进行处理，返回sharp对象实例  
-        const m = await s.metadata(); // 获取源文件的元数据信息（包括宽度和高度）  
-        const nw = // 计算新的宽度，如果原始宽度大于高度，则使用最大宽度限制；否则按比例计算新的宽度  
+    try {
+        const s = sharp(fileSrc);
+        const m = await s.metadata();
+        const nw =
             m.width > m.height ? maxWidth : Math.round((maxWidth * m.width) / m.height);
-        const nh = Math.round((nw * m.height) / m.width); // 计算新的高度，按比例计算新的高度  
+        const nh = Math.round((nw * m.height) / m.width);
 
-        const dw = nw > m.width ? m.width : nw; // 计算最终输出的宽度，如果新的宽度大于原始宽度，则使用原始宽度；否则使用新的宽度  
-        const dh = nh > m.height ? m.height : nh; // 计算最终输出的高度，按比例计算最终输出高度，如果新的高度大于原始高度，则使用原始高度；否则使用新的高度  
-        log.info(// 打印日志，显示压缩后的文件信息  
-            "prepareCompress:",
-            helper.pathShort(fileDst),
+        const dw = nw > m.width ? m.width : nw;
+        const dh = nh > m.height ? m.height : nh;
+        log.show(
+            "preCompress:", `${f.index}/${f.total}`,
+            helper.pathShort(fileSrc),
             `(${m.width}x${m.height} => ${dw}x${dh})`
         );
-        return { // 返回压缩后的参数对象，包括输出文件的宽度、高度、源文件路径、目标文件路径以及索引信息等属性  
+        return {
+            ...f,
             width: dw,
             height: dh,
             src: fileSrc,
             dst: fileDst,
         };
     } catch (error) {
-        log.error("prepareCompress error:", error, fileSrc);
+        log.error("preCompress error:", error, fileSrc);
     }
 }

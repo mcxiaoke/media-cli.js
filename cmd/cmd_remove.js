@@ -25,19 +25,13 @@ const aliases = ["rm", "rmf"]
 const describe = 'Remove files by given size/width-height/name-pattern/file-list'
 
 const builder = function addOptions(ya, helpOrVersionSet) {
-    return ya.option("safe", {
+    return ya.option("loose", {
+        alias: "l",
         type: "boolean",
-        default: true,
-        // 使用安全删除，默认开启，移动到Deleted目录，关闭后是永久删除
-        description: "If true, moved to Deleted dir, instead real delete",
+        default: false,
+        // 宽松模式，默认不开启，宽松模式条件或，默认严格模式条件与
+        description: "If true, operation of conditions is OR, default AND",
     })
-        .option("loose", {
-            alias: "l",
-            type: "boolean",
-            default: false,
-            // 宽松模式，默认不开启，宽松模式条件或，默认严格模式条件与
-            description: "If true, operation of conditions is OR, default AND",
-        })
         .option("width", {
             type: "number",
             default: 0,
@@ -110,7 +104,6 @@ const handler = async function cmdRemove(argv) {
     }
 
     const testMode = !argv.doit;
-    const useSafeRemove = argv.safe || true;
     const cLoose = argv.loose || false;
     const cWidth = argv.width || 0;
     const cHeight = argv.height || 0;
@@ -157,7 +150,6 @@ const handler = async function cmdRemove(argv) {
         pattern: cPattern,
         names: cNames || new Set(),
         reverse: cReverse,
-        safe: useSafeRemove,
         testMode,
     }
 
@@ -215,7 +207,6 @@ const handler = async function cmdRemove(argv) {
 
     const startMs = Date.now();
     log.showGreen("cmdRemove", 'task startAt', dayjs().format())
-    // const result = await pMap(tasks, fs.remove, { concurrency: cpuCount / 2 + 1 });
     let removedCount = 0;
     let index = 0;
     if (testMode) {
@@ -223,14 +214,10 @@ const handler = async function cmdRemove(argv) {
     } else {
         for (const task of tasks) {
             try {
-                if (await useSafeRemove) {
-                    helper.safeRemove(task.src);
-                } else {
-                    fs.remove(task.src);
-                }
+                await helper.safeRemove(task.src);
                 ++removedCount;
                 fileLog(`<Removed> ${task.src} (${task.index})`, "cmdRemove");
-                log.show("cmdRemove", `${useSafeRemove ? "SafeDel" : "Deleted"} ${task.src} (${task.index}) (${++index}/${tasks.length})`);
+                log.show("cmdRemove", `SafeDel ${task.src} (${task.index}) (${++index}/${tasks.length})`);
             } catch (error) {
                 log.error("cmdRemove", `failed to remove file ${task.src}`, error);
             }
@@ -239,7 +226,6 @@ const handler = async function cmdRemove(argv) {
 
     log.showGreen("cmdRemove", 'task endAt', dayjs().format())
     log.showGreen("cmdRemove", `${removedCount} files removed in ${helper.humanTime(startMs)}`)
-    log.show("cmdRemove", `task logs are written to ${log.fileLogName()}`);
 }
 
 async function readNameList(list) {
@@ -278,7 +264,7 @@ async function prepareRemoveArgs(f, options) {
         shouldRemove = cReverse ? !nameInList : nameInList;
         itemDesc = `IN=${nameInList} R=${cReverse}`;
         log.show(
-            "prepareRM[List] add:",
+            "preRemove[List] add:",
             `${helper.pathShort(fileSrc)} ${itemDesc}`, f.index
         );
         return buildRemoveArgs(f.index, itemDesc, shouldRemove, fileSrc);
@@ -320,12 +306,12 @@ async function prepareRemoveArgs(f, options) {
             // 开头匹配，或末尾匹配，或正则匹配
             if (fName.startsWith(cPattern) || fName.endsWith(cPattern) || fName.match(rp)) {
                 log.info(
-                    "prepareRM[Name]:", `${fileName} [NamePattern=${rp}]`
+                    "preRemove[Name]:", `${fileName} [NamePattern=${rp}]`
                 );
                 testName = true;
             } else {
                 log.debug(
-                    "prepareRM[Name]:", `${fileName} [NamePattern=${rp}]`
+                    "preRemove[Name]:", `${fileName} [NamePattern=${rp}]`
                 );
             }
         }
@@ -337,7 +323,7 @@ async function prepareRemoveArgs(f, options) {
             itemDesc += ` ${Math.round(fSize / 1024)}k`
             if (fSize > 0 && fSize <= cSize) {
                 log.info(
-                    "prepareRM[Size]:",
+                    "preRemove[Size]:",
                     `${fileName} [${Math.round(fSize / 1024)}k] [Size=${cSize / 1024}k]`
                 );
                 testSize = true;
@@ -359,7 +345,7 @@ async function prepareRemoveArgs(f, options) {
                     // 宽高都提供时，要求都满足才能删除
                     if (fWidth <= cWidth && fHeight <= cHeight) {
                         log.info(
-                            "prepareRM[Measure]:",
+                            "preRemove[Measure]:",
                             `${fileName} ${fWidth}x${fHeight} [${cWidth}x${cHeight}]`
                         );
                         testMeasure = true;
@@ -368,20 +354,20 @@ async function prepareRemoveArgs(f, options) {
                 else if (cWidth > 0 && fWidth <= cWidth) {
                     // 只提供宽要求
                     log.info(
-                        "prepareRM[Measure]:",
+                        "preRemove[Measure]:",
                         `${fileName} ${fWidth}x${fHeight} [W=${cWidth}]`
                     );
                     testMeasure = true;
                 } else if (cHeight > 0 && fHeight <= cHeight) {
                     // 只提供高要求
                     log.info(
-                        "prepareRM[Measure]:",
+                        "preRemove[Measure]:",
                         `${fileName} ${fWidth}x${fHeight} [H=${cHeight}]`
                     );
                     testMeasure = true;
                 }
             } else {
-                log.info("prepareRM[Measure]:", `${fileName} is not image file`);
+                log.info("preRemove[Measure]:", `${fileName} is not image file`);
             }
         }
 
@@ -393,12 +379,12 @@ async function prepareRemoveArgs(f, options) {
 
         if (shouldRemove) {
             log.show(
-                "prepareRM add:",
+                "preRemove add:",
                 `${helper.pathShort(fileSrc)} ${itemDesc}`, f.index
             );
         } else {
             (testName || testSize || testMeasure) && log.info(
-                "prepareRM ignore:",
+                "preRemove ignore:",
                 `${helper.pathShort(fileSrc)} ${itemDesc} (${testName} ${testSize} ${testMeasure})`, f.index
             );
         }
@@ -415,8 +401,7 @@ async function prepareRemoveArgs(f, options) {
         };
 
     } catch (error) {
-        log.error("prepareRM error:", error, fileSrc);
-        // await fs.remove(fileSrc);
+        log.error("preRemove error:", error, fileSrc);
         fileLog(`<Error> ${fileSrc} (${f.index})`, "cmdRemove");
     }
 }

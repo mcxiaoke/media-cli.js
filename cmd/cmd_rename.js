@@ -109,11 +109,10 @@ const handler = async function cmdRename(argv) {
         throw new Error(`Invalid Input: ${root}`);
     }
     const testMode = !argv.doit;
-    const forceAll = argv.all || false;
     const mode = argv.mode || MODE_AUTO;
     const prefix = argv.prefix;
     const startMs = Date.now();
-    log.show("Rename", `Input: ${root}`, forceAll ? "(force all)" : "");
+    log.show("Rename", `Input: ${root}`);
 
     if (mode === MODE_PREFIX && !prefix) {
         throw new Error(`No prefix value supplied!`);
@@ -137,14 +136,11 @@ const handler = async function cmdRename(argv) {
     if (tasks.length > 0) {
         log.showGreen(
             "Rename",
-            `Total ${tasks.length} media files ready to rename`,
-            forceAll ? "(forceAll)" : ""
+            `Total ${tasks.length} media files ready to rename`
         );
     } else {
         log.showYellow(
-            "Rename",
-            `Nothing to do, abort.`,
-            forceAll ? "(forceAll)" : ""
+            "Rename", `Nothing to do, abort.`
         );
         return;
     }
@@ -156,8 +152,7 @@ const handler = async function cmdRename(argv) {
             name: "yes",
             default: false,
             message: chalk.bold.red(
-                `Are you sure to rename ${tasks.length} files?` +
-                (forceAll ? " (forceAll)" : "")
+                `Are you sure to rename ${tasks.length} files?`
             ),
         },
     ]);

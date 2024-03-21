@@ -15,8 +15,6 @@ import * as exif from '../lib/exif.js';
 import * as mf from '../lib/file.js';
 import * as helper from '../lib/helper.js';
 
-import { makeThumbOne } from "../lib/functions.js";
-
 const cpuCount = cpus().length;
 // debug and logging config
 // 配置错误信息输出
@@ -28,127 +26,137 @@ const configCli = (argv) => {
   log.setVerbose(argv.verbose);
   log.debug(argv);
 };
-// 日志文件
-const fileLog = function (msg, tag) {
-  log.fileLog(msg, tag, "mediac");
-}
 
-// 命令行参数解析
-const ya = yargs(process.argv.slice(2));
-// https://github.com/yargs/yargs/blob/master/docs/advanced.md
-ya
-  .usage("Usage: $0 <command> <input> [options]")
-  .positional("input", {
-    describe: "Input folder that contains files",
-    type: "string",
-    normalize: true,
-  })
-  // 测试命令，无作用
-  .command(
-    ["test", "tt", "$0"],
-    "Test command, do nothing",
-    (ya) => {
-      // yargs.option("output", {
-      //   alias: "o",
-      //   type: "string",
-      //   normalize: true,
-      //   description: "Output folder",
-      // });
-    },
-    (argv) => {
-      ya.showHelp();
-    }
-  )
-  // 命令：DCIM重命名
-  // 默认按照EXIF拍摄日期重命名，可提供自定义模板
-  .command(await import('../cmd/cmd_dcim.js'))
-  // 命令 分类图片文件
-  // 按照文件类型，图片或视频，分类整理
-  // 按照EXIF拍摄日期的年份和月份整理图片
-  .command(
-    ["organize <input> [output]", "oz"],
-    "Organize pictures by file modified date",
-    (ya) => {
-      // yargs.option("output", {
-      //   alias: "o",
-      //   type: "string",
-      //   normalize: true,
-      //   description: "Output folder",
-      // });
-    },
-    (argv) => {
-      cmdOrganize(argv);
-    }
-  )
-  // 命令 LR输出文件移动
-  // 移动RAW目录下LR输出的JPEG目录到单独的图片目录
-  .command(
-    ["lrmove <input> [output]", "lv"],
-    "Move JPEG output of RAW files to other folder",
-    (ya) => {
-      // yargs.option("output", {
-      //   alias: "o",
-      //   type: "string",
-      //   normalize: true,
-      //   description: "Output folder",
-      // });
-    },
-    (argv) => {
-      cmdLRMove(argv);
-    }
-  )
-  // 命令 生成缩略图
-  // 生成指定大小的缩略图，可指定最大边长
-  .command(
-    ["thumbs <input> [output]", "tb"],
-    "Make thumbs for input images",
-    (ya) => {
-      ya
-        // .option("output", {
+main();
+
+async function main() {
+  // 命令行参数解析
+  // const ya = yargs(process.argv.slice(2));
+  // https://github.com/yargs/yargs/blob/master/docs/advanced.md
+  const ya = yargs(process.argv.slice(2));
+  ya.usage("Usage: $0 <command> <input> [options]")
+    .positional("input", {
+      describe: "Input folder that contains files",
+      type: "string",
+      normalize: true,
+    })
+    // 测试命令，无作用
+    .command(
+      ["test", "tt", "$0"],
+      "Test command, do nothing",
+      (ya) => {
+        // yargs.option("output", {
         //   alias: "o",
         //   type: "string",
         //   normalize: true,
         //   description: "Output folder",
-        // })
-        .option("force", {
-          alias: "f",
-          type: "boolean",
-          description: "Force to override existing thumb files",
-        })
-        .option("max", {
-          alias: "m",
-          type: "number",
-          description: "Max size of long side of image thumb",
-        });
-    },
-    (argv) => {
-      cmdThumbs(argv);
-    }
-  )
-  // 命令 压缩图片
-  // 压缩满足条件的图片，可指定最大边长和文件大小，输出质量
-  // 可选删除压缩后的源文件
-  .command(await import("../cmd/cmd_compress.js"))
-  // 命令 删除图片
-  // 按照指定规则删除文件，条件包括宽度高度、文件大小、文件名规则
-  // 支持严格模式和宽松模式
-  .command(await import("../cmd/cmd_remove.js"))
-  // 命令 向上移动文件
-  // 把多层嵌套目录下的文件移动到顶层目录，按图片和视频分类
-  .command(await import("../cmd/cmd_moveup.js"))
-  // 命令 重命名文件 添加前缀
-  .command(await import("../cmd/cmd_prefix.js"))
-  .count("verbose")
-  .alias("v", "verbose")
-  .alias("h", "help")
-  .epilog(
-    "Media Cli: Image/Raw/Video filename processing utilities\nCopyright 2021-2025 @ Zhang Xiaoke"
-  )
-  .demandCommand(1, chalk.red("Missing sub command you want to execute!"))
-  .showHelpOnFail(true)
-  .help()
-  .middleware([configCli]);
-const yargv = ya.argv;
+        // });
+      },
+      (argv) => {
+        ya.showHelp();
+      }
+    )
+    // 命令：DCIM重命名
+    // 默认按照EXIF拍摄日期重命名，可提供自定义模板
+    .command(await import('../cmd/cmd_dcim.js'))
+    // 命令 分类图片文件
+    // 按照文件类型，图片或视频，分类整理
+    // 按照EXIF拍摄日期的年份和月份整理图片
+    .command(
+      ["organize <input> [output]", "oz"],
+      "Organize pictures by file modified date",
+      (ya) => {
+        // yargs.option("output", {
+        //   alias: "o",
+        //   type: "string",
+        //   normalize: true,
+        //   description: "Output folder",
+        // });
+      },
+      (argv) => {
+        cmdOrganize(argv);
+      }
+    )
+    // 命令 LR输出文件移动
+    // 移动RAW目录下LR输出的JPEG目录到单独的图片目录
+    .command(
+      ["lrmove <input> [output]", "lv"],
+      "Move JPEG output of RAW files to other folder",
+      (ya) => {
+        // yargs.option("output", {
+        //   alias: "o",
+        //   type: "string",
+        //   normalize: true,
+        //   description: "Output folder",
+        // });
+      },
+      (argv) => {
+        cmdLRMove(argv);
+      }
+    )
+    // 命令 生成缩略图
+    // 生成指定大小的缩略图，可指定最大边长
+    .command(
+      ["thumbs <input> [output]", "tb"],
+      "Make thumbs for input images",
+      (ya) => {
+        ya
+          // .option("output", {
+          //   alias: "o",
+          //   type: "string",
+          //   normalize: true,
+          //   description: "Output folder",
+          // })
+          .option("force", {
+            alias: "f",
+            type: "boolean",
+            description: "Force to override existing thumb files",
+          })
+          .option("max", {
+            alias: "m",
+            type: "number",
+            description: "Max size of long side of image thumb",
+          });
+      },
+      (argv) => {
+        cmdThumbs(argv);
+      }
+    )
+    // 命令 压缩图片
+    // 压缩满足条件的图片，可指定最大边长和文件大小，输出质量
+    // 可选删除压缩后的源文件
+    .command(await import("../cmd/cmd_compress.js"))
+    // 命令 删除图片
+    // 按照指定规则删除文件，条件包括宽度高度、文件大小、文件名规则
+    // 支持严格模式和宽松模式
+    .command(await import("../cmd/cmd_remove.js"))
+    // 命令 向上移动文件
+    // 把多层嵌套目录下的文件移动到顶层目录，按图片和视频分类
+    .command(await import("../cmd/cmd_moveup.js"))
+    // 命令 重命名文件 添加前缀
+    .command(await import("../cmd/cmd_prefix.js"))
+    .count("verbose")
+    .alias("v", "verbose")
+    .alias("h", "help")
+    .epilog(
+      "Media Cli: Image/Raw/Video filename processing utilities\nCopyright 2021-2025 @ Zhang Xiaoke"
+    )
+    .demandCommand(1, chalk.red("Missing sub command you want to execute!"))
+    .showHelpOnFail(true)
+    .help()
+    .middleware([configCli]);
+  try {
+    log.show('==============================================================')
+    const argv = await ya.parse();
+    log.debug(argv)
+  } catch (err) {
+    // await ya.getHelp()
+    log.showRed(`${err.message}`);
+  } finally {
+    const filePath = log.fileLogName().split(path.sep).join("/");
+    log.showYellow(`See logs: file:///${filePath}`);
+  }
+}
 
 async function cmdOrganize(argv) {
   log.show('cmdOrganize', argv);
@@ -183,7 +191,7 @@ async function cmdOrganize(argv) {
         pics["pngs"] = [];
       }
       pics["pngs"].push(f);
-      log.debug("Other Item:", f.path, helper.fileSizeSI(f.stats.size));
+      log.debug("Other Item:", f.path, helper.humanSize(f.stats.size));
     } else {
       let dirName;
       const dateStr = dayjs(f.stats.mtime).format("YYYYMM");;
@@ -451,7 +459,7 @@ async function cmdThumbs(argv) {
 
   const startMs = Date.now();
   log.showGreen('cmdThumbs: startAt', dayjs().format())
-  const result = await pMap(tasks, makeThumbOne, { concurrency: cpuCount });
+  const result = await pMap(tasks, compressImage, { concurrency: cpuCount });
   log.showGreen('cmdThumbs: endAt', dayjs().format())
   log.showGreen(`cmdThumbs: ${result.length} thumbs generated in ${helper.humanTime(startMs)}`)
 }

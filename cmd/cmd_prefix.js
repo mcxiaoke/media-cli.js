@@ -149,6 +149,7 @@ function createNewNameByMode(f, argv) {
     const nameLength = (mode == MODE_MEDIA) ? 200 : argv.length || NAME_LENGTH;
     const nameSlice = nameLength * -1;
     const [dir, base, ext] = helper.pathSplit(f.path);
+    const oldName = path.basename(f.path);
     const dirParent = path.basename(path.dirname(dir));
     const dirName = path.basename(dir);
     const logTag = `Prefix::${mode.toUpperCase()[0]}`;
@@ -193,8 +194,8 @@ function createNewNameByMode(f, argv) {
             {
                 sep = "_";
                 prefix = getAutoModePrefix(dir, sep);
-                const forceAll = argv.all || false;
-                if (!reOnlyNum.test(base) && !forceAll) {
+                const applyToAll = argv.all || false;
+                if (!reOnlyNum.test(base) && !applyToAll) {
                     log.showYellow(logTag, `Ignore: ${helper.pathShort(f.path)}`);
                     return;
                 }
@@ -209,7 +210,6 @@ function createNewNameByMode(f, argv) {
     // 是否净化文件名，去掉各种特殊字符
     if (argv.clean) {
         if (mode == MODE_MEDIA) {
-            log.showYellow(reVideoName)
             // 移除视频文件各种格式说明
             oldBase = oldBase.replaceAll(reVideoName, "");
         }
@@ -233,36 +233,39 @@ function createNewNameByMode(f, argv) {
     const newName = `${fullBase}${ext}`;
     const newPath = path.join(dir, newName);
     if (fullBase === base) {
-        log.showGray(logTag, `NoChange: ${helper.pathShort(newPath)}`);
-        return;
+        log.info(logTag, `NoChange: ${helper.pathShort(newPath)}`);
+        f.skipped = true;
     }
-    if (fs.existsSync(newPath)) {
-        log.showGray(logTag, `Exists: ${helper.pathShort(newPath)}`);
-        return;
+    else if (fs.existsSync(newPath)) {
+        log.info(logTag, `Exists: ${helper.pathShort(newPath)}`);
+        f.skipped = true;
     }
-    if (nameDuplicateSet.has(newPath)) {
-        log.showGray(logTag, `Duplicate: ${helper.pathShort(newPath)}`);
-        return;
+    else if (nameDuplicateSet.has(newPath)) {
+        log.info(logTag, `Duplicate: ${helper.pathShort(newPath)}`);
+        f.skipped = true;
     }
-    f.outName = newName;
     nameDuplicateSet.add(newPath);
-    log.show(logTag, `=> ${helper.pathShort(newPath)}`);
+    if (f.skipped) {
+        log.fileLog(`Skipped: ${f.path}`, logTag);
+    } else {
+        f.outName = newName;
+        log.show(logTag, `${chalk.cyan(oldName)} => ${chalk.green(helper.pathShort(newPath, 32))}`);
+        log.fileLog(`Prepared: ${newPath}`, logTag);
+    }
     return f;
 }
 
 const handler = async function cmdPrefix(argv) {
-    log.info('cmdPrefix', argv);
+    log.info('Prefix', argv);
     const root = path.resolve(argv.input);
     if (!root || !(await fs.pathExists(root))) {
-        log.error("Invalid Input: " + root);
-        throw new Error("Invalid Input: " + root);
+        throw new Error(`Invalid Input: ${root}`);
     }
     const testMode = !argv.doit;
-    const forceAll = argv.all || false;
     const mode = argv.mode || MODE_AUTO;
     const prefix = argv.prefix;
     const startMs = Date.now();
-    log.show("Prefix", `Input: ${root}`, forceAll ? "(force all)" : "");
+    log.show("Prefix", `Input: ${root}`);
 
     if (mode === MODE_PREFIX && !prefix) {
         throw new Error(`No prefix value supplied!`);
@@ -282,19 +285,21 @@ const handler = async function cmdPrefix(argv) {
         log.showYellow("Prefix", "Nothing to do, exit now.");
         return;
     }
-    const tasks = files.map(f => createNewNameByMode(f, argv)).filter(f => f && f.outName)
+    const fCount = files.length;
+    const tasks = files.map(f => createNewNameByMode(f, argv)).filter(f => f?.outName)
+    const tCount = tasks.length;
+    log.showYellow(
+        "Prefix", `Total ${fCount - tCount} files are skipped.`
+    );
     if (tasks.length > 0) {
         log.showGreen(
             "Prefix",
-            `Total ${tasks.length} media files ready to rename`,
-            forceAll ? "(forceAll)" : ""
+            `Total ${tasks.length} media files ready to rename`
         );
     } else {
         log.showYellow(
             "Prefix",
-            `Nothing to do, abort.`,
-            forceAll ? "(forceAll)" : ""
-        );
+            `Nothing to do, abort.`);
         return;
     }
     log.info("Prefix:", argv);
@@ -305,8 +310,7 @@ const handler = async function cmdPrefix(argv) {
             name: "yes",
             default: false,
             message: chalk.bold.red(
-                `Are you sure to rename ${tasks.length} files?` +
-                (forceAll ? " (forceAll)" : "")
+                `Are you sure to rename these ${tasks.length} files?`
             ),
         },
     ]);
