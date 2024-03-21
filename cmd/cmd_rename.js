@@ -120,6 +120,7 @@ const handler = async function cmdRename(argv) {
     }
 
     let files = await mf.walk(root, {
+        needStats: true,
         entryFilter: (entry) =>
             entry.stats.isFile() &&
             entry.stats.size > 1024

@@ -162,6 +162,7 @@ const handler = async function cmdRemove(argv) {
     }
 
     const walkOpts = {
+        needStats: true,
         entryFilter: (f) =>
             f.stats.isFile(),
         withIndex: true,

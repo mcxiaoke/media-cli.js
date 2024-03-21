@@ -76,14 +76,20 @@ const handler = async function cmdCompress(argv) {
 
     const RE_THUMB = /(Z4K|feature|web|thumb)/i;
     const walkOpts = {
+        needStats: true,
         entryFilter: (f) =>
             f.stats.isFile()
+            && !f.path.match(RE_THUMB)
             && f.stats.size > minFileSize
             && helper.isImageFile(f.path)
     };
     let files = await mf.walk(root, walkOpts);
+    if (!files || files.length == 0) {
+        log.showYellow("cmdCompress", "no files found, abort.");
+        return;
+    }
     log.show("cmdCompress", `total ${files.length} files found (all)`);
-    files = files.filter(f => !RE_THUMB.test(f.path));
+    // files = files.filter(f => !RE_THUMB.test(f.path));
     log.show("cmdCompress", `total ${files.length} files found (filtered)`);
     if (files.length == 0) {
         log.showYellow("Nothing to do, abort.");

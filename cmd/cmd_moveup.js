@@ -87,7 +87,9 @@ const handler = async function cmdMoveUp(argv) {
         const subDirPath = path.join(root, subDirN);
         log.info("MoveUp", "processing files in ", subDirPath);
         let curDir = toRoot ? root : subDirPath;
-        let files = await mf.walk(subDirPath);
+        let files = await mf.walk(subDirPath, {
+            needStats: true,
+        });
         totalCount += files.length;
         log.show("MoveUp", `Total ${files.length} media files found in ${subDirPath}`);
         const outDirPaths = outDirNames.map(x => path.join(curDir, x));

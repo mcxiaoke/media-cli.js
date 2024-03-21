@@ -1,6 +1,6 @@
 {
   "name": "mediac",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "type": "module",
   "description": "Media and ExifTool and File Utilities",
   "main": "index.js",
@@ -53,6 +53,7 @@
     "p-filter": "^4.1.0",
     "p-map": "^7.0.1",
     "p-queue": "^8.0.0",
+    "path-scurry": "^1.10.1",
     "pretty-bytes": "^6.1.1",
     "pretty-error": "^4.0.0",
     "pretty-ms": "^9.0.0",

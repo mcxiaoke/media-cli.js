@@ -275,7 +275,7 @@ async function cmdLRMove(argv) {
   // const output = argv.output || root;
   log.show(`LRMove: input:`, root);
   // log.show(`LRMove: output:`, output);
-  let filenames = await mf.walkDir(root);
+  let filenames = await mf.walkDir(root, { needStats: false, });
   filenames = filenames.filter(f => path.basename(f) === "JPEG");
   log.show("LRMove:", `Total ${filenames.length} JPEG folders found`);
   if (filenames.length == 0) {
