@@ -41,13 +41,19 @@ const builder = function addOptions(ya, helpOrVersionSet) {
 }
 
 const handler = async function cmdMoveUp(argv) {
-    log.show('cmdMoveUp', argv);
+    const logTag = "MoveUp";
+    log.info(logTag, argv);
+    const testMode = !argv.doit;
     const root = path.resolve(argv.input);
     if (!root || !(await fs.pathExists(root))) {
-        log.error("MoveUp", `Invalid Input: '${root}'`);
-        throw new Error("Invalid Input: " + argv.input);
+        log.error(logTag, `Invalid Input: '${root}'`);
+        throw new Error(`Invalid Input: ${argv.input}`);
     }
-    const testMode = !argv.doit;
+    if (!testMode) {
+        log.fileLog(`Root: ${root}`, logTag);
+        log.fileLog(`Argv: ${JSON.stringify(argv)}`, logTag);
+    }
+
     const toRoot = argv.topmost || false;
     // 读取顶级目录下所有的子目录
     const defaultDirName = "文件";
@@ -59,8 +65,7 @@ const handler = async function cmdMoveUp(argv) {
     let subDirs = (await fs.readdir(root, { withFileTypes: true }))
         .filter(d => d.isDirectory() && !outDirNames.includes(d.name))
         .map(d => d.name);
-    log.show("MoveUp", "found sub dirs:", subDirs);
-    log.info("MoveUp", argv);
+    log.show(logTag, "found sub dirs:", subDirs);
     testMode && log.showYellow("++++++++++ TEST MODE (DRY RUN) ++++++++++")
     const answer = await inquirer.prompt([
         {
@@ -73,7 +78,7 @@ const handler = async function cmdMoveUp(argv) {
         },
     ]);
     if (!answer.yes) {
-        log.showYellow("MoveUp", "Will do nothing, aborted by user.");
+        log.showYellow(logTag, "Will do nothing, aborted by user.");
         return;
     }
 
@@ -85,24 +90,24 @@ const handler = async function cmdMoveUp(argv) {
     let totalCount = 0;
     for (const subDirN of subDirs) {
         const subDirPath = path.join(root, subDirN);
-        log.info("MoveUp", "processing files in ", subDirPath);
+        log.info(logTag, "processing files in ", subDirPath);
         let curDir = toRoot ? root : subDirPath;
         let files = await mf.walk(subDirPath, {
             needStats: true,
         });
         totalCount += files.length;
-        log.show("MoveUp", `Total ${files.length} media files found in ${subDirPath}`);
+        log.show(logTag, `Total ${files.length} media files found in ${subDirPath}`);
         const outDirPaths = outDirNames.map(x => path.join(curDir, x));
         keepDirList.add(curDir);
         for (const odp of outDirPaths) {
             keepDirList.add(odp);
         }
         if (outDirNames.includes(subDirN)) {
-            log.showYellow("MoveUp", `Skip dir ${subDirPath}`);
+            log.showYellow(logTag, `Skip dir ${subDirPath}`);
         }
 
-        log.info("MoveUp", `output:${curDir}${path.sep}{${outDirNames}}`);
-        log.info("MoveUp", `moving ${files.length} files in ${subDirPath} ...`);
+        log.info(logTag, `output:${curDir}${path.sep}{${outDirNames}}`);
+        log.info(logTag, `moving ${files.length} files in ${subDirPath} ...`);
         let dupCount = 0;
         for (const f of files) {
             ++dupCount;
@@ -115,15 +120,15 @@ const handler = async function cmdMoveUp(argv) {
             //     fileDst = path.join(otherOutput, `${srcBase}_${dupCount}${srcExt}`);
             // }
             if (srcDir === path.dirname(fileDst)) {
-                log.info("MoveUp", "Skip InDst:", fileDst);
+                log.info(logTag, "Skip InDst:", fileDst);
                 continue;
             }
             if (fileSrc === fileDst) {
-                log.info("MoveUp", "Skip Same:", fileDst);
+                log.info(logTag, "Skip Same:", fileDst);
                 continue;
             }
             if (!(await fs.pathExists(fileSrc))) {
-                log.showYellow("MoveUp", "Not Found:", fileSrc);
+                log.showYellow(logTag, "Not Found:", fileSrc);
                 continue;
             }
 
@@ -136,32 +141,33 @@ const handler = async function cmdMoveUp(argv) {
                     // same name ,but not same file
                     const [dstDir, dstBase, dstExt] = helper.pathSplit(fileDst);
                     fileDst = path.join(dstDir, `${srcDirName}_${dstBase}_${dupCount}${dstExt}`);
-                    log.showYellow("MoveUp", "New Name:", fileDst);
+                    log.showYellow(logTag, "New Name:", fileDst);
                 }
             }
             if (await fs.pathExists(fileDst)) {
-                log.showYellow("MoveUp", "Skip Exists:", fileDst);
+                log.showYellow(logTag, "Exists:", fileDst);
                 continue;
             }
 
             try {
                 if (testMode) {
-                    log.debug("MoveUp", "NotMoved:", fileSrc, "to", fileDst);
+                    log.debug(logTag, "NotMoved:", fileSrc, "to", fileDst);
                 } else {
                     await fs.move(fileSrc, fileDst);
                     // movedFiles.push([fileSrc, fileDst]);
                     movedCount++;
-                    log.debug("MoveUp", "Moved:", fileSrc, "to", fileDst);
+                    log.info(logTag, "Moved:", fileSrc, "to", fileDst);
+                    log.fileLog(`Moved: <${fileSrc}> => <${fileDst}>`, logTag);
                 }
 
             } catch (error) {
-                log.error("MoveUp", "Failed:", error, fileSrc, "to", fileDst);
+                log.error(logTag, "Failed:", error, fileSrc, "to", fileDst);
             }
         }
-        log.showGreen("MoveUp", `${files.length} in ${helper.pathShort(subDirPath)} are moved.`, testMode ? "[DRY RUN]" : "");
+        log.showGreen(logTag, `${files.length} files in ${helper.pathShort(subDirPath)} are moved.`, testMode ? "[DRY RUN]" : "");
     };
-    log.showGreen("MoveUp", `Total ${movedCount}/${totalCount} files moved.`, testMode ? "[DRY RUN]" : "");
-    log.showYellow("MoveUp", "There are some unused folders left after moving up operations.")
+    log.showGreen(logTag, `Total ${movedCount}/${totalCount} files moved.`, testMode ? "[DRY RUN]" : "");
+    log.showYellow(logTag, "There are some unused folders left after moving up operations.")
 
     const cleanupAnswer = await inquirer.prompt([
         {
@@ -181,10 +187,10 @@ const handler = async function cmdMoveUp(argv) {
     subDirList = new Set([...subDirList].map(x => path.resolve(x)));
     const toRemoveDirList = setDifference(subDirList, keepDirList)
 
-    log.show("MoveUp", `There are ${keepDirList.size} output dirs ${chalk.red("DO NOTHING")}`);
+    log.show(logTag, `There are ${keepDirList.size} output dirs ${chalk.red("DO NOTHING")}`);
     log.show(keepDirList)
-    log.showYellow("MoveUp", `There are ${toRemoveDirList.size} unused dirs to ${chalk.red("DELETE")}, samples:`)
-    log.show([...toRemoveDirList].slice(-20));
+    log.showYellow(logTag, `There are ${toRemoveDirList.size} unused dirs to ${chalk.red("DELETE")}, samples:`)
+    log.show([...toRemoveDirList].slice(-10));
     testMode && log.showYellow("++++++++++ TEST MODE (DRY RUN) ++++++++++")
     const removeUnusedAnswer = await inquirer.prompt([
         {
@@ -196,16 +202,19 @@ const handler = async function cmdMoveUp(argv) {
         },
     ]);
     if (!removeUnusedAnswer.yes) {
-        log.showYellow("MoveUp", "Will do nothing, aborted by user.");
+        log.showYellow(logTag, "Will do nothing, aborted by user.");
         return;
     }
     let delCount = 0;
     for (const td of toRemoveDirList) {
-        !testMode && await helper.safeRemove(td);
-        if (!testMode) ++delCount;
-        log.showGreen('MoveUp', "SafeDel", helper.pathShort(td), testMode ? "[DRY RUN]" : "");
+        if (!testMode) {
+            await helper.safeRemove(td);
+            ++delCount;
+            log.fileLog(`SafeDel: <${td}>`, logTag);
+        }
+        log.showGreen(logTag, "SafeDel", helper.pathShort(td), testMode ? "[DRY RUN]" : "");
     }
-    log.showGreen('MoveUp', `${delCount} dirs were`, testMode ? "[NOT DELETED]" : "SAFE DELETED");
+    log.showGreen(logTag, `${delCount} dirs were SAFE DELETED ${testMode ? "[DRY RUN]" : ""}`);
 }
 
 function setDifference(setA, setB) {

@@ -67,8 +67,6 @@ const builder = function addOptions(ya, helpOrVersionSet) {
         })
 }
 
-let compressLastUpdatedAt = 0;
-const bar1 = new cliProgress.SingleBar({ etaBuffer: 300 }, cliProgress.Presets.shades_classic);
 const handler = async function cmdCompress(argv) {
     const testMode = !argv.doit;
     const logTag = "cmdCompress";
@@ -122,6 +120,7 @@ const handler = async function cmdCompress(argv) {
         log.showYellow("Will do nothing, aborted by user.");
         return;
     }
+    const needBar = files.length > 9999 && !log.isVerbose();
     log.showGreen(logTag, `preparing compress arguments...`);
     let startMs = Date.now();
     const addArgsFunc = async (f, i) => {
@@ -136,7 +135,10 @@ const handler = async function cmdCompress(argv) {
         }
     }
     files = await Promise.all(files.map(addArgsFunc));
-    const needBar = files.length > 9999 && !log.isVerbose();
+    files.forEach((t, i) => {
+        t.bar1 = bar1;
+        t.needBar = needBar;
+    });
     needBar && bar1.start(files.length, 0);
     let tasks = await pMap(files, preCompress, { concurrency: cpus().length * 4 })
     needBar && bar1.update(files.length);
@@ -156,10 +158,12 @@ const handler = async function cmdCompress(argv) {
     tasks.forEach((t, i) => {
         t.total = tasks.length;
         t.index = i;
+        t.bar1 = null;
+        t.needBar = false;
     });
     log.show(logTag, `in ${helper.humanTime(startMs)} tasks:`)
     tasks.slice(-2).forEach(t => {
-        log.show(helper._omit(t, "stats"));
+        log.show(helper._omit(t, "stats", "bar1"));
     })
     log.info(logTag, argv);
     testMode && log.showYellow("++++++++++ TEST MODE (DRY RUN) ++++++++++")
@@ -184,6 +188,7 @@ const handler = async function cmdCompress(argv) {
     if (testMode) {
         log.showYellow(logTag, `[DRY RUN], no thumbs generated.`)
     } else {
+        tasks.forEach(t => t.startMs = startMs);
         const results = await pMap(tasks, compressImage, { concurrency: cpus().length / 2 });
         const done = results.filter(t => t?.done);
         log.showGreen(logTag, `${done.length} thumbs generated in ${helper.humanTime(startMs)}`)
@@ -229,36 +234,29 @@ async function deleteSrcExists(results) {
         return td.src;
     }
     const deleted = await pMap(toDelete, deletecFunc, { concurrency: cpus().length * 8 })
-    // for (const [index, td] of toDelete.entries()) {
-    //     const srcExists = await fs.pathExists(td.src);
-    //     const dstExists = await fs.pathExists(td.dst);
-    //     // 确认文件存在，确保不会误删除
-    //     if (srcExists && dstExists) {
-    //         await helper.safeRemove(td.src);
-    //         log.showYellow(logTag, `${index}/${total}`, `${helper.pathShort(td.src)} REMOVED::SAFE`);
-    //         log.fileLog(`SafeDel: <${td.dst}>`, logTag);
-    //     }
-    // }
     log.showCyan(logTag, `${deleted.filter(Boolean).length} files are safe removed`);
 
 }
 
+let compressLastUpdatedAt = 0;
+const bar1 = new cliProgress.SingleBar({ etaBuffer: 300 }, cliProgress.Presets.shades_classic);
 // 文心一言注释 20231206
 // 准备压缩图片的参数，并进行相应的处理  
 async function preCompress(f, options = {}) {
-    const logTag = 'preCompress'
+    const logTag = 'Compress'
     // log.debug("prepareCompressArgs options:", options); // 打印日志，显示选项参数  
     const maxWidth = options.maxWidth || 6000; // 获取最大宽度限制，默认为6000  
     let fileSrc = path.resolve(f.path); // 解析源文件路径  
     const [dir, base, ext] = helper.pathSplit(fileSrc); // 将路径分解为目录、基本名和扩展名  
+    const fileDstTmp = path.join(dir, `TMP_${base}_Z4K.tmp`);
     let fileDst = path.join(dir, `${base}_Z4K.jpg`); // 构建目标文件路径，添加压缩后的文件名后缀  
     fileSrc = path.resolve(fileSrc); // 解析源文件路径（再次确认）  
     fileDst = path.resolve(fileDst); // 解析目标文件路径（再次确认）  
 
     const timeNow = Date.now();
-    if (timeNow - walkLastUpdatedAt > 2 * 1000) {
-        needBar && bar1.update(f.index);
-        walkLastUpdatedAt = timeNow;
+    if (timeNow - compressLastUpdatedAt > 2 * 1000) {
+        f.needBar && f.bar1.update(f.index);
+        compressLastUpdatedAt = timeNow;
     }
 
     if (await fs.pathExists(fileDst)) {
@@ -270,9 +268,10 @@ async function preCompress(f, options = {}) {
             height: 0,
             src: fileSrc,
             dst: fileDst,
+            tmpDst: fileDstTmp,
             dstExists: true,
             shouldSkip: true,
-            skipReason: 'EXISTS',
+            skipReason: 'DST EXISTS',
         };
     }
     try {
@@ -293,7 +292,7 @@ async function preCompress(f, options = {}) {
                         src: fileSrc,
                         dst: fileDst,
                         shouldSkip: true,
-                        skipReason: 'MEDIAC',
+                        skipReason: 'MEDIAC MAKE',
                     };
                 }
             }
@@ -322,6 +321,7 @@ async function preCompress(f, options = {}) {
             height: dh,
             src: fileSrc,
             dst: fileDst,
+            tmpDst: fileDstTmp,
         };
     } catch (error) {
         log.warn(logTag, "sharp", error.message, fileSrc);
