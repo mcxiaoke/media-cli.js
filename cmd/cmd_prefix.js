@@ -4,6 +4,7 @@ import fs from 'fs-extra';
 import inquirer from "inquirer";
 import path from "path";
 
+
 import { renameFiles } from "../lib/functions.js";
 
 import * as log from '../lib/debug.js';
@@ -15,7 +16,7 @@ const MODE_DIR = "dirname";
 const MODE_PREFIX = "prefix";
 const MODE_MEDIA = "media";
 
-const NAME_LENGTH = 48;
+const NAME_LENGTH = 32;
 
 export { aliases, builder, command, describe, handler };
 
@@ -93,14 +94,36 @@ const reVideoName = helper.combineRegexG(
     /\[.+?\]/,
 )
 // 图片文件名各种前后缀
-const reImageName = /更新|合集|画师|图片|视频|插画|视图|订阅|限定|差分|R18|PSD|PIXIV|PIC|NO\.\d+|ZIP|RAR/gi
-// 正则：匹配除 [中日韩俄英和中英文标点符号] 之外的特殊字符
+const reImageName = /更新|合集|画师|图片|视频|插画|视图|作品|订阅|限定|差分|拷贝|自购|付费|内容|R18|PSD|PIXIV|PIC|ZIP|RAR/gi
+// Unicode Symbols
+// https://en.wikipedia.org/wiki/Script_%28Unicode%29
+// https://www.regular-expressions.info/unicode.html
+// https://symbl.cc/cn/unicode/blocks/halfwidth-and-fullwidth-forms/
+// https://www.unicode.org/reports/tr18/
+// https://ayaka.shn.hk/hanregex/
+// 特例字符	中英	全半角	unicode范围	unicode码表名
+// 单双引号	中文	全/半	0x2018-0x201F	常用标点
+// 句号、顿号	中文	全/半	0x300x-0x303F	中日韩符号和标点
+// 空格	中/英	全角	0x3000	中日韩符号和标点
+// -	英	半角	0x0021~0x007E	半角符号
+// -	英	全角	0xFF01~0xFF5E	全角符号
+// -	中	全/半	0xFF01~0xFF5E	全角符号
+// 正则：匹配除 [中文日文标点符号] 之外的特殊字符
 // u flag is required
-const reNonChars = /[^\p{sc=Hani}\p{sc=Hira}\p{sc=Kana}\p{sc=Hang}\p{sc=Cyrl}\p{P}\uFF01-\uFF5E\u3001-\u3011\w\-_\.]/ugi;
+// \p{sc=Han} CJK全部汉字 比 \u4E00-\u9FFF = \p{InCJK_Unified_Ideographs} 范围大
+// 匹配汉字还可以使用 \p{Unified_Ideograph}
+// \p{sc=Hira} 日文平假名
+// \p{P} 拼写符号
+// \p{ASCII} ASCII字符
+// \uFE10-\uFE1F 中文全角标点
+// \uFF01-\uFF11 中文全角标点
+const reNonChars = /[^\p{Unified_Ideograph}\p{P}\p{sc=Hira}0-z]/ugi;
 // 匹配空白字符和特殊字符
-const reUglyChars = /[《》【】\s_\-+=\.@#$%&\|]+/gi;
+// https://www.unicode.org/charts/PDF/U3000.pdf
+// https://www.asciitable.com/
+const reUglyChars = /[\s\x00-\x1F\x21-\x2F\x3A-\x40\x5B-\x60\x7b-\xFF]+/gi;
 // 匹配开头和结尾的空白和特殊字符
-const reStripUglyChars = /(^[\s_\-+=\.@#$%&\|]+)|([\s_\-+=\.@#$%&\|]+$)/gi;
+const reStripUglyChars = /(^[\s\x21-\x2F\x3A-\x40\x5B-\x60\x7b-\xFF\p{P}]+)|([\s\x21-\x2F\x3A-\x40\x5B-\x60\x7b-\xFF\p{P}]+$)/gi;
 // 图片视频子文件夹名过滤
 // 如果有表示，test() 会随机饭后true or false，是一个bug
 // 使用 string.match 函数没有问题
@@ -108,31 +131,50 @@ const reStripUglyChars = /(^[\s_\-+=\.@#$%&\|]+)|([\s_\-+=\.@#$%&\|]+$)/gi;
 // The g modifier causes the regex object to maintain state. 
 // It tracks the index after the last match.
 const reMediaDirName = /^图片|视频|Image|Video|Thumbs$/gi;
-
-// 重复文件名Set，检测重复，防止覆盖
-const nameDuplicateSet = new Set();
-
-function cleanAlbumName(nameString) {
+// 可以考虑将日文和韩文罗马化处理
+// https://github.com/lovell/hepburn
+// https://github.com/fujaru/aromanize-js
+// https://www.npmjs.com/package/aromanize
+// https://www.npmjs.com/package/@lazy-cjk/japanese
+function cleanAlbumName(nameString, sep) {
     let nameStr = nameString;
     // 去掉方括号 [xxx] 的内容
-    nameStr = nameStr.replaceAll(/\[.+?\]/gi, "");
+    // nameStr = nameStr.replaceAll(/\[.+?\]/gi, "");
     // 去掉图片集说明文字
-    nameStr = nameStr.replaceAll(reImageName, "");
+    nameStr = nameStr.replaceAll(reImageName, sep);
     // 去掉日期字符串
     nameStr = nameStr.replaceAll(/\d+年\d+月/gi, "");
     nameStr = nameStr.replaceAll(/\d{4}-\d{2}-\d{2}/gi, "");
     nameStr = nameStr.replaceAll(/\d{4}\.\d{2}\.\d{2}/gi, "");
-    // 括号改为下划线
-    nameStr = nameStr.replaceAll(/[\(\)]/gi, "_");
-    // 去掉 100P5V 这种图片集说明
-    nameStr = nameStr.replaceAll(/\d+P(\d+V)?/gi, "");
+    // 去掉 [100P5V 2.25GB] No.46 这种图片集说明
+    nameStr = nameStr.replaceAll(/\[\d+P.*(\d+V)?.*?\]/gi, "");
+    nameStr = nameStr.replaceAll(/No\.\d+|\d+\.?\d+GB?|\d+P|\d+V|NO\.(\d+)/gi, "$1");
+    // 去掉中文标点特殊符号
+    nameStr = nameStr.replaceAll(/[\u3000-\u303F\uFE10-\uFE1F\uFF01-\uFF11]/gi, "");
+    // () [] {} <> . - 改为下划线
+    nameStr = nameStr.replaceAll(/[\(\)\[\]{}<>\.\-]/gi, sep);
+    // 日文转罗马字母
+    // nameStr = hepburn.fromKana(nameStr);
+    // nameStr = wanakana.toRomaji(nameStr);
+    // 韩文转罗马字母
+    // nameStr = aromanize.hangulToLatin(nameStr, 'rr-translit');
     // 去掉所有特殊字符
-    return nameStr.replaceAll(reNonChars, "");
+    return nameStr.replaceAll(reNonChars, sep);
 }
 
 function getAutoModePrefix(dir, sep) {
-    const dirParts = dir.split(path.sep).slice(-2);
-    return dirParts[1].includes(dirParts[0]) ? dirParts[1] : dirParts.join(sep);
+    const [d1, d2, d3] = dir.split(path.sep).slice(-3);
+    log.debug([d1, d2, d3].join(','));
+    if (d3.includes(d1) && d2.includes(d1)) {
+        return d3;
+    }
+    if (d3.includes(d2)) {
+        return d3;
+    }
+    if (d2.includes(d1)) {
+        return [d2, d3].join(sep)
+    }
+    return [d1, d2, d3].join(sep)
 }
 
 function parseNameMode(argv) {
@@ -143,6 +185,8 @@ function parseNameMode(argv) {
     return mode;
 }
 
+// 重复文件名Set，检测重复，防止覆盖
+const nameDuplicateSet = new Set();
 function createNewNameByMode(f, argv) {
     // 处理模式
     const mode = parseNameMode(argv);
@@ -150,14 +194,15 @@ function createNewNameByMode(f, argv) {
     const nameSlice = nameLength * -1;
     const [dir, base, ext] = helper.pathSplit(f.path);
     const oldName = path.basename(f.path);
-    const dirParent = path.basename(path.dirname(dir));
+    const dirParts = dir.split(path.sep).slice(-3);
     const dirName = path.basename(dir);
     const logTag = `Prefix::${mode.toUpperCase()[0]}`;
     // 忽略 . _ 开头的目录
     if (/^[\._]/.test(dirName)) {
         return;
     }
-    log.info(logTag, `Processing ${f.path}`);
+    const indexPrefix = `${f.index}/${f.total}`
+    log.info(logTag, `Processing ${indexPrefix} ${f.path}`);
     let sep = "_";
     let prefix = argv.prefix;
     let oldBase = base;
@@ -167,10 +212,10 @@ function createNewNameByMode(f, argv) {
                 sep = ".";
                 prefix = path.basename(dir);
                 if (prefix.match(reMediaDirName)) {
-                    prefix = dirParent;
+                    prefix = dirParts[2];
                 }
                 if (prefix.length < 4 && /^[A-Za-z0-9]+$/.test(prefix)) {
-                    prefix = dirParent + sep + prefix;
+                    prefix = dirParts[2] + sep + prefix;
                 }
             }
             break;
@@ -185,7 +230,7 @@ function createNewNameByMode(f, argv) {
                 sep = "_";
                 prefix = path.basename(dir);
                 if (prefix.match(reMediaDirName)) {
-                    prefix = dirParent;
+                    prefix = dirParts[2];
                 }
             }
             break;
@@ -196,7 +241,7 @@ function createNewNameByMode(f, argv) {
                 prefix = getAutoModePrefix(dir, sep);
                 const applyToAll = argv.all || false;
                 if (!reOnlyNum.test(base) && !applyToAll) {
-                    log.showYellow(logTag, `Ignore: ${helper.pathShort(f.path)}`);
+                    log.showYellow(logTag, `Ignore: ${indexPrefix} ${helper.pathShort(f.path)}`);
                     return;
                 }
             }
@@ -209,48 +254,52 @@ function createNewNameByMode(f, argv) {
     }
     // 是否净化文件名，去掉各种特殊字符
     if (argv.clean) {
+        prefix = cleanAlbumName(prefix, sep);
         if (mode == MODE_MEDIA) {
             // 移除视频文件各种格式说明
             oldBase = oldBase.replaceAll(reVideoName, "");
+        } else {
+            // 净化原始文件名字符串
+            oldBase = cleanAlbumName(oldBase, sep);
         }
-        // 净化原始文件名字符串
-        oldBase = cleanAlbumName(oldBase)
-        oldBase = oldBase.replaceAll(reUglyChars, sep);
-        if (helper.isMediaFile(f.path)) {
-            prefix = cleanAlbumName(prefix);
-        }
+
     }
     // 不添加重复前缀
     if (oldBase.includes(prefix)) {
-        log.info(logTag, `IgnorePrefix: ${helper.pathShort(f.path)}`);
+        log.info(logTag, `IgnorePrefix: ${indexPrefix} ${helper.pathShort(f.path)}`);
         prefix = "";
     }
     let fullBase = prefix + sep + oldBase;
+    // 去除首位空白和特殊字符
     fullBase = fullBase.replaceAll(reStripUglyChars, "");
     // 多余空白和字符替换为一个字符 _或.
-    fullBase = fullBase.replaceAll(/[\-_\s\.]+/gi, sep);
+    fullBase = fullBase.replaceAll(reUglyChars, sep);
+    // 去掉重复词组，如目录名和人名
+    fullBase = Array.from(new Set(fullBase.split(sep))).join(sep)
     fullBase = unicodeStrLength(fullBase) > nameLength ? fullBase.slice(nameSlice) : fullBase;
+    // 再次去掉首位的特殊字符和空白字符
+    fullBase = fullBase.replaceAll(reStripUglyChars, "");
     const newName = `${fullBase}${ext}`;
     const newPath = path.join(dir, newName);
     if (fullBase === base) {
-        log.info(logTag, `NoChange: ${helper.pathShort(newPath)}`);
+        log.info(logTag, `NoChange: ${indexPrefix} ${helper.pathShort(newPath)}`);
         f.skipped = true;
     }
     else if (fs.existsSync(newPath)) {
-        log.info(logTag, `Exists: ${helper.pathShort(newPath)}`);
+        log.info(logTag, `Exists: ${indexPrefix} ${helper.pathShort(newPath)}`);
         f.skipped = true;
     }
     else if (nameDuplicateSet.has(newPath)) {
-        log.info(logTag, `Duplicate: ${helper.pathShort(newPath)}`);
+        log.info(logTag, `Duplicate: ${indexPrefix} ${helper.pathShort(newPath)}`);
         f.skipped = true;
     }
     nameDuplicateSet.add(newPath);
     if (f.skipped) {
-        log.fileLog(`Skip: ${f.path}`, logTag);
+        log.fileLog(`Skip: ${indexPrefix} ${f.path}`, logTag);
     } else {
         f.outName = newName;
-        log.show(logTag, `${chalk.cyan(oldName)} => ${chalk.green(helper.pathShort(newPath, 32))}`);
-        log.fileLog(`Prepare: ${newPath}`, logTag);
+        log.show(logTag, `${indexPrefix} ${chalk.cyan(helper.pathShort(f.path, 36))} => ${chalk.green(newName)}`);
+        log.fileLog(`Prepare: ${indexPrefix} <${f.path}> => ${newName}`, logTag);
     }
     return f;
 }
@@ -290,6 +339,13 @@ const handler = async function cmdPrefix(argv) {
         log.showYellow("Prefix", "Nothing to do, exit now.");
         return;
     }
+    files = files.map((f, i) => {
+        return {
+            ...f,
+            index: i,
+            total: files.length,
+        }
+    })
     const fCount = files.length;
     const tasks = files.map(f => createNewNameByMode(f, argv)).filter(f => f?.outName)
     const tCount = tasks.length;
