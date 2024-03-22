@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import assert from "assert";
 import chalk from 'chalk';
+import * as cliProgress from "cli-progress";
 import dayjs from "dayjs";
 import exif from 'exif-reader';
 import fs from 'fs-extra';
@@ -13,7 +14,6 @@ import * as log from '../lib/debug.js';
 import * as mf from '../lib/file.js';
 import { compressImage } from "../lib/functions.js";
 import * as helper from '../lib/helper.js';
-
 export { aliases, builder, command, describe, handler };
 
 const command = "compress <input> [output]"
@@ -67,6 +67,8 @@ const builder = function addOptions(ya, helpOrVersionSet) {
         })
 }
 
+let compressLastUpdatedAt = 0;
+const bar1 = new cliProgress.SingleBar({ etaBuffer: 300 }, cliProgress.Presets.shades_classic);
 const handler = async function cmdCompress(argv) {
     const testMode = !argv.doit;
     const logTag = "cmdCompress";
@@ -88,7 +90,7 @@ const handler = async function cmdCompress(argv) {
     const deleteSrc = argv.purge || false;
     log.show(`${logTag} input:`, root);
 
-    const RE_THUMB = /Z4K|feature|web|thumb$/i;
+    const RE_THUMB = /Z4K|M4K|feature|web|thumb$/i;
     const walkOpts = {
         needStats: true,
         entryFilter: (f) =>
@@ -134,8 +136,11 @@ const handler = async function cmdCompress(argv) {
         }
     }
     files = await Promise.all(files.map(addArgsFunc));
+    const needBar = files.length > 9999 && !log.isVerbose();
+    needBar && bar1.start(files.length, 0);
     let tasks = await pMap(files, preCompress, { concurrency: cpus().length * 4 })
-
+    needBar && bar1.update(files.length);
+    needBar && bar1.stop();
     log.info(logTag, "before filter: ", tasks.length);
     const total = tasks.length;
     tasks = tasks.filter((t) => t?.dst);
@@ -191,9 +196,10 @@ const handler = async function cmdCompress(argv) {
 }
 
 async function deleteSrcExists(results) {
-    const logTag = "cmdCompress";
+    const logTag = "deleteSrc";
     const toDelete = results.filter(t => t?.src && t.dstExists && t.dst);
-    if (toDelete?.length <= 0) {
+    const total = toDelete?.length ?? 0;
+    if (total <= 0) {
         return;
     }
     const answer = await inquirer.prompt([
@@ -202,7 +208,7 @@ async function deleteSrcExists(results) {
             name: "yes",
             default: false,
             message: chalk.bold.red(
-                `Are you sure to delete ${toDelete.length} original files?}`
+                `Are you sure to delete ${total} original files?}`
             ),
         },
     ]);
@@ -210,17 +216,30 @@ async function deleteSrcExists(results) {
         log.showYellow("Will do nothing, aborted by user.");
         return;
     }
-    for (const td of toDelete) {
+    const deletecFunc = async (index, td) => {
         const srcExists = await fs.pathExists(td.src);
         const dstExists = await fs.pathExists(td.dst);
         // 确认文件存在，确保不会误删除
-        if (srcExists && dstExists) {
-            await helper.safeRemove(td.src);
-            log.showYellow(logTag, `${td.src} REMOVED::SAFE`);
-            log.fileLog(`<${td.dst}> REMOVED::SAFE`, logTag);
+        if (!(srcExists && dstExists)) {
+            return;
         }
+        await helper.safeRemove(td.src);
+        log.showYellow(logTag, `${index}/${total}`, `${helper.pathShort(td.src)} SAFE_DEL`);
+        log.fileLog(`SafeDel: <${td.dst}>`, logTag);
+        return td.src;
     }
-    log.showCyan(logTag, `${toDelete.length} files are safe removed`);
+    const deleted = await pMap(toDelete, deletecFunc, { concurrency: cpus().length * 8 })
+    // for (const [index, td] of toDelete.entries()) {
+    //     const srcExists = await fs.pathExists(td.src);
+    //     const dstExists = await fs.pathExists(td.dst);
+    //     // 确认文件存在，确保不会误删除
+    //     if (srcExists && dstExists) {
+    //         await helper.safeRemove(td.src);
+    //         log.showYellow(logTag, `${index}/${total}`, `${helper.pathShort(td.src)} REMOVED::SAFE`);
+    //         log.fileLog(`SafeDel: <${td.dst}>`, logTag);
+    //     }
+    // }
+    log.showCyan(logTag, `${deleted.filter(Boolean).length} files are safe removed`);
 
 }
 
@@ -235,6 +254,12 @@ async function preCompress(f, options = {}) {
     let fileDst = path.join(dir, `${base}_Z4K.jpg`); // 构建目标文件路径，添加压缩后的文件名后缀  
     fileSrc = path.resolve(fileSrc); // 解析源文件路径（再次确认）  
     fileDst = path.resolve(fileDst); // 解析目标文件路径（再次确认）  
+
+    const timeNow = Date.now();
+    if (timeNow - walkLastUpdatedAt > 2 * 1000) {
+        needBar && bar1.update(f.index);
+        walkLastUpdatedAt = timeNow;
+    }
 
     if (await fs.pathExists(fileDst)) {
         // 如果目标文件已存在，则进行相应的处理  
@@ -253,34 +278,43 @@ async function preCompress(f, options = {}) {
     try {
         const st = await fs.stat(fileSrc);
         const m = await sharp(fileSrc).metadata();
-
-        const md = exif(m.exif)?.Image;
-        if (md && (md.Copyright?.includes("mediac")
-            || md.Software?.includes("mediac")
-            || md.Artist?.includes("mediac"))
-            || md.XPComment?.includes("mediac")) {
-            log.info(logTag, "skip:", fileDst);
-            return {
-                ...f,
-                width: 0,
-                height: 0,
-                src: fileSrc,
-                dst: fileDst,
-                shouldSkip: true,
-                skipReason: 'MEDIAC',
-            };
+        try {
+            if (m?.exif) {
+                const md = exif(m.exif)?.Image;
+                if (md && (md.Copyright?.includes("mediac")
+                    || md.Software?.includes("mediac")
+                    || md.Artist?.includes("mediac"))
+                    || md.XPComment?.includes("mediac")) {
+                    log.info(logTag, "skip:", fileDst);
+                    return {
+                        ...f,
+                        width: 0,
+                        height: 0,
+                        src: fileSrc,
+                        dst: fileDst,
+                        shouldSkip: true,
+                        skipReason: 'MEDIAC',
+                    };
+                }
+            }
+        } catch (error) {
+            log.warn(logTag, "exif", error.message, fileSrc);
+            log.fileLog(`ExifErr: <${fileSrc}> ${error.message}`, logTag);
         }
+
         const nw =
             m.width > m.height ? maxWidth : Math.round((maxWidth * m.width) / m.height);
         const nh = Math.round((nw * m.height) / m.width);
 
         const dw = nw > m.width ? m.width : nw;
         const dh = nh > m.height ? m.height : nh;
-        log.show(logTag, `${f.index}/${f.total}`,
-            helper.pathShort(fileSrc),
-            `(${m.width}x${m.height} => ${dw}x${dh}) ${m.format} ${helper.humanSize(st.size)}`
-        );
-        log.fileLog(`${f.index}/${f.total} <${fileSrc}> ` +
+        if (f.total < 9999) {
+            log.show(logTag, `${f.index}/${f.total}`,
+                helper.pathShort(fileSrc),
+                `(${m.width}x${m.height} => ${dw}x${dh}) ${m.format} ${helper.humanSize(st.size)}`
+            );
+        }
+        log.fileLog(`Pre: ${f.index}/${f.total} <${fileSrc}> ` +
             `${dw}x${dh}) ${m.format} ${helper.humanSize(st.size)}`, logTag);
         return {
             ...f,
@@ -290,6 +324,7 @@ async function preCompress(f, options = {}) {
             dst: fileDst,
         };
     } catch (error) {
-        log.error(logTag, error, fileSrc);
+        log.warn(logTag, "sharp", error.message, fileSrc);
+        log.fileLog(`SharpErr: ${f.index} <${fileSrc}> sharp:${error.message}`, logTag);
     }
 }

@@ -246,11 +246,11 @@ function createNewNameByMode(f, argv) {
     }
     nameDuplicateSet.add(newPath);
     if (f.skipped) {
-        log.fileLog(`Skipped: ${f.path}`, logTag);
+        log.fileLog(`Skip: ${f.path}`, logTag);
     } else {
         f.outName = newName;
         log.show(logTag, `${chalk.cyan(oldName)} => ${chalk.green(helper.pathShort(newPath, 32))}`);
-        log.fileLog(`Prepared: ${newPath}`, logTag);
+        log.fileLog(`Prepare: ${newPath}`, logTag);
     }
     return f;
 }
@@ -264,8 +264,8 @@ const handler = async function cmdPrefix(argv) {
         throw new Error(`Invalid Input: ${root}`);
     }
     if (!testMode) {
-        log.fileLog(`Root:${root}`, logTag);
-        log.fileLog(`Argv:${JSON.stringify(argv)}`, logTag);
+        log.fileLog(`Root: ${root}`, logTag);
+        log.fileLog(`Argv: ${JSON.stringify(argv)}`, logTag);
     }
     const mode = argv.mode || MODE_AUTO;
     const prefix = argv.prefix;

@@ -13,11 +13,6 @@ import * as log from '../lib/debug.js';
 import * as mf from '../lib/file.js';
 import * as helper from '../lib/helper.js';
 
-// 日志文件
-const fileLog = (msg, tag) => {
-    log.fileLog(msg, tag, "mediac");
-}
-
 export { aliases, builder, command, describe, handler };
 
 const command = "remove <input> [output]"
@@ -89,32 +84,45 @@ const builder = function addOptions(ya, helpOrVersionSet) {
 
 
 const handler = async function cmdRemove(argv) {
-    log.info('cmdRemove', argv);
+    const logTag = 'cmdRemove'
+    log.info(logTag, argv);
+    const testMode = !argv.doit;
     assert.strictEqual("string", typeof argv.input, "root must be string");
     if (!argv.input || !(await fs.pathExists(argv.input))) {
-        log.error("cmdRemove", `Invalid Input: '${argv.input}'`);
+        log.error(logTag, `Invalid Input: '${argv.input}'`);
         throw new Error(`Invalid Input: ${argv.input}`);
     }
     const root = path.resolve(argv.input);
+    // 1200*1600 1200,1600 1200x1600 1200|1600
+    const reMeasure = /^\d+[x*,\|]\d+$/
     // 如果没有提供任何一个参数，报错，显示帮助
     if (argv.width == 0 && argv.height == 0 && argv.size == 0
+        && !(argv.measure && reMeasure.test(argv.measure))
         && !argv.pattern && !argv.list) {
-        log.error("cmdRemove", `width/height/size/pattern/list not supplied`);
-        throw new Error("width/height/size/pattern/list not supplied");
+        log.show(logTag, argv);
+        log.error(logTag, `width/height/size/measure/pattern/list not supplied`);
+        throw new Error("width/height/size/measure/pattern/list not supplied");
     }
 
-    const testMode = !argv.doit;
+    let cWidth = 0;
+    let cHeight = 0;
+    if (argv.width > 0 && argv.height > 0) {
+        cWidth = argv.width;
+        cHeight = argv.height;
+    } else if (argv.measure && argv.measure.length > 0) {
+        // 解析文件长宽字符串，例如 2160x4680
+        const [x, y] = argv.measure.split(/[x*,\|]/).map(Number);
+        log.showRed(x, y);
+        if (x > 0 && y > 0) {
+            cWidth = x;
+            cHeight = y;
+        }
+    }
     const cLoose = argv.loose || false;
-    const cWidth = argv.width || 0;
-    const cHeight = argv.height || 0;
     const cSize = argv.size * 1024 || 0;
     const cPattern = argv.pattern || "";
     const cReverse = argv.reverse || false;
     const cList = argv.list || "-not-exists";
-
-    if (argv.measure && argv.measure.length > 0) {
-        // 解析文件长宽字符串，例如 2160x4680
-    }
 
     let cNames = [];
     if (await fs.pathExists(path.resolve(cList))) {
@@ -127,20 +135,22 @@ const handler = async function cmdRemove(argv) {
                 const dirFiles = (await fs.readdir(list)) || [];
                 cNames = new Set(dirFiles.map(x => path.parse(x).name.trim()));
             } else {
-                log.error("cmdRemove", `invalid arguments: list file invalid 1`);
+                log.error(logTag, `invalid arguments: list file invalid 1`);
                 return;
             }
         } catch (error) {
-            log.error(error);
-            log.error("cmdRemove", `invalid arguments: list file invalid 2`);
+            log.error(logTag, `invalid arguments: list file invalid 2`);
             return;
         }
     }
 
     cNames = cNames || new Set();
 
-    log.show("cmdRemove", `input:`, root);
-    fileLog(`<Input> ${root}`, "cmdRemove");
+    log.show(logTag, `input:`, root);
+    if (!testMode) {
+        log.fileLog(`Root: ${root}`, logTag);
+        log.fileLog(`Argv: ${JSON.stringify(argv)}`, logTag);
+    }
 
     const conditions = {
         loose: cLoose,
@@ -160,9 +170,9 @@ const handler = async function cmdRemove(argv) {
         withIndex: true,
     };
     const files = await mf.walk(root, walkOpts);
-    log.show("cmdRemove", `total ${files.length} files found`);
+    log.show(logTag, `total ${files.length} files found`);
     const prepareFunc = async f => {
-        return prepareRemoveArgs(f, conditions)
+        return preRemoveArgs(f, conditions)
     }
     let tasks = await pMap(files, prepareFunc, { concurrency: cpus().length * 2 })
 
@@ -170,24 +180,23 @@ const handler = async function cmdRemove(argv) {
     const total = tasks.length;
     tasks = tasks.filter((t) => t?.shouldRemove);
     const skipped = total - tasks.length;
-    log.showYellow("cmdRemove", `${tasks.length} files to be removed`);
     if (skipped > 0) {
-        log.showYellow("cmdRemove", `${skipped} files are ignored`)
+        log.showYellow(logTag, `${skipped} files are ignored`)
     }
     if (tasks.length == 0) {
-        log.show("cmdRemove", conditions);
-        log.showGreen("Nothing to do, abort.");
+        log.show(logTag, conditions);
+        log.showYellow(logTag, "Nothing to do, abort.");
         return;
     }
-
-    log.show("cmdRemove", `task sample:`, tasks.slice(-1));
-    log.showYellow("cmdRemove", conditions);
+    log.showYellow(logTag, `${tasks.length} files to be removed`);
+    log.show(logTag, `task sample:`, tasks.slice(-1));
+    log.showYellow(logTag, conditions);
     if (cNames && cNames.size > 0) {
         // 默认仅删除列表中的文件，反转则仅保留列表中的文件，其它的全部删除，谨慎操作
-        log.showYellow("cmdRemove", `Attention: use file name list, ignore all other conditions`);
-        log.showRed("cmdRemove", `Attention: Will DELETE all files ${cReverse ? "NOT IN" : "IN"} the name list!`);
+        log.showYellow(logTag, `Attention: use file name list, ignore all other conditions`);
+        log.showRed(logTag, `Attention: Will DELETE all files ${cReverse ? "NOT IN" : "IN"} the name list!`);
     }
-    fileLog(`<Conditions> list=${cNames.size},loose=${cLoose},width=${cWidth},height=${cHeight},size=${cSize / 1024}k,name=${cPattern}`, "cmdRemove");
+    log.fileLog(`Conditions: list=${cNames.size},loose=${cLoose},width=${cWidth},height=${cHeight},size=${cSize / 1024}k,name=${cPattern}`, logTag);
     testMode && log.showYellow("++++++++++ TEST MODE (DRY RUN) ++++++++++")
     const answer = await inquirer.prompt([
         {
@@ -206,26 +215,26 @@ const handler = async function cmdRemove(argv) {
     }
 
     const startMs = Date.now();
-    log.showGreen("cmdRemove", 'task startAt', dayjs().format())
+    log.showGreen(logTag, 'task startAt', dayjs().format())
     let removedCount = 0;
     let index = 0;
     if (testMode) {
-        log.showYellow("cmdRemove", `All ${tasks.length} files, BUT NO file removed in TEST MODE.`);
+        log.showYellow(logTag, `All ${tasks.length} files, BUT NO file removed in TEST MODE.`);
     } else {
         for (const task of tasks) {
             try {
                 await helper.safeRemove(task.src);
                 ++removedCount;
-                fileLog(`<Removed> ${task.src} (${task.index})`, "cmdRemove");
-                log.show("cmdRemove", `SafeDel ${task.src} (${task.index}) (${++index}/${tasks.length})`);
+                log.fileLog(`Remove: ${task.index} <${task.src}>`, logTag);
+                log.show(logTag, `SafeDel ${++index}/${tasks.length} ${task.src}`);
             } catch (error) {
-                log.error("cmdRemove", `failed to remove file ${task.src}`, error);
+                log.error(logTag, `failed to remove file ${task.src}`, error);
             }
         }
     }
 
-    log.showGreen("cmdRemove", 'task endAt', dayjs().format())
-    log.showGreen("cmdRemove", `${removedCount} files removed in ${helper.humanTime(startMs)}`)
+    log.showGreen(logTag, 'task endAt', dayjs().format())
+    log.showGreen(logTag, `${removedCount} files removed in ${helper.humanTime(startMs)}`)
 }
 
 async function readNameList(list) {
@@ -243,7 +252,7 @@ function buildRemoveArgs(index, desc, shouldRemove, src) {
     };
 }
 
-async function prepareRemoveArgs(f, options) {
+async function preRemoveArgs(f, options) {
     const fileSrc = path.resolve(f.path);
     const fileName = path.basename(fileSrc);
     const [dir, base, ext] = helper.pathSplit(fileSrc);
@@ -332,42 +341,45 @@ async function prepareRemoveArgs(f, options) {
 
         // 图片文件才检查宽高
         const isImage = helper.isImageFile(fileSrc);
-
         // 再次检查宽高是否满足条件
         if (hasMeasure) {
             if (isImage) {
-                const s = sharp(fileSrc);
-                const m = await s.metadata();
-                const fWidth = m.width || 0;
-                const fHeight = m.height || 0;
-                itemDesc += ` ${fWidth}x${fHeight}`
-                if (cWidth > 0 && cHeight > 0) {
-                    // 宽高都提供时，要求都满足才能删除
-                    if (fWidth <= cWidth && fHeight <= cHeight) {
+                try {
+                    const s = sharp(fileSrc);
+                    const m = await s.metadata();
+                    const fWidth = m.width || 0;
+                    const fHeight = m.height || 0;
+                    itemDesc += ` ${fWidth}x${fHeight}`
+                    if (cWidth > 0 && cHeight > 0) {
+                        // 宽高都提供时，要求都满足才能删除
+                        if (fWidth <= cWidth && fHeight <= cHeight) {
+                            log.info(
+                                "preRemove[Measure]:",
+                                `${fileName} ${fWidth}x${fHeight} [${cWidth}x${cHeight}]`
+                            );
+                            testMeasure = true;
+                        }
+                    }
+                    else if (cWidth > 0 && fWidth <= cWidth) {
+                        // 只提供宽要求
                         log.info(
                             "preRemove[Measure]:",
-                            `${fileName} ${fWidth}x${fHeight} [${cWidth}x${cHeight}]`
+                            `${fileName} ${fWidth}x${fHeight} [W=${cWidth}]`
+                        );
+                        testMeasure = true;
+                    } else if (cHeight > 0 && fHeight <= cHeight) {
+                        // 只提供高要求
+                        log.info(
+                            "preRemove[Measure]:",
+                            `${fileName} ${fWidth}x${fHeight} [H=${cHeight}]`
                         );
                         testMeasure = true;
                     }
-                }
-                else if (cWidth > 0 && fWidth <= cWidth) {
-                    // 只提供宽要求
-                    log.info(
-                        "preRemove[Measure]:",
-                        `${fileName} ${fWidth}x${fHeight} [W=${cWidth}]`
-                    );
-                    testMeasure = true;
-                } else if (cHeight > 0 && fHeight <= cHeight) {
-                    // 只提供高要求
-                    log.info(
-                        "preRemove[Measure]:",
-                        `${fileName} ${fWidth}x${fHeight} [H=${cHeight}]`
-                    );
-                    testMeasure = true;
+                } catch (error) {
+                    log.info("preRemove[Measure]:", `InvalidImage: ${fileName}`);
                 }
             } else {
-                log.info("preRemove[Measure]:", `${fileName} is not image file`);
+                log.info("preRemove[Measure]:", `NotImage: ${fileName}`);
             }
         }
 
@@ -402,6 +414,7 @@ async function prepareRemoveArgs(f, options) {
 
     } catch (error) {
         log.error("preRemove error:", error, fileSrc);
-        fileLog(`<Error> ${fileSrc} (${f.index})`, "cmdRemove");
+        log.fileLog(`Error: ${f.index} <${fileSrc}>`, "cmdRemove");
+        throw error;
     }
 }
