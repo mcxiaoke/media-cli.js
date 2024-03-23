@@ -1,10 +1,17 @@
-#!/usr/bin/env node
+/*
+ * File: cmd_dcim.js
+ * Created: 2024-03-16 21:04:01
+ * Modified: 2024-03-23 11:51:18
+ * Author: mcxiaoke (github@mcxiaoke.com)
+ * License: Apache License 2.0
+ */
+
 import chalk from 'chalk';
 import fs from 'fs-extra';
 import inquirer from "inquirer";
 import path from "path";
 
-import { renameFiles } from "../lib/functions.js";
+import { renameFiles } from "./base.js";
 
 import * as log from '../lib/debug.js';
 import * as exif from '../lib/exif.js';

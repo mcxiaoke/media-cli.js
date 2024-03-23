@@ -11,7 +11,7 @@ import fs from 'fs-extra';
 import inquirer from "inquirer";
 import path from "path";
 
-import { renameFiles } from "../lib/functions.js";
+import { renameFiles } from "./base.js";
 
 import * as log from '../lib/debug.js';
 import * as mf from '../lib/file.js';
@@ -126,7 +126,6 @@ const handler = async function cmdRename(argv) {
     });
     // process only image files
     // files = files.filter(x => helper.isImageFile(x.path));
-    files.sort();
     log.show("Rename", `Total ${files.length} files found in ${helper.humanTime(startMs)}`);
     if (files.length == 0) {
         log.showYellow("Prefix", "Nothing to do, exit now.");

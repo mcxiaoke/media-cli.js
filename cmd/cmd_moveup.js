@@ -1,4 +1,10 @@
-#!/usr/bin/env node
+/*
+ * File: cmd_moveup.js
+ * Created: 2024-03-15 20:43:02
+ * Modified: 2024-03-23 11:51:33
+ * Author: mcxiaoke (github@mcxiaoke.com)
+ * License: Apache License 2.0
+ */
 
 import chalk from 'chalk';
 import fs from 'fs-extra';

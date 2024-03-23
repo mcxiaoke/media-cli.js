@@ -1,12 +1,22 @@
-#!/usr/bin/env node
+/*
+ * File: cmd_prefix.js
+ * Created: 2024-03-15 15:58:54
+ * Modified: 2024-03-23 11:51:42
+ * Author: mcxiaoke (github@mcxiaoke.com)
+ * License: Apache License 2.0
+ */
+
+
 import chalk from 'chalk';
+import { sify } from 'chinese-conv';
 import fs from 'fs-extra';
 import inquirer from "inquirer";
 import path from "path";
 
 
-import { renameFiles } from "../lib/functions.js";
+import { renameFiles } from "./base.js";
 
+import { asyncFilter } from '../lib/core.js';
 import * as log from '../lib/debug.js';
 import * as mf from '../lib/file.js';
 import * as helper from '../lib/helper.js';
@@ -30,6 +40,18 @@ const builder = function addOptions(ya, helpOrVersionSet) {
         default: NAME_LENGTH,
         description: "max length of prefix string",
     })
+        // 仅处理符合指定条件的文件，包含文件名规则
+        .option("include", {
+            alias: "I",
+            type: "string",
+            description: "include filename patterns ",
+        })
+        // 仅处理不符合指定条件的文件，例外文件名规则
+        .option("exclude", {
+            alias: "E",
+            type: "string",
+            description: "exclude filename patterns ",
+        })
         // 仅用于PREFIX模式，文件名添加指定前缀字符串
         .option("prefix", {
             alias: "p",
@@ -49,14 +71,17 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             description: "mode auto",
         })
         .option("dirname", {
+            alias: 'D',
             type: "boolean",
             description: "mode dirname",
         })
-        .option("mprefix", {
+        .option("prefix", {
+            alias: 'P',
             type: "boolean",
             description: "mode prefix",
         })
         .option("media", {
+            alias: 'M',
             type: "boolean",
             description: "mode media",
         })
@@ -136,19 +161,24 @@ const reMediaDirName = /^图片|视频|Image|Video|Thumbs$/gi;
 // https://github.com/fujaru/aromanize-js
 // https://www.npmjs.com/package/aromanize
 // https://www.npmjs.com/package/@lazy-cjk/japanese
-function cleanAlbumName(nameString, sep) {
+function cleanAlbumName(nameString, sep, filename) {
     let nameStr = nameString;
     // 去掉方括号 [xxx] 的内容
     // nameStr = nameStr.replaceAll(/\[.+?\]/gi, "");
     // 去掉图片集说明文字
     nameStr = nameStr.replaceAll(reImageName, sep);
+    // 去掉视频说明文字
+    nameStr = nameStr.replaceAll(reVideoName, "");
     // 去掉日期字符串
     nameStr = nameStr.replaceAll(/\d+年\d+月/gi, "");
     nameStr = nameStr.replaceAll(/\d{4}-\d{2}-\d{2}/gi, "");
-    nameStr = nameStr.replaceAll(/\d{4}\.\d{2}\.\d{2}/gi, "");
     // 去掉 [100P5V 2.25GB] No.46 这种图片集说明
     nameStr = nameStr.replaceAll(/\[\d+P.*(\d+V)?.*?\]/gi, "");
     nameStr = nameStr.replaceAll(/No\.\d+|\d+\.?\d+GB?|\d+P|\d+V|NO\.(\d+)/gi, "$1");
+    if (helper.isImageFile(filename)) {
+        // 去掉 2024.03.22 这种格式的日期
+        nameStr = nameStr.replaceAll(/\d{4}\.\d{2}\.\d{2}/gi, "");
+    }
     // 去掉中文标点特殊符号
     nameStr = nameStr.replaceAll(/[\u3000-\u303F\uFE10-\uFE1F\uFF01-\uFF11]/gi, "");
     // () [] {} <> . - 改为下划线
@@ -158,11 +188,14 @@ function cleanAlbumName(nameString, sep) {
     // nameStr = wanakana.toRomaji(nameStr);
     // 韩文转罗马字母
     // nameStr = aromanize.hangulToLatin(nameStr, 'rr-translit');
+    // 繁体转换为简体中文
+    nameStr = sify(nameStr);
     // 去掉所有特殊字符
     return nameStr.replaceAll(reNonChars, sep);
 }
 
 function getAutoModePrefix(dir, sep) {
+    // 从左到右的目录层次
     const [d1, d2, d3] = dir.split(path.sep).slice(-3);
     log.debug([d1, d2, d3].join(','));
     if (d3.includes(d1) && d2.includes(d1)) {
@@ -188,7 +221,6 @@ function parseNameMode(argv) {
 // 重复文件名Set，检测重复，防止覆盖
 const nameDuplicateSet = new Set();
 function createNewNameByMode(f, argv) {
-    // 处理模式
     const mode = parseNameMode(argv);
     const nameLength = (mode == MODE_MEDIA) ? 200 : argv.length || NAME_LENGTH;
     const nameSlice = nameLength * -1;
@@ -197,12 +229,12 @@ function createNewNameByMode(f, argv) {
     const dirParts = dir.split(path.sep).slice(-3);
     const dirName = path.basename(dir);
     const logTag = `Prefix::${mode.toUpperCase()[0]}`;
-    // 忽略 . _ 开头的目录
+    // 直接忽略 . _ 开头的目录
     if (/^[\._]/.test(dirName)) {
         return;
     }
-    const indexPrefix = `${f.index}/${f.total}`
-    log.info(logTag, `Processing ${indexPrefix} ${f.path}`);
+    const ipx = `${f.index}/${f.total}`
+    log.info(logTag, `Processing ${ipx} ${f.path}`);
     let sep = "_";
     let prefix = argv.prefix;
     let oldBase = base;
@@ -210,7 +242,7 @@ function createNewNameByMode(f, argv) {
         case MODE_MEDIA:
             {
                 sep = ".";
-                prefix = path.basename(dir);
+                prefix = dirName;
                 if (prefix.match(reMediaDirName)) {
                     prefix = dirParts[2];
                 }
@@ -228,7 +260,7 @@ function createNewNameByMode(f, argv) {
         case MODE_DIR:
             {
                 sep = "_";
-                prefix = path.basename(dir);
+                prefix = dirName;
                 if (prefix.match(reMediaDirName)) {
                     prefix = dirParts[2];
                 }
@@ -241,7 +273,7 @@ function createNewNameByMode(f, argv) {
                 prefix = getAutoModePrefix(dir, sep);
                 const applyToAll = argv.all || false;
                 if (!reOnlyNum.test(base) && !applyToAll) {
-                    log.showYellow(logTag, `Ignore: ${indexPrefix} ${helper.pathShort(f.path)}`);
+                    log.showYellow(logTag, `Ignore: ${ipx} ${helper.pathShort(f.path)}`);
                     return;
                 }
             }
@@ -254,19 +286,12 @@ function createNewNameByMode(f, argv) {
     }
     // 是否净化文件名，去掉各种特殊字符
     if (argv.clean) {
-        prefix = cleanAlbumName(prefix, sep);
-        if (mode == MODE_MEDIA) {
-            // 移除视频文件各种格式说明
-            oldBase = oldBase.replaceAll(reVideoName, "");
-        } else {
-            // 净化原始文件名字符串
-            oldBase = cleanAlbumName(oldBase, sep);
-        }
-
+        prefix = cleanAlbumName(prefix, sep, oldName);
+        oldBase = cleanAlbumName(oldBase, sep, oldName);
     }
     // 不添加重复前缀
     if (oldBase.includes(prefix)) {
-        log.info(logTag, `IgnorePrefix: ${indexPrefix} ${helper.pathShort(f.path)}`);
+        log.info(logTag, `IgnorePrefix: ${ipx} ${helper.pathShort(f.path)}`);
         prefix = "";
     }
     let fullBase = prefix + sep + oldBase;
@@ -282,24 +307,24 @@ function createNewNameByMode(f, argv) {
     const newName = `${fullBase}${ext}`;
     const newPath = path.join(dir, newName);
     if (fullBase === base) {
-        log.info(logTag, `NoChange: ${indexPrefix} ${helper.pathShort(newPath)}`);
+        log.info(logTag, `NoChange: ${ipx} ${helper.pathShort(newPath)}`);
         f.skipped = true;
     }
     else if (fs.existsSync(newPath)) {
-        log.info(logTag, `Exists: ${indexPrefix} ${helper.pathShort(newPath)}`);
+        log.info(logTag, `Exists: ${ipx} ${helper.pathShort(newPath)}`);
         f.skipped = true;
     }
     else if (nameDuplicateSet.has(newPath)) {
-        log.info(logTag, `Duplicate: ${indexPrefix} ${helper.pathShort(newPath)}`);
+        log.info(logTag, `Duplicate: ${ipx} ${helper.pathShort(newPath)}`);
         f.skipped = true;
     }
     nameDuplicateSet.add(newPath);
     if (f.skipped) {
-        log.fileLog(`Skip: ${indexPrefix} ${f.path}`, logTag);
+        log.fileLog(`Skip: ${ipx} ${f.path}`, logTag);
     } else {
         f.outName = newName;
-        log.show(logTag, `${indexPrefix} ${chalk.cyan(helper.pathShort(f.path, 36))} => ${chalk.green(newName)}`);
-        log.fileLog(`Prepare: ${indexPrefix} <${f.path}> => ${newName}`, logTag);
+        log.show(logTag, `${ipx} ${chalk.cyan(helper.pathShort(f.path, 36))} => ${chalk.green(newName)}`);
+        log.fileLog(`Prepare: ${ipx} <${f.path}> => ${newName}`, logTag);
     }
     return f;
 }
@@ -331,10 +356,21 @@ const handler = async function cmdPrefix(argv) {
             entry.stats.isFile() &&
             entry.stats.size > 1024
     });
-    // process only image files
-    // files = files.filter(x => helper.isImageFile(x.path));
-    files.sort();
     log.show(logTag, `Total ${files.length} files found in ${helper.humanTime(startMs)}`);
+    if (argv.include?.length >= 3) {
+        // 处理include规则
+        const pattern = new RegExp(argv.include, "gi");
+        log.showRed(pattern)
+
+        files = await asyncFilter(files, x => x.path.match(pattern));
+        log.show(logTag, `Total ${files.length} files left after include rules`);
+    } else if (argv.exclude?.length >= 3) {
+        // 处理exclude规则
+        const pattern = new RegExp(argv.exclude, "gi");
+        log.showRed(pattern)
+        files = await asyncFilter(files, x => !x.path.match(pattern));
+        log.show(logTag, `Total ${files.length} files left after exclude rules`);
+    }
     if (files.length == 0) {
         log.showYellow("Prefix", "Nothing to do, exit now.");
         return;
@@ -363,7 +399,7 @@ const handler = async function cmdPrefix(argv) {
             `Nothing to do, abort.`);
         return;
     }
-    log.info(logTag, argv);
+    log.show(logTag, argv);
     testMode && log.showYellow("++++++++++ TEST MODE (DRY RUN) ++++++++++")
     const answer = await inquirer.prompt([
         {

@@ -15,6 +15,8 @@ import * as exif from '../lib/exif.js';
 import * as mf from '../lib/file.js';
 import * as helper from '../lib/helper.js';
 
+import EventEmitter from 'events';
+
 const cpuCount = cpus().length;
 // debug and logging config
 // 配置错误信息输出
@@ -26,6 +28,8 @@ const configCli = (argv) => {
   log.setVerbose(argv.verbose);
   log.debug(argv);
 };
+
+EventEmitter.defaultMaxListeners = 1000;
 
 main();
 

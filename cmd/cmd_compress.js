@@ -1,4 +1,12 @@
-#!/usr/bin/env node
+/*
+ * File: cmd_compress.js
+ * Created: 2024-03-15 20:34:49
+ * Modified: 2024-03-23 11:51:09
+ * Author: mcxiaoke (github@mcxiaoke.com)
+ * License: Apache License 2.0
+ */
+
+
 import assert from "assert";
 import chalk from 'chalk';
 import * as cliProgress from "cli-progress";
@@ -12,8 +20,8 @@ import path from "path";
 import sharp from "sharp";
 import * as log from '../lib/debug.js';
 import * as mf from '../lib/file.js';
-import { compressImage } from "../lib/functions.js";
 import * as helper from '../lib/helper.js';
+import { compressImage } from "./base.js";
 export { aliases, builder, command, describe, handler };
 
 const command = "compress <input> [output]"

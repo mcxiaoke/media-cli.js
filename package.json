@@ -38,6 +38,7 @@
     "@nodelib/fs.walk": "^2.0.0",
     "chalk": "^5.3.0",
     "chardet": "^2.0.0",
+    "chinese-conv": "^1.1.0",
     "cli-progress": "^3.12.0",
     "dayjs": "^1.11.7",
     "execa": "^8.0.1",

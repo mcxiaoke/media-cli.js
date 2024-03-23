@@ -1,19 +1,17 @@
-import sharp from 'sharp';
-import dayjs from 'dayjs';
-import path from 'path';
-import fs from 'fs-extra';
-import chalk from 'chalk';
-import inquirer from 'inquirer';
-import PQueue from 'p-queue';
-import pMap from 'p-map';
 import assert from "assert";
-import prettyerror from "pretty-error";
+import chalk from 'chalk';
+import fs from 'fs-extra';
+import inquirer from 'inquirer';
 import { cpus } from "os";
+import pMap from 'p-map';
+import path from 'path';
+import prettyerror from "pretty-error";
+import sharp from 'sharp';
 const cpuCount = cpus().length;
 
-import * as helper from "../lib/helper.js";
-import * as mf from "../lib/file.js";
 import * as log from "../lib/debug.js";
+import * as mf from "../lib/file.js";
+import * as helper from "../lib/helper.js";
 
 // debug and logging config
 const prettyError = prettyerror.start();
@@ -92,7 +90,6 @@ async function makeThumbs(root, options) {
   log.info("makeThumbs", `total ${files.length} found`);
   //files = files.filter(f => !RE_THUMB.test(f.path))
   log.info("makeThumbs", `total ${files.length} found`);
-  files = files.sort((a, b) => a.path.localeCompare(b.path))
   if (files.length == 0) {
     log.showYellow("No files, nothing to do, abort.");
     return;

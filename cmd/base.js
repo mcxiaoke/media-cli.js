@@ -1,4 +1,10 @@
-#!/usr/bin/env node
+/*
+ * File: base.js
+ * Created: 2024-03-15 16:09:31
+ * Modified: 2024-03-23 11:50:55
+ * Author: mcxiaoke (github@mcxiaoke.com)
+ * License: Apache License 2.0
+ */
 import chalk from 'chalk';
 import { $ } from 'execa';
 import fs from 'fs-extra';
