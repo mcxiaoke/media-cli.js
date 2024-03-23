@@ -352,16 +352,16 @@ async function preRemoveArgs(f, options) {
         if (hasName) {
             const fName = fileName.toLowerCase();
             const rp = new RegExp(cPattern, "gi");
-            itemDesc += ` PT=${cPattern}`;
+            itemDesc += ` P=${cPattern}`;
             // 开头匹配，或末尾匹配，或正则匹配
             if (fName.startsWith(cPattern) || fName.endsWith(cPattern) || fName.match(rp)) {
                 log.info(
-                    "preRemove[Name]:", `${fileName} [NamePattern=${rp}]`
+                    "preRemove[N]:", `${fileName} [P=${rp}]`
                 );
                 testName = true;
             } else {
                 log.debug(
-                    "preRemove[Name]:", `${fileName} [NamePattern=${rp}]`
+                    "preRemove[M]:", `${fileName} [P=${rp}]`
                 );
             }
         }
@@ -370,11 +370,11 @@ async function preRemoveArgs(f, options) {
         if (hasSize) {
             const fst = await fs.stat(fileSrc);
             const fSize = fst.size || 0;
-            itemDesc += ` ${Math.round(fSize / 1024)}k`
+            itemDesc += ` S=${helper.humanSize(fSize)}`
             if (fSize > 0 && fSize <= cSize) {
                 log.info(
-                    "preRemove[Size]:",
-                    `${fileName} [${Math.round(fSize / 1024)}k] [Size=${cSize / 1024}k]`
+                    "preRemove[S]:",
+                    `${fileName} [${helper.humanSize(fSize)}] [Size=${helper.humanSize(cSize)}]`
                 );
                 testSize = true;
             }
@@ -389,12 +389,12 @@ async function preRemoveArgs(f, options) {
                     const m = await s.metadata();
                     const fWidth = m.width || 0;
                     const fHeight = m.height || 0;
-                    itemDesc += ` ${fWidth}x${fHeight}`
+                    itemDesc += ` M=${fWidth}x${fHeight}`
                     if (cWidth > 0 && cHeight > 0) {
                         // 宽高都提供时，要求都满足才能删除
                         if (fWidth <= cWidth && fHeight <= cHeight) {
                             log.info(
-                                "preRemove[Measure]:",
+                                "preRemove[M]:",
                                 `${fileName} ${fWidth}x${fHeight} [${cWidth}x${cHeight}]`
                             );
                             testMeasure = true;
@@ -403,23 +403,23 @@ async function preRemoveArgs(f, options) {
                     else if (cWidth > 0 && fWidth <= cWidth) {
                         // 只提供宽要求
                         log.info(
-                            "preRemove[Measure]:",
+                            "preRemove[M]:",
                             `${fileName} ${fWidth}x${fHeight} [W=${cWidth}]`
                         );
                         testMeasure = true;
                     } else if (cHeight > 0 && fHeight <= cHeight) {
                         // 只提供高要求
                         log.info(
-                            "preRemove[Measure]:",
+                            "preRemove[M]:",
                             `${fileName} ${fWidth}x${fHeight} [H=${cHeight}]`
                         );
                         testMeasure = true;
                     }
                 } catch (error) {
-                    log.info("preRemove[Measure]:", `InvalidImage: ${fileName}`);
+                    log.info("preRemove[M]:", `InvalidImage: ${fileName}`);
                 }
             } else {
-                log.info("preRemove[Measure]:", `NotImage: ${fileName}`);
+                log.info("preRemove[M]:", `NotImage: ${fileName}`);
             }
         }
 
@@ -431,15 +431,12 @@ async function preRemoveArgs(f, options) {
         if (cLoose) {
             shouldRemove = testName || testSize || testMeasure;
         } else {
-            if (hasName) {
-                shouldRemove &&= testName;
-            }
-            if (hasSize) {
-                shouldRemove &&= testSize;
-            }
-            if (isImageExt && hasMeasure) {
-                shouldRemove &&= testMeasure;
-            }
+            log.debug('hasName', hasName, testName, 'hasSize',
+                hasSize, testSize, 'hasMeasure', hasMeasure, testMeasure)
+
+            shouldRemove = ((!hasName) || (hasName && testName))
+                && ((!hasSize) || (hasSize && testSize))
+                && ((!hasMeasure) || (hasMeasure && testMeasure))
         }
         if (testCorrupted) {
             shouldRemove = true;
@@ -447,11 +444,11 @@ async function preRemoveArgs(f, options) {
         if (shouldRemove) {
             log.show(
                 "preRemove add:",
-                `${f.index}/${c.total} ${helper.pathShort(fileSrc)} ${itemDesc}`);
+                `${f.index}/${c.total} ${helper.pathShort(fileSrc, 32)} ${itemDesc}`);
         } else {
             (testName || testSize || testMeasure) && log.info(
                 "preRemove ignore:",
-                `${f.index}/${c.total} ${helper.pathShort(fileSrc)} ${itemDesc} (${testName} ${testSize} ${testMeasure})`);
+                `${f.index}/${c.total} ${helper.pathShort(fileSrc, 32)} [${itemDesc}] (${testName} ${testSize} ${testMeasure})`);
         }
         return buildRemoveArgs(f.index, itemDesc, shouldRemove, fileSrc);
 

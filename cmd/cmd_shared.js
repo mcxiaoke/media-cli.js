@@ -1,5 +1,5 @@
 /*
- * File: base.js
+ * File: cmd_shared.js
  * Created: 2024-03-15 16:09:31
  * Modified: 2024-03-23 11:50:55
  * Author: mcxiaoke (github@mcxiaoke.com)
@@ -128,12 +128,14 @@ export async function compressImage(t) {
                 .resize({ width: t.width })
                 .withMetadata()
                 .withExifMerge({
+                    "ImageUniqueID": {},
+                    "UserComment": {},
                     IFD0: {
-                        ImageDescription: `${prefix} ${dayjs().format(DATE_FORMAT)}`,
-                        Copyright: `${dayjs().format(DATE_FORMAT)} mediac`,
+                        ImageDescription: `${dayjs().format(DATE_FORMAT)}`,
+                        Copyright: `mediac`,
                         Artist: "mediac",
                         Software: "nodejs.cli.mediac",
-                        XPSubject: prefix,
+                        XPSubject: path.basename(t.src),
                         XPTitle: path.basename(t.src),
                         XPComment: `${dayjs().format(DATE_FORMAT)} mediac`,
                         XPAuthor: "mediac",
@@ -164,13 +166,18 @@ export async function compressImage(t) {
         // 返回处理后的图像信息对象  
         return t;
     } catch (error) {
+        const errMsg = error.message.substring(0, 32);
         // 如果在处理过程中出现错误，则捕获并处理错误信息  
-        log.warn(logTag, `Error: ${t.index}/${t.total}`, error.message?.slice(20));
-        log.fileLog(`Error: <${t.src}> => ${path.basename(t.dst)} ${error}`, logTag);
+        log.warn(logTag, `${t.index}/${t.total} ${helper.pathShort(t.src, 32)} ERR:${errMsg}`);
+        log.fileLog(`Error: <${t.src}> => ${path.basename(t.dst)} ${errMsg}`, logTag);
         try { // 尝试删除已创建的目标文件，防止错误文件占用空间  
             await fs.remove(t.tmpDst);
             await helper.safeRemove(t.dst);
         } catch (error) { } // 忽略删除操作的错误，不进行额外处理  
+        t.errorFlag = true;
+        t.errorMessage = errMsg;
+        t.done = false;
+        return t;
     } finally {
 
     }

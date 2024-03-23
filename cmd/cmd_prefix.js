@@ -14,7 +14,7 @@ import inquirer from "inquirer";
 import path from "path";
 
 
-import { renameFiles } from "./base.js";
+import { renameFiles } from "./cmd_shared.js";
 
 import { asyncFilter } from '../lib/core.js';
 import * as log from '../lib/debug.js';

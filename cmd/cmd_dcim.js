@@ -11,7 +11,7 @@ import fs from 'fs-extra';
 import inquirer from "inquirer";
 import path from "path";
 
-import { renameFiles } from "./base.js";
+import { renameFiles } from "./cmd_shared.js";
 
 import * as log from '../lib/debug.js';
 import * as exif from '../lib/exif.js';
