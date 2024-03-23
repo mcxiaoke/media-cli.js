@@ -59,10 +59,10 @@ function fixEncoding(str = '') {
 }
 
 const fixedOkStr = iconv.decode(Buffer.from('OK'), 'utf8')
-async function compressHEIF(t) {
-    const logTag = "Compress[HEIF]"
+async function compressExternal(t, force = false) {
+    const logTag = "Compress[EX]"
     log.info(logTag, "processing", t)
-    if (!helper.isHEVCImage(t.src)) {
+    if (!helper.isHEVCImage(t.src) && !force) {
         return;
     }
     const exePath = await which("nconvert", { nothrow: true })
@@ -73,15 +73,17 @@ async function compressHEIF(t) {
 
     const fileSrc = t.src
     // 使用临时文件
-    const dstName = path.basename(t.tmpDst)
+    const dstName = path.resolve(t.tmpDst)
     try {
-        const { stderr } = await $({ encoding: 'binary' })`${exePath} -overwrite -opthuff -no_auto_ext -out jpeg -o ${dstName} -q ${t.quality} -resize longest ${t.width} ${fileSrc}`;
-        const sr = fixEncoding(stderr)
-        log.info(logTag, "stderr", sr)
+        const { stdout, stderr } = await $({ encoding: 'binary' })`${exePath} -overwrite -opthuff -no_auto_ext -out jpeg -o ${dstName} -q ${t.quality} -resize longest ${t.width} ${fileSrc}`;
+        const so = fixEncoding(stdout || "NULL");
+        const sr = fixEncoding(stderr || "NULL")
+        log.debug(logTag, "stdout", so)
+        log.debug(logTag, "stderr", sr)
         // strange fix for encoding str compare
         if (sr.endsWith(fixedOkStr)) {
-            log.show(logTag, `${helper.pathShort(fileSrc)} => ${dstName}`)
-            log.fileLog(`HEIF: ${fileSrc} => ${dstName}`, logTag);
+            log.showYellow(logTag, `DoneEx: ${helper.pathShort(fileSrc)} => ${dstName}`)
+            log.fileLog(`DoneEx: <${fileSrc}> => ${dstName}`, logTag);
             return {
                 width: t.width,
                 height: t.height,
@@ -89,20 +91,13 @@ async function compressHEIF(t) {
             }
         }
     } catch (error) {
-        log.error(logTag, error)
+        log.warn(logTag, fileSrc, error)
     }
-}
-
-function getDirPrefix(fileSrc, sep) {
-    // Others\Images\COSPLAY\Dami\图片\
-    const dirParts = path.dirname(fileSrc).split(path.sep).slice(-3).join("");
-    return dirParts.replaceAll(/图片|视频|Image|Video/gi, "");
 }
 
 // 这是一个异步函数，用于创建缩略图  
 export async function compressImage(t) {
     const logTag = "Compress";
-    const prefix = getDirPrefix(t.src);
     // 如果目标文件已存在，且有删除未压缩文件标志
     // 则不进行压缩处理，添加标志后返回
     if (t.shouldSkip) {
@@ -117,7 +112,7 @@ export async function compressImage(t) {
         if (await fs.pathExists(t.tmpDst)) {
             await fs.remove(t.tmpDst);
         }
-        let r = await compressHEIF(t);
+        let r = await compressExternal(t);
         if (!r) {
             // 初始化一个sharp对象，用于图像处理  
             // 尝试读取源图像文件  
@@ -147,26 +142,13 @@ export async function compressImage(t) {
             // 获取目标文件的文件信息 
         }
         // 临时文件状态
-        const tmpSt = await fs.stat(t.tmpDst);
-        // 如果目标文件大小小于100KB，则可能文件损坏，删除该文件  
-        // file may be corrupted, remove it  
-        if (tmpSt.size < 100 * 1024) {
-            await helper.safeRemove(t.tmpDst);
-            log.showYellow(logTag, `Delete: ${t.index}/${t.total}`, `<${helper.pathShort(t.dst)}>`, `${helper.humanSize(tmpSt.size)}`, chalk.yellow(`file corrupted`));
-            log.fileLog(`Delete: ${t.index}/${t.total} <${helper.pathShort(t.dst)}> ${helper.humanSize(tmpSt.size)} file corrupted`, logTag);
-        } else {
-            await fs.rename(t.tmpDst, t.dst);
-            t.dstExists = await fs.pathExists(t.dst);
-            if (t.dstExists) {
-                log.showGreen(logTag, `Done: ${t.index}/${t.total}`, helper.pathShort(t.dst), `${r.width}x${r.height}`, `${helper.humanSize(tmpSt.size)} [${helper.humanTime(t.startMs)}]`);
-                log.fileLog(`Done: <${t.src}> => ${path.basename(t.dst)} ${helper.humanSize(tmpSt.size)}`, logTag);
-                t.done = true;
-            }
-        }
-        // 返回处理后的图像信息对象  
-        return t;
+        return await checkCompressResult(t, r);
     } catch (error) {
-        const errMsg = error.message.substring(0, 32);
+        const errMsg = error.message.substring(0, 40);
+        // 使用sharp压缩失败，再使用xconvert试试
+        const cr = await compressExternal(t, true);
+        const r = await checkCompressResult(t, cr);
+        if (r?.done) { return r; }
         // 如果在处理过程中出现错误，则捕获并处理错误信息  
         log.warn(logTag, `${t.index}/${t.total} ${helper.pathShort(t.src, 32)} ERR:${errMsg}`);
         log.fileLog(`Error: <${t.src}> => ${path.basename(t.dst)} ${errMsg}`, logTag);
@@ -182,3 +164,28 @@ export async function compressImage(t) {
 
     }
 } // 结束函数定义
+
+async function checkCompressResult(t, r) {
+    const logTag = "Compress";
+    try {
+        const tmpSt = await fs.stat(t.tmpDst);
+        // 如果目标文件大小小于100KB，则可能文件损坏，删除该文件  
+        // file may be corrupted, remove it  
+        if (tmpSt.size < 100 * 1024) {
+            await helper.safeRemove(t.tmpDst);
+            log.showYellow(logTag, `Delete: ${t.index}/${t.total}`, `<${helper.pathShort(t.dst)}>`, `${helper.humanSize(tmpSt.size)}`, chalk.yellow(`file corrupted`));
+            log.fileLog(`Delete: ${t.index}/${t.total} <${helper.pathShort(t.dst)}> ${helper.humanSize(tmpSt.size)} file corrupted`, logTag);
+            return;
+        }
+        await fs.rename(t.tmpDst, t.dst);
+        t.dstExists = await fs.pathExists(t.dst);
+        if (!t.dstExists) {
+            return;
+        }
+        log.showGreen(logTag, `Done: ${t.index}/${t.total}`, helper.pathShort(t.dst), `${r.width}x${r.height}`, `${helper.humanSize(tmpSt.size)} [${helper.humanTime(t.startMs)}]`);
+        log.fileLog(`Done: <${t.src}> => ${path.basename(t.dst)} ${helper.humanSize(tmpSt.size)}`, logTag);
+        t.done = true;
+        return t;
+    } catch (error) {
+    }
+}
