@@ -17,7 +17,7 @@ import * as log from '../lib/debug.js';
 import * as mf from '../lib/file.js';
 import * as helper from '../lib/helper.js';
 
-//// 文件重命名小工具
+// 文件重命名小工具
 // 支持的模式：
 // 按序号重命名
 // 添加固定前缀
@@ -27,6 +27,7 @@ import * as helper from '../lib/helper.js';
 // 根据修改日期重命名
 // 说明：
 // 不涉及EXIF信息或文件内容
+// todo 按照音频文件的tag重命名 audior
 
 export { aliases, builder, command, describe, handler };
 
