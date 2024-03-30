@@ -25,6 +25,7 @@ const MODE_AUTO = "auto";
 const MODE_DIR = "dirname";
 const MODE_PREFIX = "prefix";
 const MODE_MEDIA = "media";
+const MODE_CLEAN = 'clean';
 
 const NAME_LENGTH = 32;
 
@@ -64,7 +65,7 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             type: "string",
             default: MODE_AUTO,
             description: "filename prefix mode for output ",
-            choices: [MODE_AUTO, MODE_DIR, MODE_PREFIX, MODE_MEDIA],
+            choices: [MODE_AUTO, MODE_DIR, MODE_PREFIX, MODE_MEDIA, MODE_CLEAN],
         })
         .option("auto", {
             type: "boolean",
@@ -84,6 +85,11 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             alias: 'M',
             type: "boolean",
             description: "mode media",
+        })
+        .option("clean-only", {
+            alias: 'C',
+            type: "boolean",
+            description: "mode clean only",
         })
         // 清理文件名中的特殊字符和非法字符
         .option("clean", {
@@ -115,7 +121,7 @@ const reVideoName = helper.combineRegexG(
     /WEB-DL|SMURF|Web|AAC5\.1|Atmos/,
     /H\.264|DD5\.1|DDP5\.1|AAC/,
     /DJWEB|Play|VINEnc|DSNP|END/,
-    /高清|特效|字幕组|公众号/,
+    /高清|特效|字幕组|公众号|画质|电影|搬运/,
     /\[.+?\]/,
 )
 // 图片文件名各种前后缀
@@ -155,7 +161,7 @@ const reStripUglyChars = /(^[\s\x21-\x2F\x3A-\x40\x5B-\x60\x7b-\xFF\p{P}]+)|([\s
 // 参考 https://stackoverflow.com/questions/47060553
 // The g modifier causes the regex object to maintain state. 
 // It tracks the index after the last match.
-const reMediaDirName = /^图片|视频|Image|Video|Thumbs$/gi;
+const reMediaDirName = /^图片|视频|电影|电视剧|Image|Video|Thumbs$/gi;
 // 可以考虑将日文和韩文罗马化处理
 // https://github.com/lovell/hepburn
 // https://github.com/fujaru/aromanize-js
@@ -215,6 +221,7 @@ function parseNameMode(argv) {
     if (argv.mprefix) { mode = MODE_PREFIX; }
     if (argv.dirname) { mode = MODE_DIR; }
     if (argv.media) { mode = MODE_MEDIA; }
+    if (argv.cleanOnly) { mode = MODE_CLEAN; }
     return mode;
 }
 
@@ -222,7 +229,8 @@ function parseNameMode(argv) {
 const nameDuplicateSet = new Set();
 function createNewNameByMode(f, argv) {
     const mode = parseNameMode(argv);
-    const nameLength = (mode == MODE_MEDIA) ? 200 : argv.length || NAME_LENGTH;
+    const nameLength = (mode === MODE_MEDIA || mode == MODE_CLEAN) ?
+        200 : argv.length || NAME_LENGTH;
     const nameSlice = nameLength * -1;
     const [dir, base, ext] = helper.pathSplit(f.path);
     const oldName = path.basename(f.path);
@@ -239,6 +247,12 @@ function createNewNameByMode(f, argv) {
     let prefix = argv.prefix;
     let oldBase = base;
     switch (mode) {
+        case MODE_CLEAN:
+            {
+                sep = ".";
+                prefix = "";
+            }
+            break;
         case MODE_MEDIA:
             {
                 sep = ".";
@@ -267,7 +281,6 @@ function createNewNameByMode(f, argv) {
             }
             break;
         case MODE_AUTO:
-        default:
             {
                 sep = "_";
                 prefix = getAutoModePrefix(dir, sep);
@@ -278,14 +291,21 @@ function createNewNameByMode(f, argv) {
                 }
             }
             break;
+        default:
+            throw new Error(`Invalid mode: ${mode} ${argv.mode}`)
+            break;
     }
-    // 无有效前缀，报错退出
-    if (!prefix || prefix.length == 0) {
-        log.warn(logTag, `Invalid Prefix: ${helper.pathShort(f.path)} ${mode}`);
-        throw new Error(`No prefix supplied!`);
+
+    if (!mode === MODE_CLEAN) {
+        // 无有效前缀，报错退出
+        if (!prefix || prefix.length == 0) {
+            log.warn(logTag, `Invalid Prefix: ${helper.pathShort(f.path)} ${mode}`);
+            throw new Error(`No prefix supplied!`);
+        }
     }
+
     // 是否净化文件名，去掉各种特殊字符
-    if (argv.clean) {
+    if (argv.clean || mode === MODE_CLEAN) {
         prefix = cleanAlbumName(prefix, sep, oldName);
         oldBase = cleanAlbumName(oldBase, sep, oldName);
     }
@@ -294,7 +314,7 @@ function createNewNameByMode(f, argv) {
         log.info(logTag, `IgnorePrefix: ${ipx} ${helper.pathShort(f.path)}`);
         prefix = "";
     }
-    let fullBase = prefix + sep + oldBase;
+    let fullBase = prefix.length > 0 ? (prefix + sep + oldBase) : oldBase;
     // 去除首位空白和特殊字符
     fullBase = fullBase.replaceAll(reStripUglyChars, "");
     // 多余空白和字符替换为一个字符 _或.
@@ -341,7 +361,7 @@ const handler = async function cmdPrefix(argv) {
         log.fileLog(`Root: ${root}`, logTag);
         log.fileLog(`Argv: ${JSON.stringify(argv)}`, logTag);
     }
-    const mode = argv.mode || MODE_AUTO;
+    const mode = parseNameMode(argv);
     const prefix = argv.prefix;
     const startMs = Date.now();
     log.show(logTag, `Input: ${root}`);
