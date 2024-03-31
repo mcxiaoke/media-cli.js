@@ -1,6 +1,6 @@
 # media-cli.js
 
-MediaCli, Photo,Video,Audio and ExifTool Utilities.
+MediaCli is a multimedia file processing tool that utilizes ffmpeg and exiftool, among others, to compress/convert/rename/delete/organize media files, including images, videos, and audio.
 
 created at 2021.07
 
@@ -22,32 +22,41 @@ mediac --help
 Usage: media_cli.js <command> <input> [options]
 
 Commands:
-  media_cli.js rename <input> [options]  Rename media files in input dir by exif
-                                         date            [default] [aliases: rn]
-  media_cli.js organize <input>          Organize pictures by file modified date
-                                                                   [aliases: oz]
-  media_cli.js lrmove <input>            Move JPEG output of RAW files to other
-                                         folder                    [aliases: lv]
+  media_cli.js test                       Test command, do nothing
+                                                         [default] [aliases: tt]
+  media_cli.js dcimr <input> [options]    Rename media files by exif metadata eg
+                                          . date             [aliases: dm, dcim]
+  media_cli.js organize <input> [output]  Organize pictures by file modified dat
+                                          e                        [aliases: oz]
+  media_cli.js lrmove <input> [output]    Move JPEG output of RAW files to other
+                                           folder                  [aliases: lv]
+  media_cli.js thumbs <input> [output]    Make thumbs for input images
+                                                                   [aliases: tb]
+  media_cli.js compress <input> [output]  Compress input images to target size
+                                                              [aliases: cs, cps]
+  media_cli.js remove <input> [output]    Remove files by given size/width-heigh
+                                          t/name-pattern/file-list
+                                                              [aliases: rm, rmf]
+  media_cli.js moveup <input> [output]    Move files to sub top folder or top fo
+                                          lder                     [aliases: mu]
+  media_cli.js prefix <input> [output]    Rename files by append dir name or str
+                                          ing                  [aliases: pf, px]
 
 Positionals:
   input  Input folder that contains files                               [string]
 
 Options:
-      --version   Show version number                                  [boolean]
-  -h, --help      Show help                                            [boolean]
-  -b, --backup                                        [boolean] [default: false]
-  -p, --prefix                              [string] [default: "IMG_/DSC_/VID_"]
-  -s, --suffix                                            [string] [default: ""]
-  -t, --template                           [string] [default: "YYYYMMDD_HHmmss"]
+      --version  Show version number                                   [boolean]
+  -h, --help     Show help                                             [boolean]
 
-Media Utilities: Rename Image/Raw/Video files by EXIF date tags
+Media Cli: Image/Raw/Video filename processing utilities
+Copyright 2021-2025 @ Zhang Xiaoke
 
 ```
 
-
 ## License
 
-    Copyright 2021 github@mcxiaoke.com
+    Copyright 2021-2025 github@mcxiaoke.com
 
     Licensed under the Apache License, Version 2.0 (the "License");
     you may not use this file except in compliance with the License.
