@@ -246,7 +246,7 @@ const handler = async function cmdRemove(argv) {
             try {
                 await helper.safeRemove(task.src);
                 ++removedCount;
-                log.fileLog(`Remove: ${task.index} <${task.src}>`, logTag);
+                log.fileLog(`Removed: ${task.index} <${task.src}>`, logTag);
                 log.show(logTag, `SafeDel ${++index}/${tasks.length} ${task.src}`);
             } catch (error) {
                 log.error(logTag, `failed to remove file ${task.src}`, error);
@@ -443,18 +443,19 @@ async function preRemoveArgs(f, options) {
         }
         if (shouldRemove) {
             log.show(
-                "preRemove add:",
+                "PreRemove add:",
                 `${f.index}/${c.total} ${helper.pathShort(fileSrc, 32)} ${itemDesc}`);
+            log.fileLog(`Prepared: ${f.index}/${c.total} <${fileSrc}> ${itemDesc}`, "PreRemove");
         } else {
             (testName || testSize || testMeasure) && log.info(
-                "preRemove ignore:",
+                "PreRemove ignore:",
                 `${f.index}/${c.total} ${helper.pathShort(fileSrc, 32)} [${itemDesc}] (${testName} ${testSize} ${testMeasure})`);
         }
         return buildRemoveArgs(f.index, itemDesc, shouldRemove, fileSrc);
 
     } catch (error) {
-        log.error("preRemove error:", error, fileSrc);
-        log.fileLog(`Error: ${f.index} <${fileSrc}>`, "cmdRemove");
+        log.error("PreRemove error:", error, fileSrc);
+        log.fileLog(`Error: ${f.index} <${fileSrc}>`, "PreRemove");
         throw error;
     }
 }
