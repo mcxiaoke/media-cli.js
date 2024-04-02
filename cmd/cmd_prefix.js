@@ -26,6 +26,7 @@ const MODE_DIR = "dirname";
 const MODE_PREFIX = "prefix";
 const MODE_MEDIA = "media";
 const MODE_CLEAN = 'clean';
+const MODE_TC2SC = "tc2sc"; // 繁体转简体
 
 const NAME_LENGTH = 32;
 
@@ -65,7 +66,7 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             type: "string",
             default: MODE_AUTO,
             description: "filename prefix mode for output ",
-            choices: [MODE_AUTO, MODE_DIR, MODE_PREFIX, MODE_MEDIA, MODE_CLEAN],
+            choices: [MODE_AUTO, MODE_DIR, MODE_PREFIX, MODE_MEDIA, MODE_CLEAN, MODE_TC2SC],
         })
         .option("auto", {
             type: "boolean",
@@ -90,6 +91,11 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             alias: 'C',
             type: "boolean",
             description: "mode clean only",
+        })
+        .option("tc-to-sc", {
+            alias: 'T',
+            type: "boolean",
+            description: "mode tc to sc",
         })
         // 清理文件名中的特殊字符和非法字符
         .option("clean", {
@@ -222,6 +228,7 @@ function parseNameMode(argv) {
     if (argv.dirname) { mode = MODE_DIR; }
     if (argv.media) { mode = MODE_MEDIA; }
     if (argv.cleanOnly) { mode = MODE_CLEAN; }
+    if (argv.tcToSc) { mode = MODE_TC2SC; }
     return mode;
 }
 
@@ -229,7 +236,9 @@ function parseNameMode(argv) {
 const nameDuplicateSet = new Set();
 function createNewNameByMode(f, argv) {
     const mode = parseNameMode(argv);
-    const nameLength = (mode === MODE_MEDIA || mode == MODE_CLEAN) ?
+    const nameLength = (mode === MODE_MEDIA
+        || mode === MODE_CLEAN
+        || mode === MODE_TC2SC) ?
         200 : argv.length || NAME_LENGTH;
     const nameSlice = nameLength * -1;
     const [dir, base, ext] = helper.pathSplit(f.path);
@@ -248,6 +257,7 @@ function createNewNameByMode(f, argv) {
     let oldBase = base;
     switch (mode) {
         case MODE_CLEAN:
+        case MODE_TC2SC:
             {
                 sep = ".";
                 prefix = "";
@@ -296,16 +306,19 @@ function createNewNameByMode(f, argv) {
             break;
     }
 
-    if (!mode === MODE_CLEAN) {
+    if (!mode === MODE_CLEAN || !mode === MODE_TC2SC) {
         // 无有效前缀，报错退出
         if (!prefix || prefix.length == 0) {
             log.warn(logTag, `Invalid Prefix: ${helper.pathShort(f.path)} ${mode}`);
             throw new Error(`No prefix supplied!`);
         }
     }
-
+    // 此模式仅执行简繁转换，不进行其它操作
+    if (mode === MODE_TC2SC) {
+        oldBase = sify(oldBase);
+    }
     // 是否净化文件名，去掉各种特殊字符
-    if (argv.clean || mode === MODE_CLEAN) {
+    else if (argv.clean || mode === MODE_CLEAN) {
         prefix = cleanAlbumName(prefix, sep, oldName);
         oldBase = cleanAlbumName(oldBase, sep, oldName);
     }
@@ -315,15 +328,17 @@ function createNewNameByMode(f, argv) {
         prefix = "";
     }
     let fullBase = prefix.length > 0 ? (prefix + sep + oldBase) : oldBase;
-    // 去除首位空白和特殊字符
-    fullBase = fullBase.replaceAll(reStripUglyChars, "");
-    // 多余空白和字符替换为一个字符 _或.
-    fullBase = fullBase.replaceAll(reUglyChars, sep);
-    // 去掉重复词组，如目录名和人名
-    fullBase = Array.from(new Set(fullBase.split(sep))).join(sep)
-    fullBase = unicodeStrLength(fullBase) > nameLength ? fullBase.slice(nameSlice) : fullBase;
-    // 再次去掉首位的特殊字符和空白字符
-    fullBase = fullBase.replaceAll(reStripUglyChars, "");
+    if (!mode === MODE_TC2SC) {
+        // 去除首位空白和特殊字符
+        fullBase = fullBase.replaceAll(reStripUglyChars, "");
+        // 多余空白和字符替换为一个字符 _或.
+        fullBase = fullBase.replaceAll(reUglyChars, sep);
+        // 去掉重复词组，如目录名和人名
+        fullBase = Array.from(new Set(fullBase.split(sep))).join(sep)
+        fullBase = unicodeStrLength(fullBase) > nameLength ? fullBase.slice(nameSlice) : fullBase;
+        // 再次去掉首位的特殊字符和空白字符
+        fullBase = fullBase.replaceAll(reStripUglyChars, "");
+    }
     const newName = `${fullBase}${ext}`;
     const newPath = path.join(dir, newName);
     if (fullBase === base) {

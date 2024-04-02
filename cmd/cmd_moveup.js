@@ -65,10 +65,11 @@ const handler = async function cmdMoveUp(argv) {
     const defaultDirName = "文件";
     const picDirName = argv.output || "图片";
     const videoDirName = "视频";
+    const audioDirName = "音乐";
     const bookDirName = "电子书";
     const otherDirName = "其它";
-    const outDirNames = [defaultDirName, picDirName, videoDirName, bookDirName, otherDirName];
-    let subDirs = (await fs.readdir(root, { withFileTypes: true }))
+    const outDirNames = [defaultDirName, picDirName, videoDirName, audioDirName, bookDirName, otherDirName];
+    const subDirs = (await fs.readdir(root, { withFileTypes: true }))
         .filter(d => d.isDirectory() && !outDirNames.includes(d.name))
         .map(d => d.name);
     log.show(logTag, "found sub dirs:", subDirs);
