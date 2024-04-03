@@ -89,6 +89,12 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             // 移除损坏的文件
             description: "delete corrupted files",
         })
+        .option("deleteit", {
+            type: "boolean",
+            default: false,
+            // 直接删除文件，不使用安全删除
+            description: "delete file really, no safe remove",
+        })
         // 确认执行所有系统操作，非测试模式，如删除和重命名和移动操作
         .option("doit", {
             alias: "d",
@@ -134,6 +140,7 @@ const handler = async function cmdRemove(argv) {
             cHeight = y;
         }
     }
+    const deleteIt = argv.deleteIt || false;
     const cLoose = argv.loose || false;
     const cCorrupted = argv.corrupted || false;
     const cSize = argv.size * 1024 || 0;
@@ -244,10 +251,16 @@ const handler = async function cmdRemove(argv) {
     } else {
         for (const task of tasks) {
             try {
-                await helper.safeRemove(task.src);
+                if (deleteIt) {
+                    await fs.remove(task.src);
+                    log.show(logTag, `Deleted ${++index}/${tasks.length} ${helper.pathShort(task.src)}`);
+                    log.fileLog(`Deleted: ${task.index} <${task.src}>`, logTag);
+                } else {
+                    await helper.safeRemove(task.src);
+                    log.show(logTag, `Moved ${++index}/${tasks.length} ${helper.pathShort(task.src)}`);
+                    log.fileLog(`Moved: ${task.index} <${task.src}>`, logTag);
+                }
                 ++removedCount;
-                log.fileLog(`Removed: ${task.index} <${task.src}>`, logTag);
-                log.show(logTag, `SafeDel ${++index}/${tasks.length} ${task.src}`);
             } catch (error) {
                 log.error(logTag, `failed to remove file ${task.src}`, error);
             }
