@@ -23,13 +23,18 @@ const DATE_FORMAT = 'YYYY-MM-DD HH:mm:ss.SSS Z';
 
 async function renameOneFile(f) {
     // 生成输出文件的路径  
-    const outPath = path.join(path.dirname(f.path), f.outName);
+    const outPath = f.outPath || path.join(path.dirname(f.path), f.outName);
     // 如果输出文件名不存在或者输入文件路径等于输出文件路径，忽略该文件并打印警告信息  
     if (!f.outName || f.path == f.outPath) {
         log.showYellow("Rename", "ignore", f.path);
         return;
     }
     try {
+        // 确保输出目录已存在，如果不存在则创建
+        const outDir = path.dirname(outPath);
+        if (!await fs.pathExists(outDir)) {
+            await fs.mkdirs(outDir);
+        }
         // 使用 fs 模块的 rename 方法重命名文件，并等待操作完成  
         await fs.rename(f.path, outPath);
         // 打印重命名成功的日志信息，显示输出文件的路径  

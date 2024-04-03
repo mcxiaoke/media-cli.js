@@ -14,12 +14,12 @@ import inquirer from "inquirer";
 import path from "path";
 
 
-import { renameFiles } from "./cmd_shared.js";
-
 import { asyncFilter } from '../lib/core.js';
 import * as log from '../lib/debug.js';
+import { fixCJKEnc } from '../lib/encoding.js';
 import * as mf from '../lib/file.js';
 import * as helper from '../lib/helper.js';
+import { renameFiles } from "./cmd_shared.js";
 
 const MODE_AUTO = "auto";
 const MODE_DIR = "dirname";
@@ -27,6 +27,7 @@ const MODE_PREFIX = "prefix";
 const MODE_MEDIA = "media";
 const MODE_CLEAN = 'clean';
 const MODE_TC2SC = "tc2sc"; // 繁体转简体
+const MODE_FIXENC = "fixenc"; // 乱码还原
 
 const NAME_LENGTH = 32;
 
@@ -66,7 +67,7 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             type: "string",
             default: MODE_AUTO,
             description: "filename prefix mode for output ",
-            choices: [MODE_AUTO, MODE_DIR, MODE_PREFIX, MODE_MEDIA, MODE_CLEAN, MODE_TC2SC],
+            choices: [MODE_AUTO, MODE_DIR, MODE_PREFIX, MODE_MEDIA, MODE_CLEAN, MODE_TC2SC, MODE_FIXENC],
         })
         .option("auto", {
             type: "boolean",
@@ -93,9 +94,12 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             description: "mode clean only",
         })
         .option("tc-to-sc", {
-            alias: 'T',
             type: "boolean",
             description: "mode tc to sc",
+        })
+        .option("fix-encoding", {
+            type: "boolean",
+            description: "mode fix encoding messy chars",
         })
         // 清理文件名中的特殊字符和非法字符
         .option("clean", {
@@ -229,6 +233,7 @@ function parseNameMode(argv) {
     if (argv.media) { mode = MODE_MEDIA; }
     if (argv.cleanOnly) { mode = MODE_CLEAN; }
     if (argv.tcToSc) { mode = MODE_TC2SC; }
+    if (argv.fixEncoding) { mode = MODE_FIXENC; }
     return mode;
 }
 
@@ -238,7 +243,8 @@ function createNewNameByMode(f, argv) {
     const mode = parseNameMode(argv);
     const nameLength = (mode === MODE_MEDIA
         || mode === MODE_CLEAN
-        || mode === MODE_TC2SC) ?
+        || mode === MODE_TC2SC
+        || mode === MODE_FIXENC) ?
         200 : argv.length || NAME_LENGTH;
     const nameSlice = nameLength * -1;
     const [dir, base, ext] = helper.pathSplit(f.path);
@@ -258,6 +264,7 @@ function createNewNameByMode(f, argv) {
     switch (mode) {
         case MODE_CLEAN:
         case MODE_TC2SC:
+        case MODE_FIXENC:
             {
                 sep = ".";
                 prefix = "";
@@ -306,16 +313,27 @@ function createNewNameByMode(f, argv) {
             break;
     }
 
-    if (!mode === MODE_CLEAN || !mode === MODE_TC2SC) {
+    if (mode !== MODE_CLEAN && mode !== MODE_TC2SC && mode !== MODE_FIXENC) {
         // 无有效前缀，报错退出
         if (!prefix || prefix.length == 0) {
             log.warn(logTag, `Invalid Prefix: ${helper.pathShort(f.path)} ${mode}`);
             throw new Error(`No prefix supplied!`);
         }
     }
+    let newPathFixed = null;
     // 此模式仅执行简繁转换，不进行其它操作
     if (mode === MODE_TC2SC) {
         oldBase = sify(oldBase);
+    } else if (mode == MODE_FIXENC) {
+        // 当模式为MODE_FIXENC时，对文件路径进行特定的编码修复处理
+        // 对旧基础路径进行中日韩文字编码修复
+        oldBase = fixCJKEnc(oldBase);
+        // 将目录路径分割，并对每个部分进行编码修复
+        const dirNamesFixed = dir.split(path.sep).map(s => fixCJKEnc(s));
+        // 重新组合修复后的目录路径
+        const dirFixed = path.join(...dirNamesFixed);
+        // 生成修复后的新路径，包括旧基础路径和文件扩展名
+        newPathFixed = path.join(dirFixed, `${oldBase}${ext}`);
     }
     // 是否净化文件名，去掉各种特殊字符
     else if (argv.clean || mode === MODE_CLEAN) {
@@ -328,7 +346,9 @@ function createNewNameByMode(f, argv) {
         prefix = "";
     }
     let fullBase = prefix.length > 0 ? (prefix + sep + oldBase) : oldBase;
-    if (!mode === MODE_TC2SC) {
+    log.showGray(base)
+    log.showGray(fullBase)
+    if (mode !== MODE_TC2SC && mode !== MODE_FIXENC) {
         // 去除首位空白和特殊字符
         fullBase = fullBase.replaceAll(reStripUglyChars, "");
         // 多余空白和字符替换为一个字符 _或.
@@ -340,9 +360,9 @@ function createNewNameByMode(f, argv) {
         fullBase = fullBase.replaceAll(reStripUglyChars, "");
     }
     const newName = `${fullBase}${ext}`;
-    const newPath = path.join(dir, newName);
-    if (fullBase === base) {
-        log.info(logTag, `NoChange: ${ipx} ${helper.pathShort(newPath)}`);
+    const newPath = newPathFixed ?? path.join(dir, newName);
+    if (newPath === f.path) {
+        log.info(logTag, `Same: ${ipx} ${helper.pathShort(newPath)}`);
         f.skipped = true;
     }
     else if (fs.existsSync(newPath)) {
@@ -358,6 +378,7 @@ function createNewNameByMode(f, argv) {
         log.fileLog(`Skip: ${ipx} ${f.path}`, logTag);
     } else {
         f.outName = newName;
+        f.outPath = newPath;
         log.show(logTag, `${ipx} ${chalk.cyan(helper.pathShort(f.path, 36))} => ${chalk.green(newName)}`);
         log.fileLog(`Prepare: ${ipx} <${f.path}> => ${newName}`, logTag);
     }

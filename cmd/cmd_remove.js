@@ -332,7 +332,7 @@ async function preRemoveArgs(f, options) {
     // 文件名匹配文本
     const cPattern = (c.pattern || "").toLowerCase();
 
-    const hasName = cPattern && cPattern.length > 0;//1
+    const hasName = cPattern?.length > 0;//1
     const hasSize = cSize > 0;//2
     const hasMeasure = cWidth > 0 || cHeight > 0;//3
 
@@ -358,6 +358,8 @@ async function preRemoveArgs(f, options) {
                 log.showYellow("preRemove[Bad2]:", `${fileSrc}`);
                 itemDesc += " Corrupted";
                 testCorrupted = true;
+            } else {
+                log.debug("preRemove[Good]:", `${fileSrc}`);
             }
         }
 
@@ -436,20 +438,40 @@ async function preRemoveArgs(f, options) {
             }
         }
 
-        // 满足名字规则/文件大小/宽高任一规则即会被删除，或关系
         let shouldRemove = false;
-        // shouldRemove = cLoose ? testName || testSize || testMeasure : ((hasName && testName) || !hasName)
-        //     && ((hasSize && testSize) || !hasSize)
-        //     && ((isImage && hasMeasure && testMeasure) || !hasMeasure);
         if (cLoose) {
             shouldRemove = testName || testSize || testMeasure;
         } else {
-            log.debug('hasName', hasName, testName, 'hasSize',
-                hasSize, testSize, 'hasMeasure', hasMeasure, testMeasure)
+            log.info(`hasName=${hasName}-${testName} hasSize=${hasSize}-${testSize} hasMeasure=${hasMeasure}-${testMeasure} testCorrupted=${testCorrupted}`)
 
-            shouldRemove = ((!hasName) || (hasName && testName))
-                && ((!hasSize) || (hasSize && testSize))
-                && ((!hasMeasure) || (hasMeasure && testMeasure))
+            /**
+             * 根据给定的条件判断是否应该移除某个项目。
+             * 该逻辑根据项目是否有名称、大小和度量来决定是否移除。
+             * 
+             * @param {boolean} hasName - 项目是否有名称。
+             * @param {boolean} hasSize - 项目是否有大小。
+             * @param {boolean} hasMeasure - 项目是否有度量。
+             * @param {boolean} testName - 测试项目的名称。
+             * @param {boolean} testSize - 测试项目的大小。
+             * @param {boolean} testMeasure - 测试项目的度量。
+             * @returns {boolean} shouldRemove - 根据条件判断是否应该移除项目。
+             */
+            if (hasName && hasSize && hasMeasure) {
+                // 当项目同时具有名称、大小和度量时，只有当测试项目也同时满足这些条件时，才应该移除
+                shouldRemove = testName && testSize && testMeasure;
+            } else if (!hasName) {
+                // 当项目没有名称时，只有当测试项目也无名称且有大小和度量时，才应该移除
+                shouldRemove = testSize && testMeasure;
+            } else if (!hasSize) {
+                // 当项目没有大小时，只有当测试项目有名称且无大小但有度量时，才应该移除
+                shouldRemove = testName && testMeasure;
+            } else if (!hasMeasure) {
+                // 当项目没有度量时，只有当测试项目有名称和大小但无度量时，才应该移除
+                shouldRemove = testName && testSize;
+            } else {
+                // 当项目既没有名称、大小也没有度量时，不应移除
+                shouldRemove = false;
+            }
         }
         if (testCorrupted) {
             shouldRemove = true;
@@ -457,7 +479,7 @@ async function preRemoveArgs(f, options) {
         if (shouldRemove) {
             log.show(
                 "PreRemove add:",
-                `${f.index}/${c.total} ${helper.pathShort(fileSrc, 32)} ${itemDesc}`);
+                `${f.index}/${c.total} ${helper.pathShort(fileSrc, 32)} ${itemDesc} ${testCorrupted}`);
             log.fileLog(`Prepared: ${f.index}/${c.total} <${fileSrc}> ${itemDesc}`, "PreRemove");
         } else {
             (testName || testSize || testMeasure) && log.info(
