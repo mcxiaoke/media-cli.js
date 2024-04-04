@@ -327,9 +327,13 @@ function createNewNameByMode(f, argv) {
     } else if (mode == MODE_FIXENC) {
         // 当模式为MODE_FIXENC时，对文件路径进行特定的编码修复处理
         // 对旧基础路径进行中日韩文字编码修复
-        oldBase = fixCJKEnc(oldBase);
+        let [fs, ft] = fixCJKEnc(oldBase);
+        oldBase = fs;
         // 将目录路径分割，并对每个部分进行编码修复
-        const dirNamesFixed = dir.split(path.sep).map(s => fixCJKEnc(s));
+        const dirNamesFixed = dir.split(path.sep).map(s => {
+            let [rs, rt] = fixCJKEnc(s)
+            return rs;
+        });
         // 重新组合修复后的目录路径
         const dirFixed = path.join(...dirNamesFixed);
         // 生成修复后的新路径，包括旧基础路径和文件扩展名
@@ -346,8 +350,6 @@ function createNewNameByMode(f, argv) {
         prefix = "";
     }
     let fullBase = prefix.length > 0 ? (prefix + sep + oldBase) : oldBase;
-    log.showGray(base)
-    log.showGray(fullBase)
     if (mode !== MODE_TC2SC && mode !== MODE_FIXENC) {
         // 去除首位空白和特殊字符
         fullBase = fullBase.replaceAll(reStripUglyChars, "");
@@ -375,12 +377,15 @@ function createNewNameByMode(f, argv) {
     }
     nameDuplicateSet.add(newPath);
     if (f.skipped) {
-        log.fileLog(`Skip: ${ipx} ${f.path}`, logTag);
+        // log.fileLog(`Skip: ${ipx} ${f.path}`, logTag);
+        // log.showGray(logTag, `Skip: ${ipx} ${f.path}`);
     } else {
         f.outName = newName;
         f.outPath = newPath;
-        log.show(logTag, `${ipx} ${chalk.cyan(helper.pathShort(f.path, 36))} => ${chalk.green(newName)}`);
-        log.fileLog(`Prepare: ${ipx} <${f.path}> => ${newName}`, logTag);
+        log.show(logTag, `${ipx} ${f.path}`);
+        log.showGreen(logTag, `${ipx} ${newPath}`);
+        log.fileLog(`Prepare: ${ipx} <${f.path}> [FROM]`, logTag);
+        log.fileLog(`Prepare: ${ipx} <${newPath}> [TOTO]`, logTag);
     }
     return f;
 }

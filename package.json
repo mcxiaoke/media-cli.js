@@ -43,6 +43,8 @@
     "chardet": "^2.0.0",
     "chinese-conv": "^1.1.0",
     "cli-progress": "^3.12.0",
+    "cnchar": "^3.2.6",
+    "cnchar-trad": "^3.2.6",
     "dayjs": "^1.11.7",
     "execa": "^8.0.1",
     "exif-reader": "^2.0.1",

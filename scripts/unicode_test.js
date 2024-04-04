@@ -1,7 +1,10 @@
-import iconv from 'iconv-lite';
-import { strHasHiraKana } from '../lib/unicode.js';
-import { CHINESE_CHARS_7000 } from '../lib/unicode_data.js';
-
+import fs from 'fs-extra';
+import os from 'os';
+import path from 'path';
+import { fixCJKEncImpl, REGEX_MESSY_CJK } from '../lib/encoding.js';
+import { strOnlyChinese, strOnlyJapanese } from '../lib/unicode.js';
+import { CHINESE_CHARS_3500, CHINESE_CHARS_7000 } from '../lib/unicode_data.js';
+// log.setVerbose(1);
 
 // https://github.com/bnoordhuis/node-iconv/
 const ENC_LIST = [
@@ -9,76 +12,138 @@ const ENC_LIST = [
     'UTF8',
     'UTF-16',
     'GBK',
+    // 'BIG5',
     'SHIFT_JIS',
     'EUC-JP',
-    'CP949',
-    'EUC-KR',
-    'KOI8-R',
-    'KOI8-U',
-    'KOI8-RU',
+    // 'CP949',
+    // 'EUC-KR',
 ]
 
-
-const JAPANESE_KANA = 'ぁあぃいぅうぇえぉおかがきぎくぐけげこごさざしじすずせぜそぞただちぢっつづてでとどなにぬねのはばぱひびぴふぶぷへべぺほぼぽまみむめもゃやゅゆょよらりるれろゎわゐゑをんゔゕゖゝゞゟァアィイゥウェエォオカガキギクグケゲコゴサザシジスズセゼソゾタダチヂッツヅテデトドナニヌネノハバパヒビピフブプヘベペホボポマミムメモャヤュユョヨラリルレロヮワヰヱヲンヴヵヶヷヸヹヺーヽヾヿ'
-const REGEX_INVALID_CJK = /[値倫倰倲倴倿偀偁偂偄偅偆偉偊偋偍偐偑偒偓偔偖偗偘偙偛偝偞偟偠偡偢偣偤偦偧偨偩偪偫偭偮偯偰偱偳側偵偸偹偺偼偽傁傂傃傄傆傇傉傊傋傌傎傏傐傑傒傓傔傕傖傗傘備傚傛傜傝傞傟傠傡傢傤傦傪傫傽傾傿僀僁僂僃僄僅僆僈僉僊僋僌働僎僐僑僒僓僔僕僗僘僙僛僜僝僞僟僠僡僢僣僤僥僨僩僪僫僯僱僲僴僶僷僸價僺僼僽僾僿儀儁儂儃億儅儈儉儊儌儍儎儏儐儑儓儔儕儖儗儘儙儚儛儜儝儞償儠儢儤儦儨優儬儮儰儲儴儶儸儺儼儽儾囥夈嬨嶃忋戙撱曘椼欍涖濄熴銇銈銉僼儕乕僫嫮惂庬晅偗漶囹芑苈蓴瑣糀瑩椹楝愛]/u
-
-const REGEX_INVALID_UNICODE = /[\u00a0-\u00bf\u00c0-\u017f\u0400-\u1cff\u2000-\u206f\u2500-\u257f\u0e00-\u0e7f\u3400-\u4dbf\uac00-\ud7af\ufff0-\uffff]/u
-
 function charUnique(str) {
-    return String.prototype.concat.call(...new Set(str));
+    return (String.prototype.concat.call(...new Set(str))).split('').sort((a, b) => a.localeCompare(b)).join('');
 }
 
-// \u7b80\u5355\u4e71\u7801\u6062\u590d\u653b\u7565
-const s0 = '简单乱码恢复攻略'
-// \u50fc\u5115\u4e55\u50eb\u5aee\u60c2\u5eac\u6645\u5057
-const s1 = '僼儕乕僫嫮惂庬晅偗'
-// \u30d5\u30ea\u30fc\u30ca\u5f37\u5236\u7a2e\u4ed8\u3051
-const s2 = 'フリーナ強制種付け'
-const s3 = 'J仠儌僨儖傢偐傜偣両 偍傑偲傔 價僉僯偺傒 儊僗僈僉JC 0001'
-
-
-// && !REGEX_INVALID_UNICODE.test(strDecoded)
-// && !REGEX_INVALID_CJK.test(strDecoded)
-
-function fixJapaneseEncoding() {
-    console.log(`${"FromEncoding".padEnd(16, ' ')}${"ToEncoding".padEnd(16, ' ')}${"ResultString".padEnd(40, ' ')}Comment`)
-    for (const enc1 of ENC_LIST) {
-
-        for (const enc2 of ENC_LIST) {
-            try {
-                const strBuffer = iconv.encode(s3, enc1)
-                const strDecoded = iconv.decode(strBuffer, enc2)
-                if (!strDecoded?.includes('?')
-                    && !REGEX_INVALID_UNICODE.test(strDecoded)
-                    && !REGEX_INVALID_CJK.test(strDecoded)
-                ) {
-                    console.log(`${enc1.padEnd(16, ' ')}${enc2.padEnd(16, ' ')}${strDecoded.padEnd(40, ' ')}`, strHasHiraKana(strDecoded))
-                }
-            } catch (error) {
-                // console.log('??????')
-            }
-        }
+function fixEnc(str) {
+    const results = fixCJKEncImpl(str, ENC_LIST, ENC_LIST)
+    console.log('-------------------')
+    for (const entry of results) {
+        console.log(entry.join(' '))
     }
+    console.log('INPUT:', [str])
+    console.log('OUPUT:', results[0])
 }
 
-function test2() {
-    const s1d = iconv.decode(iconv.encode(s1, "gbk"), 'shift_jis')
-    const s2d = iconv.decode(iconv.encode(s2, "shift_jis"), 'gbk')
-    console.log(s1d)
-    console.log(s2d)
-    console.log(s1 === s2d, s2 === s1d)
-}
-
-function test3() {
+function normalizeChars() {
     const c7000 = CHINESE_CHARS_7000
-    const chars = '漶囹芑苈蓴瑣糀瑩椹楝愛城病堡'
+    const c3500 = CHINESE_CHARS_3500
+    const chars = REGEX_MESSY_CJK + ''
     const valid = []
     for (const c of chars) {
-        if (!CHINESE_CHARS_7000.includes(c)) {
+        if (!c3500.includes(c) && !/[\s]+/u.test(c)) {
             valid.push(c)
         }
     }
-    console.log(valid.join(''))
+    let sb = valid.join('').replaceAll(/[\u0001-\u3fff\uffe0-\uffff\p{ASCII}\p{sc=Kana}\p{sc=Hira}]/ugi, '')
+    sb = sb.replaceAll(/\s+/gi, '')
+    sb = charUnique(sb)
+    if (chars !== sb) {
+        console.log('messy chars changed:', sb.length)
+        fs.writeFileSync(path.join(os.tmpdir(), 'mediac_messy_chars.txt'), sb)
+    }
+
 }
 
-fixJapaneseEncoding()
+normalizeChars()
+
+let soj = strOnlyJapanese;
+let soc = strOnlyChinese;
+
+/*
+示例
+如果转换结果里有问号？，说明有字节丢失，无法无损还原
+字符串 阿戈魔AGM
+'飩\ue6bf袈귩䆔䵇' s.encode('utf8').decode('utf16')
+'é˜¿æˆˆé\xad”AGM' s.encode('utf8').decode('cp1252')
+'髦ｿ謌磯ｭ尿GM' s.encode('utf8').decode('shift_jis')
+'闃挎垐榄擜GM' s.encode('utf8').decode('gbk')
+'垻滣杺AGM' s.encode('shift_jis').decode('gbk')
+'ˆ¢œ÷–‚AGM' s.encode('shift_jis').decode('cp1252')
+'°¢¸êÄ§AGM' s.encode('gbk').decode('cp1252')
+'陝資藹AGM' s.encode('gbk').decode('big5')
+*/
+
+let messyStr = ''
+messyStr = '關梧眠逕ｻ貂｣'
+messyStr = '雋槫ｽｱ(Sadakage)'
+messyStr = '2024-02-13 05-502024.2 灏忕箶1'
+messyStr = '2023-10-31 21-54 [clip锛弍sd]GRID TECTOR 鍏姳'
+messyStr = 'GRID TECTOR讎句｣ｴJPG蟐怜ｔ'
+messyStr = '讎句｣ｴ蛛ｺ蟄句｣灘ｪ怜ｔ蟠悟い蛛｣'
+messyStr = '2022-11-10-郤ｳ隘ｿ螯ｲ-4739248'
+messyStr = '灏兼捣涔冲ご鍘讳簡'
+messyStr = '蜊｡螟ｫ蜊｡'
+messyStr = '閧我ｸ晉沿'
+messyStr = '髮ｷ逾櫁｣ｸ1'
+messyStr = '蜈ｨ陬ｸ4'
+messyStr = '闔ｫ螽懈ｹｿ霄ｫ'
+messyStr = '遐らｳ也區濶ｲ'
+messyStr = '遐らｳ夜ｻ題牡'
+messyStr = '闔ｫ螽懈焔驕ｮ謖｡1K'
+messyStr = '闔ｫ螽廱K'
+messyStr = '貂ｩ霑ｪ2023.2.22'
+messyStr = '遉ｾ逡應ｺ秘ヮ'
+messyStr = '灏兼捣涔冲ご鍘讳簡'
+messyStr = '灏兼捣涔冲ご鍘讳簡涔虫眮'
+messyStr = '逵ｼ鄂ｩ菴捺ｶｲ'
+messyStr = '逵ｼ鄂ｩ閭ｸ雍ｴK'
+messyStr = '蜴ｻ豌ｴ謇区恪K'
+messyStr = '逵溽ｩｺ'
+messyStr = '鬥呵拷蟾ｫ螂ｳ' //香草巫女
+messyStr = '濶ｲ髦ｿ陌取藻霍､'
+messyStr = '霎ｾ蟆碑ｾｾ蟆ｼ螟ｮ'
+messyStr = '蜿ｯ辷ｱ蝟ｵ'
+messyStr = '鬚ｨ髻ｳ'
+messyStr = '.澹涘眴 .壛屆廋惓'
+messyStr = '隗｣豈奪'
+messyStr = '鐒￠槻鍌欙紵'
+messyStr = '灞嬩笂'
+messyStr = '蜈育函' // 先生
+messyStr = '遨ｹ'
+messyStr = '鍵山雛'
+messyStr = '澶溿兓閮ㄥ眿'
+messyStr = '扇風機'
+messyStr = '瀹呴厤'
+messyStr = '鮴呵拷'
+messyStr = '鬯ｼ驥晁拷 2023.01.23'
+messyStr = '閫叉崡'
+messyStr = '闃挎垐榄擜GM'
+messyStr = '垻滣杺AGM'
+messyStr = '2024-01-11 11-26鄒主ｰ大･ｳpsd貅先枚莉ｶ'
+messyStr = '闍ｱ莉吝ｺｧ'
+messyStr = '闔ｱ闔守正ﾂｷ譁ｯ謇倡音'
+
+
+if (process.argv.length > 2) {
+    fixEnc(process.argv[2])
+} else {
+    fixEnc(messyStr)
+}
+let aa = [], bb = [], cc = []
+for (let i = 0; i < messyStr.length; i++) {
+    aa.push(messyStr.charAt(i))
+}
+for (let i = 0; i < messyStr.length; i++) {
+    bb.push(strOnlyChinese(messyStr.charAt(i)) ? 1 : 0)
+}
+for (let i = 0; i < messyStr.length; i++) {
+    cc.push(strOnlyJapanese(messyStr.charAt(i)) ? 1 : 0)
+}
+console.log('char', aa.join(' '))
+console.log('chnv', bb.join(' '))
+console.log('jpnv', cc.join(' '))
+
+
+console.log(REGEX_MESSY_CJK.test('鬼針草 2023.01.23'))
+console.log(REGEX_MESSY_CJK.test('虍幖耒陉归 2023.01.23'))
+console.log(REGEX_MESSY_CJK.test('鬯ｼ驥晁拷 2023.01.23'))
+
