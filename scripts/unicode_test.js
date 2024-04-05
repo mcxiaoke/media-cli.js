@@ -28,8 +28,9 @@ const ENC_LIST = [
 function normalizeChars(filename = 'messy_hanzi.txt') {
     const c7000 = CHINESE_CHARS_7000
     const c3500 = CHINESE_CHARS_3500
+    const dataDir = path.join(path.dirname(__dirname), 'data')
     const libDir = path.join(path.dirname(__dirname), 'lib')
-    // const fileChars = fs.readFileSync(path.join(libDir, 'aa.txt'), 'utf8')
+    // const fileChars = fs.readFileSync(path.join(dataDir, 'messy_sample.txt'), 'utf8')
     const chars = enc.REGEX_MESSY_CJK + ''
     const valid = []
     for (const c of chars) {
