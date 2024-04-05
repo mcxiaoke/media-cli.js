@@ -25,13 +25,15 @@ const ENC_LIST = [
     // 'EUC-KR',
 ]
 
-function normalizeChars() {
+function normalizeChars(filename = 'messy_hanzi.txt') {
     const c7000 = CHINESE_CHARS_7000
     const c3500 = CHINESE_CHARS_3500
+    const libDir = path.join(path.dirname(__dirname), 'lib')
+    // const fileChars = fs.readFileSync(path.join(libDir, 'aa.txt'), 'utf8')
     const chars = enc.REGEX_MESSY_CJK + ''
     const valid = []
     for (const c of chars) {
-        if (!c3500.includes(c) && !/[\s]+/u.test(c)) {
+        if (!c7000.includes(c) && !/[\s]+/u.test(c)) {
             valid.push(c)
         }
     }
@@ -40,9 +42,9 @@ function normalizeChars() {
     charsChanged = charUnique(charsChanged)
     if (chars !== charsChanged) {
         console.log('messy chars changed:', charsChanged.length)
-        fs.writeFileSync(path.join(os.tmpdir(), 'messy_hanzi.txt'), charsChanged)
-        const libDir = path.join(path.dirname(__dirname), 'lib')
-        fs.writeFileSync(path.join(libDir, 'messy_hanzi.txt'), charsChanged)
+        fs.writeFileSync(path.join(os.tmpdir(), filename), charsChanged)
+
+        fs.writeFileSync(path.join(libDir, filename), charsChanged)
     }
 
 }
