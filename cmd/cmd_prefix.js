@@ -16,7 +16,7 @@ import path from "path";
 
 import { asyncFilter } from '../lib/core.js';
 import * as log from '../lib/debug.js';
-import { fixCJKEnc } from '../lib/encoding.js';
+import * as enc from '../lib/encoding.js';
 import * as mf from '../lib/file.js';
 import * as helper from '../lib/helper.js';
 import { renameFiles } from "./cmd_shared.js";
@@ -237,6 +237,7 @@ function parseNameMode(argv) {
     return mode;
 }
 
+let badUnicodeCount = 0;
 // 重复文件名Set，检测重复，防止覆盖
 const nameDuplicateSet = new Set();
 function createNewNameByMode(f, argv) {
@@ -325,14 +326,18 @@ function createNewNameByMode(f, argv) {
     if (mode === MODE_TC2SC) {
         oldBase = sify(oldBase);
     } else if (mode == MODE_FIXENC) {
+        const strPath = path.resolve(f.path).split(path.sep).join(' ')
+        if (enc.hasBadUnicode(strPath)) {
+            log.show(logTag, `Bad:${++badUnicodeCount}`, f.path)
+        }
         // 当模式为MODE_FIXENC时，对文件路径进行特定的编码修复处理
         // 对旧基础路径进行中日韩文字编码修复
-        let [fs, ft] = fixCJKEnc(oldBase);
-        oldBase = fs;
+        let [fs, ft] = enc.fixCJKEnc(oldBase);
+        oldBase = fs.trim();
         // 将目录路径分割，并对每个部分进行编码修复
         const dirNamesFixed = dir.split(path.sep).map(s => {
-            let [rs, rt] = fixCJKEnc(s)
-            return rs;
+            let [rs, rt] = enc.fixCJKEnc(s)
+            return rs.trim();
         });
         // 重新组合修复后的目录路径
         const dirFixed = path.join(...dirNamesFixed);
