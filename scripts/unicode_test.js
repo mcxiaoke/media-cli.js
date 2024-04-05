@@ -1,15 +1,13 @@
 import fs from 'fs-extra';
+import os from 'os';
 import path from 'path';
 import * as enc from '../lib/encoding.js';
 import * as unicode from '../lib/unicode.js';
-
 
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
-
 
 import { CHINESE_CHARS_3500, CHINESE_CHARS_7000 } from '../lib/unicode_data.js';
 // log.setVerbose(1);
@@ -42,8 +40,9 @@ function normalizeChars() {
     charsChanged = charUnique(charsChanged)
     if (chars !== charsChanged) {
         console.log('messy chars changed:', charsChanged.length)
-        // fs.writeFileSync(path.join(os.tmpdir(), 'mediac_messy_chars.txt'), sb)
-        fs.writeFileSync(path.join(__dirname, 'messy_hanzi.txt'), charsChanged)
+        fs.writeFileSync(path.join(os.tmpdir(), 'messy_hanzi.txt'), charsChanged)
+        const libDir = path.join(path.dirname(__dirname), 'lib')
+        fs.writeFileSync(path.join(libDir, 'messy_hanzi.txt'), charsChanged)
     }
 
 }
@@ -76,9 +75,5 @@ if (process.argv.length > 2) {
     fixEnc(messyStr)
 }
 
-// messyStr = '2022-02-27 10-30-自己紹介動画NG集遅刻遅刻！'
-
 console.log(messyStr, unicode.strOnlyChinese(messyStr), unicode.strOnlyJapanese(messyStr))
 console.log(enc.REGEX_MESSY_CJK.test(messyStr), enc.REGEX_MESSY_CJK_EXT.test(messyStr), enc.REGEX_MESSY_UNICODE.test(messyStr))
-console.log(unicode.strOnlyChinese('2024-01-10 06-00大鳳背面座位x'))
-console.log(unicode.strOnlyJapanese('2024-01-10 06-00大鳳背面座位x'))
