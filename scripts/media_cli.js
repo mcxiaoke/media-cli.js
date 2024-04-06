@@ -141,6 +141,8 @@ async function main() {
     .command(await import("../cmd/cmd_prefix.js"))
     // 命令 文件名修复 乱码修复 文件名净化
     .command(await import("../cmd/cmd_fixname.js"))
+    // 命令 智能解压ZIP文件，处理文件名乱码问题
+    .command(await import("../cmd/cmd_zipu.js"))
     .count("verbose")
     .alias("v", "verbose")
     .alias("h", "help")

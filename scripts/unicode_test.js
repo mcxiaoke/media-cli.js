@@ -9,7 +9,7 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-import { CHINESE_CHARS_3500, CHINESE_CHARS_7000 } from '../lib/unicode_data.js';
+import { CHINESE_CHARS_3500, CHINESE_CHARS_7000, JAPANESE_HAN } from '../lib/unicode_data.js';
 // log.setVerbose(1);
 
 // https://github.com/bnoordhuis/node-iconv/
@@ -28,13 +28,17 @@ const ENC_LIST = [
 function normalizeChars(filename = 'messy_hanzi.txt') {
     const c7000 = CHINESE_CHARS_7000
     const c3500 = CHINESE_CHARS_3500
+    const jpHanzi = JAPANESE_HAN
     const dataDir = path.join(path.dirname(__dirname), 'data')
     const libDir = path.join(path.dirname(__dirname), 'lib')
     // const fileChars = fs.readFileSync(path.join(dataDir, 'messy_sample.txt'), 'utf8')
     const chars = enc.REGEX_MESSY_CJK + ''
     const valid = []
+    // 排除1 汉字属于中国常用汉字7000字的范围
+    // 排除2 汉字属于日本常用汉字2100字的范围
+    // 这样可以确保输出的汉字是不常用的
     for (const c of chars) {
-        if (!c7000.includes(c) && !/[\s]+/u.test(c)) {
+        if (!c7000.includes(c) && !jpHanzi.includes(c) && !/[\s]+/u.test(c)) {
             valid.push(c)
         }
     }

@@ -11,12 +11,11 @@ import chalk from 'chalk';
 import { sify } from 'chinese-conv';
 import fs from 'fs-extra';
 import inquirer from "inquirer";
+import { cpus } from "os";
+import pMap from 'p-map';
 import path from "path";
-
-
 import { asyncFilter } from '../lib/core.js';
 import * as log from '../lib/debug.js';
-import * as enc from '../lib/encoding.js';
 import * as mf from '../lib/file.js';
 import * as helper from '../lib/helper.js';
 import { renameFiles } from "./cmd_shared.js";
@@ -26,8 +25,6 @@ const MODE_DIR = "dirname";
 const MODE_PREFIX = "prefix";
 const MODE_MEDIA = "media";
 const MODE_CLEAN = 'clean';
-const MODE_TC2SC = "tc2sc"; // 繁体转简体
-const MODE_FIXENC = "fixenc"; // 乱码还原
 
 const NAME_LENGTH = 32;
 
@@ -67,7 +64,7 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             type: "string",
             default: MODE_AUTO,
             description: "filename prefix mode for output ",
-            choices: [MODE_AUTO, MODE_DIR, MODE_PREFIX, MODE_MEDIA, MODE_CLEAN, MODE_TC2SC, MODE_FIXENC],
+            choices: [MODE_AUTO, MODE_DIR, MODE_PREFIX, MODE_MEDIA, MODE_CLEAN],
         })
         .option("auto", {
             type: "boolean",
@@ -92,14 +89,6 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             alias: 'C',
             type: "boolean",
             description: "mode clean only",
-        })
-        .option("tc-to-sc", {
-            type: "boolean",
-            description: "mode tc to sc",
-        })
-        .option("fix-encoding", {
-            type: "boolean",
-            description: "mode fix encoding messy chars",
         })
         // 清理文件名中的特殊字符和非法字符
         .option("clean", {
@@ -158,7 +147,7 @@ const reImageName = /更新|合集|画师|图片|视频|插画|视图|作品|订
 // \p{ASCII} ASCII字符
 // \uFE10-\uFE1F 中文全角标点
 // \uFF01-\uFF11 中文全角标点
-const reNonChars = /[^\p{Unified_Ideograph}\p{P}\p{sc=Hira}0-z]/ugi;
+const reNonChars = /[^\p{Unified_Ideograph}\p{sc=Hira}\p{sc=Kana}\w]/ugi;
 // 匹配空白字符和特殊字符
 // https://www.unicode.org/charts/PDF/U3000.pdf
 // https://www.asciitable.com/
@@ -177,7 +166,7 @@ const reMediaDirName = /^图片|视频|电影|电视剧|Image|Video|Thumbs$/gi;
 // https://github.com/fujaru/aromanize-js
 // https://www.npmjs.com/package/aromanize
 // https://www.npmjs.com/package/@lazy-cjk/japanese
-function cleanAlbumName(nameString, sep, filename) {
+function cleanFileName(nameString, sep, filename, keepNumber = false) {
     let nameStr = nameString;
     // 去掉方括号 [xxx] 的内容
     // nameStr = nameStr.replaceAll(/\[.+?\]/gi, "");
@@ -186,19 +175,21 @@ function cleanAlbumName(nameString, sep, filename) {
     // 去掉视频说明文字
     nameStr = nameStr.replaceAll(reVideoName, "");
     // 去掉日期字符串
-    nameStr = nameStr.replaceAll(/\d+年\d+月/gi, "");
-    nameStr = nameStr.replaceAll(/\d{4}-\d{2}-\d{2}/gi, "");
+    if (!keepNumber) {
+        nameStr = nameStr.replaceAll(/\d+年\d+月/ugi, "");
+        nameStr = nameStr.replaceAll(/\d{4}-\d{2}-\d{2}/ugi, "");
+    }
     // 去掉 [100P5V 2.25GB] No.46 这种图片集说明
-    nameStr = nameStr.replaceAll(/\[\d+P.*(\d+V)?.*?\]/gi, "");
-    nameStr = nameStr.replaceAll(/No\.\d+|\d+\.?\d+GB?|\d+P|\d+V|NO\.(\d+)/gi, "$1");
+    nameStr = nameStr.replaceAll(/\[\d+P.*(\d+V)?.*?\]/ugi, "");
+    nameStr = nameStr.replaceAll(/No\.\d+|\d+\.?\d+GB?|\d+P|\d+V|NO\.(\d+)/ugi, "$1");
     if (helper.isImageFile(filename)) {
         // 去掉 2024.03.22 这种格式的日期
-        nameStr = nameStr.replaceAll(/\d{4}\.\d{2}\.\d{2}/gi, "");
+        nameStr = nameStr.replaceAll(/\d{4}\.\d{2}\.\d{2}/ugi, "");
     }
     // 去掉中文标点特殊符号
-    nameStr = nameStr.replaceAll(/[\u3000-\u303F\uFE10-\uFE1F\uFF01-\uFF11]/gi, "");
+    nameStr = nameStr.replaceAll(/[\u3000-\u303F\uFE10-\uFE2F]/ugi, "");
     // () [] {} <> . - 改为下划线
-    nameStr = nameStr.replaceAll(/[\(\)\[\]{}<>\.\-]/gi, sep);
+    nameStr = nameStr.replaceAll(/[\(\)\[\]{}<>\.\-]/ugi, sep);
     // 日文转罗马字母
     // nameStr = hepburn.fromKana(nameStr);
     // nameStr = wanakana.toRomaji(nameStr);
@@ -232,20 +223,16 @@ function parseNameMode(argv) {
     if (argv.dirname) { mode = MODE_DIR; }
     if (argv.media) { mode = MODE_MEDIA; }
     if (argv.cleanOnly) { mode = MODE_CLEAN; }
-    if (argv.tcToSc) { mode = MODE_TC2SC; }
-    if (argv.fixEncoding) { mode = MODE_FIXENC; }
     return mode;
 }
 
-let badUnicodeCount = 0;
 // 重复文件名Set，检测重复，防止覆盖
 const nameDuplicateSet = new Set();
-function createNewNameByMode(f, argv) {
+async function createNewNameByMode(f) {
+    const argv = f.argv;
     const mode = parseNameMode(argv);
     const nameLength = (mode === MODE_MEDIA
-        || mode === MODE_CLEAN
-        || mode === MODE_TC2SC
-        || mode === MODE_FIXENC) ?
+        || mode === MODE_CLEAN) ?
         200 : argv.length || NAME_LENGTH;
     const nameSlice = nameLength * -1;
     const [dir, base, ext] = helper.pathSplit(f.path);
@@ -264,8 +251,6 @@ function createNewNameByMode(f, argv) {
     let oldBase = base;
     switch (mode) {
         case MODE_CLEAN:
-        case MODE_TC2SC:
-        case MODE_FIXENC:
             {
                 sep = ".";
                 prefix = "";
@@ -311,43 +296,21 @@ function createNewNameByMode(f, argv) {
             break;
         default:
             throw new Error(`Invalid mode: ${mode} ${argv.mode}`)
-            break;
     }
 
-    if (mode !== MODE_CLEAN && mode !== MODE_TC2SC && mode !== MODE_FIXENC) {
+    if (mode !== MODE_CLEAN) {
         // 无有效前缀，报错退出
         if (!prefix || prefix.length == 0) {
             log.warn(logTag, `Invalid Prefix: ${helper.pathShort(f.path)} ${mode}`);
             throw new Error(`No prefix supplied!`);
         }
     }
+    log.show(prefix)
     let newPathFixed = null;
-    // 此模式仅执行简繁转换，不进行其它操作
-    if (mode === MODE_TC2SC) {
-        oldBase = sify(oldBase);
-    } else if (mode == MODE_FIXENC) {
-        const strPath = path.resolve(f.path).split(path.sep).join(' ')
-        if (enc.hasBadUnicode(strPath)) {
-            log.show(logTag, `Bad:${++badUnicodeCount}`, f.path)
-        }
-        // 当模式为MODE_FIXENC时，对文件路径进行特定的编码修复处理
-        // 对旧基础路径进行中日韩文字编码修复
-        let [fs, ft] = enc.fixCJKEnc(oldBase);
-        oldBase = fs.trim();
-        // 将目录路径分割，并对每个部分进行编码修复
-        const dirNamesFixed = dir.split(path.sep).map(s => {
-            let [rs, rt] = enc.fixCJKEnc(s)
-            return rs.trim();
-        });
-        // 重新组合修复后的目录路径
-        const dirFixed = path.join(...dirNamesFixed);
-        // 生成修复后的新路径，包括旧基础路径和文件扩展名
-        newPathFixed = path.join(dirFixed, `${oldBase}${ext}`);
-    }
     // 是否净化文件名，去掉各种特殊字符
-    else if (argv.clean || mode === MODE_CLEAN) {
-        prefix = cleanAlbumName(prefix, sep, oldName);
-        oldBase = cleanAlbumName(oldBase, sep, oldName);
+    if (argv.clean || mode === MODE_CLEAN) {
+        prefix = cleanFileName(prefix, sep, oldName, false);
+        oldBase = cleanFileName(oldBase, sep, oldName, true);
     }
     // 不添加重复前缀
     if (oldBase.includes(prefix)) {
@@ -355,24 +318,23 @@ function createNewNameByMode(f, argv) {
         prefix = "";
     }
     let fullBase = prefix.length > 0 ? (prefix + sep + oldBase) : oldBase;
-    if (mode !== MODE_TC2SC && mode !== MODE_FIXENC) {
-        // 去除首位空白和特殊字符
-        fullBase = fullBase.replaceAll(reStripUglyChars, "");
-        // 多余空白和字符替换为一个字符 _或.
-        fullBase = fullBase.replaceAll(reUglyChars, sep);
-        // 去掉重复词组，如目录名和人名
-        fullBase = Array.from(new Set(fullBase.split(sep))).join(sep)
-        fullBase = unicodeStrLength(fullBase) > nameLength ? fullBase.slice(nameSlice) : fullBase;
-        // 再次去掉首位的特殊字符和空白字符
-        fullBase = fullBase.replaceAll(reStripUglyChars, "");
-    }
+    // 去除首位空白和特殊字符
+    fullBase = fullBase.replaceAll(reStripUglyChars, "");
+    // 多余空白和字符替换为一个字符 _或.
+    fullBase = fullBase.replaceAll(reUglyChars, sep);
+    // 去掉重复词组，如目录名和人名
+    fullBase = Array.from(new Set(fullBase.split(sep))).join(sep)
+    fullBase = unicodeStrLength(fullBase) > nameLength ? fullBase.slice(nameSlice) : fullBase;
+    // 再次去掉首位的特殊字符和空白字符
+    fullBase = fullBase.replaceAll(reStripUglyChars, "");
+
     const newName = `${fullBase}${ext}`;
     const newPath = newPathFixed ?? path.join(dir, newName);
     if (newPath === f.path) {
         log.info(logTag, `Same: ${ipx} ${helper.pathShort(newPath)}`);
         f.skipped = true;
     }
-    else if (fs.existsSync(newPath)) {
+    else if (await fs.pathExists(newPath)) {
         log.info(logTag, `Exists: ${ipx} ${helper.pathShort(newPath)}`);
         f.skipped = true;
     }
@@ -444,12 +406,17 @@ const handler = async function cmdPrefix(argv) {
     files = files.map((f, i) => {
         return {
             ...f,
+            argv: argv,
             index: i,
             total: files.length,
         }
     })
     const fCount = files.length;
-    const tasks = files.map(f => createNewNameByMode(f, argv)).filter(f => f?.outName)
+    //const tasks = files.map(f => createNewNameByMode(f, argv)).filter(f => f?.outName)
+
+    let tasks = await pMap(files, createNewNameByMode, { concurrency: cpus().length * 4 })
+    tasks = tasks.filter(f => f?.outName)
+
     const tCount = tasks.length;
     log.showYellow(
         logTag, `Total ${fCount - tCount} files are skipped.`
