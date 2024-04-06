@@ -51,32 +51,40 @@ function normalizeChars(filename = 'messy_hanzi.txt') {
 }
 
 normalizeChars()
-let messyStr = ''
-// 这个特殊，解码出来有emoji JS转换会乱码
-// 2024-01-10 06-00大鳳背面座位
-// 2024-01-10 06-00螟ｧ魑ｳ閭碁擇蠎ｧ菴郊生
-// messyStr = '2024-01-10 06-00螟ｧ魑ｳ閭碁擇蠎ｧ菴郊生'
-messyStr = '2022-10-14-Skeb(先生)'
 
 function charUnique(str) {
     return (String.prototype.concat.call(...new Set(str)))
         .split('').sort((a, b) => a.localeCompare(b)).join('');
 }
 
+function showStatus(str, title = '') {
+    console.log(`================ ${title} ================`)
+    console.log(str)
+    console.log('REGEX_MESSY_CJK', enc.REGEX_MESSY_CJK.test(str))
+    console.log('REGEX_MESSY_CJK_EXT', enc.REGEX_MESSY_CJK_EXT.test(str))
+    console.log('REGEX_MESSY_UNICODE', enc.REGEX_MESSY_UNICODE.test(str))
+    console.log('hasBadUnicode', enc.hasBadUnicode(str))
+    console.log('strOnlyChinese', unicode.strOnlyChinese(str))
+    console.log('strOnlyJapanese', unicode.strOnlyJapanese(str))
+}
+
 function fixEnc(str) {
+    console.log(`Processing ${str}`)
     const results = enc.fixCJKEncImpl(str, ENC_LIST, ENC_LIST)
-    console.log('-------------------')
     for (const r of results) {
         console.log(r[0], '\t', r.slice(1))
     }
     console.log('INPUT:', [str])
     console.log('OUPUT:', results[0])
-}
-if (process.argv.length > 2) {
-    fixEnc(process.argv[2])
-} else {
-    fixEnc(messyStr)
+    return enc.fixCJKEnc(str)[0]
 }
 
-console.log(messyStr, unicode.strOnlyChinese(messyStr), unicode.strOnlyJapanese(messyStr))
-console.log(enc.REGEX_MESSY_CJK.test(messyStr), enc.REGEX_MESSY_CJK_EXT.test(messyStr), enc.REGEX_MESSY_UNICODE.test(messyStr))
+let fromStr = ''
+// 这个特殊，解码出来有emoji JS转换会乱码
+// 2024-01-10 06-00大鳳背面座位
+// 2024-01-10 06-00螟ｧ魑ｳ閭碁擇蠎ｧ菴郊生
+// messyStr = '2024-01-10 06-00螟ｧ魑ｳ閭碁擇蠎ｧ菴郊生'
+fromStr = '2021-12-06 02-30 宸濆唴楂樼敾璩増'
+const toStr = process.argv.length > 2 ? fixEnc(process.argv[2]) : fixEnc(fromStr)
+showStatus(fromStr, 'BEFORE FIX')
+showStatus(toStr, 'AFTER FIX')

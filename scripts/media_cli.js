@@ -139,16 +139,20 @@ async function main() {
     .command(await import("../cmd/cmd_moveup.js"))
     // 命令 重命名文件 添加前缀
     .command(await import("../cmd/cmd_prefix.js"))
+    // 命令 文件名修复 乱码修复 文件名净化
+    .command(await import("../cmd/cmd_fixname.js"))
     .count("verbose")
     .alias("v", "verbose")
     .alias("h", "help")
     .epilog(
-      "Media Cli: Image/Raw/Video filename processing utilities\nCopyright 2021-2025 @ Zhang Xiaoke"
+      "MediaCli is a multimedia file processing tool.\nCopyright 2021-2025 @ Zhang Xiaoke"
     )
     .demandCommand(1, chalk.red("Missing sub command you want to execute!"))
     .showHelpOnFail(true)
+    .version()
     .help()
     .middleware([configCli]);
+  const logFilePath = log.fileLogPath()
   try {
     log.show('==============================================================')
     const argv = await ya.parse();
@@ -158,8 +162,8 @@ async function main() {
     log.showRed(`${err.message}`);
   } finally {
     await log.flushFileLog();
-    if (await fs.pathExists(log.fileLogName())) {
-      const filePath = log.fileLogName().split(path.sep).join("/");
+    if (await fs.pathExists(logFilePath)) {
+      const filePath = logFilePath.split(path.sep).join("/");
       log.showYellow(`See logs: file:///${filePath}`);
       // await open(filePath)
     }
