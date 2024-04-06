@@ -102,7 +102,7 @@ const handler = async function cmdCompress(argv) {
     const purgeSource = argv.purge || false;
     log.show(`${logTag} input:`, root);
 
-    const RE_THUMB = /Z4K|M4K|feature|web|thumb$/i;
+    const RE_THUMB = /Z4K|P4K|M4K|feature|web|thumb$/i;
     const walkOpts = {
         needStats: true,
         entryFilter: (f) =>

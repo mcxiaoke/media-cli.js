@@ -1,9 +1,21 @@
 
 import path from 'path';
-import { REGEX_MESSY_CJK, REGEX_MESSY_CJK_EXT, REGEX_MESSY_UNICODE, checkBadUnicode, fixCJKEncImpl, hasBadUnicode } from '../lib/encoding.js';
+import { REGEX_MESSY_CJK, REGEX_MESSY_CJK_EXT, REGEX_MESSY_UNICODE, RE_CHARS_MOST_USED, checkBadUnicode, fixCJKEncImpl, hasBadUnicode } from '../lib/encoding.js';
 import { strOnlyChinese, strOnlyJapanese } from '../lib/unicode.js';
 
-
+import assert from "assert";
+import chalk from 'chalk';
+import * as cliProgress from "cli-progress";
+import dayjs from "dayjs";
+import exif from 'exif-reader';
+import fs from 'fs-extra';
+import inquirer from "inquirer";
+import { cpus } from "os";
+import pMap from 'p-map';
+import sharp from "sharp";
+import * as log from '../lib/debug.js';
+import * as mf from '../lib/file.js';
+import * as helper from '../lib/helper.js';
 
 
 import { fileURLToPath } from 'url';
@@ -42,6 +54,7 @@ function showStatus(str, title = '') {
     print('REGEX_MESSY_CJK', REGEX_MESSY_CJK.test(str))
     print('REGEX_MESSY_CJK_EXT', REGEX_MESSY_CJK_EXT.test(str))
     print('REGEX_MESSY_UNICODE', REGEX_MESSY_UNICODE.test(str))
+    print('RE_CHARS_MOST_USED', RE_CHARS_MOST_USED.test(str))
 }
 
 let fromStr = process.argv[2]
@@ -57,3 +70,15 @@ console.log('INPUT:', [fromStr])
 console.log('OUPUT:', results.pop())
 showStatus(fromStr, 'fromStr')
 showStatus(toStr, 'toStr')
+
+const data = await fs.readFile(process.argv[2], { encoding: 'utf8' })
+const lines = data.split('\r\n')
+for (const textLine of lines) {
+    if (textLine.startsWith('├─')) {
+        console.log(textLine)
+    }
+    if (hasBadUnicode(textLine) && !textLine.includes('?')) {
+        console.log(textLine)
+        console.log(checkBadUnicode(textLine))
+    }
+}

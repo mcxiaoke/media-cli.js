@@ -29,6 +29,7 @@ async function renameOneFile(f) {
         log.showYellow("Rename", "ignore", f.path);
         return;
     }
+    log.showGray(`Source: ${f.path}`);
     try {
         // 确保输出目录已存在，如果不存在则创建
         const outDir = path.dirname(outPath);

@@ -5,7 +5,6 @@ import { sify } from 'chinese-conv';
 import fs from 'fs-extra';
 import iconv from 'iconv-lite';
 import inquirer from "inquirer";
-import JSZip from 'jszip';
 import { cpus } from "os";
 import pMap from 'p-map';
 import path from "path";

@@ -32,7 +32,7 @@ function normalizeChars(filename = 'messy_hanzi.txt') {
     const dataDir = path.join(path.dirname(__dirname), 'data')
     const libDir = path.join(path.dirname(__dirname), 'lib')
     // const fileChars = fs.readFileSync(path.join(dataDir, 'messy_sample.txt'), 'utf8')
-    const chars = enc.REGEX_MESSY_CJK + ''
+    const chars = enc.REGEX_MESSY_CJK + '僟僽儖'
     const valid = []
     // 排除1 汉字属于中国常用汉字7000字的范围
     // 排除2 汉字属于日本常用汉字2100字的范围
@@ -85,10 +85,10 @@ function fixEnc(str) {
 
 let fromStr = ''
 // 这个特殊，解码出来有emoji JS转换会乱码
-// 2024-01-10 06-00大鳳背面座位
+// 2024-01-10 06-00大鳳背面座位 
 // 2024-01-10 06-00螟ｧ魑ｳ閭碁擇蠎ｧ菴郊生
 // messyStr = '2024-01-10 06-00螟ｧ魑ｳ閭碁擇蠎ｧ菴郊生'
-fromStr = '2021-12-06 02-30 宸濆唴楂樼敾璩増'
+fromStr = '│  │      DOT_像度画像です（PNG ×PX）-_49_Z4K'
 const toStr = process.argv.length > 2 ? fixEnc(process.argv[2]) : fixEnc(fromStr)
 showStatus(fromStr, 'BEFORE FIX')
 showStatus(toStr, 'AFTER FIX')

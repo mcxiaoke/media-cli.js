@@ -12,6 +12,7 @@ import inquirer from "inquirer";
 import { cpus } from "os";
 import pMap from 'p-map';
 import path from "path";
+import * as core from '../lib/core.js';
 import { asyncFilter } from '../lib/core.js';
 import * as log from '../lib/debug.js';
 import * as enc from '../lib/encoding.js';
@@ -42,6 +43,13 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             alias: "c",
             type: "boolean",
             description: "remove special chars in filename",
+        })
+        // 使用正则表达式替换文件名中的特定字符，比如问号
+        // 如果数组只有一项，就是替换这一项为空白，即删除模式字符串
+        // 如果有两项，就是替换第一项匹配的字符串为第二项指定的字符
+        .option("replace", {
+            type: "array",
+            description: "replace regex pattern in filename [from,to]",
         })
         // 修复文件名乱码
         .option("encoding", {
@@ -78,9 +86,9 @@ const handler = async function cmdFixName(argv) {
     }
     const startMs = Date.now();
     log.show(logTag, `Input: ${root}`);
-    if (!(argv.clean || argv.encoding || argv.tcsc)) {
-        log.error(`Error: clean|encoding|tcsc,at least one is required`);
-        throw new Error(`clean|encoding|tcsc,at least one is required`);
+    if (!(argv.clean || argv.encoding || argv.tcsc || argv.remove)) {
+        log.error(`Error: replace|clean|encoding|tcsc,at least one is required`);
+        throw new Error(`replace|clean|encoding|tcsc,at least one is required`);
     }
     let files = await mf.walk(root, {
         needStats: true,
@@ -167,6 +175,15 @@ async function fixFileName(f) {
     const strPath = path.resolve(f.path).split(path.sep).join(' ')
     let oldBase = base;
     let newDir = oldDir;
+    if (argv.replace?.[0]?.length > 0) {
+        const rFrom = argv.replace[0];
+        const rTo = argv.replace[1] || "";
+        // 执行文件名字符替换操作
+        // 按照正则表达式替换指定字符
+        // 如果rTo为空则等于删除字符
+        oldBase = oldBase.replaceAll(rFrom, rTo);
+        oldBase = oldBase.replaceAll(new RegExp(rFrom, "gu"), rTo);
+    }
     if (argv.encoding) {
         // 执行文件路径乱码修复操作
         // 对路径进行中日韩文字编码修复
@@ -179,10 +196,13 @@ async function fixFileName(f) {
         });
         // 重新组合修复后的目录路径
         newDir = path.join(...dirNamesFixed);
+        if (core.isUNCPath(oldDir)) {
+            newDir = "\\\\" + newDir;
+        }
         // 显示有乱码的文件路径
         if (enc.hasBadUnicode(strPath)) {
-            // log.showGray(logTag, `BadEnc:${++badCount}`, oldPath)
-            // log.fileLog(`BadEnc: ${ipx} <${oldPath}>`, logTag);
+            log.showGray(logTag, `BadEnc:${++badCount}`, oldPath)
+            log.fileLog(`BadEnc: ${ipx} <${oldPath}>`, logTag);
         }
     }
     if (argv.clean) {
@@ -197,15 +217,15 @@ async function fixFileName(f) {
     const newName = `${oldBase}${ext}`
     const newPath = path.join(newDir, newName);
     if (newPath === oldPath) {
-        log.info(logTag, `Same: ${ipx} ${helper.pathShort(newPath)}`);
+        log.info(logTag, `Ignore Same: ${ipx} ${helper.pathShort(newPath)}`);
         f.skipped = true;
     }
     else if (await fs.pathExists(newPath)) {
-        log.info(logTag, `Exists: ${ipx} ${helper.pathShort(newPath)}`);
+        log.info(logTag, `Ignore Exists: ${ipx} ${helper.pathShort(newPath)}`);
         f.skipped = true;
     }
     else if (nameDuplicateSet.has(newPath)) {
-        log.info(logTag, `Dup: ${ipx} ${helper.pathShort(newPath)}`);
+        log.info(logTag, `Ignore Dup: ${ipx} ${helper.pathShort(newPath)}`);
         f.skipped = true;
     }
 
