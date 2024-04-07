@@ -2,7 +2,7 @@
 
 MediaCli is a multimedia file processing tool that utilizes ffmpeg and exiftool, among others, to compress/convert/rename/delete/organize media files, including images, videos, and audio.
 
-created at 2021.07
+created at 2021.07, updated at 2024.04.07
 
 ## Installation
 
@@ -41,15 +41,18 @@ Commands:
                                           lder                     [aliases: mu]
   media_cli.js prefix <input> [output]    Rename files by append dir name or str
                                           ing                  [aliases: pf, px]
-
-Positionals:
-  input  Input folder that contains files                               [string]
+  media_cli.js fixname <input> [output]   Fix filenames (fix messy, clean, conve
+                                          rt tc to sc)        [aliases: fn, fxn]
+  media_cli.js zipu <input> [output]      Smart unzip command (auto detect encod
+                                          ing)             [aliases: zipunicode]
+  media_cli.js decode <strings...>        Decode text with messy or invalid char
+                                          s                        [aliases: dc]
 
 Options:
       --version  Show version number                                   [boolean]
   -h, --help     Show help                                             [boolean]
 
-Media Cli: Image/Raw/Video filename processing utilities
+MediaCli is a multimedia file processing tool.
 Copyright 2021-2025 @ Zhang Xiaoke
 
 ```
