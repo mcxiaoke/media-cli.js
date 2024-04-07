@@ -60,9 +60,9 @@ const builder = function addOptions(ya, helpOrVersionSet) {
 const reOnlyNum = /^\d+$/gi;
 const reNonChars = /[^\p{sc=Hani}\p{sc=Hira}\p{sc=Kana}\p{sc=Hang}\p{sc=Cyrl}\p{P}\uFF01-\uFF5E\u3001-\u3011\w\-_\.]/ugi;
 // 匹配空白字符和特殊字符
-const reUglyChars = /[《》【】\s_\-+=\.@#$%&\|]+/gi;
+const reUglyChars = /[《》【】\s_\-+=.@#$%&|]+/gi;
 // 匹配开头和结尾的空白和特殊字符
-const reStripUglyChars = /(^[\s_\-+=\.@#$%&\|]+)|([\s_\-+=\.@#$%&\|]+$)/gi;
+const reStripUglyChars = /(^[\s_\-+=.@#$%&|]+)|([\s_\-+=.@#$%&|]+$)/gi;
 
 // 重复文件名Set，检测重复，防止覆盖
 const nameDuplicateSet = new Set();

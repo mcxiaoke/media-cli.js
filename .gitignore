@@ -106,3 +106,10 @@ dist
 #custom
 data/
 Downloads/
+
+### IntelliJ IDEA ###
+.idea
+*.iws
+*.iml
+*.ipr
+/out/

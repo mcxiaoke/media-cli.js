@@ -302,7 +302,7 @@ async function cmdLRMove(argv) {
   let filenames = await mf.walkDir(root, { needStats: false, });
   filenames = filenames.filter(f => path.basename(f) === "JPEG");
   log.show("LRMove:", `Total ${filenames.length} JPEG folders found`);
-  if (filenames.length == 0) {
+  if (filenames.length === 0) {
     log.showGreen("Nothing to do, abort.");
     return;
   }
@@ -367,7 +367,7 @@ async function prepareThumbArgs(f, options) {
   } else {
     // 否则，将目录目标路径替换为'Thumbs'文件夹，或者如果目录目标路径和目录相同，则创建一个新目录（例如'202206_thumbs'）  
     dirDst = dir.replace(/JPEG|Photos/i, 'Thumbs');
-    if (dirDst == dir) {
+    if (dirDst === dir) {
       dirDst = path.join(path.dirname(dir), path.basename(dir) + '_thumbs');
     }
   }
@@ -452,7 +452,7 @@ async function cmdThumbs(argv) {
   if (skipped > 0) {
     log.showYellow(`cmdThumbs: ${skipped} thumbs skipped`)
   }
-  if (tasks.length == 0) {
+  if (tasks.length === 0) {
     log.showYellow("Nothing to do, abort.");
     return;
   }

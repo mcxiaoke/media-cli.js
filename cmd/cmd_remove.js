@@ -211,7 +211,7 @@ const handler = async function cmdRemove(argv) {
     if (skipped > 0) {
         log.showYellow(logTag, `${skipped} files are ignored`)
     }
-    if (tasks.length == 0) {
+    if (tasks.length === 0) {
         log.show(logTag, conditions);
         log.showYellow(logTag, "Nothing to do, abort.");
         return;

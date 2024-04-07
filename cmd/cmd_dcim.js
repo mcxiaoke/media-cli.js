@@ -132,7 +132,7 @@ const handler = async function cmdRename(argv) {
             `Total ${skippedByDate.length} media files are skipped by date`
         );
     }
-    if (files.length == 0) {
+    if (files.length === 0) {
         log.showYellow(LOG_TAG, "Nothing to do, exit now.");
         return;
     }

@@ -207,7 +207,7 @@ async function fixFileName(f) {
     }
     if (argv.clean) {
         // 执行净化文件名操作
-        oldBase = oldBase;
+        // todo 添加净化文件名操作
     }
     if (argv.tcsc) {
         // 执行繁体转简体操作

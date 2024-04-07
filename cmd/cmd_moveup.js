@@ -172,7 +172,7 @@ const handler = async function cmdMoveUp(argv) {
             }
         }
         log.showGreen(logTag, `${files.length} files in ${helper.pathShort(subDirPath)} are moved.`, testMode ? "[DRY RUN]" : "");
-    };
+    }
     log.showGreen(logTag, `Total ${movedCount}/${totalCount} files moved.`, testMode ? "[DRY RUN]" : "");
     log.showYellow(logTag, "There are some unused folders left after moving up operations.")
 

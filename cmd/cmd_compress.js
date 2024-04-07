@@ -113,12 +113,12 @@ const handler = async function cmdCompress(argv) {
     };
     log.showGreen(logTag, `Walking files ...`);
     let files = await mf.walk(root, walkOpts);
-    if (!files || files.length == 0) {
+    if (!files || files.length === 0) {
         log.showYellow(logTag, "no files found, abort.");
         return;
     }
     log.show(logTag, `total ${files.length} files found (all)`);
-    if (files.length == 0) {
+    if (files.length === 0) {
         log.showYellow("Nothing to do, abort.");
         return;
     }
@@ -164,7 +164,7 @@ const handler = async function cmdCompress(argv) {
     if (skipped > 0) {
         log.showYellow(logTag, `${skipped} thumbs skipped`)
     }
-    if (tasks.length == 0) {
+    if (tasks.length === 0) {
         log.showYellow("Nothing to do, abort.");
         return;
     }
