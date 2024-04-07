@@ -89,11 +89,11 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             // 移除损坏的文件
             description: "delete corrupted files",
         })
-        .option("deleteit", {
+        .option("purge", {
             type: "boolean",
             default: false,
             // 直接删除文件，不使用安全删除
-            description: "delete file really, no safe remove",
+            description: "delete file permanently, not just move it",
         })
         // 确认执行所有系统操作，非测试模式，如删除和重命名和移动操作
         .option("doit", {
@@ -140,7 +140,7 @@ const handler = async function cmdRemove(argv) {
             cHeight = y;
         }
     }
-    const deleteIt = argv.deleteIt || false;
+    const purge = argv.purge || false;
     const cLoose = argv.loose || false;
     const cCorrupted = argv.corrupted || false;
     const cSize = argv.size * 1024 || 0;
@@ -251,11 +251,13 @@ const handler = async function cmdRemove(argv) {
     } else {
         for (const task of tasks) {
             try {
-                if (deleteIt) {
+                // 此选项为永久删除
+                if (purge) {
                     await fs.remove(task.src);
                     log.show(logTag, `Deleted ${++index}/${tasks.length} ${helper.pathShort(task.src)}`);
                     log.fileLog(`Deleted: ${task.index} <${task.src}>`, logTag);
                 } else {
+                    // 此选项安全删除，仅移动到指定目录
                     await helper.safeRemove(task.src);
                     log.show(logTag, `Moved ${++index}/${tasks.length} ${helper.pathShort(task.src)}`);
                     log.fileLog(`Moved: ${task.index} <${task.src}>`, logTag);
@@ -443,35 +445,8 @@ async function preRemoveArgs(f, options) {
             shouldRemove = testName || testSize || testMeasure;
         } else {
             log.info(`hasName=${hasName}-${testName} hasSize=${hasSize}-${testSize} hasMeasure=${hasMeasure}-${testMeasure} testCorrupted=${testCorrupted}`)
+            shouldRemove = checkConditions();
 
-            /**
-             * 根据给定的条件判断是否应该移除某个项目。
-             * 该逻辑根据项目是否有名称、大小和度量来决定是否移除。
-             * 
-             * @param {boolean} hasName - 项目是否有名称。
-             * @param {boolean} hasSize - 项目是否有大小。
-             * @param {boolean} hasMeasure - 项目是否有度量。
-             * @param {boolean} testName - 测试项目的名称。
-             * @param {boolean} testSize - 测试项目的大小。
-             * @param {boolean} testMeasure - 测试项目的度量。
-             * @returns {boolean} shouldRemove - 根据条件判断是否应该移除项目。
-             */
-            if (hasName && hasSize && hasMeasure) {
-                // 当项目同时具有名称、大小和度量时，只有当测试项目也同时满足这些条件时，才应该移除
-                shouldRemove = testName && testSize && testMeasure;
-            } else if (!hasName) {
-                // 当项目没有名称时，只有当测试项目也无名称且有大小和度量时，才应该移除
-                shouldRemove = testSize && testMeasure;
-            } else if (!hasSize) {
-                // 当项目没有大小时，只有当测试项目有名称且无大小但有度量时，才应该移除
-                shouldRemove = testName && testMeasure;
-            } else if (!hasMeasure) {
-                // 当项目没有度量时，只有当测试项目有名称和大小但无度量时，才应该移除
-                shouldRemove = testName && testSize;
-            } else {
-                // 当项目既没有名称、大小也没有度量时，不应移除
-                shouldRemove = false;
-            }
         }
         if (testCorrupted) {
             shouldRemove = true;
@@ -492,5 +467,30 @@ async function preRemoveArgs(f, options) {
         log.error("PreRemove error:", error, fileSrc);
         log.fileLog(`Error: ${f.index} <${fileSrc}>`, "PreRemove");
         throw error;
+    }
+
+    function checkConditions() {
+        // 当三个条件都为真时
+        if (hasName && hasSize && hasMeasure) {
+            return testName && testSize && testMeasure;
+        }
+        // hasMeasure = false
+        else if (hasName && hasSize && !hasMeasure) {
+            return testName && testSize;
+        }
+        // hasName = false
+        else if (!hasName && hasSize && hasMeasure) {
+            return testSize && testMeasure;
+        }
+        // hasSize = false
+        else if (hasName && !hasSize && hasMeasure) {
+            return testName && testMeasure;
+        }
+        // 其他情况下，三个hasXXX条件只有一个为真， 
+        // hasXXX为false时 testXXX一定为false
+        // 所以可以简化测试方法
+        else {
+            return testName || testSize || testMeasure;
+        }
     }
 }
