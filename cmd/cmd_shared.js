@@ -29,16 +29,17 @@ async function renameOneFile(f) {
         log.showYellow("Rename", "ignore", f.path);
         return;
     }
-    log.showGray(`Source: ${f.path}`);
     try {
         // 确保输出目录已存在，如果不存在则创建
         const outDir = path.dirname(outPath);
         if (!await fs.pathExists(outDir)) {
             await fs.mkdirs(outDir);
         }
+
         // 使用 fs 模块的 rename 方法重命名文件，并等待操作完成  
         await fs.rename(f.path, outPath);
         // 打印重命名成功的日志信息，显示输出文件的路径  
+        log.showGray(`Source: ${f.path}`);
         log.show(`${chalk.green(`Renamed:`)} ${outPath}`);
         log.fileLog(`Done: <${f.path}> => ${f.outName}`, "Rename");
         return f;

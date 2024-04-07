@@ -32,13 +32,13 @@ function normalizeChars(filename = 'messy_hanzi.txt') {
     const dataDir = path.join(path.dirname(__dirname), 'data')
     const libDir = path.join(path.dirname(__dirname), 'lib')
     // const fileChars = fs.readFileSync(path.join(dataDir, 'messy_sample.txt'), 'utf8')
-    const chars = enc.REGEX_MESSY_CJK + '僟僽儖'
+    const chars = enc.REGEX_MESSY_CJK + '堄拲儗儞亃僱僄僊儖'
     const valid = []
     // 排除1 汉字属于中国常用汉字7000字的范围
-    // 排除2 汉字属于日本常用汉字2100字的范围
+    // x排除2 汉字属于日本常用汉字2100字的范围 !jpHanzi.includes(c)
     // 这样可以确保输出的汉字是不常用的
     for (const c of chars) {
-        if (!c7000.includes(c) && !jpHanzi.includes(c) && !/[\s]+/u.test(c)) {
+        if (!c7000.includes(c) && !/[\s]+/u.test(c)) {
             valid.push(c)
         }
     }

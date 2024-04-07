@@ -317,6 +317,8 @@ async function createNewNameByMode(f) {
         log.info(logTag, `IgnorePrefix: ${ipx} ${helper.pathShort(f.path)}`);
         prefix = "";
     }
+    // 确保文件名不含有文件系统不允许的非法字符
+    oldBase = helper.filenameSafe(oldBase);
     let fullBase = prefix.length > 0 ? (prefix + sep + oldBase) : oldBase;
     // 去除首位空白和特殊字符
     fullBase = fullBase.replaceAll(reStripUglyChars, "");

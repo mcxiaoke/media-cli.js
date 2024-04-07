@@ -213,6 +213,8 @@ async function fixFileName(f) {
         // 执行繁体转简体操作
         oldBase = sify(oldBase)
     }
+    // 确保文件名不含有文件系统不允许的非法字符
+    oldBase = helper.filenameSafe(oldBase);
     // 生成修复后的新路径，包括旧基础路径和文件扩展名
     const newName = `${oldBase}${ext}`
     const newPath = path.join(newDir, newName);
