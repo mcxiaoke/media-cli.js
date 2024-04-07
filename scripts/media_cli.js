@@ -39,11 +39,11 @@ async function main() {
   // https://github.com/yargs/yargs/blob/master/docs/advanced.md
   const ya = yargs(process.argv.slice(2));
   ya.usage("Usage: $0 <command> <input> [options]")
-    .positional("input", {
-      describe: "Input folder that contains files",
-      type: "string",
-      normalize: true,
-    })
+    // .positional("input", {
+    //   describe: "Input folder that contains files",
+    //   type: "string",
+    //   normalize: true,
+    // })
     // 测试命令，无作用
     .command(
       ["test", "tt", "$0"],
@@ -143,6 +143,8 @@ async function main() {
     .command(await import("../cmd/cmd_fixname.js"))
     // 命令 智能解压ZIP文件，处理文件名乱码问题
     .command(await import("../cmd/cmd_zipu.js"))
+    // 命令 乱码解析，猜测编码，输出可能正确的字符串
+    .command(await import("../cmd/cmd_decode.js"))
     .count("verbose")
     .alias("v", "verbose")
     .alias("h", "help")

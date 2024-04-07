@@ -187,11 +187,11 @@ async function fixFileName(f) {
     if (argv.encoding) {
         // 执行文件路径乱码修复操作
         // 对路径进行中日韩文字编码修复
-        let [fs, ft] = enc.fixCJKEnc(oldBase);
+        let [fs, ft] = enc.decodeText(oldBase);
         oldBase = fs.trim();
         // 将目录路径分割，并对每个部分进行编码修复
         const dirNamesFixed = oldDir.split(path.sep).map(s => {
-            let [rs, rt] = enc.fixCJKEnc(s)
+            let [rs, rt] = enc.decodeText(s)
             return rs.trim();
         });
         // 重新组合修复后的目录路径
