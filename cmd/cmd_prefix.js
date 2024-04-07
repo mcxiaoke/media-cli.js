@@ -120,7 +120,7 @@ const reVideoName = helper.combineRegexG(
     /WEB-DL|SMURF|Web|AAC5\.1|Atmos/,
     /H\.264|DD5\.1|DDP5\.1|AAC/,
     /DJWEB|Play|VINEnc|DSNP|END/,
-    /高清|特效|字幕组|公众号|画质|电影|搬运/,
+    /高清|特效|字幕组|公众号|电影|搬运/,
     /\[.+?\]/,
 )
 // 图片文件名各种前后缀
@@ -305,7 +305,7 @@ async function createNewNameByMode(f) {
             throw new Error(`No prefix supplied!`);
         }
     }
-    log.show(prefix)
+
     let newPathFixed = null;
     // 是否净化文件名，去掉各种特殊字符
     if (argv.clean || mode === MODE_CLEAN) {
@@ -351,8 +351,8 @@ async function createNewNameByMode(f) {
     } else {
         f.outName = newName;
         f.outPath = newPath;
-        log.show(logTag, `${ipx} ${f.path}`);
-        log.showGreen(logTag, `${ipx} ${newPath}`);
+        log.showGray(logTag, `FR: ${ipx} ${f.path}`);
+        log.show(logTag, `TO: ${ipx} ${newPath}`);
         log.fileLog(`Prepare: ${ipx} <${f.path}> [FROM]`, logTag);
         log.fileLog(`Prepare: ${ipx} <${newPath}> [TOTO]`, logTag);
     }
@@ -390,7 +390,6 @@ const handler = async function cmdPrefix(argv) {
     if (argv.include?.length >= 3) {
         // 处理include规则
         const pattern = new RegExp(argv.include, "gi");
-        log.showRed(pattern)
 
         files = await asyncFilter(files, x => x.path.match(pattern));
         log.show(logTag, `Total ${files.length} files left after include rules`);

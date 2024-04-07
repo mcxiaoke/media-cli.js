@@ -183,7 +183,7 @@ const handler = async function cmdRemove(argv) {
         withIndex: true,
     };
     log.showGreen(logTag, `Walking files, please waiting ...`);
-    const files = await mf.walk(root, walkOpts);
+    let files = await mf.walk(root, walkOpts);
     log.show(logTag, `total ${files.length} files found`);
 
     const conditions = {
@@ -199,10 +199,16 @@ const handler = async function cmdRemove(argv) {
         testMode,
     }
 
-    const prepareFunc = async f => {
-        return preRemoveArgs(f, conditions)
-    }
-    let tasks = await pMap(files, prepareFunc, { concurrency: cpus().length * 2 })
+    files = files.map((f, i) => {
+        return {
+            ...f,
+            index: i,
+            argv: argv,
+            total: files.length,
+            conditions: conditions,
+        }
+    })
+    let tasks = await pMap(files, preRemoveArgs, { concurrency: cpus().length * 2 })
 
     conditions.names = Array.from(cNames).slice(-5);
     const total = tasks.length;
@@ -288,12 +294,13 @@ function buildRemoveArgs(index, desc, shouldRemove, src) {
     };
 }
 
-async function preRemoveArgs(f, options) {
+async function preRemoveArgs(f) {
     const fileSrc = path.resolve(f.path);
     const fileName = path.basename(fileSrc);
     const [dir, base, ext] = helper.pathSplit(fileSrc);
 
-    const c = options || {};
+    const c = f.conditions || {};
+    const ipx = `${f.index}/${f.total}`
     //log.show("prepareRM options:", options);
     // 文件名列表规则
     const cNames = c.names || new Set();
@@ -309,9 +316,8 @@ async function preRemoveArgs(f, options) {
         shouldRemove = cReverse ? !nameInList : nameInList;
         itemDesc = `IN=${nameInList} R=${cReverse}`;
         log.show(
-            "preRemove[List] add:",
-            `${helper.pathShort(fileSrc)} ${itemDesc}`, f.index
-        );
+            `preRemove[List] add:${ipx}`,
+            `${helper.pathShort(fileSrc)} ${itemDesc}`);
         return buildRemoveArgs(f.index, itemDesc, shouldRemove, fileSrc);
     }
     // 文件名列表是单独规则，优先级最高，如果存在，直接返回，忽略其它条件
@@ -353,45 +359,48 @@ async function preRemoveArgs(f, options) {
             const st = await fs.stat(fileSrc);
             // size  < 10k , corrputed
             if (st?.size < 100 * 1024) {
-                log.showYellow("preRemove[Bad1]:", `${fileSrc}`);
+                log.showYellow("preRemove[Bad1]:", `${ipx} ${fileSrc}`);
                 itemDesc += " BadSize";
                 testCorrupted = true;
-            } else if (!(await fileTypeFromFile(fileSrc))) {
-                log.showYellow("preRemove[Bad2]:", `${fileSrc}`);
-                itemDesc += " Corrupted";
-                testCorrupted = true;
             } else {
-                log.debug("preRemove[Good]:", `${fileSrc}`);
+                const ft = await fileTypeFromFile(fileSrc);
+                if (!ft?.mime.includes('image')) {
+                    log.showYellow("preRemove[Bad2]:", `${ipx} ${fileSrc}`);
+                    itemDesc += " Corrupted";
+                    testCorrupted = true;
+                } else {
+                    log.info("preRemove[Good]:", `${ipx} ${fileSrc}`);
+                }
             }
         }
 
         // 首先检查名字正则匹配
-        if (hasName) {
+        if (!testCorrupted && hasName) {
             const fName = fileName.toLowerCase();
             const rp = new RegExp(cPattern, "gi");
             itemDesc += ` P=${cPattern}`;
             // 开头匹配，或末尾匹配，或正则匹配
             if (fName.startsWith(cPattern) || fName.endsWith(cPattern) || fName.match(rp)) {
                 log.info(
-                    "preRemove[N]:", `${fileName} [P=${rp}]`
+                    "preRemove[N]:", `${ipx} ${fileName} [P=${rp}]`
                 );
                 testName = true;
             } else {
                 log.debug(
-                    "preRemove[M]:", `${fileName} [P=${rp}]`
+                    "preRemove[M]:", `${ipx} ${fileName} [P=${rp}]`
                 );
             }
         }
 
         // 其次检查文件大小是否满足条件
-        if (hasSize) {
+        if (!testCorrupted && hasSize) {
             const fst = await fs.stat(fileSrc);
             const fSize = fst.size || 0;
             itemDesc += ` S=${helper.humanSize(fSize)}`
             if (fSize > 0 && fSize <= cSize) {
                 log.info(
                     "preRemove[S]:",
-                    `${fileName} [${helper.humanSize(fSize)}] [Size=${helper.humanSize(cSize)}]`
+                    `${ipx} ${fileName} [${helper.humanSize(fSize)}] [Size=${helper.humanSize(cSize)}]`
                 );
                 testSize = true;
             }
@@ -399,7 +408,7 @@ async function preRemoveArgs(f, options) {
 
         // 图片文件才检查宽高
         // 再次检查宽高是否满足条件
-        if (hasMeasure) {
+        if (!testCorrupted && hasMeasure) {
             if (isImageExt) {
                 try {
                     const s = sharp(fileSrc);
@@ -412,7 +421,7 @@ async function preRemoveArgs(f, options) {
                         if (fWidth <= cWidth && fHeight <= cHeight) {
                             log.info(
                                 "preRemove[M]:",
-                                `${fileName} ${fWidth}x${fHeight} [${cWidth}x${cHeight}]`
+                                `${ipx} ${fileName} ${fWidth}x${fHeight} [${cWidth}x${cHeight}]`
                             );
                             testMeasure = true;
                         }
@@ -421,50 +430,53 @@ async function preRemoveArgs(f, options) {
                         // 只提供宽要求
                         log.info(
                             "preRemove[M]:",
-                            `${fileName} ${fWidth}x${fHeight} [W=${cWidth}]`
+                            `${ipx} ${fileName} ${fWidth}x${fHeight} [W=${cWidth}]`
                         );
                         testMeasure = true;
                     } else if (cHeight > 0 && fHeight <= cHeight) {
                         // 只提供高要求
                         log.info(
                             "preRemove[M]:",
-                            `${fileName} ${fWidth}x${fHeight} [H=${cHeight}]`
+                            `${ipx} ${fileName} ${fWidth}x${fHeight} [H=${cHeight}]`
                         );
                         testMeasure = true;
                     }
                 } catch (error) {
-                    log.info("preRemove[M]:", `InvalidImage: ${fileName}`);
+                    log.info("preRemove[M]:", `${ipx} InvalidImage: ${fileName}`);
                 }
             } else {
-                log.info("preRemove[M]:", `NotImage: ${fileName}`);
+                log.info("preRemove[M]:", `${ipx} NotImage: ${fileName}`);
             }
         }
 
-        let shouldRemove = false;
-        if (cLoose) {
-            shouldRemove = testName || testSize || testMeasure;
-        } else {
-            log.info(`hasName=${hasName}-${testName} hasSize=${hasSize}-${testSize} hasMeasure=${hasMeasure}-${testMeasure} testCorrupted=${testCorrupted}`)
-            shouldRemove = checkConditions();
 
-        }
+        let shouldRemove = false;
+
         if (testCorrupted) {
             shouldRemove = true;
+        } else {
+            if (cLoose) {
+                shouldRemove = testName || testSize || testMeasure;
+            } else {
+                log.debug("PreRemove ", `${ipx} ${helper.pathShort(fileSrc)} hasName=${hasName}-${testName} hasSize=${hasSize}-${testSize} hasMeasure=${hasMeasure}-${testMeasure} testCorrupted=${testCorrupted}`)
+                shouldRemove = checkConditions();
+            }
         }
+
         if (shouldRemove) {
             log.show(
                 "PreRemove add:",
-                `${f.index}/${c.total} ${helper.pathShort(fileSrc, 32)} ${itemDesc} ${testCorrupted}`);
-            log.fileLog(`Prepared: ${f.index}/${c.total} <${fileSrc}> ${itemDesc}`, "PreRemove");
+                `${ipx} ${helper.pathShort(fileSrc, 32)} ${itemDesc} ${testCorrupted}`);
+            log.fileLog(`Prepared: ${ipx} <${fileSrc}> ${itemDesc}`, "PreRemove");
         } else {
             (testName || testSize || testMeasure) && log.info(
                 "PreRemove ignore:",
-                `${f.index}/${c.total} ${helper.pathShort(fileSrc, 32)} [${itemDesc}] (${testName} ${testSize} ${testMeasure})`);
+                `${ipx} ${helper.pathShort(fileSrc, 32)} [${itemDesc}] (${testName} ${testSize} ${testMeasure})`);
         }
         return buildRemoveArgs(f.index, itemDesc, shouldRemove, fileSrc);
 
     } catch (error) {
-        log.error("PreRemove error:", error, fileSrc);
+        log.error(`PreRemove ${ipx} error:`, error, fileSrc);
         log.fileLog(`Error: ${f.index} <${fileSrc}>`, "PreRemove");
         throw error;
     }

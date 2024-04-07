@@ -1,4 +1,4 @@
-
+#!/usr/bin/env node
 import chardet from 'chardet';
 import * as log from '../lib/debug.js';
 import * as enc from '../lib/encoding.js';
