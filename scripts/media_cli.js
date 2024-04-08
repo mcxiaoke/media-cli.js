@@ -1,4 +1,12 @@
 #!/usr/bin/env node
+/*
+ * File: media_cli.js
+ * Modified: 2024-04-08 22:21:01
+ * Author: mcxiaoke (github@mcxiaoke.com)
+ * License: Apache License 2.0
+ */
+
+
 import assert from "assert";
 import chalk from 'chalk';
 import dayjs from "dayjs";

@@ -21,6 +21,7 @@ import sharp from "sharp";
 import * as log from '../lib/debug.js';
 import * as mf from '../lib/file.js';
 import * as helper from '../lib/helper.js';
+const TYPE_LIST = ['a', 'f', 'd']
 
 export { aliases, builder, command, describe, handler };
 
@@ -75,6 +76,13 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             // 文件名列表文本文件，或者一个目录，里面包含的文件作为文件名列表来源
             description: "File name list file, or dir contains files for file name",
         })
+        // 要处理的文件类型 文件或目录或所有，默认只处理文件
+        .option("type", {
+            type: "choices",
+            choices: TYPE_LIST,
+            default: 'f',
+            description: "applied to file type (a=all,f=file,d=dir)",
+        })
         .option("reverse", {
             alias: "r",
             type: "boolean",
@@ -124,6 +132,11 @@ const handler = async function cmdRemove(argv) {
         log.show(logTag, argv);
         log.error(logTag, `required remove condition args not supplied`);
         throw new Error("required remove condition args not supplied");
+    }
+
+    const type = (argv.type || 'f').toLowerCase();
+    if (!TYPE_LIST.includes(type)) {
+        throw new Error(`Error: type must be one of ${TYPE_LIST}`);
     }
 
     let cWidth = 0;
@@ -178,13 +191,13 @@ const handler = async function cmdRemove(argv) {
 
     const walkOpts = {
         needStats: true,
-        entryFilter: (f) =>
-            f.stats.isFile(),
+        withDirs: type === 'd',
+        withFiles: type === 'a' || type === 'f',
         withIndex: true,
     };
-    log.showGreen(logTag, `Walking files, please waiting ...`);
+    log.showGreen(logTag, `Walking files, please waiting ... (${type})`);
     let files = await mf.walk(root, walkOpts);
-    log.show(logTag, `total ${files.length} files found`);
+    log.show(logTag, `total ${files.length} files found (${type})`);
 
     const conditions = {
         total: files.length,
@@ -223,7 +236,7 @@ const handler = async function cmdRemove(argv) {
         log.showYellow(logTag, "Nothing to do, abort.");
         return;
     }
-    log.showYellow(logTag, `${tasks.length} files to be removed`);
+    log.showYellow(logTag, `${tasks.length} files to be removed (type=${type})`);
     log.show(logTag, `task sample:`, tasks.slice(-1));
     log.showYellow(logTag, conditions);
     if (cNames && cNames.size > 0) {
@@ -231,7 +244,7 @@ const handler = async function cmdRemove(argv) {
         log.showYellow(logTag, `Attention: use file name list, ignore all other conditions`);
         log.showRed(logTag, `Attention: Will DELETE all files ${cReverse ? "NOT IN" : "IN"} the name list!`);
     }
-    log.fileLog(`Conditions: list=${cNames.size},loose=${cLoose},corrupted=${cCorrupted},width=${cWidth},height=${cHeight},size=${cSize / 1024}k,name=${cPattern}`, logTag);
+    log.fileLog(`Conditions: list=${cNames.size},loose=${cLoose},corrupted=${cCorrupted},width=${cWidth},height=${cHeight},size=${cSize / 1024}k,name=${cPattern},type=${type}`, logTag);
     testMode && log.showYellow("++++++++++ TEST MODE (DRY RUN) ++++++++++")
     const answer = await inquirer.prompt([
         {
@@ -239,7 +252,7 @@ const handler = async function cmdRemove(argv) {
             name: "yes",
             default: false,
             message: chalk.bold.red(
-                `Are you sure to remove ${tasks.length} files (total ${files.length}) using above conditions?`
+                `Are you sure to remove ${tasks.length} files (total ${files.length}) using above conditions (type=${type})?`
             ),
         },
     ]);
@@ -254,30 +267,31 @@ const handler = async function cmdRemove(argv) {
     let removedCount = 0;
     let index = 0;
     if (testMode) {
-        log.showYellow(logTag, `All ${tasks.length} files, BUT NO file removed in TEST MODE.`);
+        log.showYellow(logTag, `${tasks.length} files, NO file removed in TEST MODE.`);
     } else {
         for (const task of tasks) {
             try {
+                const flag = task.stats?.isDirectory() ? "D" : "F";
                 // 此选项为永久删除
                 if (purge) {
                     await fs.remove(task.src);
-                    log.show(logTag, `Deleted ${++index}/${tasks.length} ${helper.pathShort(task.src)}`);
-                    log.fileLog(`Deleted: ${task.index} <${task.src}>`, logTag);
+                    log.show(logTag, `Deleted ${++index}/${tasks.length} ${helper.pathShort(task.src)} ${flag}`);
+                    log.fileLog(`Deleted: ${task.index} <${task.src}> ${flag}`, logTag);
                 } else {
                     // 此选项安全删除，仅移动到指定目录
                     await helper.safeRemove(task.src);
-                    log.show(logTag, `Moved ${++index}/${tasks.length} ${helper.pathShort(task.src)}`);
-                    log.fileLog(`Moved: ${task.index} <${task.src}>`, logTag);
+                    log.show(logTag, `Moved ${++index}/${tasks.length} ${helper.pathShort(task.src)} ${flag}`);
+                    log.fileLog(`Moved: ${task.index} <${task.src}> ${flag}`, logTag);
                 }
                 ++removedCount;
             } catch (error) {
-                log.error(logTag, `failed to remove file ${task.src}`, error);
+                log.error(logTag, `failed to remove file ${task.src} ${flag}`, error);
             }
         }
     }
 
     log.showGreen(logTag, 'task endAt', dayjs().format())
-    log.showGreen(logTag, `${removedCount} files removed in ${helper.humanTime(startMs)}`)
+    log.showGreen(logTag, `${removedCount} files removed in ${helper.humanTime(startMs)} (${type})`)
 }
 
 async function readNameList(list) {
@@ -299,7 +313,7 @@ async function preRemoveArgs(f) {
     const fileSrc = path.resolve(f.path);
     const fileName = path.basename(fileSrc);
     const [dir, base, ext] = helper.pathSplit(fileSrc);
-
+    const flag = f.stats?.isDirectory() ? "D" : "F";
     const c = f.conditions || {};
     const ipx = `${f.index}/${f.total}`
     //log.show("prepareRM options:", options);
@@ -318,7 +332,7 @@ async function preRemoveArgs(f) {
         itemDesc = `IN=${nameInList} R=${cReverse}`;
         log.show(
             `preRemove[List] add:${ipx}`,
-            `${helper.pathShort(fileSrc)} ${itemDesc}`);
+            `${helper.pathShort(fileSrc)} ${itemDesc} ${flag}`);
         return buildRemoveArgs(f.index, itemDesc, shouldRemove, fileSrc);
     }
     // 文件名列表是单独规则，优先级最高，如果存在，直接返回，忽略其它条件
@@ -459,7 +473,7 @@ async function preRemoveArgs(f) {
             if (cLoose) {
                 shouldRemove = testName || testSize || testMeasure;
             } else {
-                log.debug("PreRemove ", `${ipx} ${helper.pathShort(fileSrc)} hasName=${hasName}-${testName} hasSize=${hasSize}-${testSize} hasMeasure=${hasMeasure}-${testMeasure} testCorrupted=${testCorrupted}`)
+                log.debug("PreRemove ", `${ipx} ${helper.pathShort(fileSrc)} hasName=${hasName}-${testName} hasSize=${hasSize}-${testSize} hasMeasure=${hasMeasure}-${testMeasure} testCorrupted=${testCorrupted},flag=${flag}`)
                 shouldRemove = checkConditions();
             }
         }
@@ -467,18 +481,18 @@ async function preRemoveArgs(f) {
         if (shouldRemove) {
             log.show(
                 "PreRemove add:",
-                `${ipx} ${helper.pathShort(fileSrc, 32)} ${itemDesc} ${testCorrupted}`);
-            log.fileLog(`Prepared: ${ipx} <${fileSrc}> ${itemDesc}`, "PreRemove");
+                `${ipx} ${helper.pathShort(fileSrc)} ${itemDesc} ${testCorrupted} ${flag}`);
+            log.fileLog(`Prepared: ${ipx} <${fileSrc}> ${itemDesc} ${flag}`, "PreRemove");
         } else {
             (testName || testSize || testMeasure) && log.info(
                 "PreRemove ignore:",
-                `${ipx} ${helper.pathShort(fileSrc, 32)} [${itemDesc}] (${testName} ${testSize} ${testMeasure})`);
+                `${ipx} ${helper.pathShort(fileSrc)} [${itemDesc}] (${testName} ${testSize} ${testMeasure}) ${flag}`);
         }
         return buildRemoveArgs(f.index, itemDesc, shouldRemove, fileSrc);
 
     } catch (error) {
-        log.error(`PreRemove ${ipx} error:`, error, fileSrc);
-        log.fileLog(`Error: ${f.index} <${fileSrc}>`, "PreRemove");
+        log.error(`PreRemove ${ipx} error:`, error, fileSrc, flag);
+        log.fileLog(`Error: ${f.index} <${fileSrc}> ${flag}`, "PreRemove");
         throw error;
     }
 

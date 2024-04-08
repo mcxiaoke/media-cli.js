@@ -1,3 +1,11 @@
+/*
+ * File: cmd_zipu.js
+ * Created: 2024-04-06 17:29:18
+ * Modified: 2024-04-08 22:19:28
+ * Author: mcxiaoke (github@mcxiaoke.com)
+ * License: Apache License 2.0
+ */
+
 import AdmZip from 'adm-zip';
 import chalk from 'chalk';
 import chardet from 'chardet';
@@ -84,10 +92,12 @@ const handler = async function cmdZipUnicode(argv) {
     })
     log.show(logTag, `Total ${files.length} zip files found in ${helper.humanTime(startMs)}`);
     log.show(logTag, argv);
-    if (files.length < 30) {
-        for (const f of files) {
-            log.show(logTag, f.path)
-        }
+    const showFiles = files.slice(-200);
+    for (const f of showFiles) {
+        log.show(logTag, 'File:', helper.pathShort(f.path), helper.humanSize(f.stats.size))
+    }
+    if (showFiles.length < files.length) {
+        log.show(logTag, `Above lines are last 200 files, total ${files.length} files.}`);
     }
     testMode && log.showYellow("++++++++++ TEST MODE (DRY RUN) ++++++++++")
     const answer = await inquirer.prompt([
@@ -115,6 +125,7 @@ const handler = async function cmdZipUnicode(argv) {
 }
 
 async function UnzipOneFile(f, testMode = true) {
+    const ipx = `${f.index}/${f.total}`
     const logTag = 'ZipU'
     const zipFilePath = f.path
     const zipFileName = path.basename(zipFilePath)
@@ -130,7 +141,7 @@ async function UnzipOneFile(f, testMode = true) {
             return;
         }
     }
-    log.show(logTag, `Processing: <${zipFilePath}> testMode:${testMode}`)
+    log.info(logTag, `Processing: <${zipFilePath}> testMode:${testMode}`)
     let badNameFound = false;
     try {
 
@@ -145,25 +156,26 @@ async function UnzipOneFile(f, testMode = true) {
             const { fileName, encoding, badName } = decodeNameSmart(entry.rawEntryName, f.encoding);
             if (badName) {
                 badNameFound = true;
-                log.showYellow(logTag, `Unzip BadName: <${zipFileName}> <${fileName}> [${encoding}]`)
+                log.showYellow(logTag, `Unzip BadName: ${ipx} <${zipFileName}> <${fileName}> [${encoding}]`)
             }
         }
 
         if (badNameFound) {
-            log.showRed(logTag, `Unzip Skipped: File:<${zipFilePath}>`)
-            log.showRed(logTag, `Unzip Skipped: Reason: Some entries have bad names.`)
+            log.showYellow(logTag, `Unzip Skipped:  ${ipx} File:<${zipFilePath}>`)
+            log.show(logTag, `Unzip Skipped:  ${ipx} Reason: Some entries have bad names.`)
             return;
         }
 
         if (testMode) {
-            log.showYellow(logTag, `Unzip Skipped: File:<${zipFilePath}>`)
-            log.showYellow(logTag, `Unzip Skipped: Reason: [Test Mode].`)
+            log.show(logTag, `Unzip Skipped:  ${ipx} File:<${zipFilePath}>`)
+            log.showGray(logTag, `Unzip Skipped:  ${ipx} Reason: [Test Mode].`)
             return;
         }
 
         let unzippedCount = 0;
         const unzippedFiles = []
-
+        const entryCount = zipEntries.length;
+        const epx = `${unzippedCount}/${entryCount}`
         for (const entry of zipEntries) {
             if (entry.isDirectory) {
                 continue;
@@ -174,25 +186,25 @@ async function UnzipOneFile(f, testMode = true) {
             const fileNameParts = path.parse(fileName)
             const dstDir = path.join(zipDir, fileNameParts.dir)
             const dstFile = path.join(dstDir, fileNameParts.base)
-            log.info(logTag, `DstDir: <${dstDir}>`)
-            log.info(logTag, `DstFile: <${dstFile}>`)
+            log.info(logTag, `DstDir: ${epx} <${dstDir}>`)
+            log.info(logTag, `DstFile: ${epx} <${dstFile}>`)
             const data = entry.getData();
             log.info(data.length)
             if (!await fs.pathExists(dstDir)) {
                 await fs.mkdir(dstDir, { recursive: true })
             }
             await fs.writeFile(dstFile, data)
-            log.show(logTag, `Unzipped: <${fileName}> [${encoding}]`)
+            log.show(logTag, `Entry: ${epx}  <${helper.pathShort(dstFile)}> [${encoding}]`)
             unzippedFiles.push(dstFile)
         }
         if (unzippedCount === unzippedFiles.length) {
             f.done = true;
             f.unzipped = unzippedFiles;
-            log.showGreen(logTag, `Unzipped Ok SRC:<${zipFilePath}>`)
-            log.showGreen(logTag, `Unzipped Ok DST:<${zipDir}>`)
+            log.info(logTag, `Unzipped ${ipx} SRC:<${zipFilePath}>`)
+            log.showGreen(logTag, `Unzipped ${ipx} DST:<${helper.pathShort(zipDir)}>`)
             return f;
         } else {
-            log.showRed(logTag, `Unzip Failed: <${zipFilePath}>`)
+            log.showRed(logTag, `Failed ${ipx} <${helper.pathShort(zipFilePath)}>`)
         }
     } catch (error) {
         log.warn(logTag, zipFilePath, error)

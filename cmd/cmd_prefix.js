@@ -18,7 +18,7 @@ import { asyncFilter } from '../lib/core.js';
 import * as log from '../lib/debug.js';
 import * as mf from '../lib/file.js';
 import * as helper from '../lib/helper.js';
-import { RE_MEDIA_DIR_NAME, RE_UGLY_CHARS, RE_UGLY_CHARS_BORDER, cleanFileName, renameFiles } from "./cmd_shared.js";
+import { RE_MEDIA_DIR_NAME, RE_ONLY_ASCII, RE_ONLY_NUMBER, RE_UGLY_CHARS, RE_UGLY_CHARS_BORDER, cleanFileName, renameFiles } from "./cmd_shared.js";
 
 const MODE_AUTO = "auto";
 const MODE_DIR = "dirname";
@@ -139,7 +139,8 @@ function parseNameMode(argv) {
 }
 
 // 重复文件名Set，检测重复，防止覆盖
-const nameDuplicateSet = new Set();
+const nameDupSet = new Set();
+let nameDupIndex = 0;
 async function createNewNameByMode(f) {
     const argv = f.argv;
     const mode = parseNameMode(argv);
@@ -199,9 +200,10 @@ async function createNewNameByMode(f) {
             {
                 sep = "_";
                 prefix = getAutoModePrefix(dir, sep);
-                const applyToAll = argv.all || false;
-                if (!reOnlyNum.test(base) && !applyToAll) {
-                    log.showYellow(logTag, `Ignore: ${ipx} ${helper.pathShort(f.path)}`);
+                const shouldCheck = RE_ONLY_NUMBER.test(base) && base.length < 10;
+                const forceAll = argv.all || false;
+                if (!shouldCheck && !forceAll) {
+                    log.info(logTag, `Ignore: ${ipx} ${helper.pathShort(f.path)} [Auto]`);
                     return;
                 }
             }
@@ -218,7 +220,6 @@ async function createNewNameByMode(f) {
         }
     }
 
-    let newPathFixed = null;
     // 是否净化文件名，去掉各种特殊字符
     if (argv.clean || mode === MODE_CLEAN) {
         prefix = cleanFileName(prefix, { separator: sep, keepDateStr: false, tc2sc: true });
@@ -238,35 +239,48 @@ async function createNewNameByMode(f) {
     fullBase = fullBase.replaceAll(RE_UGLY_CHARS, sep);
     // 去掉重复词组，如目录名和人名
     fullBase = Array.from(new Set(fullBase.split(sep))).join(sep)
-    fullBase = unicodeStrLength(fullBase) > nameLength ? fullBase.slice(nameSlice) : fullBase;
+    fullBase = helper.unicodeLength(fullBase) > nameLength ? fullBase.slice(nameSlice) : fullBase;
     // 再次去掉首位的特殊字符和空白字符
     fullBase = fullBase.replaceAll(RE_UGLY_CHARS_BORDER, "");
 
-    const newName = `${fullBase}${ext}`;
-    const newPath = newPathFixed ?? path.join(dir, newName);
+    let newName = `${fullBase}${ext}`;
+    let newPath = path.resolve(path.join(dir, newName));
     if (newPath === f.path) {
         log.info(logTag, `Same: ${ipx} ${helper.pathShort(newPath)}`);
         f.skipped = true;
     }
     else if (await fs.pathExists(newPath)) {
-        log.info(logTag, `Exists: ${ipx} ${helper.pathShort(newPath)}`);
-        f.skipped = true;
+        // 目标文件已存在
+        const stn = await fs.stat(newPath);
+        if (f.stats.size === stn.size) {
+            // 如果大小相等，认为是同一个文件
+            log.info(logTag, `Exists: ${ipx} ${helper.pathShort(newPath)}`);
+            f.skipped = true;
+        } else {
+            // 大小不相等，文件名添加后缀
+            // 找到一个不重复的新文件名
+            do {
+                newName = `${fullBase}${sep}D${++nameDupIndex}${ext}`;
+                newPath = path.resolve(path.join(dir, newName));
+            } while (nameDupSet.has(newPath))
+            log.info(logTag, `NewName: ${ipx} ${helper.pathShort(newPath)}`);
+        }
     }
-    else if (nameDuplicateSet.has(newPath)) {
+    else if (nameDupSet.has(newPath)) {
         log.info(logTag, `Duplicate: ${ipx} ${helper.pathShort(newPath)}`);
         f.skipped = true;
     }
-    nameDuplicateSet.add(newPath);
+    nameDupSet.add(newPath);
     if (f.skipped) {
         // log.fileLog(`Skip: ${ipx} ${f.path}`, logTag);
         // log.showGray(logTag, `Skip: ${ipx} ${f.path}`);
     } else {
         f.outName = newName;
         f.outPath = newPath;
-        log.showGray(logTag, `FR: ${ipx} ${f.path}`);
-        log.show(logTag, `TO: ${ipx} ${newPath}`);
-        log.fileLog(`Prepare: ${ipx} <${f.path}> [FROM]`, logTag);
-        log.fileLog(`Prepare: ${ipx} <${newPath}> [TOTO]`, logTag);
+        log.showGray(logTag, `SRC: ${ipx} ${helper.pathShort(f.path)}`);
+        log.show(logTag, `DST: ${ipx} ${helper.pathShort(newPath)}`);
+        log.fileLog(`Prepare: ${ipx} <${f.path}> [SRC]`, logTag);
+        log.fileLog(`Prepare: ${ipx} <${newPath}> [DST]`, logTag);
     }
     return f;
 }
@@ -376,47 +390,5 @@ const handler = async function cmdPrefix(argv) {
         }
     } else {
         log.showYellow(logTag, "Will do nothing, aborted by user.");
-    }
-}
-
-
-
-// 计算字符串长度，中文算2，英文算1
-function unicodeStrLength(str) {
-    var len = 0;
-    for (var i = 0; i < str.length; i++) {
-        var c = str.charCodeAt(i);
-        //单字节加1 
-        if ((c >= 0x0001 && c <= 0x007e) || (0xff60 <= c && c <= 0xff9f)) {
-            len++;
-        }
-        else {
-            len += 2;
-        }
-    }
-    return len;
-}
-
-function unicodeStrSlice(str, len) {
-    var str_length = 0;
-    var str_len = 0;
-    str_cut = new String();
-    str_len = str.length;
-    for (var i = 0; i < str_len; i++) {
-        a = str.charAt(i);
-        str_length++;
-        if (encodeURI(a).length > 4) {
-            //中文字符的长度经编码之后大于4
-            str_length++;
-        }
-        str_cut = str_cut.concat(a);
-        if (str_length >= len) {
-            // str_cut = str_cut.concat("...");
-            return str_cut;
-        }
-    }
-    //如果给定字符串小于指定长度，则返回源字符串；
-    if (str_length < len) {
-        return str;
     }
 }

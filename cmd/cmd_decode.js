@@ -1,4 +1,13 @@
 #!/usr/bin/env node
+/*
+ * File: cmd_decode.js
+ * Created: 2024-04-05 17:01:29
+ * Modified: 2024-04-08 22:18:50
+ * Author: mcxiaoke (github@mcxiaoke.com)
+ * License: Apache License 2.0
+ */
+
+
 import chardet from 'chardet';
 import * as log from '../lib/debug.js';
 import * as enc from '../lib/encoding.js';

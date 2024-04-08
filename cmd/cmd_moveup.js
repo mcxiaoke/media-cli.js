@@ -190,7 +190,8 @@ const handler = async function cmdMoveUp(argv) {
     }
 
     keepDirList = new Set([...keepDirList].map(x => path.resolve(x)));
-    let subDirList = await mf.walkDir(root);
+    let subDirEntries = await mf.walk(root, { withDirs: true, withFiles: false });
+    let subDirList = subDirEntries.map(x => x.path);
     subDirList = new Set([...subDirList].map(x => path.resolve(x)));
     const toRemoveDirList = setDifference(subDirList, keepDirList)
 
@@ -219,7 +220,7 @@ const handler = async function cmdMoveUp(argv) {
             ++delCount;
             log.fileLog(`SafeDel: <${td}>`, logTag);
         }
-        log.showGreen(logTag, "SafeDel", helper.pathShort(td), testMode ? "[DRY RUN]" : "");
+        log.show(logTag, "SafeDel", helper.pathShort(td), testMode ? "[DRY RUN]" : "");
     }
     log.showGreen(logTag, `${delCount} dirs were SAFE DELETED ${testMode ? "[DRY RUN]" : ""}`);
 }

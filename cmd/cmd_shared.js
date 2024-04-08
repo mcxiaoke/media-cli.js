@@ -168,7 +168,7 @@ export async function compressImage(t) {
         const r = await checkCompressResult(t, cr);
         if (r?.done) { return r; }
         // 如果在处理过程中出现错误，则捕获并处理错误信息  
-        log.warn(logTag, `${t.index}/${t.total} ${helper.pathShort(t.src, 32)} ERR:${errMsg}`);
+        log.warn(logTag, `${t.index}/${t.total} ${helper.pathShort(t.src)} ERR:${errMsg}`);
         log.fileLog(`Error: <${t.src}> => ${path.basename(t.dst)} ${errMsg}`, logTag);
         try { // 尝试删除已创建的目标文件，防止错误文件占用空间  
             await fs.remove(t.tmpDst);
@@ -209,7 +209,8 @@ async function checkCompressResult(t, r) {
 }
 
 // 正则：仅包含数字
-export const RE_ONLY_NUMBER = /^\d+$/ugi;
+export const RE_ONLY_NUMBER = /^\d+$/i;
+export const RE_ONLY_ASCII = /^[A-Za-z0-9 ._-]+$/i;
 // 视频文件名各种前后缀
 export const RE_VIDEO_EXTRA_CHARS = helper.combineRegexG(
     /HD1080P|2160p|1080p|720p|BDRip/,
