@@ -61,6 +61,9 @@ const builder = function addOptions(ya, helpOrVersionSet) {
         // 如果数组只有一项，就是替换这一项为空白，即删除模式字符串
         // 如果有两项，就是替换第一项匹配的字符串为第二项指定的字符
         // 只匹配文件名，不包含扩展名
+        // 正则replace方法，占位符的特殊处理，需要注意 $ 符号
+        // $是特殊符号，powershell中需要使用单引号包裹，双引号不行
+        // 或者针对 $ 使用反引号转义，如 `$
         .option("replace", {
             type: "array",
             description: "replace filename chars by regex pattern [from,to]",
@@ -115,16 +118,19 @@ const handler = async function cmdRename(argv) {
 
     const predicate = (fpath, pattern) => {
         const name = path.basename(fpath);
-        return name.includes(pattern) || new RegExp(argv.include, "i").test(name);
+        const rgx = new RegExp(pattern, "ui");
+        return name.includes(pattern) || rgx.test(name);
     };
+    log.showGreen(entries.length)
     if (argv.include?.length > 0) {
         // 处理include规则
         entries = await asyncFilter(entries, x => predicate(x.path, argv.include));
-    } else if (argv.exclude?.length >= 3) {
+    } else if (argv.exclude?.length > 0) {
         // 处理exclude规则
         entries = await asyncFilter(entries, x => !predicate(x.path, argv.exclude));
     }
-    log.show(logTag, `Total ${entries.length} files after include/exclude rules`);
+    log.showMagenta(entries.length)
+    log.show(logTag, `${entries.length} files after applied include/exclude rules`);
     entries = entries.map((f, i) => {
         return {
             ...f,
@@ -191,15 +197,6 @@ async function PreRename(f) {
     const strPath = path.resolve(f.path).split(path.sep).join(' ')
     let oldBase = base;
     let newDir = oldDir;
-    if (argv.replace?.[0]?.length > 0) {
-        const rFrom = argv.replace[0];
-        const rTo = argv.replace[1] || "";
-        // 执行文件名字符替换操作
-        // 按照正则表达式替换指定字符
-        // 如果rTo为空则等于删除字符
-        oldBase = oldBase.replaceAll(rFrom, rTo);
-        oldBase = oldBase.replaceAll(new RegExp(rFrom, "gu"), rTo);
-    }
     if (argv.fixenc) {
         // 执行文件路径乱码修复操作
         // 对路径进行中日韩文字编码修复
@@ -221,14 +218,16 @@ async function PreRename(f) {
             log.fileLog(`BadEnc: ${ipx} <${oldPath}>`, logTag);
         }
     }
-    if (argv.replace) {
+    if (argv.replace?.[0]?.length > 0) {
         // 替换不涉及扩展名和目录路径，只处理文件名部分
+        // 只想处理特定类型文件，可以用include规则
         const strFrom = argv.replace[0];
         const strTo = argv.replace[1] || "";
-
         if (strFrom?.length > 0) {
-            const pattern = new RegExp(strFrom, "ugi");
-            const tempBase = oldBase.replaceAll(pattern, strTo);
+            // $在powershell中是特殊符号，需要使用单引号包裹
+            const rgx = new RegExp(strFrom, "ugi");
+            log.info(logTag, `Replace: pattern=${rgx} replacement=${strTo}`)
+            const tempBase = oldBase.replaceAll(rgx, strTo);
             if (tempBase !== oldBase) {
                 log.show(logTag, 'Replace:', `${oldBase}${ext}`, `${tempBase}${ext}`,
                     strFrom, strTo, flag)
