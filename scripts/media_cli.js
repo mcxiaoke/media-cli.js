@@ -139,8 +139,8 @@ async function main() {
     .command(await import("../cmd/cmd_moveup.js"))
     // 命令 重命名文件 添加前缀
     .command(await import("../cmd/cmd_prefix.js"))
-    // 命令 文件名修复 乱码修复 文件名净化
-    .command(await import("../cmd/cmd_fixname.js"))
+    // 命令 文件名替换 乱码修复 文件名净化等
+    .command(await import("../cmd/cmd_rename.js"))
     // 命令 智能解压ZIP文件，处理文件名乱码问题
     .command(await import("../cmd/cmd_zipu.js"))
     // 命令 乱码解析，猜测编码，输出可能正确的字符串
