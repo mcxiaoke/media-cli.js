@@ -18,64 +18,77 @@ import * as log from '../lib/debug.js';
 import * as enc from '../lib/encoding.js';
 import * as mf from '../lib/file.js';
 import * as helper from '../lib/helper.js';
-import { renameFiles } from "./cmd_shared.js";
+import { cleanFileName, renameFiles } from "./cmd_shared.js";
+
+const TYPE_LIST = ['a', 'f', 'd']
 
 export { aliases, builder, command, describe, handler };
-const command = "fixname <input> [output]"
+const command = "rename <input>"
 const aliases = ["fn", "fxn"]
-const describe = 'Fix filenames (fix messy, clean, convert tc to sc)'
+const describe = 'Reanme files: fix encoding, replace by regex, clean chars, fro tc to sc.'
 
 const builder = function addOptions(ya, helpOrVersionSet) {
     return ya// 仅处理符合指定条件的文件，包含文件名规则
+        .positional('input', {
+            describe: 'input directory',
+            type: 'string',
+        })
         .option("include", {
             alias: "I",
             type: "string",
-            description: "include filename patterns ",
+            description: " filename include pattern",
         })
         // 仅处理不符合指定条件的文件，例外文件名规则
         .option("exclude", {
             alias: "E",
             type: "string",
-            description: "exclude filename patterns ",
+            description: "filename exclude pattern ",
+        })
+        // 要处理的文件类型 文件或目录或所有，默认只处理文件
+        .option("type", {
+            type: "choices",
+            choices: TYPE_LIST,
+            default: 'f',
+            description: "applied to file type (a=all,f=file,d=dir)",
         })
         // 清理文件名中的特殊字符和非法字符
         .option("clean", {
             alias: "c",
             type: "boolean",
-            description: "remove special chars in filename",
+            description: "remove ugly and special chars in filename",
         })
         // 使用正则表达式替换文件名中的特定字符，比如问号
         // 如果数组只有一项，就是替换这一项为空白，即删除模式字符串
         // 如果有两项，就是替换第一项匹配的字符串为第二项指定的字符
+        // 只匹配文件名，不包含扩展名
         .option("replace", {
             type: "array",
-            description: "replace regex pattern in filename [from,to]",
+            description: "replace filename chars by regex pattern [from,to]",
         })
         // 修复文件名乱码
-        .option("encoding", {
-            alias: "e",
+        .option("fixenc", {
+            alias: ['fixenocidng', 'e'],
             type: "boolean",
-            description: "fix filename with messy chars",
+            description: "fix filenames by guess encoding",
         })
         // 繁体转简体
         .option("tcsc", {
             alias: "t",
             type: "boolean",
-            description: "convert Chinese from TC to SC",
+            description: "convert from tc to sc for Chinese chars",
         })
         // 确认执行所有系统操作，非测试模式，如删除和重命名和移动操作
         .option("doit", {
             alias: "d",
             type: "boolean",
-            default: false,
             description: "execute os operations in real mode, not dry run",
         })
 }
 
-const handler = async function cmdFixName(argv) {
+const handler = async function cmdRename(argv) {
     const testMode = !argv.doit;
-    const logTag = "cmdFixName";
-    log.info(logTag, argv);
+    const logTag = "cmdRename";
+    log.show(logTag, argv);
     const root = path.resolve(argv.input);
     if (!root || !(await fs.pathExists(root))) {
         throw new Error(`Invalid Input: ${root}`);
@@ -86,55 +99,56 @@ const handler = async function cmdFixName(argv) {
     }
     const startMs = Date.now();
     log.show(logTag, `Input: ${root}`);
-    if (!(argv.clean || argv.encoding || argv.tcsc || argv.remove)) {
-        log.error(`Error: replace|clean|encoding|tcsc,at least one is required`);
-        throw new Error(`replace|clean|encoding|tcsc,at least one is required`);
+    if (!(argv.clean || argv.fixenc || argv.tcsc || argv.replace)) {
+        log.error(`Error: replace|clean|encoding|tcsc, one is required`);
+        throw new Error(`replace|clean|encoding|tcsc, one is required`);
     }
-    let files = await mf.walk(root, {
-        needStats: true,
-        entryFilter: (entry) =>
-            entry.stats.isFile() &&
-            entry.stats.size > 1024
-    });
-    log.show(logTag, `Total ${files.length} files found in ${helper.humanTime(startMs)}`);
-    if (argv.include?.length >= 3) {
-        // 处理include规则
-        const pattern = new RegExp(argv.include, "gi");
-        log.showRed(pattern)
+    const type = (argv.type || 'f').toLowerCase();
+    if (!TYPE_LIST.includes(type)) {
+        throw new Error(`Error: type must be one of ${TYPE_LIST}`);
+    }
+    const options = {
+        needStats: true, withDirs: type === 'd', withFiles: type === 'a' || type === 'f'
+    }
+    let entries = await mf.walk(root, options);
+    log.show(logTag, `Total ${entries.length} entries found (type=${type})`);
 
-        files = await asyncFilter(files, x => x.path.match(pattern));
-        log.show(logTag, `Total ${files.length} files left after include rules`);
+    const predicate = (fpath, pattern) => {
+        const name = path.basename(fpath);
+        return name.includes(pattern) || new RegExp(argv.include, "i").test(name);
+    };
+    if (argv.include?.length > 0) {
+        // 处理include规则
+        entries = await asyncFilter(entries, x => predicate(x.path, argv.include));
     } else if (argv.exclude?.length >= 3) {
         // 处理exclude规则
-        const pattern = new RegExp(argv.exclude, "gi");
-        log.showRed(pattern)
-        files = await asyncFilter(files, x => !x.path.match(pattern));
-        log.show(logTag, `Total ${files.length} files left after exclude rules`);
+        entries = await asyncFilter(entries, x => !predicate(x.path, argv.exclude));
     }
-    files = files.map((f, i) => {
+    log.show(logTag, `Total ${entries.length} files after include/exclude rules`);
+    entries = entries.map((f, i) => {
         return {
             ...f,
             index: i,
             argv: argv,
-            total: files.length,
+            total: entries.length,
         }
     })
-    const fCount = files.length;
-    let tasks = await pMap(files, fixFileName, { concurrency: cpus().length * 4 })
+    const fCount = entries.length;
+    let tasks = await pMap(entries, PreRename, { concurrency: cpus().length * 4 })
     tasks = tasks.filter(f => f?.outName)
     const tCount = tasks.length;
     log.showYellow(
-        logTag, `Total ${fCount - tCount} files are skipped.`
+        logTag, `Total ${fCount - tCount} files are skipped. (type=${type})`
     );
     if (tasks.length > 0) {
         log.showGreen(
             logTag,
-            `Total ${tasks.length} media files ready to rename`
+            `Total ${tasks.length} files ready to rename. (type=${type})`
         );
     } else {
         log.showYellow(
             logTag,
-            `Nothing to do, abort.`);
+            `Nothing to do, abort. (type=${type})`);
         return;
     }
     log.show(logTag, argv);
@@ -145,31 +159,33 @@ const handler = async function cmdFixName(argv) {
             name: "yes",
             default: false,
             message: chalk.bold.red(
-                `Are you sure to rename these ${tasks.length} files?`
+                `Are you sure to rename these ${tasks.length} files (type=${type})? `
             ),
         },
     ]);
     if (answer.yes) {
         if (testMode) {
-            log.showYellow(logTag, `All ${tasks.length} files, BUT NO file renamed in TEST MODE.`);
+            log.showYellow(logTag, `${tasks.length} files, NO file renamed in TEST MODE. (type=${type})`);
         }
         else {
-            const results = await renameFiles(tasks);
-            log.showGreen(logTag, `All ${results.length} file were renamed.`);
+            const results = await renameFiles(tasks, false);
+            log.showGreen(logTag, `All ${results.length} file were renamed. (type=${type})`);
         }
     } else {
-        log.showYellow(logTag, "Will do nothing, aborted by user.");
+        log.showYellow(logTag, "Will do nothing, aborted by user. ");
     }
 }
 
 let badCount = 0;
 // 重复文件名Set，检测重复，防止覆盖
 const nameDuplicateSet = new Set();
-async function fixFileName(f) {
-    const logTag = `FixName`;
+async function PreRename(f) {
+    const logTag = `PreRename`;
     const argv = f.argv;
     const ipx = f.index;
-    const oldPath = f.path;
+    const oldPath = path.resolve(f.path);
+    const flag = f.stats?.isDirectory() ? "D" : "F";
+    const oldName = path.basename(oldPath)
     const [oldDir, base, ext] = helper.pathSplit(oldPath);
     const oldDirName = path.basename(oldDir);
     const strPath = path.resolve(f.path).split(path.sep).join(' ')
@@ -184,7 +200,7 @@ async function fixFileName(f) {
         oldBase = oldBase.replaceAll(rFrom, rTo);
         oldBase = oldBase.replaceAll(new RegExp(rFrom, "gu"), rTo);
     }
-    if (argv.encoding) {
+    if (argv.fixenc) {
         // 执行文件路径乱码修复操作
         // 对路径进行中日韩文字编码修复
         let [fs, ft] = enc.decodeText(oldBase);
@@ -201,13 +217,28 @@ async function fixFileName(f) {
         }
         // 显示有乱码的文件路径
         if (enc.hasBadUnicode(strPath)) {
-            log.showGray(logTag, `BadEnc:${++badCount}`, oldPath)
+            log.showGray(logTag, `BadEnc:${++badCount} `, oldPath)
             log.fileLog(`BadEnc: ${ipx} <${oldPath}>`, logTag);
+        }
+    }
+    if (argv.replace) {
+        // 替换不涉及扩展名和目录路径，只处理文件名部分
+        const strFrom = argv.replace[0];
+        const strTo = argv.replace[1] || "";
+
+        if (strFrom?.length > 0) {
+            const pattern = new RegExp(strFrom, "ugi");
+            const tempBase = oldBase.replaceAll(pattern, strTo);
+            if (tempBase !== oldBase) {
+                log.show(logTag, 'Replace:', `${oldBase}${ext}`, `${tempBase}${ext}`,
+                    strFrom, strTo, flag)
+                oldBase = tempBase;
+            }
         }
     }
     if (argv.clean) {
         // 执行净化文件名操作
-        // todo 添加净化文件名操作
+        oldBase = cleanFileName(oldBase, { separator: "", keepDateStr: true, tc2sc: false })
     }
     if (argv.tcsc) {
         // 执行繁体转简体操作
@@ -217,38 +248,41 @@ async function fixFileName(f) {
     oldBase = helper.filenameSafe(oldBase);
     // 生成修复后的新路径，包括旧基础路径和文件扩展名
     const newName = `${oldBase}${ext}`
-    const newPath = path.join(newDir, newName);
+    const newPath = path.resolve(path.join(newDir, newName));
     if (newPath === oldPath) {
-        log.info(logTag, `Ignore Same: ${ipx} ${helper.pathShort(newPath)}`);
+        log.info(logTag, `Skip Same: ${ipx} ${helper.pathShort(oldPath)} ${flag}`);
         f.skipped = true;
     }
-    else if (await fs.pathExists(newPath)) {
-        log.info(logTag, `Ignore Exists: ${ipx} ${helper.pathShort(newPath)}`);
+    else if (!f.skipped && await fs.pathExists(newPath)) {
+        log.info(logTag, `Skip DstExists: ${ipx} ${helper.pathShort(newPath)} ${flag}`);
         f.skipped = true;
     }
-    else if (nameDuplicateSet.has(newPath)) {
-        log.info(logTag, `Ignore Dup: ${ipx} ${helper.pathShort(newPath)}`);
+    else if (!f.skipped && nameDuplicateSet.has(newPath)) {
+        log.info(logTag, `Skip DstDup: ${ipx} ${helper.pathShort(newPath)} ${flag}`);
         f.skipped = true;
     }
 
     if (f.skipped) {
         // log.fileLog(`Skip: ${ipx} ${oldPath}`, logTag);
-        // log.showGray(logTag, `Skip: ${ipx} ${oldPath}`);
-    } else {
-        if (enc.hasBadUnicode(newDir)) {
-            log.showGray(logTag, `BadEncFR:${++badCount}`, oldPath)
-            log.show(logTag, `BadEncTO:${++badCount}`, newPath)
-            log.fileLog(`BadEncFR: ${ipx} <${oldPath}>`, logTag);
-            log.fileLog(`BadEncTO: ${ipx} <${newPath}>`, logTag);
-        } else {
-            f.skipped = false;
-            f.outName = newName;
-            f.outPath = newPath;
-            log.show(logTag, `FR: ${ipx} ${oldPath}`);
-            log.showGreen(logTag, `TO: ${ipx} ${newPath}`);
-            log.fileLog(`Add: ${ipx} <${oldPath}> [FR]`, logTag);
-            log.fileLog(`Add: ${ipx} <${newPath}> [TO]`, logTag);
-            return f;
-        }
+        // log.info(logTag, `Skip: ${ipx} ${oldPath}`);
+        return;
     }
+    if (f.fixenc && enc.hasBadUnicode(newDir)) {
+        log.showGray(logTag, `BadEncFR:${++badCount}`, oldPath)
+        log.show(logTag, `BadEncTO:${++badCount}`, newPath)
+        log.fileLog(`BadEncFR: ${ipx} <${oldPath}>`, logTag);
+        log.fileLog(`BadEncTO: ${ipx} <${newPath}>`, logTag);
+    }
+    else {
+        const pathDepth = oldPath.split(path.sep).length
+        f.skipped = false;
+        f.outName = newName;
+        f.outPath = newPath;
+        log.showGray(logTag, `SRC: ${ipx} <${helper.pathShort(oldPath)}> ${flag} ${pathDepth}`);
+        log.show(logTag, `DST: ${ipx} <${helper.pathShort(newPath)}> ${flag} ${pathDepth}`);
+        log.fileLog(`Add: ${ipx} <${oldPath}> [SRC] ${flag}`, logTag);
+        log.fileLog(`Add: ${ipx} <${newPath}> [DST] ${flag}`, logTag);
+        return f;
+    }
+
 }

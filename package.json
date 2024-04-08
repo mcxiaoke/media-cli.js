@@ -1,6 +1,6 @@
 {
   "name": "mediac",
-  "version": "1.5.2",
+  "version": "1.6.0",
   "type": "module",
   "description": "MediaCli is a multimedia file processing tool that utilizes ffmpeg and exiftool, among others, to compress/convert/rename/delete/organize media files, including images, videos, and audio.",
   "main": "index.js",
@@ -56,7 +56,6 @@
     "cnchar": "^3.2.6",
     "cnchar-trad": "^3.2.6",
     "dayjs": "^1.11.7",
-    "emoji-regex": "^10.3.0",
     "execa": "^8.0.1",
     "exif-reader": "^2.0.1",
     "exiftool-vendored": "^24.5.0",
@@ -71,6 +70,7 @@
     "loglevel-plugin-prefix": "^0.8.4",
     "micromatch": "^4.0.5",
     "music-metadata": "^7.14.0",
+    "node-emoji": "^2.1.3",
     "node-taglib-sharp-extend": "^0.2.9",
     "open": "^10.1.0",
     "p-filter": "^4.1.0",

@@ -18,7 +18,7 @@ import { asyncFilter } from '../lib/core.js';
 import * as log from '../lib/debug.js';
 import * as mf from '../lib/file.js';
 import * as helper from '../lib/helper.js';
-import { renameFiles } from "./cmd_shared.js";
+import { RE_MEDIA_DIR_NAME, RE_UGLY_CHARS, RE_UGLY_CHARS_BORDER, cleanFileName, renameFiles } from "./cmd_shared.js";
 
 const MODE_AUTO = "auto";
 const MODE_DIR = "dirname";
@@ -111,95 +111,7 @@ const builder = function addOptions(ya, helpOrVersionSet) {
         })
 }
 
-// 正则：仅包含数字
-const reOnlyNum = /^\d+$/gi;
-// 视频文件名各种前后缀
-const reVideoName = helper.combineRegexG(
-    /HD1080P|2160p|1080p|720p|BDRip/,
-    /H264|H265|X265|HEVC|AVC|8BIT|10bit/,
-    /WEB-DL|SMURF|Web|AAC5\.1|Atmos/,
-    /H\.264|DD5\.1|DDP5\.1|AAC/,
-    /DJWEB|Play|VINEnc|DSNP|END/,
-    /高清|特效|字幕组|公众号|电影|搬运/,
-    /\[.+?\]/,
-)
-// 图片文件名各种前后缀
-const reImageName = /更新|合集|画师|图片|视频|插画|视图|作品|订阅|限定|差分|拷贝|自购|付费|内容|R18|PSD|PIXIV|PIC|ZIP|RAR/gi
-// Unicode Symbols
-// https://en.wikipedia.org/wiki/Script_%28Unicode%29
-// https://www.regular-expressions.info/unicode.html
-// https://symbl.cc/cn/unicode/blocks/halfwidth-and-fullwidth-forms/
-// https://www.unicode.org/reports/tr18/
-// https://ayaka.shn.hk/hanregex/
-// 特例字符	中英	全半角	unicode范围	unicode码表名
-// 单双引号	中文	全/半	0x2018-0x201F	常用标点
-// 句号、顿号	中文	全/半	0x300x-0x303F	中日韩符号和标点
-// 空格	中/英	全角	0x3000	中日韩符号和标点
-// -	英	半角	0x0021~0x007E	半角符号
-// -	英	全角	0xFF01~0xFF5E	全角符号
-// -	中	全/半	0xFF01~0xFF5E	全角符号
-// 正则：匹配除 [中文日文标点符号] 之外的特殊字符
-// u flag is required
-// \p{sc=Han} CJK全部汉字 比 \u4E00-\u9FFF = \p{InCJK_Unified_Ideographs} 范围大
-// 匹配汉字还可以使用 \p{Unified_Ideograph}
-// \p{sc=Hira} 日文平假名
-// \p{P} 拼写符号
-// \p{ASCII} ASCII字符
-// \uFE10-\uFE1F 中文全角标点
-// \uFF01-\uFF11 中文全角标点
-const reNonChars = /[^\p{Unified_Ideograph}\p{sc=Hira}\p{sc=Kana}\w]/ugi;
-// 匹配空白字符和特殊字符
-// https://www.unicode.org/charts/PDF/U3000.pdf
-// https://www.asciitable.com/
-const reUglyChars = /[\s\x00-\x1F\x21-\x2F\x3A-\x40\x5B-\x60\x7b-\xFF]+/gi;
-// 匹配开头和结尾的空白和特殊字符
-const reStripUglyChars = /(^[\s\x21-\x2F\x3A-\x40\x5B-\x60\x7b-\xFF\p{P}]+)|([\s\x21-\x2F\x3A-\x40\x5B-\x60\x7b-\xFF\p{P}]+$)/gi;
-// 图片视频子文件夹名过滤
-// 如果有表示，test() 会随机饭后true or false，是一个bug
-// 使用 string.match 函数没有问题
-// 参考 https://stackoverflow.com/questions/47060553
-// The g modifier causes the regex object to maintain state. 
-// It tracks the index after the last match.
-const reMediaDirName = /^图片|视频|电影|电视剧|Image|Video|Thumbs$/gi;
-// 可以考虑将日文和韩文罗马化处理
-// https://github.com/lovell/hepburn
-// https://github.com/fujaru/aromanize-js
-// https://www.npmjs.com/package/aromanize
-// https://www.npmjs.com/package/@lazy-cjk/japanese
-function cleanFileName(nameString, sep, filename, keepNumber = false) {
-    let nameStr = nameString;
-    // 去掉方括号 [xxx] 的内容
-    // nameStr = nameStr.replaceAll(/\[.+?\]/gi, "");
-    // 去掉图片集说明文字
-    nameStr = nameStr.replaceAll(reImageName, sep);
-    // 去掉视频说明文字
-    nameStr = nameStr.replaceAll(reVideoName, "");
-    // 去掉日期字符串
-    if (!keepNumber) {
-        nameStr = nameStr.replaceAll(/\d+年\d+月/ugi, "");
-        nameStr = nameStr.replaceAll(/\d{4}-\d{2}-\d{2}/ugi, "");
-    }
-    // 去掉 [100P5V 2.25GB] No.46 这种图片集说明
-    nameStr = nameStr.replaceAll(/\[\d+P.*(\d+V)?.*?\]/ugi, "");
-    nameStr = nameStr.replaceAll(/No\.\d+|\d+\.?\d+GB?|\d+P|\d+V|NO\.(\d+)/ugi, "$1");
-    if (helper.isImageFile(filename)) {
-        // 去掉 2024.03.22 这种格式的日期
-        nameStr = nameStr.replaceAll(/\d{4}\.\d{2}\.\d{2}/ugi, "");
-    }
-    // 去掉中文标点特殊符号
-    nameStr = nameStr.replaceAll(/[\u3000-\u303F\uFE10-\uFE2F]/ugi, "");
-    // () [] {} <> . - 改为下划线
-    nameStr = nameStr.replaceAll(/[\(\)\[\]{}<>\.\-]/ugi, sep);
-    // 日文转罗马字母
-    // nameStr = hepburn.fromKana(nameStr);
-    // nameStr = wanakana.toRomaji(nameStr);
-    // 韩文转罗马字母
-    // nameStr = aromanize.hangulToLatin(nameStr, 'rr-translit');
-    // 繁体转换为简体中文
-    nameStr = sify(nameStr);
-    // 去掉所有特殊字符
-    return nameStr.replaceAll(reNonChars, sep);
-}
+
 
 function getAutoModePrefix(dir, sep) {
     // 从左到右的目录层次
@@ -260,7 +172,7 @@ async function createNewNameByMode(f) {
             {
                 sep = ".";
                 prefix = dirName;
-                if (prefix.match(reMediaDirName)) {
+                if (prefix.match(RE_MEDIA_DIR_NAME)) {
                     prefix = dirParts[2];
                 }
                 if (prefix.length < 4 && /^[A-Za-z0-9]+$/.test(prefix)) {
@@ -278,7 +190,7 @@ async function createNewNameByMode(f) {
             {
                 sep = "_";
                 prefix = dirName;
-                if (prefix.match(reMediaDirName)) {
+                if (prefix.match(RE_MEDIA_DIR_NAME)) {
                     prefix = dirParts[2];
                 }
             }
@@ -309,8 +221,8 @@ async function createNewNameByMode(f) {
     let newPathFixed = null;
     // 是否净化文件名，去掉各种特殊字符
     if (argv.clean || mode === MODE_CLEAN) {
-        prefix = cleanFileName(prefix, sep, oldName, false);
-        oldBase = cleanFileName(oldBase, sep, oldName, true);
+        prefix = cleanFileName(prefix, { separator: sep, keepDateStr: false, tc2sc: true });
+        oldBase = cleanFileName(oldBase, { separator: sep, keepDateStr: true, tc2sc: true });
     }
     // 不添加重复前缀
     if (oldBase.includes(prefix)) {
@@ -321,14 +233,14 @@ async function createNewNameByMode(f) {
     oldBase = helper.filenameSafe(oldBase);
     let fullBase = prefix.length > 0 ? (prefix + sep + oldBase) : oldBase;
     // 去除首位空白和特殊字符
-    fullBase = fullBase.replaceAll(reStripUglyChars, "");
+    fullBase = fullBase.replaceAll(RE_UGLY_CHARS_BORDER, "");
     // 多余空白和字符替换为一个字符 _或.
-    fullBase = fullBase.replaceAll(reUglyChars, sep);
+    fullBase = fullBase.replaceAll(RE_UGLY_CHARS, sep);
     // 去掉重复词组，如目录名和人名
     fullBase = Array.from(new Set(fullBase.split(sep))).join(sep)
     fullBase = unicodeStrLength(fullBase) > nameLength ? fullBase.slice(nameSlice) : fullBase;
     // 再次去掉首位的特殊字符和空白字符
-    fullBase = fullBase.replaceAll(reStripUglyChars, "");
+    fullBase = fullBase.replaceAll(RE_UGLY_CHARS_BORDER, "");
 
     const newName = `${fullBase}${ext}`;
     const newPath = newPathFixed ?? path.join(dir, newName);
@@ -418,6 +330,15 @@ const handler = async function cmdPrefix(argv) {
     let tasks = await pMap(files, createNewNameByMode, { concurrency: cpus().length * 4 })
     tasks = tasks.filter(f => f?.outName)
 
+    tasks = tasks.map((f, i) => {
+        return {
+            ...f,
+            argv: argv,
+            index: i,
+            total: files.length,
+        }
+    })
+
     const tCount = tasks.length;
     log.showYellow(
         logTag, `Total ${fCount - tCount} files are skipped.`
@@ -447,10 +368,10 @@ const handler = async function cmdPrefix(argv) {
     ]);
     if (answer.yes) {
         if (testMode) {
-            log.showYellow(logTag, `All ${tasks.length} files, BUT NO file renamed in TEST MODE.`);
+            log.showYellow(logTag, `${tasks.length} files, NO file renamed in TEST MODE.`);
         }
         else {
-            const results = await renameFiles(tasks);
+            const results = await renameFiles(tasks, false);
             log.showGreen(logTag, `All ${results.length} file were renamed.`);
         }
     } else {

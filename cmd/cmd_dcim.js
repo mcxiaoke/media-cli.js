@@ -160,7 +160,7 @@ const handler = async function cmdRename(argv) {
             log.showYellow(LOG_TAG, `All ${files.length} files, NO file renamed in TEST MODE.`);
         }
         else {
-            const results = await renameFiles(files);
+            const results = await renameFiles(files, false);
             log.showGreen(LOG_TAG, `All ${results.length} file were renamed.`,);
         }
     } else {

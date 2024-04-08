@@ -196,6 +196,7 @@ const handler = async function cmdRemove(argv) {
         pattern: cPattern,
         names: cNames || new Set(),
         reverse: cReverse,
+        purge,
         testMode,
     }
 

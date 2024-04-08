@@ -6,27 +6,31 @@
  * License: Apache License 2.0
  */
 import chalk from 'chalk';
+import { sify } from 'chinese-conv';
+import dayjs from 'dayjs';
 import { $ } from 'execa';
 import fs from 'fs-extra';
 import iconv from "iconv-lite";
+import * as emoji from 'node-emoji';
 import { cpus } from "os";
 import pMap from 'p-map';
 import path from "path";
 import sharp from "sharp";
 import which from "which";
-
-import dayjs from 'dayjs';
 import * as log from '../lib/debug.js';
 import * as helper from '../lib/helper.js';
 // https://day.js.org/docs/zh-CN/display/format
 const DATE_FORMAT = 'YYYY-MM-DD HH:mm:ss.SSS Z';
 
 async function renameOneFile(f) {
+    const ipx = `[${f.index}/${f.total}]`
+    const flag = f.stats?.isDirectory() ? "D" : "F";
+    const logTag = 'Rename' + flag + ipx
     // 生成输出文件的路径  
     const outPath = f.outPath || path.join(path.dirname(f.path), f.outName);
     // 如果输出文件名不存在或者输入文件路径等于输出文件路径，忽略该文件并打印警告信息  
     if (!f.outName || f.path === f.outPath) {
-        log.showYellow("Rename", "ignore", f.path);
+        log.showYellow(logTag, "ignore", f.path, flag);
         return;
     }
     try {
@@ -39,25 +43,32 @@ async function renameOneFile(f) {
         // 使用 fs 模块的 rename 方法重命名文件，并等待操作完成  
         await fs.rename(f.path, outPath);
         // 打印重命名成功的日志信息，显示输出文件的路径  
-        log.showGray(`Source: ${f.path}`);
-        log.show(`${chalk.green(`Renamed:`)} ${outPath}`);
-        log.fileLog(`Done: <${f.path}> => ${f.outName}`, "Rename");
+        log.showGray(logTag, `Source: ${f.path} ${flag}`);
+        log.show(logTag, `${chalk.green(`Renamed:`)} ${outPath} ${flag}`);
+        log.fileLog(`Done: <${f.path}> => ${f.outName} ${flag}`, logTag);
         return f;
     } catch (error) {
         // 捕获并打印重命名过程中出现的错误信息，显示错误原因和输入文件的路径  
-        log.error("Rename", error, f.path);
-        log.fileLog(`Error: <${f.path}> ${error}`, "Rename");
+        log.error(logTag, error, f.path, flag);
+        log.fileLog(`Error: <${f.path}> ${error} ${flag}`, logTag);
     }
 }
 
 // 这个函数是一个异步函数，用于重命名文件  
-export async function renameFiles(files) {
+export async function renameFiles(files, parallel = false) {
     // 打印日志信息，显示要重命名的文件总数  
-    log.info("Rename", `total ${files.length} files prepared`);
-    const results = await pMap(files, renameOneFile, { concurrency: cpus().length * 4 });
+    log.show("Rename", `total ${files.length} files to rename. (parallel=${parallel})`);
+    let results = [];
+    if (parallel) {
+        results = await pMap(files, renameOneFile, { concurrency: cpus().length * 4 });
+    } else {
+        for (const file of files) {
+            results.push(await renameOneFile(file))
+        }
+    }
     const allCount = results.length;
-    const okCount = results.filter(Boolean);
-    log.info("Rename", `total ${okCount}/${allCount} files renamed`);
+    const okCount = (results.filter(Boolean)).length;
+    log.show("Rename", `total ${okCount}/${allCount} files renamed (parallel=${parallel})`);
     return results;
 }
 
@@ -195,4 +206,104 @@ async function checkCompressResult(t, r) {
         return t;
     } catch (error) {
     }
+}
+
+// 正则：仅包含数字
+export const RE_ONLY_NUMBER = /^\d+$/ugi;
+// 视频文件名各种前后缀
+export const RE_VIDEO_EXTRA_CHARS = helper.combineRegexG(
+    /HD1080P|2160p|1080p|720p|BDRip/,
+    /H264|H265|X265|HEVC|AVC|8BIT|10bit/,
+    /WEB-DL|SMURF|Web|AAC5\.1|Atmos/,
+    /H\.264|DD5\.1|DDP5\.1|AAC/,
+    /DJWEB|Play|VINEnc|DSNP|END/,
+    /高清|特效|字幕组|公众号|电影|搬运/,
+    /\[.+?\]/,
+)
+// 图片文件名各种前后缀
+export const RE_IMAGE_EXTRA_CHARS = /更新|合集|画师|图片|视频|插画|视图|作品|订阅|限定|差分|拷贝|自购|付费|内容|高画質|高解像度|R18|PSD|PIXIV|PIC|ZIP|RAR/ugi
+// Unicode Symbols
+// https://en.wikipedia.org/wiki/Script_%28Unicode%29
+// https://www.regular-expressions.info/unicode.html
+// https://symbl.cc/cn/unicode/blocks/halfwidth-and-fullwidth-forms/
+// https://www.unicode.org/reports/tr18/
+// https://ayaka.shn.hk/hanregex/
+// 特例字符	中英	全半角	unicode范围	unicode码表名
+// 单双引号	中文	全/半	0x2018-0x201F	常用标点
+// 句号、顿号	中文	全/半	0x300x-0x303F	中日韩符号和标点
+// 空格	中/英	全角	0x3000	中日韩符号和标点
+// -	英	半角	0x0021~0x007E	半角符号
+// -	英	全角	0xFF01~0xFF5E	全角符号
+// -	中	全/半	0xFF01~0xFF5E	全角符号
+// 正则：匹配除 [中文日文标点符号] 之外的特殊字符
+// u flag is required
+// \p{sc=Han} CJK全部汉字 比 \u4E00-\u9FFF = \p{InCJK_Unified_Ideographs} 范围大
+// 匹配汉字还可以使用 \p{Unified_Ideograph}
+// \p{sc=Hira} 日文平假名
+// \p{P} 拼写符号
+// \p{ASCII} ASCII字符
+// \uFE10-\uFE1F 中文全角标点
+// \uFF01-\uFF11 中文全角标点
+export const RE_NON_COMMON_CHARS = /[^\p{Unified_Ideograph}\p{sc=Hira}\p{sc=Kana}\w\d]/ugi;
+// 匹配空白字符和特殊字符
+// https://www.unicode.org/charts/PDF/U3000.pdf
+// https://www.asciitable.com/
+export const RE_UGLY_CHARS = /[\s\x00-\x1F\x21-\x2F\x3A-\x40\x5B-\x60\x7b-\xFF]+/ugi;
+// 匹配开头和结尾的空白和特殊字符
+export const RE_UGLY_CHARS_BORDER = /^([\s._-]+)|([\s._-]+)$/ugi;
+// 图片视频子文件夹名过滤
+// 如果有表示，test() 会随机饭后true or false，是一个bug
+// 使用 string.match 函数没有问题
+// 参考 https://stackoverflow.com/questions/47060553
+// The g modifier causes the regex object to maintain state. 
+// It tracks the index after the last match.
+export const RE_MEDIA_DIR_NAME = /^图片|视频|电影|电视剧|Image|Video|Thumbs$/ugi;
+// 可以考虑将日文和韩文罗马化处理
+// https://github.com/lovell/hepburn
+// https://github.com/fujaru/aromanize-js
+// https://www.npmjs.com/package/aromanize
+// https://www.npmjs.com/package/@lazy-cjk/japanese
+export function cleanFileName(nameString, options = {}) {
+    let sep = options.seperator || '_';
+    let nameStr = nameString;
+    // 去掉所有表情符号
+    nameStr = emoji.strip(nameStr);
+    // 去掉方括号 [xxx] 的内容
+    // nameStr = nameStr.replaceAll(/\[.+?\]/gi, "");
+    // 去掉图片集说明文字
+    nameStr = nameStr.replaceAll(RE_IMAGE_EXTRA_CHARS, "");
+    // 去掉视频说明文字
+    nameStr = nameStr.replaceAll(RE_VIDEO_EXTRA_CHARS, "");
+    // 去掉日期字符串
+    if (!options.keepDateStr) {
+        nameStr = nameStr.replaceAll(/\d+年\d+月/ugi, "");
+        nameStr = nameStr.replaceAll(/\d{4}-\d{2}-\d{2}/ugi, "");
+        nameStr = nameStr.replaceAll(/\d{4}\.\d{2}\.\d{2}/ugi, "");
+    }
+    // 去掉 [100P5V 2.25GB] No.46 这种图片集说明
+    nameStr = nameStr.replaceAll(/\[\d+P.*(\d+V)?.*?\]/ugi, "");
+    nameStr = nameStr.replaceAll(/No\.\d+|\d+\.?\d+GB?|\d+P|\d+V|NO\.(\d+)/ugi, "$1");
+    // 去掉中文标点，全角符号
+    nameStr = nameStr.replaceAll(/[\u3000-\u303F\uFE10-\uFE2F\uFF00-\uFF20]+/ugi, "");
+    // () [] {} <> . - 改为下划线
+    nameStr = nameStr.replaceAll(/[\s\(\)\[\]{}<>\.\-]+/ugi, sep);
+    // 日文转罗马字母
+    // nameStr = hepburn.fromKana(nameStr);
+    // nameStr = wanakana.toRomaji(nameStr);
+    // 韩文转罗马字母
+    // nameStr = aromanize.hangulToLatin(nameStr, 'rr-translit');
+    if (options.tc2sc) {
+        // 繁体转换为简体中文
+        nameStr = sify(nameStr);
+    }
+    // 去掉所有特殊字符
+    nameStr = nameStr.replaceAll(RE_NON_COMMON_CHARS, sep);
+    // 连续的分隔符合并为一个 sep
+    nameStr = nameStr.replaceAll(/[\s._-]+/ugi, sep);
+    // 去掉首尾的特殊字符
+    nameStr = nameStr.replaceAll(RE_UGLY_CHARS_BORDER, "");
+    log.debug(`cleanFileName SRC [${nameString}]`, options);
+    log.debug(`cleanFileName DST: [${nameStr}]`)
+    // 确保是合法的文件名
+    return helper.filenameSafe(nameStr)
 }
