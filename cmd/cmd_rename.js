@@ -5,24 +5,24 @@
  * Author: mcxiaoke (github@mcxiaoke.com)
  * License: Apache License 2.0
  */
-import chalk from 'chalk';
-import { sify } from 'chinese-conv';
-import fs from 'fs-extra';
-import inquirer from "inquirer";
-import { cpus } from "os";
-import pMap from 'p-map';
-import path from "path";
-import * as core from '../lib/core.js';
-import { asyncFilter } from '../lib/core.js';
-import * as log from '../lib/debug.js';
-import * as enc from '../lib/encoding.js';
-import * as mf from '../lib/file.js';
-import * as helper from '../lib/helper.js';
-import { cleanFileName, renameFiles } from "./cmd_shared.js";
+import chalk from 'chalk'
+import { sify } from 'chinese-conv'
+import fs from 'fs-extra'
+import inquirer from "inquirer"
+import { cpus } from "os"
+import pMap from 'p-map'
+import path from "path"
+import * as core from '../lib/core.js'
+import { asyncFilter } from '../lib/core.js'
+import * as log from '../lib/debug.js'
+import * as enc from '../lib/encoding.js'
+import * as mf from '../lib/file.js'
+import * as helper from '../lib/helper.js'
+import { cleanFileName, renameFiles } from "./cmd_shared.js"
 
 const TYPE_LIST = ['a', 'f', 'd']
 
-export { aliases, builder, command, describe, handler };
+export { aliases, builder, command, describe, handler }
 const command = "rename <input>"
 const aliases = ["fn", "fxn"]
 const describe = 'Reanme files: fix encoding, replace by regex, clean chars, fro tc to sc.'
@@ -89,48 +89,48 @@ const builder = function addOptions(ya, helpOrVersionSet) {
 }
 
 const handler = async function cmdRename(argv) {
-    const testMode = !argv.doit;
-    const logTag = "cmdRename";
-    log.show(logTag, argv);
-    const root = path.resolve(argv.input);
+    const testMode = !argv.doit
+    const logTag = "cmdRename"
+    log.show(logTag, argv)
+    const root = path.resolve(argv.input)
     if (!root || !(await fs.pathExists(root))) {
-        throw new Error(`Invalid Input: ${root}`);
+        throw new Error(`Invalid Input: ${root}`)
     }
     if (!testMode) {
-        log.fileLog(`Root: ${root}`, logTag);
-        log.fileLog(`Argv: ${JSON.stringify(argv)}`, logTag);
+        log.fileLog(`Root: ${root}`, logTag)
+        log.fileLog(`Argv: ${JSON.stringify(argv)}`, logTag)
     }
-    const startMs = Date.now();
-    log.show(logTag, `Input: ${root}`);
+    const startMs = Date.now()
+    log.show(logTag, `Input: ${root}`)
     if (!(argv.clean || argv.fixenc || argv.tcsc || argv.replace)) {
-        log.error(`Error: replace|clean|encoding|tcsc, one is required`);
-        throw new Error(`replace|clean|encoding|tcsc, one is required`);
+        log.error(`Error: replace|clean|encoding|tcsc, one is required`)
+        throw new Error(`replace|clean|encoding|tcsc, one is required`)
     }
-    const type = (argv.type || 'f').toLowerCase();
+    const type = (argv.type || 'f').toLowerCase()
     if (!TYPE_LIST.includes(type)) {
-        throw new Error(`Error: type must be one of ${TYPE_LIST}`);
+        throw new Error(`Error: type must be one of ${TYPE_LIST}`)
     }
     const options = {
         needStats: true, withDirs: type === 'd', withFiles: type === 'a' || type === 'f'
     }
-    let entries = await mf.walk(root, options);
-    log.show(logTag, `Total ${entries.length} entries found (type=${type})`);
+    let entries = await mf.walk(root, options)
+    log.show(logTag, `Total ${entries.length} entries found (type=${type})`)
 
     const predicate = (fpath, pattern) => {
-        const name = path.basename(fpath);
-        const rgx = new RegExp(pattern, "ui");
-        return name.includes(pattern) || rgx.test(name);
-    };
+        const name = path.basename(fpath)
+        const rgx = new RegExp(pattern, "ui")
+        return name.includes(pattern) || rgx.test(name)
+    }
     log.showGreen(entries.length)
     if (argv.include?.length > 0) {
         // 处理include规则
-        entries = await asyncFilter(entries, x => predicate(x.path, argv.include));
+        entries = await asyncFilter(entries, x => predicate(x.path, argv.include))
     } else if (argv.exclude?.length > 0) {
         // 处理exclude规则
-        entries = await asyncFilter(entries, x => !predicate(x.path, argv.exclude));
+        entries = await asyncFilter(entries, x => !predicate(x.path, argv.exclude))
     }
     log.showMagenta(entries.length)
-    log.show(logTag, `${entries.length} files after applied include/exclude rules`);
+    log.show(logTag, `${entries.length} files after applied include/exclude rules`)
     entries = entries.map((f, i) => {
         return {
             ...f,
@@ -139,25 +139,25 @@ const handler = async function cmdRename(argv) {
             total: entries.length,
         }
     })
-    const fCount = entries.length;
+    const fCount = entries.length
     let tasks = await pMap(entries, PreRename, { concurrency: cpus().length * 4 })
     tasks = tasks.filter(f => f?.outName)
-    const tCount = tasks.length;
+    const tCount = tasks.length
     log.showYellow(
         logTag, `Total ${fCount - tCount} files are skipped. (type=${type})`
-    );
+    )
     if (tasks.length > 0) {
         log.showGreen(
             logTag,
             `Total ${tasks.length} files ready to rename. (type=${type})`
-        );
+        )
     } else {
         log.showYellow(
             logTag,
-            `Nothing to do, abort. (type=${type})`);
-        return;
+            `Nothing to do, abort. (type=${type})`)
+        return
     }
-    log.show(logTag, argv);
+    log.show(logTag, argv)
     testMode && log.showYellow("++++++++++ TEST MODE (DRY RUN) ++++++++++")
     const answer = await inquirer.prompt([
         {
@@ -168,70 +168,70 @@ const handler = async function cmdRename(argv) {
                 `Are you sure to rename these ${tasks.length} files (type=${type})? `
             ),
         },
-    ]);
+    ])
     if (answer.yes) {
         if (testMode) {
-            log.showYellow(logTag, `${tasks.length} files, NO file renamed in TEST MODE. (type=${type})`);
+            log.showYellow(logTag, `${tasks.length} files, NO file renamed in TEST MODE. (type=${type})`)
         }
         else {
-            const results = await renameFiles(tasks, false);
-            log.showGreen(logTag, `All ${results.length} file were renamed. (type=${type})`);
+            const results = await renameFiles(tasks, false)
+            log.showGreen(logTag, `All ${results.length} file were renamed. (type=${type})`)
         }
     } else {
-        log.showYellow(logTag, "Will do nothing, aborted by user. ");
+        log.showYellow(logTag, "Will do nothing, aborted by user. ")
     }
 }
 
-let badCount = 0;
+let badCount = 0
 // 重复文件名Set，检测重复，防止覆盖
-const nameDuplicateSet = new Set();
+const nameDuplicateSet = new Set()
 async function PreRename(f) {
-    const logTag = `PreRename`;
-    const argv = f.argv;
-    const ipx = f.index;
-    const oldPath = path.resolve(f.path);
-    const flag = f.stats?.isDirectory() ? "D" : "F";
+    const logTag = `PreRename`
+    const argv = f.argv
+    const ipx = f.index
+    const oldPath = path.resolve(f.path)
+    const flag = f.stats?.isDirectory() ? "D" : "F"
     const oldName = path.basename(oldPath)
-    const [oldDir, base, ext] = helper.pathSplit(oldPath);
-    const oldDirName = path.basename(oldDir);
+    const [oldDir, base, ext] = helper.pathSplit(oldPath)
+    const oldDirName = path.basename(oldDir)
     const strPath = path.resolve(f.path).split(path.sep).join(' ')
-    let oldBase = base;
-    let newDir = oldDir;
+    let oldBase = base
+    let newDir = oldDir
     if (argv.fixenc) {
         // 执行文件路径乱码修复操作
         // 对路径进行中日韩文字编码修复
-        let [fs, ft] = enc.decodeText(oldBase);
-        oldBase = fs.trim();
+        let [fs, ft] = enc.decodeText(oldBase)
+        oldBase = fs.trim()
         // 将目录路径分割，并对每个部分进行编码修复
         const dirNamesFixed = oldDir.split(path.sep).map(s => {
             let [rs, rt] = enc.decodeText(s)
-            return rs.trim();
-        });
+            return rs.trim()
+        })
         // 重新组合修复后的目录路径
-        newDir = path.join(...dirNamesFixed);
+        newDir = path.join(...dirNamesFixed)
         if (core.isUNCPath(oldDir)) {
-            newDir = "\\\\" + newDir;
+            newDir = "\\\\" + newDir
         }
         // 显示有乱码的文件路径
         if (enc.hasBadUnicode(strPath)) {
             log.showGray(logTag, `BadEnc:${++badCount} `, oldPath)
-            log.fileLog(`BadEnc: ${ipx} <${oldPath}>`, logTag);
+            log.fileLog(`BadEnc: ${ipx} <${oldPath}>`, logTag)
         }
     }
     if (argv.replace?.[0]?.length > 0) {
         // 替换不涉及扩展名和目录路径，只处理文件名部分
         // 只想处理特定类型文件，可以用include规则
-        const strFrom = argv.replace[0];
-        const strTo = argv.replace[1] || "";
+        const strFrom = argv.replace[0]
+        const strTo = argv.replace[1] || ""
         if (strFrom?.length > 0) {
             // $在powershell中是特殊符号，需要使用单引号包裹
-            const rgx = new RegExp(strFrom, "ugi");
+            const rgx = new RegExp(strFrom, "ugi")
             log.info(logTag, `Replace: pattern=${rgx} replacement=${strTo}`)
-            const tempBase = oldBase.replaceAll(rgx, strTo);
+            const tempBase = oldBase.replaceAll(rgx, strTo)
             if (tempBase !== oldBase) {
                 log.show(logTag, 'Replace:', `${oldBase}${ext}`, `${tempBase}${ext}`,
                     strFrom, strTo, flag)
-                oldBase = tempBase;
+                oldBase = tempBase
             }
         }
     }
@@ -244,44 +244,44 @@ async function PreRename(f) {
         oldBase = sify(oldBase)
     }
     // 确保文件名不含有文件系统不允许的非法字符
-    oldBase = helper.filenameSafe(oldBase);
+    oldBase = helper.filenameSafe(oldBase)
     // 生成修复后的新路径，包括旧基础路径和文件扩展名
     const newName = `${oldBase}${ext}`
-    const newPath = path.resolve(path.join(newDir, newName));
+    const newPath = path.resolve(path.join(newDir, newName))
     if (newPath === oldPath) {
-        log.info(logTag, `Skip Same: ${ipx} ${helper.pathShort(oldPath)} ${flag}`);
-        f.skipped = true;
+        log.info(logTag, `Skip Same: ${ipx} ${helper.pathShort(oldPath)} ${flag}`)
+        f.skipped = true
     }
     else if (!f.skipped && await fs.pathExists(newPath)) {
-        log.info(logTag, `Skip DstExists: ${ipx} ${helper.pathShort(newPath)} ${flag}`);
-        f.skipped = true;
+        log.info(logTag, `Skip DstExists: ${ipx} ${helper.pathShort(newPath)} ${flag}`)
+        f.skipped = true
     }
     else if (!f.skipped && nameDuplicateSet.has(newPath)) {
-        log.info(logTag, `Skip DstDup: ${ipx} ${helper.pathShort(newPath)} ${flag}`);
-        f.skipped = true;
+        log.info(logTag, `Skip DstDup: ${ipx} ${helper.pathShort(newPath)} ${flag}`)
+        f.skipped = true
     }
 
     if (f.skipped) {
         // log.fileLog(`Skip: ${ipx} ${oldPath}`, logTag);
         // log.info(logTag, `Skip: ${ipx} ${oldPath}`);
-        return;
+        return
     }
     if (f.fixenc && enc.hasBadUnicode(newDir)) {
         log.showGray(logTag, `BadEncFR:${++badCount}`, oldPath)
         log.show(logTag, `BadEncTO:${++badCount}`, newPath)
-        log.fileLog(`BadEncFR: ${ipx} <${oldPath}>`, logTag);
-        log.fileLog(`BadEncTO: ${ipx} <${newPath}>`, logTag);
+        log.fileLog(`BadEncFR: ${ipx} <${oldPath}>`, logTag)
+        log.fileLog(`BadEncTO: ${ipx} <${newPath}>`, logTag)
     }
     else {
         const pathDepth = oldPath.split(path.sep).length
-        f.skipped = false;
-        f.outName = newName;
-        f.outPath = newPath;
-        log.showGray(logTag, `SRC: ${ipx} <${helper.pathShort(oldPath)}> ${flag} ${pathDepth}`);
-        log.show(logTag, `DST: ${ipx} <${helper.pathShort(newPath)}> ${flag} ${pathDepth}`);
-        log.fileLog(`Add: ${ipx} <${oldPath}> [SRC] ${flag}`, logTag);
-        log.fileLog(`Add: ${ipx} <${newPath}> [DST] ${flag}`, logTag);
-        return f;
+        f.skipped = false
+        f.outName = newName
+        f.outPath = newPath
+        log.showGray(logTag, `SRC: ${ipx} <${helper.pathShort(oldPath)}> ${flag} ${pathDepth}`)
+        log.show(logTag, `DST: ${ipx} <${helper.pathShort(newPath)}> ${flag} ${pathDepth}`)
+        log.fileLog(`Add: ${ipx} <${oldPath}> [SRC] ${flag}`, logTag)
+        log.fileLog(`Add: ${ipx} <${newPath}> [DST] ${flag}`, logTag)
+        return f
     }
 
 }

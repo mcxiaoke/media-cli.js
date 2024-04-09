@@ -7,28 +7,28 @@
  */
 
 
-import chalk from 'chalk';
-import { sify } from 'chinese-conv';
-import fs from 'fs-extra';
-import inquirer from "inquirer";
-import { cpus } from "os";
-import pMap from 'p-map';
-import path from "path";
-import { asyncFilter } from '../lib/core.js';
-import * as log from '../lib/debug.js';
-import * as mf from '../lib/file.js';
-import * as helper from '../lib/helper.js';
-import { RE_MEDIA_DIR_NAME, RE_ONLY_ASCII, RE_ONLY_NUMBER, RE_UGLY_CHARS, RE_UGLY_CHARS_BORDER, cleanFileName, renameFiles } from "./cmd_shared.js";
+import chalk from 'chalk'
+import { sify } from 'chinese-conv'
+import fs from 'fs-extra'
+import inquirer from "inquirer"
+import { cpus } from "os"
+import pMap from 'p-map'
+import path from "path"
+import { asyncFilter } from '../lib/core.js'
+import * as log from '../lib/debug.js'
+import * as mf from '../lib/file.js'
+import * as helper from '../lib/helper.js'
+import { RE_MEDIA_DIR_NAME, RE_ONLY_ASCII, RE_ONLY_NUMBER, RE_UGLY_CHARS, RE_UGLY_CHARS_BORDER, cleanFileName, renameFiles } from "./cmd_shared.js"
 
-const MODE_AUTO = "auto";
-const MODE_DIR = "dirname";
-const MODE_PREFIX = "prefix";
-const MODE_MEDIA = "media";
-const MODE_CLEAN = 'clean';
+const MODE_AUTO = "auto"
+const MODE_DIR = "dirname"
+const MODE_PREFIX = "prefix"
+const MODE_MEDIA = "media"
+const MODE_CLEAN = 'clean'
 
-const NAME_LENGTH = 32;
+const NAME_LENGTH = 32
 
-export { aliases, builder, command, describe, handler };
+export { aliases, builder, command, describe, handler }
 
 const command = "prefix <input> [output]"
 const aliases = ["pf", "px"]
@@ -115,13 +115,13 @@ const builder = function addOptions(ya, helpOrVersionSet) {
 
 function getAutoModePrefix(dir, sep) {
     // 从左到右的目录层次
-    const [d1, d2, d3] = dir.split(path.sep).slice(-3);
-    log.debug([d1, d2, d3].join(','));
+    const [d1, d2, d3] = dir.split(path.sep).slice(-3)
+    log.debug([d1, d2, d3].join(','))
     if (d3.includes(d1) && d2.includes(d1)) {
-        return d3;
+        return d3
     }
     if (d3.includes(d2)) {
-        return d3;
+        return d3
     }
     if (d2.includes(d1)) {
         return [d2, d3].join(sep)
@@ -130,84 +130,84 @@ function getAutoModePrefix(dir, sep) {
 }
 
 function parseNameMode(argv) {
-    let mode = argv.auto ? MODE_AUTO : argv.mode || MODE_AUTO;
-    if (argv.mprefix) { mode = MODE_PREFIX; }
-    if (argv.dirname) { mode = MODE_DIR; }
-    if (argv.media) { mode = MODE_MEDIA; }
-    if (argv.cleanOnly) { mode = MODE_CLEAN; }
-    return mode;
+    let mode = argv.auto ? MODE_AUTO : argv.mode || MODE_AUTO
+    if (argv.mprefix) { mode = MODE_PREFIX }
+    if (argv.dirname) { mode = MODE_DIR }
+    if (argv.media) { mode = MODE_MEDIA }
+    if (argv.cleanOnly) { mode = MODE_CLEAN }
+    return mode
 }
 
 // 重复文件名Set，检测重复，防止覆盖
-const nameDupSet = new Set();
-let nameDupIndex = 0;
+const nameDupSet = new Set()
+let nameDupIndex = 0
 async function createNewNameByMode(f) {
-    const argv = f.argv;
-    const mode = parseNameMode(argv);
+    const argv = f.argv
+    const mode = parseNameMode(argv)
     const nameLength = (mode === MODE_MEDIA
         || mode === MODE_CLEAN) ?
-        200 : argv.length || NAME_LENGTH;
-    const nameSlice = nameLength * -1;
-    const [dir, base, ext] = helper.pathSplit(f.path);
-    const oldName = path.basename(f.path);
-    const dirParts = dir.split(path.sep).slice(-3);
-    const dirName = path.basename(dir);
-    const logTag = `Prefix::${mode.toUpperCase()[0]}`;
+        200 : argv.length || NAME_LENGTH
+    const nameSlice = nameLength * -1
+    const [dir, base, ext] = helper.pathSplit(f.path)
+    const oldName = path.basename(f.path)
+    const dirParts = dir.split(path.sep).slice(-3)
+    const dirName = path.basename(dir)
+    const logTag = `Prefix::${mode.toUpperCase()[0]}`
     // 直接忽略 . _ 开头的目录
     if (/^[\._]/.test(dirName)) {
-        return;
+        return
     }
     const ipx = `${f.index}/${f.total}`
-    log.info(logTag, `Processing ${ipx} ${f.path}`);
-    let sep = "_";
-    let prefix = argv.prefix;
-    let oldBase = base;
+    log.info(logTag, `Processing ${ipx} ${f.path}`)
+    let sep = "_"
+    let prefix = argv.prefix
+    let oldBase = base
     switch (mode) {
         case MODE_CLEAN:
             {
-                sep = ".";
-                prefix = "";
+                sep = "."
+                prefix = ""
             }
-            break;
+            break
         case MODE_MEDIA:
             {
-                sep = ".";
-                prefix = dirName;
+                sep = "."
+                prefix = dirName
                 if (prefix.match(RE_MEDIA_DIR_NAME)) {
-                    prefix = dirParts[2];
+                    prefix = dirParts[2]
                 }
                 if (prefix.length < 4 && /^[A-Za-z0-9]+$/.test(prefix)) {
-                    prefix = dirParts[2] + sep + prefix;
+                    prefix = dirParts[2] + sep + prefix
                 }
             }
-            break;
+            break
         case MODE_PREFIX:
             {
-                sep = "_";
-                prefix = argv.prefix;
+                sep = "_"
+                prefix = argv.prefix
             }
-            break;
+            break
         case MODE_DIR:
             {
-                sep = "_";
-                prefix = dirName;
+                sep = "_"
+                prefix = dirName
                 if (prefix.match(RE_MEDIA_DIR_NAME)) {
-                    prefix = dirParts[2];
+                    prefix = dirParts[2]
                 }
             }
-            break;
+            break
         case MODE_AUTO:
             {
-                sep = "_";
-                prefix = getAutoModePrefix(dir, sep);
-                const shouldCheck = RE_ONLY_NUMBER.test(base) && base.length < 10;
-                const forceAll = argv.all || false;
+                sep = "_"
+                prefix = getAutoModePrefix(dir, sep)
+                const shouldCheck = RE_ONLY_NUMBER.test(base) && base.length < 10
+                const forceAll = argv.all || false
                 if (!shouldCheck && !forceAll) {
-                    log.info(logTag, `Ignore: ${ipx} ${helper.pathShort(f.path)} [Auto]`);
-                    return;
+                    log.info(logTag, `Ignore: ${ipx} ${helper.pathShort(f.path)} [Auto]`)
+                    return
                 }
             }
-            break;
+            break
         default:
             throw new Error(`Invalid mode: ${mode} ${argv.mode}`)
     }
@@ -215,95 +215,95 @@ async function createNewNameByMode(f) {
     if (mode !== MODE_CLEAN) {
         // 无有效前缀，报错退出
         if (!prefix || prefix.length == 0) {
-            log.warn(logTag, `Invalid Prefix: ${helper.pathShort(f.path)} ${mode}`);
-            throw new Error(`No prefix supplied!`);
+            log.warn(logTag, `Invalid Prefix: ${helper.pathShort(f.path)} ${mode}`)
+            throw new Error(`No prefix supplied!`)
         }
     }
 
     // 是否净化文件名，去掉各种特殊字符
     if (argv.clean || mode === MODE_CLEAN) {
-        prefix = cleanFileName(prefix, { separator: sep, keepDateStr: false, tc2sc: true });
-        oldBase = cleanFileName(oldBase, { separator: sep, keepDateStr: true, tc2sc: true });
+        prefix = cleanFileName(prefix, { separator: sep, keepDateStr: false, tc2sc: true })
+        oldBase = cleanFileName(oldBase, { separator: sep, keepDateStr: true, tc2sc: true })
     }
     // 不添加重复前缀
     if (oldBase.includes(prefix)) {
-        log.info(logTag, `IgnorePrefix: ${ipx} ${helper.pathShort(f.path)}`);
-        prefix = "";
+        log.info(logTag, `IgnorePrefix: ${ipx} ${helper.pathShort(f.path)}`)
+        prefix = ""
     }
     // 确保文件名不含有文件系统不允许的非法字符
-    oldBase = helper.filenameSafe(oldBase);
-    let fullBase = prefix.length > 0 ? (prefix + sep + oldBase) : oldBase;
+    oldBase = helper.filenameSafe(oldBase)
+    let fullBase = prefix.length > 0 ? (prefix + sep + oldBase) : oldBase
     // 去除首位空白和特殊字符
-    fullBase = fullBase.replaceAll(RE_UGLY_CHARS_BORDER, "");
+    fullBase = fullBase.replaceAll(RE_UGLY_CHARS_BORDER, "")
     // 多余空白和字符替换为一个字符 _或.
-    fullBase = fullBase.replaceAll(RE_UGLY_CHARS, sep);
+    fullBase = fullBase.replaceAll(RE_UGLY_CHARS, sep)
     // 去掉重复词组，如目录名和人名
     fullBase = Array.from(new Set(fullBase.split(sep))).join(sep)
-    fullBase = helper.unicodeLength(fullBase) > nameLength ? fullBase.slice(nameSlice) : fullBase;
+    fullBase = helper.unicodeLength(fullBase) > nameLength ? fullBase.slice(nameSlice) : fullBase
     // 再次去掉首位的特殊字符和空白字符
-    fullBase = fullBase.replaceAll(RE_UGLY_CHARS_BORDER, "");
+    fullBase = fullBase.replaceAll(RE_UGLY_CHARS_BORDER, "")
 
-    let newName = `${fullBase}${ext}`;
-    let newPath = path.resolve(path.join(dir, newName));
+    let newName = `${fullBase}${ext}`
+    let newPath = path.resolve(path.join(dir, newName))
     if (newPath === f.path) {
-        log.info(logTag, `Same: ${ipx} ${helper.pathShort(newPath)}`);
-        f.skipped = true;
+        log.info(logTag, `Same: ${ipx} ${helper.pathShort(newPath)}`)
+        f.skipped = true
     }
     else if (await fs.pathExists(newPath)) {
         // 目标文件已存在
-        const stn = await fs.stat(newPath);
+        const stn = await fs.stat(newPath)
         if (f.stats.size === stn.size) {
             // 如果大小相等，认为是同一个文件
-            log.info(logTag, `Exists: ${ipx} ${helper.pathShort(newPath)}`);
-            f.skipped = true;
+            log.info(logTag, `Exists: ${ipx} ${helper.pathShort(newPath)}`)
+            f.skipped = true
         } else {
             // 大小不相等，文件名添加后缀
             // 找到一个不重复的新文件名
             do {
-                newName = `${fullBase}${sep}D${++nameDupIndex}${ext}`;
-                newPath = path.resolve(path.join(dir, newName));
+                newName = `${fullBase}${sep}D${++nameDupIndex}${ext}`
+                newPath = path.resolve(path.join(dir, newName))
             } while (nameDupSet.has(newPath))
-            log.info(logTag, `NewName: ${ipx} ${helper.pathShort(newPath)}`);
+            log.info(logTag, `NewName: ${ipx} ${helper.pathShort(newPath)}`)
         }
     }
     else if (nameDupSet.has(newPath)) {
-        log.info(logTag, `Duplicate: ${ipx} ${helper.pathShort(newPath)}`);
-        f.skipped = true;
+        log.info(logTag, `Duplicate: ${ipx} ${helper.pathShort(newPath)}`)
+        f.skipped = true
     }
-    nameDupSet.add(newPath);
+    nameDupSet.add(newPath)
     if (f.skipped) {
         // log.fileLog(`Skip: ${ipx} ${f.path}`, logTag);
         // log.showGray(logTag, `Skip: ${ipx} ${f.path}`);
     } else {
-        f.outName = newName;
-        f.outPath = newPath;
-        log.showGray(logTag, `SRC: ${ipx} ${helper.pathShort(f.path)}`);
-        log.show(logTag, `DST: ${ipx} ${helper.pathShort(newPath)}`);
-        log.fileLog(`Prepare: ${ipx} <${f.path}> [SRC]`, logTag);
-        log.fileLog(`Prepare: ${ipx} <${newPath}> [DST]`, logTag);
+        f.outName = newName
+        f.outPath = newPath
+        log.showGray(logTag, `SRC: ${ipx} ${helper.pathShort(f.path)}`)
+        log.show(logTag, `DST: ${ipx} ${helper.pathShort(newPath)}`)
+        log.fileLog(`Prepare: ${ipx} <${f.path}> [SRC]`, logTag)
+        log.fileLog(`Prepare: ${ipx} <${newPath}> [DST]`, logTag)
     }
-    return f;
+    return f
 }
 
 const handler = async function cmdPrefix(argv) {
-    const testMode = !argv.doit;
-    const logTag = "cmdPrefix";
-    log.info(logTag, argv);
-    const root = path.resolve(argv.input);
+    const testMode = !argv.doit
+    const logTag = "cmdPrefix"
+    log.info(logTag, argv)
+    const root = path.resolve(argv.input)
     if (!root || !(await fs.pathExists(root))) {
-        throw new Error(`Invalid Input: ${root}`);
+        throw new Error(`Invalid Input: ${root}`)
     }
     if (!testMode) {
-        log.fileLog(`Root: ${root}`, logTag);
-        log.fileLog(`Argv: ${JSON.stringify(argv)}`, logTag);
+        log.fileLog(`Root: ${root}`, logTag)
+        log.fileLog(`Argv: ${JSON.stringify(argv)}`, logTag)
     }
-    const mode = parseNameMode(argv);
-    const prefix = argv.prefix;
-    const startMs = Date.now();
-    log.show(logTag, `Input: ${root}`);
+    const mode = parseNameMode(argv)
+    const prefix = argv.prefix
+    const startMs = Date.now()
+    log.show(logTag, `Input: ${root}`)
 
     if (mode === MODE_PREFIX && !prefix) {
-        throw new Error(`No prefix value supplied!`);
+        throw new Error(`No prefix value supplied!`)
     }
 
     let files = await mf.walk(root, {
@@ -311,24 +311,24 @@ const handler = async function cmdPrefix(argv) {
         entryFilter: (entry) =>
             entry.stats.isFile() &&
             entry.stats.size > 1024
-    });
-    log.show(logTag, `Total ${files.length} files found in ${helper.humanTime(startMs)}`);
+    })
+    log.show(logTag, `Total ${files.length} files found in ${helper.humanTime(startMs)}`)
     if (argv.include?.length >= 3) {
         // 处理include规则
-        const pattern = new RegExp(argv.include, "gi");
+        const pattern = new RegExp(argv.include, "gi")
 
-        files = await asyncFilter(files, x => x.path.match(pattern));
-        log.show(logTag, `Total ${files.length} files left after include rules`);
+        files = await asyncFilter(files, x => x.path.match(pattern))
+        log.show(logTag, `Total ${files.length} files left after include rules`)
     } else if (argv.exclude?.length >= 3) {
         // 处理exclude规则
-        const pattern = new RegExp(argv.exclude, "gi");
+        const pattern = new RegExp(argv.exclude, "gi")
         log.showRed(pattern)
-        files = await asyncFilter(files, x => !x.path.match(pattern));
-        log.show(logTag, `Total ${files.length} files left after exclude rules`);
+        files = await asyncFilter(files, x => !x.path.match(pattern))
+        log.show(logTag, `Total ${files.length} files left after exclude rules`)
     }
     if (files.length == 0) {
-        log.showYellow("Prefix", "Nothing to do, exit now.");
-        return;
+        log.showYellow("Prefix", "Nothing to do, exit now.")
+        return
     }
     files = files.map((f, i) => {
         return {
@@ -338,7 +338,7 @@ const handler = async function cmdPrefix(argv) {
             total: files.length,
         }
     })
-    const fCount = files.length;
+    const fCount = files.length
     //const tasks = files.map(f => createNewNameByMode(f, argv)).filter(f => f?.outName)
 
     let tasks = await pMap(files, createNewNameByMode, { concurrency: cpus().length * 4 })
@@ -353,22 +353,22 @@ const handler = async function cmdPrefix(argv) {
         }
     })
 
-    const tCount = tasks.length;
+    const tCount = tasks.length
     log.showYellow(
         logTag, `Total ${fCount - tCount} files are skipped.`
-    );
+    )
     if (tasks.length > 0) {
         log.showGreen(
             logTag,
             `Total ${tasks.length} media files ready to rename`
-        );
+        )
     } else {
         log.showYellow(
             logTag,
-            `Nothing to do, abort.`);
-        return;
+            `Nothing to do, abort.`)
+        return
     }
-    log.show(logTag, argv);
+    log.show(logTag, argv)
     testMode && log.showYellow("++++++++++ TEST MODE (DRY RUN) ++++++++++")
     const answer = await inquirer.prompt([
         {
@@ -379,16 +379,16 @@ const handler = async function cmdPrefix(argv) {
                 `Are you sure to rename these ${tasks.length} files?`
             ),
         },
-    ]);
+    ])
     if (answer.yes) {
         if (testMode) {
-            log.showYellow(logTag, `${tasks.length} files, NO file renamed in TEST MODE.`);
+            log.showYellow(logTag, `${tasks.length} files, NO file renamed in TEST MODE.`)
         }
         else {
-            const results = await renameFiles(tasks, false);
-            log.showGreen(logTag, `All ${results.length} file were renamed.`);
+            const results = await renameFiles(tasks, false)
+            log.showGreen(logTag, `All ${results.length} file were renamed.`)
         }
     } else {
-        log.showYellow(logTag, "Will do nothing, aborted by user.");
+        log.showYellow(logTag, "Will do nothing, aborted by user.")
     }
 }

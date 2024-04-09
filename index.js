@@ -1,1 +1,1 @@
-console.log("Hello, media-cli!");
+console.log("Hello, media-cli!")

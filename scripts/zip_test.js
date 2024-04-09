@@ -1,19 +1,19 @@
-import AdmZip from 'adm-zip';
-import chalk from 'chalk';
-import chardet from 'chardet';
-import { sify } from 'chinese-conv';
-import fs from 'fs-extra';
-import iconv from 'iconv-lite';
-import inquirer from "inquirer";
-import { cpus } from "os";
-import pMap from 'p-map';
-import path from "path";
-import { promisify } from 'util';
-import { asyncFilter } from '../lib/core.js';
-import * as log from '../lib/debug.js';
-import * as enc from '../lib/encoding.js';
-import * as mf from '../lib/file.js';
-import * as helper from '../lib/helper.js';
+import AdmZip from 'adm-zip'
+import chalk from 'chalk'
+import chardet from 'chardet'
+import { sify } from 'chinese-conv'
+import fs from 'fs-extra'
+import iconv from 'iconv-lite'
+import inquirer from "inquirer"
+import { cpus } from "os"
+import pMap from 'p-map'
+import path from "path"
+import { promisify } from 'util'
+import { asyncFilter } from '../lib/core.js'
+import * as log from '../lib/debug.js'
+import * as enc from '../lib/encoding.js'
+import * as mf from '../lib/file.js'
+import * as helper from '../lib/helper.js'
 
 let defaultEncoding = 'shift_jis'
 
@@ -31,20 +31,20 @@ const decodeNameFunc = (nameRaw) => {
 
 async function zipTest(file) {
     const parts = path.parse(file)
-    const baseName = parts.name;
+    const baseName = parts.name
     const rootDir = parts.dir
     const zipDir = path.join(rootDir, baseName)
     console.log('Output', zipDir)
     try {
-        const zip = new AdmZip(file);
-        const zipEntries = zip.getEntries();
+        const zip = new AdmZip(file)
+        const zipEntries = zip.getEntries()
         for (const entry of zipEntries) {
             if (entry.isDirectory) {
-                continue;
+                continue
             }
             console.log('================================')
             // console.log(entry.toString())
-            const fileName = decodeNameFunc(entry.rawEntryName);
+            const fileName = decodeNameFunc(entry.rawEntryName)
             const fileNameParts = path.parse(fileName)
 
             const fileDstDir = path.join(zipDir, fileNameParts.dir)
@@ -52,7 +52,7 @@ async function zipTest(file) {
             // console.log(`fileName`, fileNameParts)
             console.log(`fileDstDir ${fileDstDir}`)
             console.log(`fileDstPath ${fileDstPath}`)
-            const data = entry.getData();
+            const data = entry.getData()
             console.log(data.length)
             if (!await fs.pathExists(fileDstDir)) {
                 await fs.mkdir(fileDstDir, { recursive: true })
@@ -70,13 +70,13 @@ defaultEncoding = process.argv[3] || defaultEncoding
 await zipTest(root)
 
 if (1 === 1) {
-    process.exit(1);
+    process.exit(1)
 }
 
 let files = await mf.walk(root, {
     needStats: true,
     entryFilter: (entry) => entry.name.endsWith(".zip")
-});
+})
 for (const file of files) {
     await zipTest(file.path)
 }

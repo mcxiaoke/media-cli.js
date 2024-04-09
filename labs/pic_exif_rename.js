@@ -3,9 +3,9 @@
 // We're using the singleton here for convenience:
 // const exiftool = require("exiftool-vendored").exiftool;
 const exifr = require('exifr')
-const fs = require('fs');
-const path = require('path');
-const strftime = require(path.resolve(__dirname, "strftime.js"));
+const fs = require('fs')
+const path = require('path')
+const strftime = require(path.resolve(__dirname, "strftime.js"))
 
 // console.log(process.argv);
 if (process.argv.length < 3) {
@@ -13,12 +13,11 @@ if (process.argv.length < 3) {
     const st = path.basename(process.argv[1]) // script path
     console.log('No path args:', nd, st, '[source path]')
     process.exit(1)
-    return
 }
 
-const sourcePath = process.argv[2];
-const fileNames = fs.readdirSync(sourcePath);
-const filePaths = fileNames.map(x => path.join(sourcePath, x)).filter(x => fs.existsSync(x) && fs.lstatSync(x).isFile());
+const sourcePath = process.argv[2]
+const fileNames = fs.readdirSync(sourcePath)
+const filePaths = fileNames.map(x => path.join(sourcePath, x)).filter(x => fs.existsSync(x) && fs.lstatSync(x).isFile())
 // filePaths.forEach(x => console.log(x));
 
 let options = { ifd0: true, exif: ['Model', , 'DateTimeOriginal', 'OffsetTimeOriginal'] }

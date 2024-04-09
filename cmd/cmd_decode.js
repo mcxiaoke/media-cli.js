@@ -8,10 +8,10 @@
  */
 
 
-import chardet from 'chardet';
-import * as log from '../lib/debug.js';
-import * as enc from '../lib/encoding.js';
-import * as unicode from '../lib/unicode.js';
+import chardet from 'chardet'
+import * as log from '../lib/debug.js'
+import * as enc from '../lib/encoding.js'
+import * as unicode from '../lib/unicode.js'
 
 
 const ENC_LIST = [
@@ -25,7 +25,7 @@ const ENC_LIST = [
     'EUC-KR',
 ]
 
-export { aliases, builder, command, describe, handler };
+export { aliases, builder, command, describe, handler }
 const command = "decode <strings...>"
 const aliases = ["dc"]
 const describe = 'Decode text with messy or invalid chars'
@@ -52,15 +52,15 @@ const builder = function addOptions(ya, helpOrVersionSet) {
 }
 
 const handler = async function cmdDecode(argv) {
-    const logTag = "cmdDecode";
-    log.info(logTag, 'Args:', argv);
-    const strArgs = argv.strings;
+    const logTag = "cmdDecode"
+    log.info(logTag, 'Args:', argv)
+    const strArgs = argv.strings
     if (strArgs?.length === 0) {
-        throw new Error(`text input required`);
+        throw new Error(`text input required`)
     }
-    const fromEnc = argv.fromEnc?.length > 0 ? [argv.fromEnc] : ENC_LIST;
-    const toEnc = argv.toEnc?.length > 0 ? [argv.toEnc] : ENC_LIST;
-    const threhold = log.isVerbose() ? 1 : 50;
+    const fromEnc = argv.fromEnc?.length > 0 ? [argv.fromEnc] : ENC_LIST
+    const toEnc = argv.toEnc?.length > 0 ? [argv.toEnc] : ENC_LIST
+    const threhold = log.isVerbose() ? 1 : 50
     log.show(logTag, `Input:`, strArgs)
     log.show(logTag, `fromEnc:`, JSON.stringify(fromEnc))
     log.show(logTag, `toEnc:`, JSON.stringify(toEnc))

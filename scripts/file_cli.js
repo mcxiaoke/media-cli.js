@@ -1,23 +1,23 @@
 #!/usr/bin/env node
-const path = require("path");
-const chalk = require("chalk");
-const fs = require("fs-extra");
-const inquirer = require("inquirer");
-const { walk } = require("../lib/file");
-const h = require("../lib/helper");
-const log = require("../lib/debug");
-const un = require("../lib/unicode");
+const path = require("path")
+const chalk = require("chalk")
+const fs = require("fs-extra")
+const inquirer = require("inquirer")
+const { walk } = require("../lib/file")
+const h = require("../lib/helper")
+const log = require("../lib/debug")
+const un = require("../lib/unicode")
 // debug and logging config
-const prettyError = require("pretty-error").start();
-prettyError.skipNodeFiles();
+const prettyError = require("pretty-error").start()
+prettyError.skipNodeFiles()
 
 const configCli = (argv) => {
   // log.setName("AudioCli");
-  log.setLevel(argv.verbose);
-  log.debug(argv);
-};
+  log.setLevel(argv.verbose)
+  log.debug(argv)
+}
 
-const yargs = require("yargs/yargs")(process.argv.slice(2));
+const yargs = require("yargs/yargs")(process.argv.slice(2))
 yargs
   .positional("input", {
     describe: "Input folder that contains files",
@@ -66,8 +66,8 @@ yargs
     "Test command, print arguments",
     (yargs) => { },
     (argv) => {
-      yargs.showHelp();
-      log.show(argv);
+      yargs.showHelp()
+      log.show(argv)
     }
   )
   .command(
@@ -75,7 +75,7 @@ yargs
     "Delete files by pattern/extension/size",
     (yargs) => { },
     (argv) => {
-      cmdDelete(argv);
+      cmdDelete(argv)
     }
   )
   .command(
@@ -83,7 +83,7 @@ yargs
     "Move files by pattern/date/extension/size",
     (yargs) => { },
     (argv) => {
-      cmdMove(argv);
+      cmdMove(argv)
     }
   )
 
@@ -101,21 +101,21 @@ yargs
   .demandCommand(1, chalk.red("Missing sub command you want to execute!"))
   .showHelpOnFail()
   .help()
-  .middleware([configCli]);
-const argv = yargs.argv;
+  .middleware([configCli])
+const argv = yargs.argv
 
 async function cmdDelete(argv) {
-  log.info(`cmdDelete:`, argv);
-  const root = argv.input;
-  let files = await walk(root);
+  log.info(`cmdDelete:`, argv)
+  const root = argv.input
+  let files = await walk(root)
   files = files.filter((f) => {
-    const filename = path.basename(f.path);
-    return filename.includes(keyword);
-  });
-  files.forEach((f) => d.L("Found:", f.path));
+    const filename = path.basename(f.path)
+    return filename.includes(keyword)
+  })
+  files.forEach((f) => d.L("Found:", f.path))
   if (files.length == 0 || !argv.keyword) {
-    log.warn(`No files need to be processed, abort.`);
-    return;
+    log.warn(`No files need to be processed, abort.`)
+    return
   }
   const answer = await inquirer.prompt([
     {
@@ -126,28 +126,28 @@ async function cmdDelete(argv) {
         `Are you sure to delete these ${files.length} files?`
       ),
     },
-  ]);
+  ])
   if (answer.yes) {
     files = files.map(async (f, i) => {
       try {
-        log.info(`Deleting `, i, h.ps(f.path));
-        await fs.rm(f.path);
-        log.show(`Deleted `, i, h.ps(f.path));
+        log.info(`Deleting `, i, h.ps(f.path))
+        await fs.rm(f.path)
+        log.show(`Deleted `, i, h.ps(f.path))
       } catch (error) {
-        log.error(`Delete Failed: `, i, h.ps(f.path), error);
+        log.error(`Delete Failed: `, i, h.ps(f.path), error)
       }
-    });
+    })
   } else {
-    log.warn(`Nothing to do, abort by user.`);
+    log.warn(`Nothing to do, abort by user.`)
   }
 }
 
 async function cmdMove(argv) {
-  log.info(`cmdMove:`, argv);
-  const root = argv.input;
-  let files = await walk(root);
+  log.info(`cmdMove:`, argv)
+  const root = argv.input
+  let files = await walk(root)
   for (const f of files) {
-    log.show(f.path, f.stats.mtime);
+    log.show(f.path, f.stats.mtime)
   }
-  files = files.sort((a, b) => { });
+  files = files.sort((a, b) => { })
 }

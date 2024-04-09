@@ -6,18 +6,18 @@
  * License: Apache License 2.0
  */
 
-import fs from 'fs-extra';
-import os from 'os';
-import path from 'path';
-import * as enc from '../lib/encoding.js';
-import * as unicode from '../lib/unicode.js';
+import fs from 'fs-extra'
+import os from 'os'
+import path from 'path'
+import * as enc from '../lib/encoding.js'
+import * as unicode from '../lib/unicode.js'
 
-import { fileURLToPath } from 'url';
+import { fileURLToPath } from 'url'
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
 
-import { CHINESE_CHARS_3500, CHINESE_CHARS_7000, JAPANESE_HAN } from '../lib/unicode_data.js';
+import { CHINESE_CHARS_3500, CHINESE_CHARS_7000, JAPANESE_HAN } from '../lib/unicode_data.js'
 // log.setVerbose(1);
 
 // https://github.com/bnoordhuis/node-iconv/
@@ -66,7 +66,7 @@ normalizeChars()
 
 function charUnique(str) {
     return (String.prototype.concat.call(...new Set(str)))
-        .split('').sort((a, b) => a.localeCompare(b)).join('');
+        .split('').sort((a, b) => a.localeCompare(b)).join('')
 }
 
 function showStatus(str, title = '') {

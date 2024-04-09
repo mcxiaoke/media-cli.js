@@ -5,75 +5,75 @@
  * Author: mcxiaoke (github@mcxiaoke.com)
  * License: Apache License 2.0
  */
-import chalk from 'chalk';
-import { sify } from 'chinese-conv';
-import dayjs from 'dayjs';
-import { $ } from 'execa';
-import fs from 'fs-extra';
-import iconv from "iconv-lite";
-import * as emoji from 'node-emoji';
-import { cpus } from "os";
-import pMap from 'p-map';
-import path from "path";
-import sharp from "sharp";
-import which from "which";
-import * as log from '../lib/debug.js';
-import * as helper from '../lib/helper.js';
+import chalk from 'chalk'
+import { sify } from 'chinese-conv'
+import dayjs from 'dayjs'
+import { $ } from 'execa'
+import fs from 'fs-extra'
+import iconv from "iconv-lite"
+import * as emoji from 'node-emoji'
+import { cpus } from "os"
+import pMap from 'p-map'
+import path from "path"
+import sharp from "sharp"
+import which from "which"
+import * as log from '../lib/debug.js'
+import * as helper from '../lib/helper.js'
 // https://day.js.org/docs/zh-CN/display/format
-const DATE_FORMAT = 'YYYY-MM-DD HH:mm:ss.SSS Z';
+const DATE_FORMAT = 'YYYY-MM-DD HH:mm:ss.SSS Z'
 
 async function renameOneFile(f) {
     const ipx = `[${f.index}/${f.total}]`
-    const flag = f.stats?.isDirectory() ? "D" : "F";
+    const flag = f.stats?.isDirectory() ? "D" : "F"
     const logTag = 'Rename' + flag + ipx
     // 生成输出文件的路径  
-    const outPath = f.outPath || path.join(path.dirname(f.path), f.outName);
+    const outPath = f.outPath || path.join(path.dirname(f.path), f.outName)
     // 如果输出文件名不存在或者输入文件路径等于输出文件路径，忽略该文件并打印警告信息  
     if (!f.outName || f.path === f.outPath) {
-        log.showYellow(logTag, "ignore", f.path, flag);
-        return;
+        log.showYellow(logTag, "ignore", f.path, flag)
+        return
     }
     try {
         // 确保输出目录已存在，如果不存在则创建
-        const outDir = path.dirname(outPath);
+        const outDir = path.dirname(outPath)
         if (!await fs.pathExists(outDir)) {
-            await fs.mkdirs(outDir);
+            await fs.mkdirs(outDir)
         }
 
         // 使用 fs 模块的 rename 方法重命名文件，并等待操作完成  
-        await fs.rename(f.path, outPath);
+        await fs.rename(f.path, outPath)
         // 打印重命名成功的日志信息，显示输出文件的路径  
-        log.showGray(logTag, `Source: ${f.path} ${flag}`);
-        log.show(logTag, `${chalk.green(`Renamed:`)} ${outPath} ${flag}`);
-        log.fileLog(`Done: <${f.path}> => ${f.outName} ${flag}`, logTag);
-        return f;
+        log.showGray(logTag, `Source: ${f.path} ${flag}`)
+        log.show(logTag, `${chalk.green(`Renamed:`)} ${outPath} ${flag}`)
+        log.fileLog(`Done: <${f.path}> => ${f.outName} ${flag}`, logTag)
+        return f
     } catch (error) {
         // 捕获并打印重命名过程中出现的错误信息，显示错误原因和输入文件的路径  
-        log.error(logTag, error, f.path, flag);
-        log.fileLog(`Error: <${f.path}> ${error} ${flag}`, logTag);
+        log.error(logTag, error, f.path, flag)
+        log.fileLog(`Error: <${f.path}> ${error} ${flag}`, logTag)
     }
 }
 
 // 这个函数是一个异步函数，用于重命名文件  
 export async function renameFiles(files, parallel = false) {
     // 打印日志信息，显示要重命名的文件总数  
-    log.show("Rename", `total ${files.length} files to rename. (parallel=${parallel})`);
-    let results = [];
+    log.show("Rename", `total ${files.length} files to rename. (parallel=${parallel})`)
+    let results = []
     if (parallel) {
-        results = await pMap(files, renameOneFile, { concurrency: cpus().length * 4 });
+        results = await pMap(files, renameOneFile, { concurrency: cpus().length * 4 })
     } else {
         for (const file of files) {
             results.push(await renameOneFile(file))
         }
     }
-    const allCount = results.length;
-    const okCount = (results.filter(Boolean)).length;
-    log.show("Rename", `total ${okCount}/${allCount} files renamed (parallel=${parallel})`);
-    return results;
+    const allCount = results.length
+    const okCount = (results.filter(Boolean)).length
+    log.show("Rename", `total ${okCount}/${allCount} files renamed (parallel=${parallel})`)
+    return results
 }
 
 function fixEncoding(str = '') {
-    return iconv.decode(Buffer.from(str, 'binary'), 'cp936');
+    return iconv.decode(Buffer.from(str, 'binary'), 'cp936')
 }
 
 const fixedOkStr = iconv.decode(Buffer.from('OK'), 'utf8')
@@ -81,7 +81,7 @@ async function compressExternal(t, force = false) {
     const logTag = "Compress[EX]"
     log.info(logTag, "processing", t)
     if (!helper.isHEVCImage(t.src) && !force) {
-        return;
+        return
     }
     const exePath = await which("nconvert", { nothrow: true })
     if (!exePath) {
@@ -93,15 +93,15 @@ async function compressExternal(t, force = false) {
     // 使用临时文件
     const dstName = path.resolve(t.tmpDst)
     try {
-        const { stdout, stderr } = await $({ encoding: 'binary' })`${exePath} -overwrite -opthuff -no_auto_ext -out jpeg -o ${dstName} -q ${t.quality} -resize longest ${t.width} ${fileSrc}`;
-        const so = fixEncoding(stdout || "NULL");
+        const { stdout, stderr } = await $({ encoding: 'binary' })`${exePath} -overwrite -opthuff -no_auto_ext -out jpeg -o ${dstName} -q ${t.quality} -resize longest ${t.width} ${fileSrc}`
+        const so = fixEncoding(stdout || "NULL")
         const sr = fixEncoding(stderr || "NULL")
         log.debug(logTag, "stdout", so)
         log.debug(logTag, "stderr", sr)
         // strange fix for encoding str compare
         if (sr.endsWith(fixedOkStr)) {
             log.showYellow(logTag, `DoneEx: ${helper.pathShort(fileSrc)} => ${dstName}`)
-            log.fileLog(`DoneEx: <${fileSrc}> => ${dstName}`, logTag);
+            log.fileLog(`DoneEx: <${fileSrc}> => ${dstName}`, logTag)
             return {
                 width: t.width,
                 height: t.height,
@@ -115,26 +115,26 @@ async function compressExternal(t, force = false) {
 
 // 这是一个异步函数，用于创建缩略图  
 export async function compressImage(t) {
-    const logTag = "Compress";
+    const logTag = "Compress"
     // 如果目标文件已存在，且有删除未压缩文件标志
     // 则不进行压缩处理，添加标志后返回
     if (t.shouldSkip) {
-        log.show(logTag, `Skip: ${t.index}/${t.total}`, helper.pathShort(t.dst), chalk.yellow(t.skipReason));
-        log.fileLog(`Skip: ${t.index}/${t.total} <${t.src}> => ${path.basename(t.dst)} ${t.skipReason}`, logTag);
-        return t;
+        log.show(logTag, `Skip: ${t.index}/${t.total}`, helper.pathShort(t.dst), chalk.yellow(t.skipReason))
+        log.fileLog(`Skip: ${t.index}/${t.total} <${t.src}> => ${path.basename(t.dst)} ${t.skipReason}`, logTag)
+        return t
     }
     // 试图确保目标文件目录存在，如果不存在则创建  
     try {
-        await fs.ensureDir(path.dirname(t.dst));
+        await fs.ensureDir(path.dirname(t.dst))
         // 删除残留的临时文件
         if (await fs.pathExists(t.tmpDst)) {
-            await fs.remove(t.tmpDst);
+            await fs.remove(t.tmpDst)
         }
-        let r = await compressExternal(t);
+        let r = await compressExternal(t)
         if (!r) {
             // 初始化一个sharp对象，用于图像处理  
             // 尝试读取源图像文件  
-            const s = sharp(t.src);
+            const s = sharp(t.src)
             // 对图像进行重新调整尺寸，设置宽度为 t.width，保持原始宽高比  
             // 同时应用质量为 t.quality（默认值为86）的JPEG压缩，并使用"4:4:4"的色度子采样  
             r = await s
@@ -156,61 +156,61 @@ export async function compressImage(t) {
                 })
                 .jpeg({ quality: t.quality || 86, chromaSubsampling: "4:4:4" })
                 // 将处理后的图像保存到目标文件  
-                .toFile(t.tmpDst);
+                .toFile(t.tmpDst)
             // 获取目标文件的文件信息 
         }
         // 临时文件状态
-        return await checkCompressResult(t, r);
+        return await checkCompressResult(t, r)
     } catch (error) {
-        const errMsg = error.message.substring(0, 40);
+        const errMsg = error.message.substring(0, 40)
         // 使用sharp压缩失败，再使用xconvert试试
-        const cr = await compressExternal(t, true);
-        const r = await checkCompressResult(t, cr);
-        if (r?.done) { return r; }
+        const cr = await compressExternal(t, true)
+        const r = await checkCompressResult(t, cr)
+        if (r?.done) { return r }
         // 如果在处理过程中出现错误，则捕获并处理错误信息  
-        log.warn(logTag, `${t.index}/${t.total} ${helper.pathShort(t.src)} ERR:${errMsg}`);
-        log.fileLog(`Error: <${t.src}> => ${path.basename(t.dst)} ${errMsg}`, logTag);
+        log.warn(logTag, `${t.index}/${t.total} ${helper.pathShort(t.src)} ERR:${errMsg}`)
+        log.fileLog(`Error: <${t.src}> => ${path.basename(t.dst)} ${errMsg}`, logTag)
         try { // 尝试删除已创建的目标文件，防止错误文件占用空间  
-            await fs.remove(t.tmpDst);
-            await helper.safeRemove(t.dst);
+            await fs.remove(t.tmpDst)
+            await helper.safeRemove(t.dst)
         } catch (error) { } // 忽略删除操作的错误，不进行额外处理  
-        t.errorFlag = true;
-        t.errorMessage = errMsg;
-        t.done = false;
-        return t;
+        t.errorFlag = true
+        t.errorMessage = errMsg
+        t.done = false
+        return t
     } finally {
 
     }
 } // 结束函数定义
 
 async function checkCompressResult(t, r) {
-    const logTag = "Compress";
+    const logTag = "Compress"
     try {
-        const tmpSt = await fs.stat(t.tmpDst);
+        const tmpSt = await fs.stat(t.tmpDst)
         // 如果目标文件大小小于100KB，则可能文件损坏，删除该文件  
         // file may be corrupted, remove it  
         if (tmpSt.size < 100 * 1024) {
-            await helper.safeRemove(t.tmpDst);
-            log.showYellow(logTag, `Delete: ${t.index}/${t.total}`, `<${helper.pathShort(t.dst)}>`, `${helper.humanSize(tmpSt.size)}`, chalk.yellow(`file corrupted`));
-            log.fileLog(`Delete: ${t.index}/${t.total} <${helper.pathShort(t.dst)}> ${helper.humanSize(tmpSt.size)} file corrupted`, logTag);
-            return;
+            await helper.safeRemove(t.tmpDst)
+            log.showYellow(logTag, `Delete: ${t.index}/${t.total}`, `<${helper.pathShort(t.dst)}>`, `${helper.humanSize(tmpSt.size)}`, chalk.yellow(`file corrupted`))
+            log.fileLog(`Delete: ${t.index}/${t.total} <${helper.pathShort(t.dst)}> ${helper.humanSize(tmpSt.size)} file corrupted`, logTag)
+            return
         }
-        await fs.rename(t.tmpDst, t.dst);
-        t.dstExists = await fs.pathExists(t.dst);
+        await fs.rename(t.tmpDst, t.dst)
+        t.dstExists = await fs.pathExists(t.dst)
         if (!t.dstExists) {
-            return;
+            return
         }
-        log.showGreen(logTag, `Done: ${t.index}/${t.total}`, helper.pathShort(t.dst), `${r.width}x${r.height}`, `${helper.humanSize(tmpSt.size)} [${helper.humanTime(t.startMs)}]`);
-        log.fileLog(`Done: <${t.src}> => ${path.basename(t.dst)} ${helper.humanSize(tmpSt.size)}`, logTag);
-        t.done = true;
-        return t;
+        log.showGreen(logTag, `Done: ${t.index}/${t.total}`, helper.pathShort(t.dst), `${r.width}x${r.height}`, `${helper.humanSize(tmpSt.size)} [${helper.humanTime(t.startMs)}]`)
+        log.fileLog(`Done: <${t.src}> => ${path.basename(t.dst)} ${helper.humanSize(tmpSt.size)}`, logTag)
+        t.done = true
+        return t
     } catch (error) {
     }
 }
 
 // 正则：仅包含数字
-export const RE_ONLY_NUMBER = /^\d+$/i;
-export const RE_ONLY_ASCII = /^[A-Za-z0-9 ._-]+$/i;
+export const RE_ONLY_NUMBER = /^\d+$/i
+export const RE_ONLY_ASCII = /^[A-Za-z0-9 ._-]+$/i
 // 视频文件名各种前后缀
 export const RE_VIDEO_EXTRA_CHARS = helper.combineRegexG(
     /HD1080P|2160p|1080p|720p|BDRip/,
@@ -245,49 +245,49 @@ export const RE_IMAGE_EXTRA_CHARS = /更新|合集|画师|图片|视频|插画|�
 // \p{ASCII} ASCII字符
 // \uFE10-\uFE1F 中文全角标点
 // \uFF01-\uFF11 中文全角标点
-export const RE_NON_COMMON_CHARS = /[^\p{Unified_Ideograph}\p{sc=Hira}\p{sc=Kana}\w\d]/ugi;
+export const RE_NON_COMMON_CHARS = /[^\p{Unified_Ideograph}\p{sc=Hira}\p{sc=Kana}\w\d]/ugi
 // 匹配空白字符和特殊字符
 // https://www.unicode.org/charts/PDF/U3000.pdf
 // https://www.asciitable.com/
-export const RE_UGLY_CHARS = /[\s\x00-\x1F\x21-\x2F\x3A-\x40\x5B-\x60\x7b-\xFF]+/ugi;
+export const RE_UGLY_CHARS = /[\s\x00-\x1F\x21-\x2F\x3A-\x40\x5B-\x60\x7b-\xFF]+/ugi
 // 匹配开头和结尾的空白和特殊字符
-export const RE_UGLY_CHARS_BORDER = /^([\s._-]+)|([\s._-]+)$/ugi;
+export const RE_UGLY_CHARS_BORDER = /^([\s._-]+)|([\s._-]+)$/ugi
 // 图片视频子文件夹名过滤
 // 如果有表示，test() 会随机饭后true or false，是一个bug
 // 使用 string.match 函数没有问题
 // 参考 https://stackoverflow.com/questions/47060553
 // The g modifier causes the regex object to maintain state. 
 // It tracks the index after the last match.
-export const RE_MEDIA_DIR_NAME = /^图片|视频|电影|电视剧|Image|Video|Thumbs$/ugi;
+export const RE_MEDIA_DIR_NAME = /^图片|视频|电影|电视剧|Image|Video|Thumbs$/ugi
 // 可以考虑将日文和韩文罗马化处理
 // https://github.com/lovell/hepburn
 // https://github.com/fujaru/aromanize-js
 // https://www.npmjs.com/package/aromanize
 // https://www.npmjs.com/package/@lazy-cjk/japanese
 export function cleanFileName(nameString, options = {}) {
-    let sep = options.seperator || '_';
-    let nameStr = nameString;
+    let sep = options.seperator || '_'
+    let nameStr = nameString
     // 去掉所有表情符号
-    nameStr = emoji.strip(nameStr);
+    nameStr = emoji.strip(nameStr)
     // 去掉方括号 [xxx] 的内容
     // nameStr = nameStr.replaceAll(/\[.+?\]/gi, "");
     // 去掉图片集说明文字
-    nameStr = nameStr.replaceAll(RE_IMAGE_EXTRA_CHARS, "");
+    nameStr = nameStr.replaceAll(RE_IMAGE_EXTRA_CHARS, "")
     // 去掉视频说明文字
-    nameStr = nameStr.replaceAll(RE_VIDEO_EXTRA_CHARS, "");
+    nameStr = nameStr.replaceAll(RE_VIDEO_EXTRA_CHARS, "")
     // 去掉日期字符串
     if (!options.keepDateStr) {
-        nameStr = nameStr.replaceAll(/\d+年\d+月/ugi, "");
-        nameStr = nameStr.replaceAll(/\d{4}-\d{2}-\d{2}/ugi, "");
-        nameStr = nameStr.replaceAll(/\d{4}\.\d{2}\.\d{2}/ugi, "");
+        nameStr = nameStr.replaceAll(/\d+年\d+月/ugi, "")
+        nameStr = nameStr.replaceAll(/\d{4}-\d{2}-\d{2}/ugi, "")
+        nameStr = nameStr.replaceAll(/\d{4}\.\d{2}\.\d{2}/ugi, "")
     }
     // 去掉 [100P5V 2.25GB] No.46 这种图片集说明
-    nameStr = nameStr.replaceAll(/\[\d+P.*(\d+V)?.*?\]/ugi, "");
-    nameStr = nameStr.replaceAll(/No\.\d+|\d+\.?\d+GB?|\d+P|\d+V|NO\.(\d+)/ugi, "$1");
+    nameStr = nameStr.replaceAll(/\[\d+P.*(\d+V)?.*?\]/ugi, "")
+    nameStr = nameStr.replaceAll(/No\.\d+|\d+\.?\d+GB?|\d+P|\d+V|NO\.(\d+)/ugi, "$1")
     // 去掉中文标点，全角符号
-    nameStr = nameStr.replaceAll(/[\u3000-\u303F\uFE10-\uFE2F\uFF00-\uFF20]+/ugi, "");
+    nameStr = nameStr.replaceAll(/[\u3000-\u303F\uFE10-\uFE2F\uFF00-\uFF20]+/ugi, "")
     // () [] {} <> . - 改为下划线
-    nameStr = nameStr.replaceAll(/[\s\(\)\[\]{}<>\.\-]+/ugi, sep);
+    nameStr = nameStr.replaceAll(/[\s\(\)\[\]{}<>\.\-]+/ugi, sep)
     // 日文转罗马字母
     // nameStr = hepburn.fromKana(nameStr);
     // nameStr = wanakana.toRomaji(nameStr);
@@ -295,15 +295,15 @@ export function cleanFileName(nameString, options = {}) {
     // nameStr = aromanize.hangulToLatin(nameStr, 'rr-translit');
     if (options.tc2sc) {
         // 繁体转换为简体中文
-        nameStr = sify(nameStr);
+        nameStr = sify(nameStr)
     }
     // 去掉所有特殊字符
-    nameStr = nameStr.replaceAll(RE_NON_COMMON_CHARS, sep);
+    nameStr = nameStr.replaceAll(RE_NON_COMMON_CHARS, sep)
     // 连续的分隔符合并为一个 sep
-    nameStr = nameStr.replaceAll(/[\s._-]+/ugi, sep);
+    nameStr = nameStr.replaceAll(/[\s._-]+/ugi, sep)
     // 去掉首尾的特殊字符
-    nameStr = nameStr.replaceAll(RE_UGLY_CHARS_BORDER, "");
-    log.debug(`cleanFileName SRC [${nameString}]`, options);
+    nameStr = nameStr.replaceAll(RE_UGLY_CHARS_BORDER, "")
+    log.debug(`cleanFileName SRC [${nameString}]`, options)
     log.debug(`cleanFileName DST: [${nameStr}]`)
     // 确保是合法的文件名
     return helper.filenameSafe(nameStr)
