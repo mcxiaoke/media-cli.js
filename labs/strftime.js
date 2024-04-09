@@ -1,3 +1,11 @@
+/*
+ * Project: mediac
+ * Created: 2021-07-20 17:33:09 +0800
+ * Modified: 2024-04-09 22:15:53 +0800
+ * Author: mcxiaoke (github@mcxiaoke.com)
+ * License: Apache License 2.0
+ */
+
 /* Port of strftime() by T. H. Doan (https://thdoan.github.io/strftime/)
  *
  * Day of year (%j) code based on Joe Orost's answer:

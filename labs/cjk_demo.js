@@ -1,3 +1,11 @@
+/*
+ * Project: mediac
+ * Created: 2021-07-22 23:02:15 +0800
+ * Modified: 2024-04-09 22:15:14 +0800
+ * Author: mcxiaoke (github@mcxiaoke.com)
+ * License: Apache License 2.0
+ */
+
 // https://developer.mozilla.org/zh-CN/docs/orphaned/Web/JavaScript/Guide/Regular_Expressions/Unicode_Property_Escapes
 // https://www.unicode.org/Public/UCD/latest/ucd/PropertyValueAliases.txt
 // https://tc39.es/ecma262/#table-unicode-script-values

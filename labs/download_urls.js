@@ -1,3 +1,11 @@
+/*
+ * Project: mediac
+ * Created: 2021-08-02 15:40:17 +0800
+ * Modified: 2024-04-09 22:15:20 +0800
+ * Author: mcxiaoke (github@mcxiaoke.com)
+ * License: Apache License 2.0
+ */
+
 const path = require("path")
 const stream = require("stream")
 const { promisify } = require("util")

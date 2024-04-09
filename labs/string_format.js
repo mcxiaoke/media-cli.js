@@ -1,3 +1,11 @@
+/*
+ * Project: mediac
+ * Created: 2021-07-26 23:02:39 +0800
+ * Modified: 2024-04-09 22:15:56 +0800
+ * Author: mcxiaoke (github@mcxiaoke.com)
+ * License: Apache License 2.0
+ */
+
 // from https://stackoverflow.com/questions/610406
 // or use https://github.com/locutusjs/
 String.format = function (str, arr) {

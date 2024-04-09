@@ -1,3 +1,11 @@
+/*
+ * Project: mediac
+ * Created: 2022-12-01 12:03:52 +0800
+ * Modified: 2024-04-09 22:15:49 +0800
+ * Author: mcxiaoke (github@mcxiaoke.com)
+ * License: Apache License 2.0
+ */
+
 import assert from "assert"
 import chalk from 'chalk'
 import fs from 'fs-extra'

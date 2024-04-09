@@ -1,4 +1,13 @@
 #!/usr/bin/env node
+/*
+ * Project: mediac
+ * Created: 2021-07-20 17:33:09 +0800
+ * Modified: 2024-04-09 22:15:08 +0800
+ * Author: mcxiaoke (github@mcxiaoke.com)
+ * License: Apache License 2.0
+ */
+
+
 
 // We're using the singleton here for convenience:
 // const exiftool = require("exiftool-vendored").exiftool;

@@ -1,4 +1,14 @@
-#!/usr/bin/env node
+#!/usr/bin/env/node
+
+/*
+ * Project: mediac
+ * Created: 2021-07-20 16:59:09 +0800
+ * Modified: 2024-04-09 22:16:36 +0800
+ * Author: mcxiaoke (github@mcxiaoke.com)
+ * License: Apache License 2.0
+ */
+
+
 const yargs = require("yargs/yargs")
 const { hideBin } = require("yargs/helpers")
 

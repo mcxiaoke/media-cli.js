@@ -1,4 +1,13 @@
 #!/usr/bin/env node
+/*
+ * Project: mediac
+ * Created: 2022-12-01 12:03:52 +0800
+ * Modified: 2024-04-09 22:15:30 +0800
+ * Author: mcxiaoke (github@mcxiaoke.com)
+ * License: Apache License 2.0
+ */
+
+
 const path = require("path")
 const fs = require("fs-extra")
 const dayjs = require('dayjs')
