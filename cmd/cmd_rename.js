@@ -57,6 +57,11 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             type: "boolean",
             description: "remove ugly and special chars in filename",
         })
+        .option("separator", {
+            alias: ['s', 'sep'],
+            type: "string",
+            description: "word separator for clean filenames ",
+        })
         // 使用正则表达式替换文件名中的特定字符，比如问号
         // 如果数组只有一项，就是替换这一项为空白，即删除模式字符串
         // 如果有两项，就是替换第一项匹配的字符串为第二项指定的字符
@@ -66,7 +71,12 @@ const builder = function addOptions(ya, helpOrVersionSet) {
         // 或者针对 $ 使用反引号转义，如 `$
         .option("replace", {
             type: "array",
-            description: "replace filename chars by regex pattern [from,to]",
+            description: "replace filename chars by pattern [from,to]",
+        })
+        // 默认使用字符串模式替换，可启用正则模式替换
+        .option("regex", {
+            type: "boolean",
+            description: "replace filename by regex pattern",
         })
         // 修复文件名乱码
         .option("fixenc", {
@@ -76,7 +86,7 @@ const builder = function addOptions(ya, helpOrVersionSet) {
         })
         // 繁体转简体
         .option("tcsc", {
-            alias: "t",
+            aliases: ["t", 'tc2sc'],
             type: "boolean",
             description: "convert from tc to sc for Chinese chars",
         })
@@ -227,7 +237,8 @@ async function PreRename(f) {
             // $在powershell中是特殊符号，需要使用单引号包裹
             const rgx = new RegExp(strFrom, "ugi")
             log.info(logTag, `Replace: pattern=${rgx} replacement=${strTo}`)
-            const tempBase = oldBase.replaceAll(rgx, strTo)
+            // 默认使用字符串模式替换，可启用正则模式替换
+            let tempBase = oldBase.replaceAll(argv ? rgx : strFrom, strTo)
             if (tempBase !== oldBase) {
                 log.show(logTag, 'Replace:', `${oldBase}${ext}`, `${tempBase}${ext}`,
                     strFrom, strTo, flag)
@@ -237,11 +248,20 @@ async function PreRename(f) {
     }
     if (argv.clean) {
         // 执行净化文件名操作
-        oldBase = cleanFileName(oldBase, { separator: "", keepDateStr: true, tc2sc: false })
+        oldBase = cleanFileName(oldBase, {
+            separator: argv.separator,
+            keepDateStr: true,
+            tc2sc: false
+        })
     }
     if (argv.tcsc) {
         // 执行繁体转简体操作
         oldBase = sify(oldBase)
+    }
+    // 保险措施，防止误替换导致文件名丢失
+    if (oldBase.length < 2) {
+        log.showYellow(logTag, `Revert: ${ipx} ${helper.pathShort(oldPath)} ${flag}`)
+        oldBase = base
     }
     // 确保文件名不含有文件系统不允许的非法字符
     oldBase = helper.filenameSafe(oldBase)
@@ -277,8 +297,8 @@ async function PreRename(f) {
         f.skipped = false
         f.outName = newName
         f.outPath = newPath
-        log.showGray(logTag, `SRC: ${ipx} <${helper.pathShort(oldPath)}> ${flag} ${pathDepth}`)
-        log.show(logTag, `DST: ${ipx} <${helper.pathShort(newPath)}> ${flag} ${pathDepth}`)
+        log.showGray(logTag, `SRC: ${ipx} <${oldPath}> ${flag} ${pathDepth}`)
+        log.show(logTag, `DST: ${ipx} <${newPath}> ${flag} ${pathDepth}`)
         log.fileLog(`Add: ${ipx} <${oldPath}> [SRC] ${flag}`, logTag)
         log.fileLog(`Add: ${ipx} <${newPath}> [DST] ${flag}`, logTag)
         return f

@@ -45,12 +45,13 @@ async function renameOneFile(f) {
         // 打印重命名成功的日志信息，显示输出文件的路径  
         log.showGray(logTag, `Source: ${f.path} ${flag}`)
         log.show(logTag, `${chalk.green(`Renamed:`)} ${outPath} ${flag}`)
-        log.fileLog(`Done: <${f.path}> => ${f.outName} ${flag}`, logTag)
+        log.fileLog(`SRC: <${f.path}>`, logTag)
+        log.fileLog(`DST: <${f.outPath}>`, logTag)
         return f
     } catch (error) {
         // 捕获并打印重命名过程中出现的错误信息，显示错误原因和输入文件的路径  
         log.error(logTag, error, f.path, flag)
-        log.fileLog(`Error: <${f.path}> ${error} ${flag}`, logTag)
+        log.fileLog(`Error: <${f.path}> ${error}`, logTag)
     }
 }
 
@@ -67,7 +68,8 @@ export async function renameFiles(files, parallel = false) {
         }
     }
     const allCount = results.length
-    const okCount = (results.filter(Boolean)).length
+    results = results.filter(Boolean)
+    const okCount = results.length
     log.show("Rename", `total ${okCount}/${allCount} files renamed (parallel=${parallel})`)
     return results
 }
@@ -265,7 +267,7 @@ export const RE_MEDIA_DIR_NAME = /^图片|视频|电影|电视剧|Image|Video|Th
 // https://www.npmjs.com/package/aromanize
 // https://www.npmjs.com/package/@lazy-cjk/japanese
 export function cleanFileName(nameString, options = {}) {
-    let sep = options.seperator || '_'
+    let sep = options.separator || ''
     let nameStr = nameString
     // 去掉所有表情符号
     nameStr = emoji.strip(nameStr)
@@ -287,7 +289,7 @@ export function cleanFileName(nameString, options = {}) {
     // 去掉中文标点，全角符号
     nameStr = nameStr.replaceAll(/[\u3000-\u303F\uFE10-\uFE2F\uFF00-\uFF20]+/ugi, "")
     // () [] {} <> . - 改为下划线
-    nameStr = nameStr.replaceAll(/[\s\(\)\[\]{}<>\.\-]+/ugi, sep)
+    nameStr = nameStr.replaceAll(/[\s\(\)\[\]{}<>\._-]+/ugi, sep)
     // 日文转罗马字母
     // nameStr = hepburn.fromKana(nameStr);
     // nameStr = wanakana.toRomaji(nameStr);
