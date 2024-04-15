@@ -68,6 +68,7 @@
     "inquirer": "^9.2.12",
     "loglevel": "^1.8.1",
     "loglevel-plugin-prefix": "^0.8.4",
+    "mediainfo.js": "^0.2.2",
     "micromatch": "^4.0.5",
     "music-metadata": "^7.14.0",
     "node-emoji": "^2.1.3",

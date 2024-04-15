@@ -12,11 +12,7 @@ import chardet from 'chardet'
 import fs from 'fs-extra'
 import iconv from 'iconv-lite'
 import inquirer from 'inquirer'
-import { cpus } from 'os'
-import pMap from 'p-map'
 import path from 'path'
-import { promisify } from 'util'
-import { asyncFilter } from '../lib/core.js'
 import * as log from '../lib/debug.js'
 import * as enc from '../lib/encoding.js'
 import * as mf from '../lib/file.js'
@@ -87,7 +83,7 @@ const handler = async function cmdZipUnicode(argv) {
             index: i,
             total: files.length,
             encoding: argv.encoding,
-            override: argv.override
+            override: argv.override || false
         }
     })
     log.show(logTag, `Total ${files.length} zip files found in ${helper.humanTime(startMs)}`)
@@ -128,21 +124,29 @@ async function UnzipOneFile(f, testMode = true) {
     const logTag = 'ZipU'
     const zipFilePath = f.path
     const zipFileName = path.basename(zipFilePath)
+    const zipFileSize = (await fs.stat(zipFilePath)).size ?? 0
     const parts = path.parse(zipFilePath)
     const zipDir = path.join(parts.dir, parts.name)
+    log.show(logTag, `Unzip: ${ipx} <${helper.pathShort(zipFilePath)}> (${helper.humanSize(zipFileSize)}) ${testMode} ${f.override}`)
+    // 检查解压目录是否已存在，是否已解压
     if (await fs.pathExists(zipDir)) {
-        const dirEmpty = await helper.isEmptyDir(zipDir)
+        // 强制覆盖，删除旧目录
         if (f.override) {
             log.showYellow(logTag, `Override Exists: <${zipDir}>`)
-            !testMode && await fs.remove(zipDir)
-        } else if (!dirEmpty) {
-            log.showYellow(logTag, `Skip Exists: <${zipDir}>`)
-            return
+            !testMode && await helper.safeRemove(zipDir)
+        } else {
+            const zipDirSize = await mf.getDirectorySizeR(zipDir)
+            log.info(logTag, `Exists: <${zipDir}> ${helper.humanSize(zipDirSize)}`)
+            // 解压后的目录大于zip文件大小，认为解压成功，忽略
+            if (zipDirSize >= zipFileSize - mf.FILE_SIZE_1M) {
+                log.showYellow(logTag, `Skip Exists: <${zipDir}> ${helper.humanSize(zipDirSize)}`)
+                return
+            }
         }
     }
-    log.info(logTag, `Processing: <${zipFilePath}> testMode:${testMode}`)
     let badNameFound = false
     try {
+        const decodedNameMap = new Map()
         const zip = new AdmZip(zipFilePath)
         const zipEntries = zip.getEntries()
 
@@ -155,18 +159,18 @@ async function UnzipOneFile(f, testMode = true) {
             if (badName) {
                 badNameFound = true
                 log.showYellow(logTag, `Unzip BadName: ${ipx} <${zipFileName}> <${fileName}> [${encoding}]`)
+            } else {
+                decodedNameMap.set(entry.rawEntryName, { fileName, encoding })
             }
         }
 
         if (badNameFound) {
-            log.showYellow(logTag, `Unzip Skipped:  ${ipx} File:<${zipFilePath}>`)
-            log.show(logTag, `Unzip Skipped:  ${ipx} Reason: Some entries have bad names.`)
+            log.showYellow(logTag, `Unzip Skipped:  ${ipx} File:<${zipFilePath}> Reason: Some entries have bad names.`)
             return
         }
 
         if (testMode) {
-            log.show(logTag, `Unzip Skipped:  ${ipx} File:<${zipFilePath}>`)
-            log.showGray(logTag, `Unzip Skipped:  ${ipx} Reason: [Test Mode].`)
+            log.showYellow(logTag, `Unzip Skipped:  ${ipx} File:<${zipFilePath}> Reason: [Test Mode].`)
             return
         }
 
@@ -180,19 +184,23 @@ async function UnzipOneFile(f, testMode = true) {
             ++unzippedCount
             const epx = `${unzippedCount}/${entryCount}`
             // 解码后的文件名，确保无乱码
-            const { fileName, encoding, badName } = decodeNameSmart(entry.rawEntryName, f.encoding)
+            // const { fileName, encoding, badName } = decodeNameSmart(entry.rawEntryName, f.encoding)
+            const { fileName, encoding } = decodedNameMap.get(entry.rawEntryName)
             const fileNameParts = path.parse(fileName)
             const dstDir = path.join(zipDir, fileNameParts.dir)
             const dstFile = path.join(dstDir, fileNameParts.base)
             log.info(logTag, `DstDir: ${epx} <${dstDir}>`)
             log.info(logTag, `DstFile: ${epx} <${dstFile}>`)
-            const data = entry.getData()
-            log.info(data.length)
             if (!await fs.pathExists(dstDir)) {
                 await fs.mkdir(dstDir, { recursive: true })
             }
-            await fs.writeFile(dstFile, data)
-            log.show(logTag, `Entry: ${epx}  <${helper.pathShort(dstFile)}> [${encoding}]`)
+            if (await fs.pathExists(dstFile)) {
+                log.showGray(logTag, `Skip: ${epx} <${helper.pathShort(dstFile)}> [${encoding}]`)
+            } else {
+                const data = entry.getData()
+                await fs.writeFile(dstFile, data)
+                log.show(logTag, `Entry: ${epx} <${helper.pathShort(dstFile)}> [${encoding}]`)
+            }
             unzippedFiles.push(dstFile)
         }
         if (unzippedCount === unzippedFiles.length) {
@@ -200,8 +208,11 @@ async function UnzipOneFile(f, testMode = true) {
             f.unzipped = unzippedFiles
             log.info(logTag, `Unzipped ${ipx} SRC:<${zipFilePath}>`)
             log.showGreen(logTag, `Unzipped ${ipx} DST:<${helper.pathShort(zipDir)}>`)
+            log.fileLog(`Unzipped ${ipx} <${zipFilePath}>`, logTag)
             return f
         } else {
+            // 解压失败，删除解压目录
+            await helper.safeRemove(zipDir)
             log.showRed(logTag, `Failed ${ipx} <${helper.pathShort(zipFilePath)}>`)
         }
     } catch (error) {
@@ -231,26 +242,26 @@ const decodeNameSmart = (fileNameRaw, defaultEncoding = 'SHIFT_JIS') => {
     let fileName = iconv.decode(buf, encoding)
     let badName = enc.hasBadUnicode(fileName)
     if (badName) {
-        log.info(ca)
-        log.showGray('ZipU', 'messyName:'.padEnd(14, ' '), fileName, encoding, buf.length, fileName?.length ?? -1)
+        log.debug('ZipU', 'messyName:'.padEnd(14, ' '), fileName, encoding, buf.length, fileName?.length ?? -1)
         let betterNameFound = false
         for (const charEncoding of TRY_ENCODING) {
             const tryName = iconv.decode(buf, charEncoding)
             const invalidName = enc.hasBadUnicode(tryName)
-            log.info('ZipU', 'tryName:', tryName, charEncoding, invalidName)
+            log.debug('ZipU', 'tryName:', tryName, charEncoding, invalidName)
             if (!invalidName) {
                 if (!betterNameFound) {
                     betterNameFound = true
                     fileName = tryName
                     encoding = charEncoding
                     badName = false
-                    log.show('ZipU', 'betterName:'.padEnd(14, ' '), fileName, encoding, badName)
+                    log.info('ZipU', 'betterName:'.padEnd(14, ' '), fileName, encoding, badName)
                     continue
                 }
                 break
             }
         }
     }
+    log.info('ZipU', 'Name:'.padEnd(14, ' '), fileName, encoding, badName)
     decodedNameCache.set(fileNameRaw, { fileName, encoding, badName })
     return { fileName, encoding, badName }
 }

@@ -351,7 +351,7 @@ async function purgeSrcFiles(results) {
         await fs.pathExists(td.tmpDst) && await fs.remove(td.tmpDst)
         await helper.safeRemove(td.src)
         log.showYellow(logTag, `SafeDel: ${index}/${total} ${helper.pathShort(td.src)}`)
-        log.fileLog(`SafeDel: <${td.dst}>`, logTag)
+        log.fileLog(`SafeDel: <${td.src}>`, logTag)
         return td.src
     }
     const deleted = await pMap(toDelete, deletecFunc, { concurrency: cpus().length * 8 })

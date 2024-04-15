@@ -259,7 +259,7 @@ async function PreRename(f) {
         oldBase = sify(oldBase)
     }
     // 保险措施，防止误替换导致文件名丢失
-    if (oldBase.length < 2) {
+    if (oldBase != base && oldBase.length === 0) {
         log.showYellow(logTag, `Revert: ${ipx} ${helper.pathShort(oldPath)} ${flag}`)
         oldBase = base
     }
