@@ -28,8 +28,8 @@ import EventEmitter from 'events'
 const cpuCount = cpus().length
 // debug and logging config
 // 配置错误信息输出
-const prettyError = PrettyError.start()
-prettyError.skipNodeFiles()
+// const prettyError = PrettyError.start()
+// prettyError.skipNodeFiles()
 // 配置调试等级
 const configCli = (argv) => {
   // log.setName("MediaCli");
