@@ -73,7 +73,7 @@ const getFiles = async (dir, supportedExtensions) => {
             process.exit(1)
         }
         const directory = process.argv[2]
-        const supportedExtensions = ['.js', '.ts', '.css', '.html', '.json', '.md']
+        const supportedExtensions = ['.js', '.ts', '.py', '.c']
         const files = await getFiles(directory, supportedExtensions)
         for (const file of files) {
             const dates = await getGitDates(file, directory)

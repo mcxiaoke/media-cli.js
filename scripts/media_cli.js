@@ -24,22 +24,27 @@ import * as mf from '../lib/file.js'
 import * as helper from '../lib/helper.js'
 
 import EventEmitter from 'events'
+EventEmitter.defaultMaxListeners = 1000
 
 const cpuCount = cpus().length
-// debug and logging config
-// 配置错误信息输出
-// const prettyError = PrettyError.start()
-// prettyError.skipNodeFiles()
 // 配置调试等级
 const configCli = (argv) => {
+  const pe = PrettyError.start()
+  pe.skipNodeFiles()
   // log.setName("MediaCli");
   log.setVerbose(argv.verbose)
   log.debug(argv)
 }
 
-EventEmitter.defaultMaxListeners = 1000
+process.exit = (code) => {
+  console.error(`Process exited with code ${code}`)
+}
 
-main()
+try {
+  await main()
+} catch (error) {
+  console.error(error)
+}
 
 async function main() {
   // 命令行参数解析
