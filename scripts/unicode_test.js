@@ -17,7 +17,7 @@ import { fileURLToPath } from 'url'
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
-import { CHINESE_CHARS_3500, CHINESE_CHARS_7000, JAPANESE_HAN } from '../lib/unicode_data.js'
+import { HANZI_COMMON_3500, HANZI_COMMON_7000, HANZI_COMMON_JAPANESE } from '../lib/unicode.js'
 // log.setVerbose(1);
 
 // https://github.com/bnoordhuis/node-iconv/
@@ -34,9 +34,9 @@ const ENC_LIST = [
 ]
 
 function normalizeChars(filename = 'messy_hanzi.txt') {
-    const c7000 = CHINESE_CHARS_7000
-    const c3500 = CHINESE_CHARS_3500
-    const jpHanzi = JAPANESE_HAN
+    const c7000 = HANZI_COMMON_7000
+    const c3500 = HANZI_COMMON_3500
+    const jpHanzi = HANZI_COMMON_JAPANESE
     const dataDir = path.join(path.dirname(__dirname), 'data')
     const libDir = path.join(path.dirname(__dirname), 'lib')
     // const fileChars = fs.readFileSync(path.join(dataDir, 'messy_sample.txt'), 'utf8')
