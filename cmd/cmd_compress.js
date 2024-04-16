@@ -234,8 +234,7 @@ const bar1 = new cliProgress.SingleBar({ etaBuffer: 300 }, cliProgress.Presets.s
 // 准备压缩图片的参数，并进行相应的处理  
 async function preCompress(f, options = {}) {
     const logTag = 'PreCompress'
-    // log.debug("prepareCompressArgs options:", options); // 打印日志，显示选项参数  
-    const maxWidth = options.maxWidth || 6000 // 获取最大宽度限制，默认为6000  
+    const maxWidth = f.maxWidth || 6000 // 获取最大宽度限制，默认为6000  
     let fileSrc = path.resolve(f.path) // 解析源文件路径  
     const [dir, base, ext] = helper.pathSplit(fileSrc) // 将路径分解为目录、基本名和扩展名  
     const fileDstTmp = path.join(dir, `_TMP_${base}.jpg`)
@@ -290,24 +289,26 @@ async function preCompress(f, options = {}) {
             log.fileLog(`ExifErr: <${fileSrc}> ${error.message}`, logTag)
         }
 
-        const nw =
+        const newWidth =
             m.width > m.height ? maxWidth : Math.round((maxWidth * m.width) / m.height)
-        const nh = Math.round((nw * m.height) / m.width)
+        const newHeight = Math.round((newWidth * m.height) / m.width)
 
-        const dw = nw > m.width ? m.width : nw
-        const dh = nh > m.height ? m.height : nh
-        if (f.total < 9999) {
+        const dstWidth = newWidth > m.width ? m.width : newWidth
+        const dstHeight = newHeight > m.height ? m.height : newHeight
+        if (f.total < 1000 || f.index > f.total - 1000) {
             log.show(logTag, `${f.index}/${f.total}`,
-                helper.pathShort(fileSrc, 32),
-                `${m.width}x${m.height}=>${dw}x${dh} ${helper.humanSize(st.size)}`
+                helper.pathShort(fileSrc),
+                `${m.width}x${m.height}=>${dstWidth}x${dstHeight} ${helper.humanSize(st.size)}`
             )
         }
         log.fileLog(`Pre: ${f.index}/${f.total} <${fileSrc}> ` +
-            `${dw}x${dh}) ${m.format} ${helper.humanSize(st.size)}`, logTag)
+            `${dstWidth}x${dstHeight}) ${m.format} ${helper.humanSize(st.size)}`, logTag)
         return {
             ...f,
-            width: dw,
-            height: dh,
+            srcWidth: m.width,
+            srcHeight: m.height,
+            width: dstWidth,
+            height: dstHeight,
             src: fileSrc,
             dst: fileDst,
             tmpDst: fileDstTmp,
