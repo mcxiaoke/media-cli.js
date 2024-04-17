@@ -45,6 +45,13 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             type: "string",
             description: "filename exclude pattern ",
         })
+        // 遍历目录层次深度限制
+        .option("max-depth", {
+            aliases: ['depth'],
+            type: "number",
+            default: 99,
+            description: "max depth when walk directories and files",
+        })
         // 要处理的文件类型 文件或目录或所有，默认只处理文件
         .option("type", {
             type: "choices",
@@ -59,7 +66,7 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             description: "remove ugly and special chars in filename",
         })
         .option("separator", {
-            alias: ['s', 'sep'],
+            aliases: ['sep'],
             type: "string",
             description: "word separator for clean filenames ",
         })
@@ -81,7 +88,7 @@ const builder = function addOptions(ya, helpOrVersionSet) {
         })
         // 修复文件名乱码
         .option("fixenc", {
-            alias: ['fixenocidng', 'e'],
+            aliases: ['fixenocidng', 'e'],
             type: "boolean",
             description: "fix filenames by guess encoding",
         })
@@ -110,7 +117,6 @@ const handler = cmdRename
 async function cmdRename(argv) {
     const testMode = !argv.doit
     const logTag = "cmdRename"
-    log.show(logTag, argv)
     const root = path.resolve(argv.input)
     if (!root || !(await fs.pathExists(root))) {
         throw new Error(`Invalid Input: ${root}`)
@@ -130,7 +136,10 @@ async function cmdRename(argv) {
         throw new Error(`Error: type must be one of ${TYPE_LIST}`)
     }
     const options = {
-        needStats: true, withDirs: type === 'd', withFiles: type === 'a' || type === 'f'
+        needStats: true,
+        withDirs: type === 'd',
+        withFiles: type === 'a' || type === 'f',
+        maxDepth: argv.maxDepth || 99,
     }
     let entries = await mf.walk(root, options)
     log.show(logTag, `Total ${entries.length} entries found (type=${type})`)
@@ -140,7 +149,6 @@ async function cmdRename(argv) {
         const rgx = new RegExp(pattern, "ui")
         return name.includes(pattern) || rgx.test(name)
     }
-    log.showGreen(entries.length)
     if (argv.include?.length > 0) {
         // 处理include规则
         entries = await asyncFilter(entries, x => predicate(x.path, argv.include))
@@ -148,7 +156,6 @@ async function cmdRename(argv) {
         // 处理exclude规则
         entries = await asyncFilter(entries, x => !predicate(x.path, argv.exclude))
     }
-    log.showMagenta(entries.length)
     log.show(logTag, `${entries.length} files after applied include/exclude rules`)
     entries = entries.map((f, i) => {
         return {
@@ -159,8 +166,9 @@ async function cmdRename(argv) {
         }
     })
     const fCount = entries.length
-    let tasks = await pMap(entries, PreRename, { concurrency: cpus().length * 4 })
-    tasks = tasks.filter(f => f?.outName)
+    let tasks = await pMap(entries, preRename, { concurrency: cpus().length * 4 })
+    tasks = tasks.filter(f => f && (f.outPath || f.outName))
+    log.show(logTag, argv)
     const tCount = tasks.length
     log.showYellow(
         logTag, `Total ${fCount - tCount} files are skipped. (type=${type})`
@@ -176,7 +184,7 @@ async function cmdRename(argv) {
             `Nothing to do, abort. (type=${type})`)
         return
     }
-    log.show(logTag, argv)
+
     testMode && log.showYellow("++++++++++ TEST MODE (DRY RUN) ++++++++++")
     const answer = await inquirer.prompt([
         {
@@ -202,81 +210,135 @@ async function cmdRename(argv) {
 }
 
 let badCount = 0
+let nameDupCount = 0
 // 重复文件名Set，检测重复，防止覆盖
 const nameDuplicateSet = new Set()
-async function PreRename(f) {
-    const logTag = `PreRename`
+async function preRename(f) {
+    const isDir = f.stats?.isDirectory()
+    const flag = isDir ? "D" : "F"
+    const logTag = `PreRename${flag}`
     const argv = f.argv
     const ipx = f.index
     const oldPath = path.resolve(f.path)
-    const flag = f.stats?.isDirectory() ? "D" : "F"
-    const oldName = path.basename(oldPath)
-    const [oldDir, base, ext] = helper.pathSplit(oldPath)
-    const oldDirName = path.basename(oldDir)
-    const strPath = path.resolve(f.path).split(path.sep).join(' ')
-    let oldBase = base
-    let newDir = oldDir
+    const pathParts = path.parse(oldPath)
+    // 这里由于文件名里有.等特殊字符
+    // 需要分别处理目录和文件的情况
+    const oldDir = pathParts.dir
+    const oldBase = isDir ? pathParts.base : pathParts.name
+    const ext = isDir ? "" : pathParts.ext
+    // log.show([oldDir], [oldBase], [ext])
+    let tmpNewDir = null
+    let tmpNewBase = null
+
+    // 重新组合修复后的目录路径
+    function combinePath(...parts) {
+        let joinedPath = path.join(...parts)
+        // 如果原路径是UNC路径，则需要补上前缀
+        if (core.isUNCPath(oldDir)) {
+            joinedPath = "\\\\" + joinedPath
+        }
+        return joinedPath
+    }
+    // ==================================
+    // 文件名和路径乱码修复
+    // 适用 完整路径
+    // ==================================
     if (argv.fixenc) {
         // 执行文件路径乱码修复操作
         // 对路径进行中日韩文字编码修复
-        let [fs, ft] = enc.decodeText(oldBase)
-        oldBase = fs.trim()
+        let [fs, ft] = enc.decodeText(base)
+        tmpNewBase = fs.trim()
         // 将目录路径分割，并对每个部分进行编码修复
         const dirNamesFixed = oldDir.split(path.sep).map(s => {
             let [rs, rt] = enc.decodeText(s)
             return rs.trim()
         })
-        // 重新组合修复后的目录路径
-        newDir = path.join(...dirNamesFixed)
-        if (core.isUNCPath(oldDir)) {
-            newDir = "\\\\" + newDir
-        }
+        tmpNewDir = combinePath(...dirNamesFixed)
         // 显示有乱码的文件路径
+        const strPath = oldPath.split(path.sep).join('')
         if (enc.hasBadUnicode(strPath)) {
-            log.showGray(logTag, `BadEnc:${++badCount} `, oldPath)
+            log.showGray(logTag, `BadEnc:${++badCount} ${oldPath} `)
             log.fileLog(`BadEnc: ${ipx} <${oldPath}>`, logTag)
         }
     }
+    // ==================================
+    // 文件名和路径字符串替换
+    // 正则模式 和 字符串模式
+    // 适用 完整路径
+    // ==================================
     if (argv.replace?.[0]?.length > 0) {
         // 替换不涉及扩展名和目录路径，只处理文件名部分
         // 只想处理特定类型文件，可以用include规则
-        const strFrom = argv.replace[0]
+        // $在powershell中是特殊符号，需要使用单引号包裹
+        const strMode = argv.regex ? "regex" : "str"
+        const strFrom = argv.regex ? new RegExp(argv.replace[0], "ugi") : argv.replace[0]
         const strTo = argv.replace[1] || ""
-        if (strFrom?.length > 0) {
-            // $在powershell中是特殊符号，需要使用单引号包裹
-            const rgx = new RegExp(strFrom, "ugi")
-            log.info(logTag, `Replace: pattern=${rgx} replacement=${strTo}`)
-            // 默认使用字符串模式替换，可启用正则模式替换
-            let tempBase = oldBase.replaceAll(argv ? rgx : strFrom, strTo)
-            if (tempBase !== oldBase) {
-                log.show(logTag, 'Replace:', `${oldBase}${ext}`, `${tempBase}${ext}`,
-                    strFrom, strTo, flag)
-                oldBase = tempBase
-            }
+        log.info(logTag, `Replace: ${oldDir} = ${oldBase} P=${strFrom}`)
+
+        // 默认使用字符串模式替换，可启用正则模式替换
+        let tempBase = oldBase.replaceAll(strFrom, strTo)
+        if (tempBase !== oldBase) {
+            tmpNewBase = tempBase
+        }
+        // 路径各个部分先分解，单独替换，然后组合路径
+        let parts = oldDir.split(path.sep).map(s => {
+            let s2 = s.replaceAll(strFrom, strTo).trim()
+            s !== s2 && log.show(s, s2)
+            return s2
+        })
+        let tempDir = combinePath(...parts)
+        if (tempDir !== oldDir) {
+            tmpNewDir = tempDir
+        }
+        const tmpNewPath = path.join(tmpNewDir || oldDir, (tmpNewBase || oldBase) + ext)
+        if (tmpNewPath !== oldPath) {
+            log.info(logTag, `Replace: pattern=${strFrom} replacement=${strTo} mode=${strMode}`)
+            log.info(logTag, `Replace: ${oldPath}=>${tmpNewPath} (${strMode})`)
         }
     }
+    // ==================================
+    // 文件名特殊字符清理
+    // ==================================
     if (argv.clean) {
         // 执行净化文件名操作
-        oldBase = cleanFileName(oldBase, {
+        tmpNewBase = cleanFileName(oldBase, {
             separator: argv.separator,
             keepDateStr: true,
             tc2sc: false
         })
+        tmpNewDir = oldDir
     }
+    // ==================================
+    // 文件名繁体转简体
+    // ==================================
     if (argv.tcsc) {
         // 执行繁体转简体操作
-        oldBase = sify(oldBase)
+        tmpNewBase = sify(oldBase)
+        tmpNewDir = sify(oldDir)
     }
+
+    tmpNewDir = tmpNewDir || oldDir
+    tmpNewBase = tmpNewBase || oldBase
+
     // 保险措施，防止误替换导致文件名丢失
-    if (oldBase != base && oldBase.length === 0) {
-        log.showYellow(logTag, `Revert: ${ipx} ${helper.pathShort(oldPath)} ${flag}`)
-        oldBase = base
+    if (tmpNewBase.length === 0) {
+        log.showYellow(logTag, `Revert: ${ipx} ${helper.pathShort(oldPath)}`)
+        tmpNewBase = oldBase
     }
+
+    // ==================================
+    // 生成修复后的新路径，包括路径和文件名和扩展名
+    // ==================================
     // 确保文件名不含有文件系统不允许的非法字符
-    oldBase = helper.filenameSafe(oldBase)
-    // 生成修复后的新路径，包括旧基础路径和文件扩展名
-    const newName = `${oldBase}${ext}`
+    tmpNewBase = helper.filenameSafe(tmpNewBase)
+    let newDir = tmpNewDir || oldDir
+    let newName = tmpNewBase + ext
     let newPath = path.resolve(path.join(newDir, newName))
+
+    // ==================================
+    // 合并重复名称的目录层级
+    // 此项建议单独使用
+    // ==================================
     if (argv.mergeDirs) {
         // 合并重复名称的目录层级
         // 比如解压后的多层同名目录
@@ -287,38 +349,51 @@ async function PreRename(f) {
     }
 
     if (newPath === oldPath) {
-        log.info(logTag, `Skip Same: ${ipx} ${helper.pathShort(oldPath)} ${flag}`)
+        log.info(logTag, `Skip Same: ${ipx} ${helper.pathShort(oldPath)}`)
         f.skipped = true
     }
-    else if (!f.skipped && await fs.pathExists(newPath)) {
-        log.info(logTag, `Skip DstExists: ${ipx} ${helper.pathShort(newPath)} ${flag}`)
-        f.skipped = true
+    else if (await fs.pathExists(newPath)) {
+        let dupCount = 0
+        do {
+            newName = tmpNewBase + `_${++dupCount}` + ext
+            newPath = path.resolve(path.join(newDir, newName))
+        } while (await fs.pathExists(newPath))
+        log.showGray(logTag, `NewPath[EXIST]: ${ipx} ${helper.pathShort(newPath)}`)
     }
-    else if (!f.skipped && nameDuplicateSet.has(newPath)) {
-        log.info(logTag, `Skip DstDup: ${ipx} ${helper.pathShort(newPath)} ${flag}`)
-        f.skipped = true
+    else if (nameDuplicateSet.has(newPath)) {
+        let dupCount = 0
+        do {
+            newName = tmpNewBase + `_${++dupCount}` + ext
+            newPath = path.resolve(path.join(newDir, newName))
+        } while (nameDuplicateSet.has(newPath))
+        log.showGray(logTag, `NewPath[DUP]: ${ipx} ${helper.pathShort(newPath)}`)
     }
-
     if (f.skipped) {
         // log.fileLog(`Skip: ${ipx} ${oldPath}`, logTag);
         // log.info(logTag, `Skip: ${ipx} ${oldPath}`);
         return
     }
-    if (f.fixenc && enc.hasBadUnicode(newDir)) {
+
+    if (f.fixenc && enc.hasBadUnicode(tmpNewDir)) {
+        // 如果修复乱码导致新文件名还是有乱码，就忽略后续操作
         log.showGray(logTag, `BadEncFR:${++badCount}`, oldPath)
         log.show(logTag, `BadEncTO:${++badCount}`, newPath)
         log.fileLog(`BadEncFR: ${ipx} <${oldPath}>`, logTag)
         log.fileLog(`BadEncTO: ${ipx} <${newPath}>`, logTag)
     }
     else {
+        // 最后，保存重命名准备参数，返回结果
         const pathDepth = oldPath.split(path.sep).length
         f.skipped = false
-        f.outName = newName
+        // 新的完整路径，优先使用
         f.outPath = newPath
-        log.showGray(logTag, `SRC: ${ipx} <${oldPath}> ${flag} ${pathDepth}`)
-        log.show(logTag, `DST: ${ipx} <${newPath}> ${flag} ${pathDepth}`)
-        log.fileLog(`Add: ${ipx} <${oldPath}> [SRC] ${flag}`, logTag)
-        log.fileLog(`Add: ${ipx} <${newPath}> [DST] ${flag}`, logTag)
+        // 没有outPath时使用
+        f.outName = newName
+        // 如果二者都没有，取消重命名
+        log.showGray(logTag, `SRC: ${ipx} <${oldPath}> ${pathDepth}`)
+        log.show(logTag, `DST: ${ipx} <${newPath}> ${pathDepth}`)
+        log.fileLog(`Add: ${ipx} <${oldPath}> [SRC]`, logTag)
+        log.fileLog(`Add: ${ipx} <${newPath}> [DST]`, logTag)
         return f
     }
 

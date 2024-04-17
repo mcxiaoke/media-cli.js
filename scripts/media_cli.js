@@ -29,11 +29,13 @@ EventEmitter.defaultMaxListeners = 1000
 const cpuCount = cpus().length
 // 配置调试等级
 const configCli = (argv) => {
+  // 太冗长了删掉
+  delete argv.$0
   const pe = PrettyError.start()
   pe.skipNodeFiles()
   // log.setName("MediaCli");
   log.setVerbose(argv.verbose)
-  log.debug(argv)
+  log.info(argv)
 }
 
 process.exit = (code) => {

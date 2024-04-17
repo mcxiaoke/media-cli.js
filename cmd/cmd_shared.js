@@ -26,7 +26,7 @@ async function renameOneFile(f) {
     const ipx = `[${f.index}/${f.total}]`
     const flag = f.stats?.isDirectory() ? "D" : "F"
     const logTag = 'Rename' + flag + ipx
-    // 生成输出文件的路径  
+    // 生成输出文件的路径，优先 outPath  
     const outPath = f.outPath || path.join(path.dirname(f.path), f.outName)
     // 如果输出文件名不存在或者输入文件路径等于输出文件路径，忽略该文件并打印警告信息  
     if (!f.outName || f.path === f.outPath) {
