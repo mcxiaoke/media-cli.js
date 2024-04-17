@@ -18,6 +18,7 @@ import * as log from '../lib/debug.js'
 import * as enc from '../lib/encoding.js'
 import * as mf from '../lib/file.js'
 import * as helper from '../lib/helper.js'
+import { mergePath } from '../lib/path-merge.js'
 import { cleanFileName, renameFiles } from "./cmd_shared.js"
 
 const TYPE_LIST = ['a', 'f', 'd']
@@ -90,6 +91,12 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             type: "boolean",
             description: "convert from tc to sc for Chinese chars",
         })
+        // 合并多层重复目录，减少层级，不改动文件名
+        .option("merge-dirs", {
+            aliases: ["simplify-dirs"],
+            type: "boolean",
+            description: "reduce duplicate named directory hierarchy",
+        })
         // 确认执行所有系统操作，非测试模式，如删除和重命名和移动操作
         .option("doit", {
             alias: "d",
@@ -98,7 +105,9 @@ const builder = function addOptions(ya, helpOrVersionSet) {
         })
 }
 
-const handler = async function cmdRename(argv) {
+const handler = cmdRename
+
+async function cmdRename(argv) {
     const testMode = !argv.doit
     const logTag = "cmdRename"
     log.show(logTag, argv)
@@ -112,9 +121,9 @@ const handler = async function cmdRename(argv) {
     }
     const startMs = Date.now()
     log.show(logTag, `Input: ${root}`)
-    if (!(argv.clean || argv.fixenc || argv.tcsc || argv.replace)) {
-        log.error(`Error: replace|clean|encoding|tcsc, one is required`)
-        throw new Error(`replace|clean|encoding|tcsc, one is required`)
+    if (!(argv.clean || argv.fixenc || argv.tcsc || argv.replace || argv.mergeDirs)) {
+        // log.error(`Error: replace|clean|encoding|tcsc|mergeDirs, one is required`)
+        throw new Error(`replace|clean|encoding|tcsc|mergeDirs, one is required`)
     }
     const type = (argv.type || 'f').toLowerCase()
     if (!TYPE_LIST.includes(type)) {
@@ -267,7 +276,16 @@ async function PreRename(f) {
     oldBase = helper.filenameSafe(oldBase)
     // 生成修复后的新路径，包括旧基础路径和文件扩展名
     const newName = `${oldBase}${ext}`
-    const newPath = path.resolve(path.join(newDir, newName))
+    let newPath = path.resolve(path.join(newDir, newName))
+    if (argv.mergeDirs) {
+        // 合并重复名称的目录层级
+        // 比如解压后的多层同名目录
+        const newPathBefore = newPath
+        newPath = mergePath(newPath)
+        // log.show(logTag, `MergeDirs: ${ipx} SRC:${newPathBefore}`)
+        // log.show(logTag, `MergeDirs: ${ipx} DST:${newPath}`)
+    }
+
     if (newPath === oldPath) {
         log.info(logTag, `Skip Same: ${ipx} ${helper.pathShort(oldPath)} ${flag}`)
         f.skipped = true
