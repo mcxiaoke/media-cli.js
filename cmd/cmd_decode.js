@@ -84,17 +84,16 @@ function showResults(r) {
     log.info(`-`)
     const str = r[0]
     const print = (a, b) => log.info(a.padEnd(16, ' '), b)
-    log.show('Result:', str.padEnd(16, ' '), r.slice(1))
+    log.show('Result:', r)
     let cr = chardet.analyse(Buffer.from(str))
     cr = cr.filter(ct => ct.confidence >= 70)
     cr?.length > 0 && print('Encoding', cr)
     print('String', Array.from(str))
     print('Unicode', Array.from(str).map(c => c.codePointAt(0).toString(16)))
     const badUnicode = enc.checkBadUnicode(str)
-    badUnicode?.length > 0 && log.info(`badUnicode=true`)
+    badUnicode?.length > 0 && log.show('badUnicode:', badUnicode)
     log.info(`MESSY_UNICODE=${enc.REGEX_MESSY_UNICODE.test(str)}`,
-        `MESSY_CJK=${enc.REGEX_MESSY_CJK.test(str)}`,
-        `MESSY_CJK_EXT=${enc.REGEX_MESSY_CJK_EXT.test(str)}`)
+        `MESSY_CJK=${enc.REGEX_MESSY_CJK.test(str)}`)
     log.info(`OnlyJapanese=${unicode.strOnlyJapanese(str)}`,
         `OnlyJpHan=${unicode.strOnlyJapaneseHan(str)}`,
         `HasHiraKana=${unicode.strHasHiraKana(str)}`

@@ -73,7 +73,6 @@ function showStatus(str, title = '') {
     console.log(`================ ${title} ================`)
     console.log(str)
     console.log('REGEX_MESSY_CJK', enc.REGEX_MESSY_CJK.test(str))
-    console.log('REGEX_MESSY_CJK_EXT', enc.REGEX_MESSY_CJK_EXT.test(str))
     console.log('REGEX_MESSY_UNICODE', enc.REGEX_MESSY_UNICODE.test(str))
     console.log('hasBadUnicode', enc.hasBadUnicode(str))
     console.log('strOnlyChinese', unicode.strOnlyChinese(str))

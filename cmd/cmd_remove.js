@@ -19,8 +19,10 @@ import path from "path"
 import sharp from "sharp"
 
 import * as log from '../lib/debug.js'
+import * as enc from '../lib/encoding.js'
 import * as mf from '../lib/file.js'
 import * as helper from '../lib/helper.js'
+// a = all, f = files, d = directories
 const TYPE_LIST = ['a', 'f', 'd']
 
 export { aliases, builder, command, describe, handler }
@@ -97,6 +99,13 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             // 移除损坏的文件
             description: "delete corrupted files",
         })
+        .option("badchars", {
+            alias: "b",
+            type: "boolean",
+            default: false,
+            // 移除文件名含乱码的文件
+            description: "delete files with illegal or bad unicode chars",
+        })
         .option("purge", {
             type: "boolean",
             default: false,
@@ -112,8 +121,8 @@ const builder = function addOptions(ya, helpOrVersionSet) {
         })
 }
 
-
-const handler = async function cmdRemove(argv) {
+const handler = cmdRemove
+async function cmdRemove(argv) {
     const logTag = 'cmdRemove'
     log.info(logTag, argv)
     const testMode = !argv.doit
@@ -128,7 +137,7 @@ const handler = async function cmdRemove(argv) {
     // 如果没有提供任何一个参数，报错，显示帮助
     if (argv.width == 0 && argv.height == 0 && argv.size == 0
         && !(argv.measure && reMeasure.test(argv.measure))
-        && !argv.pattern && !argv.list && !argv.corrupted) {
+        && !argv.pattern && !argv.list && !argv.corrupted && !argv.badchars) {
         log.show(logTag, argv)
         log.error(logTag, `required remove condition args not supplied`)
         throw new Error("required remove condition args not supplied")
@@ -156,6 +165,7 @@ const handler = async function cmdRemove(argv) {
     const purge = argv.purge || false
     const cLoose = argv.loose || false
     const cCorrupted = argv.corrupted || false
+    const cBadChars = argv.badchars || false
     const cSize = argv.size * 1024 || 0
     const cPattern = argv.pattern || ""
     const cReverse = argv.reverse || false
@@ -203,6 +213,7 @@ const handler = async function cmdRemove(argv) {
         total: files.length,
         loose: cLoose,
         corrupted: cCorrupted,
+        badchars: cBadChars,
         width: cWidth,
         height: cHeight,
         size: cSize,
@@ -237,7 +248,10 @@ const handler = async function cmdRemove(argv) {
         return
     }
     log.showYellow(logTag, `${tasks.length} files to be removed (type=${type})`)
-    log.show(logTag, `task sample:`, tasks.slice(-1))
+    // log.show(logTag, `Below are last sample tasks:`)
+    // for (const task of tasks.slice(-20)) {
+    //     log.show(`ToRemove: [${task.desc}] ${task.src}`)
+    // }
     log.showYellow(logTag, conditions)
     if (cNames && cNames.size > 0) {
         // 默认仅删除列表中的文件，反转则仅保留列表中的文件，其它的全部删除，谨慎操作
@@ -346,6 +360,8 @@ async function preRemoveArgs(f) {
     const cLoose = c.loose || false
     // 删除损坏文件
     const cCorrupted = c.corrupted || false
+    // 移除乱码文件名的文件
+    const cBadChars = c.badchars || false
     // 最大宽度
     const cWidth = c.width || 0
     // 最大高度
@@ -362,6 +378,7 @@ async function preRemoveArgs(f) {
     //log.show("prepareRM", `${cWidth}x${cHeight} ${cSize} /${cPattern}/`);
 
     let testCorrupted = false
+    let testBadChars = false
     let testName = false
     let testSize = false
     let testMeasure = false
@@ -387,6 +404,12 @@ async function preRemoveArgs(f) {
                     log.info("preRemove[Good]:", `${ipx} ${fileSrc}`)
                 }
             }
+        }
+
+        if (cBadChars && enc.hasBadUnicode(fileName, true)) {
+            log.showYellow("preRemove[BadChars]:", `${ipx} ${fileSrc}`)
+            itemDesc += " BadChars"
+            testBadChars = true
         }
 
         // 首先检查名字正则匹配
@@ -467,13 +490,13 @@ async function preRemoveArgs(f) {
 
         let shouldRemove = false
 
-        if (testCorrupted) {
+        if (testCorrupted || testBadChars) {
             shouldRemove = true
         } else {
             if (cLoose) {
                 shouldRemove = testName || testSize || testMeasure
             } else {
-                log.debug("PreRemove ", `${ipx} ${helper.pathShort(fileSrc)} hasName=${hasName}-${testName} hasSize=${hasSize}-${testSize} hasMeasure=${hasMeasure}-${testMeasure} testCorrupted=${testCorrupted},flag=${flag}`)
+                log.debug("PreRemove ", `${ipx} ${helper.pathShort(fileSrc)} hasName=${hasName}-${testName} hasSize=${hasSize}-${testSize} hasMeasure=${hasMeasure}-${testMeasure} testCorrupted=${testCorrupted},testBadChars=${testBadChars},flag=${flag}`)
                 shouldRemove = checkConditions()
             }
         }

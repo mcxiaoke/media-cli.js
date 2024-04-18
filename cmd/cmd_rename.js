@@ -246,7 +246,7 @@ async function preRename(f) {
     if (argv.fixenc) {
         // 执行文件路径乱码修复操作
         // 对路径进行中日韩文字编码修复
-        let [fs, ft] = enc.decodeText(base)
+        let [fs, ft] = enc.decodeText(oldBase)
         tmpNewBase = fs.trim()
         // 将目录路径分割，并对每个部分进行编码修复
         const dirNamesFixed = oldDir.split(path.sep).map(s => {
@@ -256,9 +256,11 @@ async function preRename(f) {
         tmpNewDir = combinePath(...dirNamesFixed)
         // 显示有乱码的文件路径
         const strPath = oldPath.split(path.sep).join('')
-        if (enc.hasBadUnicode(strPath)) {
-            log.showGray(logTag, `BadEnc:${++badCount} ${oldPath} `)
-            log.fileLog(`BadEnc: ${ipx} <${oldPath}>`, logTag)
+        const strNewPath = combinePath(tmpNewDir, tmpNewBase + ext)
+        if (enc.hasBadUnicode(strPath, true)) {
+            log.showGray(logTag, `BadSRC:${++badCount} ${oldPath} `)
+            log.showGray(logTag, `BadDST:${badCount} ${strNewPath} `)
+            log.fileLog(`BadEnc:${ipx} <${oldPath}>`, logTag)
         }
     }
     // ==================================
@@ -374,7 +376,7 @@ async function preRename(f) {
         return
     }
 
-    if (f.fixenc && enc.hasBadUnicode(tmpNewDir)) {
+    if (f.fixenc && enc.hasBadUnicode(newPath, true)) {
         // 如果修复乱码导致新文件名还是有乱码，就忽略后续操作
         log.showGray(logTag, `BadEncFR:${++badCount}`, oldPath)
         log.show(logTag, `BadEncTO:${++badCount}`, newPath)
