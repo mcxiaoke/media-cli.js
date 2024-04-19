@@ -160,6 +160,8 @@ async function main() {
     .command(await import("../cmd/cmd_zipu.js"))
     // 命令 乱码解析，猜测编码，输出可能正确的字符串
     .command(await import("../cmd/cmd_decode.js"))
+    // 命令，用ffmpeg执行视频和音频压缩和格式转换
+    .command(await import("../cmd/cmd_ffmpeg.js"))
     .count("verbose")
     .alias("v", "verbose")
     .alias("h", "help")

@@ -1,55 +1,53 @@
-import * as fsWalk from '@nodelib/fs.walk'
-import chardet from 'chardet'
-import { fdir } from "fdir"
-import fs from 'fs-extra'
-import { readdir } from 'fs/promises'
-import path from "path"
-import { promisify } from 'util'
-import * as mf from '../lib/file.js'
+const formatArgs = (str, replacements) => {
+  return str.replace(/%([^%]+)%|{([^{}]+)}|@([^@]+)@|!([^!]+)!/g, (match, p1, p2, p3, p4) => {
+    const placeholder = p1 || p2 || p3 || p4
+    return replacements.hasOwnProperty(placeholder) ? replacements[placeholder] : match
+  })
+}
 
-
-async function* walk_a(dir) {
-  const dirents = await readdir(dir, { withFileTypes: true })
-  for (const dirent of dirents) {
-    const res = path.resolve(dir, dirent.name)
-    if (dirent.isDirectory()) {
-      yield* walk_a(res)
-    } else {
-      yield res
-    }
+class Preset {
+  constructor(name, {
+    nameArgs,
+    videoArgs,
+    audioArgs,
+    inputArgs,
+    outputArgs,
+    filters,
+    complexFilter,
+    extraArgs
+  }) {
+    this.name = name
+    this.nameArgs = nameArgs
+    this.videoArgs = videoArgs
+    this.audioArgs = audioArgs
+    this.inputArgs = inputArgs
+    this.outputArgs = outputArgs
+    this.filters = filters
+    this.complexFilter = complexFilter
+    this.extraArgs = extraArgs
   }
 }
 
-async function main() {
-  // console.log(process.argv);
-  const root = path.resolve(process.argv[2])
-  console.log(root)
-  // const afiles = await readdir(root)
-  // for (const f of afiles) {
-  //   // const encoding = chardet.detect(Buffer.from(f));
-  //   const sd = path.resolve(path.join(root, f));
-  //   // console.log(sd, encoding);
-  //   for (const f2 of await readdir(sd)) {
-  //     console.log(path.join(sd, f2));
-  //   }
-  // }
-  console.time("walk3")
-  let files3 = await mf.walk(root)
-  console.timeEnd("walk3")
-  console.time("walk1")
-  let files1 = await promisify(fsWalk.walk)(root, new fsWalk.Settings({
-    stats: true
-  }))
-  console.timeEnd("walk1")
-  console.time("walk2")
-  let files2 = await new fdir().withFullPaths().filter(async (fPath, isDir) => {
-    const st = await fs.stat(fPath)
-    return true
-  }).crawl(root).withPromise()
-  console.timeEnd("walk2")
-  // walk3: 9.977s
-  // walk1: 12.729s
-  // walk2: 11.342s
+// HEVC基础参数
+const HEVC_BASE = new Preset('hevc-base', {
+  videoArgs: '-c:v hevc_nvenc -profile:v main -cq {quality} -tune:v hq -bufsize {bitrate} -maxrate {bitrate}',
+  audioArgs: '-map a:0 -c:a libfdk_aac -b:a {bitrate}',
+  nameArgs: { prefix: '[SHANA] ' },
+  // 快速读取和播放
+  outputArgs: '-movflags +faststart -f mp4',
+  filters: "scale='if(gt(iw,{dimension}),min({dimension},iw),-1)':'if(gt(ih,{dimension}),min({dimension},ih),-1)'",
+})
+
+console.log(HEVC_BASE)
+
+
+// 4K超高码率和质量
+const PRESET_HEVC_ULTRA = {
+  ...HEVC_BASE,
+  name: 'hevc_ultra',
+  videoArgs: formatArgs(HEVC_BASE.videoArgs, { quality: 20, bitrate: '20480K' }),
+  audioArgs: formatArgs(HEVC_BASE.audioArgs, { bitrate: '320k' }),
+  filters: formatArgs(HEVC_BASE.filters, { dimension: '3840' })
 }
 
-main()
+console.log(PRESET_HEVC_ULTRA)
