@@ -6,27 +6,24 @@
  * License: Apache License 2.0
  */
 import chalk from 'chalk'
-import { spawn, spawnSync } from 'child_process'
 import { $, execa } from 'execa'
 import fs from 'fs-extra'
-import iconv from "iconv-lite"
 import inquirer from "inquirer"
 import { cpus } from "os"
 import pMap from 'p-map'
 import path from "path"
-import { argv } from 'process'
 import which from "which"
 import * as core from '../lib/core.js'
-import { asyncFilter, asyncMap, compareSmartBy, formatArgs } from '../lib/core.js'
+import { formatArgs } from '../lib/core.js'
 import * as log from '../lib/debug.js'
-import * as enc from '../lib/encoding.js'
 import * as mf from '../lib/file.js'
 import * as helper from '../lib/helper.js'
 
 
 const LOG_TAG = "FFMPEG"
 
-const PRESET_NAMEs = []
+const VIDEO_EXTENSIONS = [".mp4", ".mov", ".wmv", ".avi", ".mkv", ".m4v", ".ts", ".flv", ".webm"]
+const PRESET_NAMES = []
 const PRESET_MAP = new Map()
 
 // ===========================================
@@ -57,13 +54,13 @@ const builder = function addOptions(ya, helpOrVersionSet) {
         .option("extensions", {
             alias: "e",
             type: "string",
-            default: helper.VIDEO_FORMATS.join('|'),
+            default: VIDEO_EXTENSIONS.join('|'),
             describe: "include files by extensions (eg. .wav|.flac)",
         })
         // 选择预设，从预设列表中选一个，预设等于一堆预定义参数
         .option("preset", {
             type: "choices",
-            choices: PRESET_NAMEs,
+            choices: PRESET_NAMES,
             default: 'hevc_2k',
             describe: "convert preset args for ffmpeg command",
         })
@@ -89,29 +86,37 @@ const builder = function addOptions(ya, helpOrVersionSet) {
         .option("suffix", {
             alias: "S",
             type: "string",
+            default: '',
             describe: "add suffix to filename",
         })
-        // 视频模式
+        // 视频加速减速，默认不改动，范围0.25-4.0
+        .option("speed", {
+            type: "number",
+            default: 0,
+            describe: "chang speed for video and audio",
+        })
+        // 视频模式 默认模式
         // 等于 --preset hevc_2k
         .option("video-mode", {
             alias: "vm",
             type: "boolean",
+            default: true,
             describe: "convert video with default preset:hevc_2k",
         })
         // 视频选项
         // video-args = video-encoder + video-quality 
         // 如果此选项存在，会忽略其它 video-xxx 参数
         .option("video-args", {
-            aliases: ["vo"],
+            aliases: ["va"],
             type: "string",
             describe: "Set video args in ffmpeg command",
         })
         // 视频编码器，例如 hevc_nvenc
-        .option("video-encoder", {
-            aliases: ["ve"],
+        .option("video-codec", {
+            aliases: ["vc"],
             type: "string",
             default: "hevc_nvenc",
-            describe: "Set video encoder (eg. hevc_nvenc) in ffmpeg command",
+            describe: "Set video codec (eg. hevc_nvenc) in ffmpeg command",
         })
         // 视频质量，例如 -cq 23 -maxrate 1000K
         .option("video-quality", {
@@ -131,16 +136,16 @@ const builder = function addOptions(ya, helpOrVersionSet) {
         // audio-args = audio-encoder + audio-quality 
         // 如果此选项存在，会忽略其它 audio-xxx 参数
         .option("audio-args", {
-            aliases: ["ao"],
+            aliases: ["aa"],
             type: "string",
             describe: "Set audio args in ffmpeg command",
         })
         // 音频编码器，例如 libfdk_aac 
-        .option("audio-encoder", {
-            aliases: ["ae"],
+        .option("audio-codec", {
+            aliases: ["ac"],
             type: "string",
             default: "libfdk_aac",
-            describe: "Set auduo encoder (eg. libfdk_aac) in ffmpeg command",
+            describe: "Set auduo codec (eg. libfdk_aac) in ffmpeg command",
         })
         // 音频质量，例如 -vbr 5 -b:a 128k
         .option("audio-quality", {
@@ -191,8 +196,9 @@ async function cmdConvert(argv) {
         // 没有指定模式，报错
         throw new Error(`No mode specified, please use --video-mode or --audio-mode`)
     }
-    const preset = PRESET_MAP.get(argv.preset)
-    log.showGreen('PRESET:', preset)
+
+    // 解析Preset，根据argv参数修改preset，返回对象
+    const preset = parsePreset(argv)
     // 只包含视频文件或音频文件
     let fileEntries = await mf.walk(root, {
         needStats: true,
@@ -210,7 +216,6 @@ async function cmdConvert(argv) {
         }
     })
     fileEntries = fileEntries.filter(entry => !entry.name.toLowerCase().includes('shana'))
-    fileEntries = fileEntries.sort(compareSmartBy('path'))
     fileEntries = fileEntries.map((f, i) => {
         return {
             ...f,
@@ -221,15 +226,16 @@ async function cmdConvert(argv) {
             testMode: testMode
         }
     })
-    const showFiles = fileEntries.slice(-20)
+    const showFiles = fileEntries.slice(-30)
     for (const f of showFiles) {
-        log.show(logTag, 'File:', helper.pathShort(f.path), helper.humanSize(f.size))
+        log.show(logTag, `File:${f.index}`, f.path, helper.humanSize(f.size))
     }
     if (showFiles.length < fileEntries.length) {
         log.show(logTag, `Above lines are last 20 files, total ${fileEntries.length} files.`)
     }
     log.show(logTag, `Total ${fileEntries.length} files found in ${helper.humanTime(startMs)}`)
-    log.show(logTag, argv)
+    log.showYellow('ARGV:', argv)
+    log.showGreen('PRESET:', preset)
 
     if (fileEntries.length === 0) {
         log.showYellow(logTag, 'Nothing to do, abrot.')
@@ -247,6 +253,7 @@ async function cmdConvert(argv) {
         }
     ])
 
+    // 检查ffmpeg可执行文件是否存在
     const ffmpegPath = await which("ffmpeg", { nothrow: true })
     if (!ffmpegPath) {
         throw new Error("ffmpeg executable not found in path")
@@ -254,7 +261,7 @@ async function cmdConvert(argv) {
 
     if (answer.yes) {
         let tasks = await pMap(fileEntries, checkOneFile, { concurrency: cpus().length * 4 })
-        tasks = tasks.filter(t => t?.fileDstTemp)
+        tasks = tasks.filter(t => t && t.fileDstTemp && t.fileDst)
         for (const task of tasks) {
             await processOneFile(task)
             // 测试模式仅运行一次
@@ -265,120 +272,47 @@ async function cmdConvert(argv) {
     }
 }
 
-function fixEncoding(str = '') {
-    return iconv.decode(Buffer.from(str, 'binary'), 'cp936')
-}
-
-async function processOneFile(task) {
+async function processOneFile(entry) {
     const logTag = 'processOneFile'
-    log.showGreen('Processing ', task.fileSrc)
+    const ffmpegArgs = createFFmpegArgs(entry, entry.preset)
+    log.showGreen('Processing ', entry.path)
+    log.showGray(logTag, 'ARGS:', ffmpegArgs.join(' '))
     const exePath = await which("ffmpeg", { nothrow: true })
-    // try {
-    const testArgs = [
-        '-hide_banner',
-        '-i',
-        `${task.fileSrc}`,
-        '-vf',
-        "scale='if(gt(iw,1920),min(1920,iw),-2)':'if(gt(ih,1920),min(1920,ih),-2)'",
-        '-c:v',
-        "hevc_nvenc",
-        "-maxrate",
-        "4096k",
-        `${task.fileDstTemp}`
 
-    ]
-    // 留存一个ffmpeg可以正常解析的参数列表
-    const taskArgsWorked = [
-        '-hide_banner',
-        '-n',
-        '-loglevel',
-        'repeat+level+info',
-        '-i',
-        `${task.fileSrc}`,
-        '-vf',
-        "scale='if(gt(iw,1920),min(1920,iw),-2)':'if(gt(ih,1920),min(1920,ih),-2)'",
-        '-c:v',
-        'hevc_nvenc',
-        '-profile:v',
-        'main',
-        '-cq',
-        '23',
-        '-tune:v',
-        'hq',
-        '-bufsize',
-        '4096K',
-        '-maxrate',
-        '4096K',
-        '-c:a',
-        'libfdk_aac',
-        '-b:a',
-        '192k',
-        '-movflags',
-        '+faststart',
-        `${task.fileDstTemp}`
-    ]
+    try {
+        // 此处 { shell: true } 必须，否则报错
+        const ffmpegProcess = execa(exePath, ffmpegArgs, { shell: true })
+        ffmpegProcess.pipeStdout(process.stdout)
+        ffmpegProcess.pipeStderr(process.stderr)
+        // addRunningPid(ffmpegProcess?.pid || 0)
+        const { stdout, stderr } = await ffmpegProcess
+        // removeRunningPid(ffmpegProcess?.pid || 0)
+        // log.show(logTag, 'stdout', stdout, ffmpegProcess?.pid)
+        // log.showYellow(logTag, 'stderr', stderr, ffmpegProcess?.pid)
+    } catch (error) {
+        log.error(logTag, `${entry.path}`, error)
+    }
 
-    // 这个也可以正常解析
-    const gptArgs = [
-        '-hide_banner',
-        '-n',
-        '-loglevel', 'repeat+level+info',
-        '-i',
-        `${task.fileSrc}`,
-        '-filter_complex',
-        '[0:v]setpts=PTS/1.5,scale=w=min(iw\\,1920):h=min(ih\\,1920)[v];[0:a]atempo=1.5[a]',
-        '-map', '[v]',
-        '-map', '[a]',
-        '-c:v', 'hevc_nvenc',
-        '-profile:v', 'main',
-        '-cq', '26',
-        '-tune:v', 'hq',
-        '-bufsize', '512k',
-        '-maxrate', '512k',
-        '-c:a', 'libfdk_aac',
-        '-profile:a', 'aac_he',
-        '-b:a', '48k',
-        '-movflags', '+faststart',
-        `"${task.fileDstTemp}"`
-    ]
-    log.showGreen('==', task.getCommdArgs().join(' '))
-    log.showYellow('==', gptArgs.join(' '))
-
-    const ffmpegProcessPromise = execa(exePath, task.getCommdArgs(), { shell: true })
-    ffmpegProcessPromise.stdout.pipe(process.stdout)
-    const { stdout, stderr } = await ffmpegProcessPromise
-    log.show(logTag, stdout, process.pid)
-    log.showYellow(logTag, stderr, process.pid)
-
-    throw new Error('Abort')
-    // const sOut = fixEncoding(stdout || "NULL")
-    // const sErr = fixEncoding(stderr || "NULL")
-    // log.show(logTag, "stdout", sOut)
-    // log.show(logTag, "stderr", sErr)
-    // } catch (error) {
-    //     log.warn(logTag, fileSrc, error)
-    // }
 }
 
-async function checkOneFile(fileEntry) {
+async function checkOneFile(entry) {
     const logTag = 'checkOneFile'
-    const argv = fileEntry.argv
-    const index = fileEntry.index + 1
+    const argv = entry.argv
+    const index = entry.index + 1
     const prefix = argv.prefix || ""
     const suffix = argv.suffix || ""
+    const fileSrc = entry.path
     const dstExt = argv.videoMode ? ".mp4" : ".m4a"
-    const [dir, base, ext] = helper.pathSplit(fileEntry.path)
+    const [dir, base, ext] = helper.pathSplit(fileSrc)
     // 如果没有指定输出目录，直接输出在原文件同目录；否则使用指定输出目录
-    const dstDir = argv.output ? helper.pathRewrite(dir, task.output) : path.resolve(dir)
+    const dstDir = argv.output ? helper.pathRewrite(dir, argv.output) : path.resolve(dir)
 
     const dstNameBase = `${prefix}${base}${suffix}`
     const fileDst = path.join(dstDir, `${dstNameBase}${dstExt}`)
     const fileDstTemp = path.join(dstDir, `TMP_FFMPEG_OUT_${dstNameBase}${dstExt}`)
     const fileDstSameDir = path.join(dir, `${dstNameBase}${dstExt}`)
-    log.info(logTag, `SRC (${index}): ${helper.pathShort(fileEntry.path)}`)
+    log.info(logTag, `SRC (${index}): ${helper.pathShort(fileSrc)}`)
     log.info(logTag, `DST (${index}): ${helper.pathShort(fileDst)}`)
-
-    const task = new ConvertTask(fileEntry.preset, fileEntry, fileDst, fileDstTemp)
 
     if (await fs.pathExists(fileDstTemp)) {
         await fs.remove(fileDstTemp)
@@ -400,10 +334,12 @@ async function checkOneFile(fileEntry) {
         return false
     }
 
-    log.show(logTag, `OK(${index}): ${helper.pathShort(fileDst)}`)
-    // log.showYellow(task.getCommdArgs().join(' '))
-    return task
-
+    log.show(logTag, `OK(${index}): ${helper.pathShort(fileSrc)}`)
+    return {
+        ...entry,
+        fileDst,
+        fileDstTemp,
+    }
 }
 
 // ===========================================
@@ -429,64 +365,12 @@ class Preset {
         this.audioArgs = audioArgs
         this.inputArgs = inputArgs
         this.streamArgs = streamArgs
+        this.extraArgs = extraArgs
         this.outputArgs = outputArgs
         this.filters = filters
         this.complexFilter = complexFilter
-        this.extraArgs = extraArgs
     }
 }
-
-class ConvertTask {
-    constructor(preset, entry, fileDst, fileDstTemp) {
-        this.preset = preset
-        this.entry = entry
-        this.fileSrc = entry.path
-        this.fileDstDir = path.dirname(fileDst)
-        this.fileDst = fileDst
-        this.fileDstTemp = fileDstTemp
-    }
-
-    getCommdArgs() {
-        // let args = "-hide_banner -n -loglevel repeat+level+info".split(" ")
-        let args = "-hide_banner -n -v error".split(" ")
-        // 输入参数在输入文件前面，顺序重要
-        if (this.preset.inputArgs?.length > 0) {
-            args = args.concat(this.preset.inputArgs.split(' '))
-        }
-        args.push('-i')
-        args.push(`${this.fileSrc}`)
-        if (this.preset.filters?.length > 0) {
-            args.push('-vf')
-            args.push(`${this.preset.filters}`)
-        }
-        // 在输入文件后面
-        if (this.preset.complexFilter?.length > 0) {
-            args.push('-filter_complex')
-            args.push(`"${this.preset.complexFilter}"`)
-        }
-        // 在输入文件后面
-        if (this.preset.streamArgs?.length > 0) {
-            args = args.concat(this.preset.streamArgs.split(' '))
-        }
-        if (this.preset.videoArgs?.length > 0) {
-            args = args.concat(this.preset.videoArgs.split(' '))
-        }
-        if (this.preset.audioArgs?.length > 0) {
-            args = args.concat(this.preset.audioArgs.split(' '))
-        }
-        // 其它参数
-        if (this.preset.extraArgs?.length > 0) {
-            args = args.concat(this.preset.extraArgs.split(' '))
-        }
-        // 输出参数在最后，在输出文件前面，顺序重要
-        if (this.preset.outputArgs?.length > 0) {
-            args = args.concat(this.preset.outputArgs.split(' '))
-        }
-        args.push(`"${this.fileDstTemp}"`)
-        return args
-    }
-}
-
 
 // videoArgs = { args,codec,quality,bitrate,filters}
 // audioOptons = {args,codec, quality,bitrate,filters} 
@@ -495,28 +379,37 @@ class ConvertTask {
 // HEVC基础参数
 const HEVC_BASE = new Preset('hevc-base', {
     description: 'HEVC_BASE',
-    namePrefix: '[SHANA] ',
-    streamArgs: '',
-    videoArgs: '-c:v hevc_nvenc -profile:v main -cq {quality} -tune:v hq -bufsize {bitrate} -maxrate {bitrate}',
+    // 视频参数说明
+    // video_codec block '-c:v hevc_nvenc -profile:v main -tune:v hq'
+    // video_quality block '-cq {quality} -bufsize {bitrate} -maxrate {bitrate}'
+    videoArgs: '-c:v hevc_nvenc -profile:v main -tune:v hq -cq {quality} -bufsize {bitrate} -maxrate {bitrate}',
+    // 音频参数说明
+    // audio_codec block '-c:a libfdk_aac'
+    // audio_quality block '-b:a {bitrate}'
     audioArgs: '-c:a libfdk_aac -b:a {bitrate}',
+    inputArgs: '',
+    streamArgs: '',
     extraArgs: '',
     // 快速读取和播放
     outputArgs: '-movflags +faststart',
     filters: "scale='if(gt(iw,{dimension}),min({dimension},iw),-2)':'if(gt(ih,{dimension}),min({dimension},ih),-2)'",
+    complexFilter: '',
 })
 
 // 音频AAC基础参数
 const AAC_BASE = new Preset('aac_base', {
     description: 'AAC_BASE',
-    namePrefix: '',
-    nameSuffix: '',
     videoArgs: '',
+    // 音频参数说明
+    // audio_codec block '-c:a libfdk_aac'
+    // audio_quality block '-b:a {bitrate}'
     audioArgs: '-map a:0 -c:a libfdk_aac -b:a {bitrate}',
     inputArgs: '',
-    outputArgs: '',
+    streamArgs: '',
+    extraArgs: '',
+    outputArgs: '-movflags +faststart',
     filters: '',
     complexFilter: '',
-    extraArgs: ''
 })
 
 function initializePresets() {
@@ -560,10 +453,12 @@ function initializePresets() {
             name: 'hevc_lowest',
             streamArgs: '-map [v] -map [a]',
             videoArgs: formatArgs(HEVC_BASE.videoArgs, { quality: 26, bitrate: '512k' }),
+            // 音频参数说明
+            // audio_codec block '-c:a libfdk_aac -profile:a aac_he'
+            // audio_quality block '-b:a 48k'
             audioArgs: '-c:a libfdk_aac -profile:a aac_he -b:a 48k',
             filters: '',
             // 这里单引号必须，否则逗号需要转义，Windows太多坑
-            complexFilterOK: "[0:v]setpts=PTS/1.5,scale='if(gt(iw,1920),min(1920,iw),-2)':'if(gt(ih,1920),min(1920,ih),-2)'[v];[0:a]atempo=1.5[a]",
             complexFilter: formatArgs("[0:v]setpts=PTS/{speed},scale='if(gt(iw,1920),min(1920,iw),-2)':'if(gt(ih,1920),min(1920,ih),-2)'[v];[0:a]atempo={speed}[a]", { speed: 1.5 })
         },
         //音频AAC最高码率
@@ -575,24 +470,143 @@ function initializePresets() {
         //音频AAC中码率
         PRESET_AAC_MEDIUM: {
             ...AAC_BASE,
-            name: 'aac_high',
+            name: 'aac_medium',
             audioArgs: formatArgs(AAC_BASE.audioArgs, { bitrate: '192k' }),
         },
         // 音频AAC低码率
         PRESET_AAC_LOW: {
             ...AAC_BASE,
-            name: 'aac_high',
+            name: 'aac_medium',
             audioArgs: formatArgs(AAC_BASE.audioArgs, { bitrate: '128k' }),
+        },
+        // 音频AAC极低码率，适用人声
+        PRESET_AAC_VOICE: {
+            ...AAC_BASE,
+            name: 'aac_voice',
+            audioArgs: '-c:a libfdk_aac -profile:a aac_he -b:a 48k',
         }
     }
 
     core.modifyObjectWithKeyField(presets, 'description')
     for (const [key, preset] of Object.entries(presets)) {
         // console.log(key, preset.name)
-        PRESET_NAMEs.push(preset.name)
+        PRESET_NAMES.push(preset.name)
         PRESET_MAP.set(preset.name, preset)
     }
     // console.log(Object.entries(presets))
+}
+
+// 命令行参数示例
+// ARGV: {
+//     _: [ 'ffmpeg' ],
+//     preset: 'hevc_lowest',
+//     vm: true,
+//     'video-mode': true,
+//     videoMode: true,
+//     speed: 2,
+//     extensions: '.mp4|.mov|.wmv|.avi|.mkv|.m4v|.ts|.flv|.webm',
+//     e: '.mp4|.mov|.wmv|.avi|.mkv|.m4v|.ts|.flv|.webm',
+//     override: false,
+//     O: false,
+//     prefix: '[SHANA] ',
+//     P: '[SHANA] ',
+//     suffix: '',
+//     S: '',
+//     'video-codec': 'hevc_nvenc',
+//     videoCodec: 'hevc_nvenc',
+//     'video-quality': '0',
+//     vq: '0',
+//     videoQuality: '0',
+//     'audio-codec': 'libfdk_aac',
+//     audioCodec: 'libfdk_aac',
+//     'audio-quality': '0',
+//     aq: '0',
+//     audioQuality: '0',
+//     verbose: 0,
+//     v: 0,
+//     input: '.'
+//   }
+//
+// 预设示例
+// PRESET: {
+//     name: 'hevc_lowest',
+//     description: 'PRESET_HEVC_LOWEST',
+//     videoArgs: '-c:v hevc_nvenc -profile:v main -tune:v hq -cq 26 -bufsize 512k -maxrate 512k',
+//     audioArgs: '-c:a libfdk_aac -profile:a aac_he -b:a 48k',
+//     inputArgs: '',
+//     streamArgs: '-map [v] -map [a]',
+//     extraArgs: '',
+//     outputArgs: '-movflags +faststart',
+//     filters: '',
+//     complexFilter: "[0:v]setpts=PTS/1.5,scale='if(gt(iw,1920),min(1920,iw),-2)':'if(gt(ih,1920),min(1920,ih),-2)'[v];[0:a]atempo=1.5[a]"
+//   }
+//
+function parsePreset(argv) {
+    const presetDefined = PRESET_MAP.get(argv.preset || 'hevc_2k')
+    // DeepClone 不修改原对象
+    const preset = structuredClone(presetDefined)
+
+    if (argv.videoCodec) {
+
+    }
+    if (argv.videoQuality) {
+
+    }
+
+    if (argv.audioCodec) {
+
+    }
+    if (argv.audioQuality) {
+
+    }
+
+    if (argv.speed) {
+
+    }
+    return preset
+}
+
+function createFFmpegArgs(entry) {
+    const preset = entry.preset
+    // 显示详细信息
+    // let args = "-hide_banner -n -loglevel repeat+level+info".split(" ")
+    // 只显示进度和错误
+    let args = "-hide_banner -n -v warning -stats".split(" ")
+    // 输入参数在输入文件前面，顺序重要
+    if (preset.inputArgs?.length > 0) {
+        args = args.concat(this.preset.inputArgs.split(' '))
+    }
+    args.push('-i')
+    args.push(`${entry.path}`)
+    if (preset.filters?.length > 0) {
+        args.push('-vf')
+        args.push(`${preset.filters}`)
+    }
+    // 在输入文件后面
+    if (preset.complexFilter?.length > 0) {
+        args.push('-filter_complex')
+        args.push(`"${preset.complexFilter}"`)
+    }
+    // 在输入文件后面
+    if (preset.streamArgs?.length > 0) {
+        args = args.concat(preset.streamArgs.split(' '))
+    }
+    if (preset.videoArgs?.length > 0) {
+        args = args.concat(preset.videoArgs.split(' '))
+    }
+    if (preset.audioArgs?.length > 0) {
+        args = args.concat(preset.audioArgs.split(' '))
+    }
+    // 其它参数
+    if (preset.extraArgs?.length > 0) {
+        args = args.concat(preset.extraArgs.split(' '))
+    }
+    // 输出参数在最后，在输出文件前面，顺序重要
+    if (preset.outputArgs?.length > 0) {
+        args = args.concat(preset.outputArgs.split(' '))
+    }
+    args.push(`"${entry.fileDstTemp}"`)
+    return args
 }
 
 // 初始化调用

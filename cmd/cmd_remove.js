@@ -20,6 +20,7 @@ import path from "path"
 import sharp from "sharp"
 import { promisify } from 'util'
 
+import { comparePathSmart, comparePathSmartBy } from "../lib/core.js"
 import * as log from '../lib/debug.js'
 import * as enc from '../lib/encoding.js'
 import * as mf from '../lib/file.js'
@@ -209,6 +210,8 @@ async function cmdRemove(argv) {
     }
     log.showGreen(logTag, `Walking files, please waiting ... (${type})`)
     let files = await mf.walk(root, walkOpts)
+    // 路径排序，路径深度=>路径长度=>自然语言
+    files = files.sort(comparePathSmartBy('path'))
     log.show(logTag, `total ${files.length} files found (${type})`)
 
     const conditions = {
