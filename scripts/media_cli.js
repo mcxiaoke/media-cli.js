@@ -35,7 +35,7 @@ const configCli = (argv) => {
   pe.skipNodeFiles()
   // log.setName("MediaCli");
   log.setVerbose(argv.verbose)
-  log.info(argv)
+  log.debug(argv)
 }
 
 process.exit = (code) => {
