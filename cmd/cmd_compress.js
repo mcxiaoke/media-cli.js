@@ -267,11 +267,13 @@ async function preCompress(f, options = {}) {
         const st = await fs.stat(fileSrc)
         const m = await sharp(fileSrc).metadata()
         try {
+            // 跳过以前由mediac压缩过的图片，避免重复压缩
+            // 可能需要添加一个命令行参数控制
             if (m?.exif) {
                 const md = exif(m.exif)?.Image
-                if (md && (md.Copyright?.includes("mediac")
+                if (md.Copyright?.includes("mediac")
                     || md.Software?.includes("mediac")
-                    || md.Artist?.includes("mediac"))) {
+                    || md.Artist?.includes("mediac")) {
                     log.info(logTag, "skip:", fileDst)
                     return {
                         ...f,
@@ -289,12 +291,7 @@ async function preCompress(f, options = {}) {
             log.fileLog(`ExifErr: <${fileSrc}> ${error.message}`, logTag)
         }
 
-        const newWidth =
-            m.width > m.height ? maxWidth : Math.round((maxWidth * m.width) / m.height)
-        const newHeight = Math.round((newWidth * m.height) / m.width)
-
-        const dstWidth = newWidth > m.width ? m.width : newWidth
-        const dstHeight = newHeight > m.height ? m.height : newHeight
+        const { dstWidth, dstHeight } = calculateImageScale(m.width, m.height, maxWidth)
         if (f.total < 1000 || f.index > f.total - 1000) {
             log.show(logTag, `${f.index}/${f.total}`,
                 helper.pathShort(fileSrc),
@@ -358,4 +355,18 @@ async function purgeSrcFiles(results) {
     const deleted = await pMap(toDelete, deletecFunc, { concurrency: cpus().length * 8 })
     log.showCyan(logTag, `${deleted.filter(Boolean).length} files are safely removed`)
 
+}
+
+// 给定图片长宽，给定长边数值，计算缩放后的长宽，只缩小不放大
+function calculateImageScale(imgWidth, imgHeight, maxSide) {
+    // 不需要缩放的情况
+    if (iw <= maxSide && ih <= maxSide) {
+        return { dstWidth: iw, dstHeight: ih }
+    }
+    // 计算缩放比例
+    let scaleFactor = maxSide / Math.max(imgWidth, imgHeight)
+    // 计算新的长宽
+    let dstWidth = Math.round(imgWidth * scaleFactor)
+    let dstHeight = Math.round(imgHeight * scaleFactor)
+    return { dstWidth, dstHeight }
 }

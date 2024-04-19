@@ -50,8 +50,8 @@ async function renameOneFile(f) {
         return f
     } catch (error) {
         // 捕获并打印重命名过程中出现的错误信息，显示错误原因和输入文件的路径  
-        log.error(logTag, error, f.path, flag)
-        log.fileLog(`Error: <${f.path}> ${error}`, logTag)
+        log.error(logTag, `Error: <${f.path}> => <${outPath}}> ${error.message} ${flag}`)
+        log.fileLog(`Error: <${f.path}> ${error.message}`, logTag)
     }
 }
 

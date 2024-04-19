@@ -283,12 +283,9 @@ async function preRename(f) {
             tmpNewBase = tempBase
         }
         // 路径各个部分先分解，单独替换，然后组合路径
-        let parts = oldDir.split(path.sep).map(s => {
-            let s2 = s.replaceAll(strFrom, strTo).trim()
-            s !== s2 && log.show(s, s2)
-            return s2
-        })
-        let tempDir = combinePath(...parts)
+        let parts = oldDir.split(path.sep).map(s => s.replaceAll(strFrom, strTo).trim())
+        // 过滤掉空路径，比如被完全替换，减少层级，然后再组合
+        let tempDir = combinePath(...parts.filter(Boolean))
         if (tempDir !== oldDir) {
             tmpNewDir = tempDir
         }

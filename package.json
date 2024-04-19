@@ -9,6 +9,12 @@
     "start": "node index.js",
     "media_cli": "node ./scripts/media_cli.js"
   },
+  "files": [
+    "index.js",
+    "scripts",
+    "lib",
+    "cmd"
+  ],
   "bin": {
     "mediac": "./scripts/media_cli.js"
   },
@@ -34,7 +40,12 @@
     "charset",
     "gbk",
     "shift_jis",
-    "utf8"
+    "utf8",
+    "file",
+    "cjk",
+    "chinese",
+    "hanzi",
+    "japanese"
   ],
   "author": "Big Cat <github@mcxiaoke.com>",
   "license": "Apache-2.0",

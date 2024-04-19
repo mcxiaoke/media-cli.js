@@ -12,11 +12,13 @@ import chalk from 'chalk'
 import dayjs from "dayjs"
 import { fileTypeFromFile } from 'file-type'
 import fs from 'fs-extra'
+import imageSizeOfSync from 'image-size'
 import inquirer from "inquirer"
 import { cpus } from "os"
 import pMap from 'p-map'
 import path from "path"
 import sharp from "sharp"
+import { promisify } from 'util'
 
 import * as log from '../lib/debug.js'
 import * as enc from '../lib/encoding.js'
@@ -314,12 +316,13 @@ async function readNameList(list) {
     return new Set(nameList)
 }
 
-function buildRemoveArgs(index, desc, shouldRemove, src) {
+function buildRemoveArgs(index, desc, shouldRemove, src, size) {
     return {
         index,
         desc,
         shouldRemove,
         src,
+        size,
     }
 }
 
@@ -347,7 +350,7 @@ async function preRemoveArgs(f) {
         log.show(
             `preRemove[List] add:${ipx}`,
             `${helper.pathShort(fileSrc)} ${itemDesc} ${flag}`)
-        return buildRemoveArgs(f.index, itemDesc, shouldRemove, fileSrc)
+        return buildRemoveArgs(f.index, itemDesc, shouldRemove, fileSrc, f.size)
     }
     // 文件名列表是单独规则，优先级最高，如果存在，直接返回，忽略其它条件
     //----------------------------------------------------------------------
@@ -357,11 +360,11 @@ async function preRemoveArgs(f) {
     // width && height top2
     // size top3
     // 宽松模式，采用 OR 匹配条件，默认是 AND
-    const cLoose = c.loose || false
+    const hasLoose = c.loose || false
     // 删除损坏文件
-    const cCorrupted = c.corrupted || false
+    const hasCorrupted = c.corrupted || false
     // 移除乱码文件名的文件
-    const cBadChars = c.badchars || false
+    const hasBadChars = c.badchars || false
     // 最大宽度
     const cWidth = c.width || 0
     // 最大高度
@@ -384,20 +387,22 @@ async function preRemoveArgs(f) {
     let testMeasure = false
 
     const isImageExt = helper.isImageFile(fileSrc)
+    // 如果是目录，获取并显示目录内容大小
+    const itemSize = f.isDir ? await mf.getDirectorySizeR(fileSrc) : f.size
+    const itemCount = f.isDir ? await mf.getDirectoryFileCount(fileSrc) : 0
 
     try {
         // 检查文件是否损坏
-        if (cCorrupted && isImageExt) {
-            const st = await fs.stat(fileSrc)
+        if (hasCorrupted && f.isFile) {
             // size  < 10k , corrputed
-            if (st?.size < 100 * 1024) {
-                log.showYellow("preRemove[Bad1]:", `${ipx} ${fileSrc}`)
-                itemDesc += " BadSize"
+            if (isImageExt && f.size < 100 * 1024) {
+                log.showGray("preRemove[BadImage]:", `${ipx} ${fileSrc}`)
+                itemDesc += " BadImage"
                 testCorrupted = true
             } else {
                 const ft = await fileTypeFromFile(fileSrc)
-                if (!ft?.mime.includes('image')) {
-                    log.showYellow("preRemove[Bad2]:", `${ipx} ${fileSrc}`)
+                if (!ft?.mime) {
+                    log.showGray("preRemove[Corrupted]:", `${ipx} ${fileSrc}`)
                     itemDesc += " Corrupted"
                     testCorrupted = true
                 } else {
@@ -406,10 +411,13 @@ async function preRemoveArgs(f) {
             }
         }
 
-        if (cBadChars && enc.hasBadUnicode(fileName, true)) {
-            log.showYellow("preRemove[BadChars]:", `${ipx} ${fileSrc}`)
-            itemDesc += " BadChars"
-            testBadChars = true
+        if (hasBadChars) {
+            // 可能为文件或目录
+            if (enc.hasBadCJKChar(fileName) || enc.hasBadUnicode(fileName, true)) {
+                log.showGray("preRemove[BadChars]:", `${ipx} ${fileSrc} (${helper.humanSize(itemSize)},${itemCount})`)
+                itemDesc += " BadChars"
+                testBadChars = true
+            }
         }
 
         // 首先检查名字正则匹配
@@ -419,25 +427,29 @@ async function preRemoveArgs(f) {
             itemDesc += ` P=${cPattern}`
             // 开头匹配，或末尾匹配，或正则匹配
             if (fName.startsWith(cPattern) || fName.endsWith(cPattern) || fName.match(rp)) {
-                log.info(
-                    "preRemove[N]:", `${ipx} ${fileName} [P=${rp}]`
-                )
+                if (f.isDir) {
+                    log.showGray(
+                        "preRemove[Name]:", `${ipx} ${helper.humanSize(fileSrc)} [P=${rp}] (${helper.humanSize(itemSize)},${itemCount})`
+                    )
+                } else {
+                    log.info(
+                        "preRemove[Name]:", `${ipx} ${fileName} [P=${rp}]`
+                    )
+                }
                 testName = true
             } else {
                 log.debug(
-                    "preRemove[M]:", `${ipx} ${fileName} [P=${rp}]`
+                    "preRemove[Name]:", `${ipx} ${fileName} [P=${rp}]`
                 )
             }
         }
 
         // 其次检查文件大小是否满足条件
-        if (!testCorrupted && hasSize) {
-            const fst = await fs.stat(fileSrc)
-            const fSize = fst.size || 0
-            itemDesc += ` S=${helper.humanSize(fSize)}`
-            if (fSize > 0 && fSize <= cSize) {
+        if (!testCorrupted && hasSize && f.isFile) {
+            itemDesc += ` S=${helper.humanSize(f.size)}`
+            if (f.size > 0 && f.size <= cSize) {
                 log.info(
-                    "preRemove[S]:",
+                    "preRemove[Size]:",
                     `${ipx} ${fileName} [${helper.humanSize(fSize)}] [Size=${helper.humanSize(cSize)}]`
                 )
                 testSize = true
@@ -446,44 +458,46 @@ async function preRemoveArgs(f) {
 
         // 图片文件才检查宽高
         // 再次检查宽高是否满足条件
-        if (!testCorrupted && hasMeasure) {
-            if (isImageExt) {
-                try {
-                    const s = sharp(fileSrc)
-                    const m = await s.metadata()
-                    const fWidth = m.width || 0
-                    const fHeight = m.height || 0
-                    itemDesc += ` M=${fWidth}x${fHeight}`
-                    if (cWidth > 0 && cHeight > 0) {
-                        // 宽高都提供时，要求都满足才能删除
-                        if (fWidth <= cWidth && fHeight <= cHeight) {
-                            log.info(
-                                "preRemove[M]:",
-                                `${ipx} ${fileName} ${fWidth}x${fHeight} [${cWidth}x${cHeight}]`
-                            )
-                            testMeasure = true
-                        }
-                    }
-                    else if (cWidth > 0 && fWidth <= cWidth) {
-                        // 只提供宽要求
+        if (!testCorrupted && hasMeasure && isImageExt && f.isFile) {
+            try {
+                // const s = sharp(fileSrc)
+                // const m = await s.metadata()
+                // const fWidth = m.width || 0
+                // const fHeight = m.height || 0
+
+                const imageSizeOf = promisify(imageSizeOfSync)
+                const dimension = await imageSizeOf(fileSrc)
+                const fWidth = dimension.width || 0
+                const fHeight = dimension.height || 0
+
+                itemDesc += ` M=${fWidth}x${fHeight}`
+                if (cWidth > 0 && cHeight > 0) {
+                    // 宽高都提供时，要求都满足才能删除
+                    if (fWidth <= cWidth && fHeight <= cHeight) {
                         log.info(
                             "preRemove[M]:",
-                            `${ipx} ${fileName} ${fWidth}x${fHeight} [W=${cWidth}]`
-                        )
-                        testMeasure = true
-                    } else if (cHeight > 0 && fHeight <= cHeight) {
-                        // 只提供高要求
-                        log.info(
-                            "preRemove[M]:",
-                            `${ipx} ${fileName} ${fWidth}x${fHeight} [H=${cHeight}]`
+                            `${ipx} ${fileName} ${fWidth}x${fHeight} [${cWidth}x${cHeight}]`
                         )
                         testMeasure = true
                     }
-                } catch (error) {
-                    log.info("preRemove[M]:", `${ipx} InvalidImage: ${fileName}`)
                 }
-            } else {
-                log.info("preRemove[M]:", `${ipx} NotImage: ${fileName}`)
+                else if (cWidth > 0 && fWidth <= cWidth) {
+                    // 只提供宽要求
+                    log.info(
+                        "preRemove[M]:",
+                        `${ipx} ${fileName} ${fWidth}x${fHeight} [W=${cWidth}]`
+                    )
+                    testMeasure = true
+                } else if (cHeight > 0 && fHeight <= cHeight) {
+                    // 只提供高要求
+                    log.info(
+                        "preRemove[M]:",
+                        `${ipx} ${fileName} ${fWidth}x${fHeight} [H=${cHeight}]`
+                    )
+                    testMeasure = true
+                }
+            } catch (error) {
+                log.info("preRemove[M]:", `${ipx} InvalidImage: ${fileName} ${error.message}`)
             }
         }
 
@@ -493,7 +507,7 @@ async function preRemoveArgs(f) {
         if (testCorrupted || testBadChars) {
             shouldRemove = true
         } else {
-            if (cLoose) {
+            if (hasLoose) {
                 shouldRemove = testName || testSize || testMeasure
             } else {
                 log.debug("PreRemove ", `${ipx} ${helper.pathShort(fileSrc)} hasName=${hasName}-${testName} hasSize=${hasSize}-${testSize} hasMeasure=${hasMeasure}-${testMeasure} testCorrupted=${testCorrupted},testBadChars=${testBadChars},flag=${flag}`)
@@ -502,16 +516,20 @@ async function preRemoveArgs(f) {
         }
 
         if (shouldRemove) {
+            if (itemSize > mf.FILE_SIZE_1M * 50 || itemCount > 50) {
+                log.showYellow("PreRemove[Large]:", `${ipx} ${helper.pathShort(fileSrc)} DirSize=${helper.humanSize(itemSize)},DirFileCount=${itemCount}`)
+            }
             log.show(
                 "PreRemove add:",
-                `${ipx} ${helper.pathShort(fileSrc)} ${itemDesc} ${testCorrupted} ${flag}`)
-            log.fileLog(`Prepared: ${ipx} <${fileSrc}> ${itemDesc} ${flag}`, "PreRemove")
+                `${ipx} ${helper.pathShort(fileSrc)} ${itemDesc} ${testCorrupted} ${flag} (${helper.humanSize(itemSize)},${itemCount})`)
+            log.fileLog(`Prepared: ${ipx} <${fileSrc}> ${itemDesc} ${flag} (${helper.humanSize(itemSize)},${itemCount})`, "PreRemove")
         } else {
             (testName || testSize || testMeasure) && log.info(
                 "PreRemove ignore:",
                 `${ipx} ${helper.pathShort(fileSrc)} [${itemDesc}] (${testName} ${testSize} ${testMeasure}) ${flag}`)
         }
-        return buildRemoveArgs(f.index, itemDesc, shouldRemove, fileSrc)
+
+        return buildRemoveArgs(f.index, itemDesc, shouldRemove, fileSrc, itemSize)
 
     } catch (error) {
         log.error(`PreRemove ${ipx} error:`, error, fileSrc, flag)
