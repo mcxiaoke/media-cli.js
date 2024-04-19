@@ -563,7 +563,8 @@ function initializePresets() {
             audioArgs: '-c:a libfdk_aac -profile:a aac_he -b:a 48k',
             filters: '',
             // 这里单引号必须，否则逗号需要转义，Windows太多坑
-            complexFilter: "[0:v]setpts=PTS/1.5,scale='if(gt(iw,1920),min(1920,iw),-2)':'if(gt(ih,1920),min(1920,ih),-2)'[v];[0:a]atempo=1.5[a]"
+            complexFilterOK: "[0:v]setpts=PTS/1.5,scale='if(gt(iw,1920),min(1920,iw),-2)':'if(gt(ih,1920),min(1920,ih),-2)'[v];[0:a]atempo=1.5[a]",
+            complexFilter: formatArgs("[0:v]setpts=PTS/{speed},scale='if(gt(iw,1920),min(1920,iw),-2)':'if(gt(ih,1920),min(1920,ih),-2)'[v];[0:a]atempo={speed}[a]", { speed: 1.5 })
         },
         //音频AAC最高码率
         PRESET_AAC_HIGH: {
