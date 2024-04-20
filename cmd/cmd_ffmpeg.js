@@ -310,17 +310,20 @@ async function checkAndPrepare(entry) {
         ...preset,
         preset: preset.name,
     }
+    const fileSrc = entry.path
+    const [srcDir, srcBase, srcExt] = helper.pathSplit(fileSrc)
     const prefix = helper.filenameSafe(formatArgs(preset.prefix || "", replaceArgs))
     const suffix = helper.filenameSafe(formatArgs(preset.suffix || "", replaceArgs))
-    const fileSrc = entry.path
-    const dstExt = preset.format || ext
-    const [dir, base, ext] = helper.pathSplit(fileSrc)
+    const dstExt = preset.format || srcExt
     // 如果没有指定输出目录，直接输出在原文件同目录；否则使用指定输出目录
-    const dstDir = preset.output ? helper.pathRewrite(dir, preset.output) : path.resolve(dir)
-    const dstBase = `${prefix}${base}${suffix}`
+    const dstDir = preset.output ? helper.pathRewrite(srcDir, preset.output) : path.resolve(srcDir)
+    const dstBase = `${prefix}${srcBase}${suffix}`
     const fileDst = path.join(dstDir, `${dstBase}${dstExt}`)
-    const fileDstTemp = path.join(dstDir, `${dstBase}_tmp@${Date.now()}${dstExt}`)
-    const fileDstSameDir = path.join(dir, `${dstBase}${dstExt}`)
+    // 临时文件后缀
+    const tempSuffix = `_tmp@${helper.textHash(fileSrc)}@tmp_`
+    // 临时文件名
+    const fileDstTemp = path.join(dstDir, `${srcBase}${tempSuffix}${dstExt}`)
+    const fileDstSameDir = path.join(srcDir, `${dstBase}${dstExt}`)
 
     if (await fs.pathExists(fileDstTemp)) {
         await fs.remove(fileDstTemp)
