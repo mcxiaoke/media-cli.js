@@ -9,6 +9,7 @@ import chalk from 'chalk'
 import { $, execa } from 'execa'
 import fs from 'fs-extra'
 import inquirer from "inquirer"
+import mm from 'music-metadata'
 import { cpus } from "os"
 import pMap from 'p-map'
 import path from "path"
@@ -54,14 +55,12 @@ const builder = function addOptions(ya, helpOrVersionSet) {
         .option("extensions", {
             alias: "e",
             type: "string",
-            default: VIDEO_EXTENSIONS.join('|'),
             describe: "include files by extensions (eg. .wav|.flac)",
         })
         // 选择预设，从预设列表中选一个，预设等于一堆预定义参数
         .option("preset", {
             type: "choices",
             choices: PRESET_NAMES,
-            default: 'hevc_2k',
             describe: "convert preset args for ffmpeg command",
         })
         // 强制解压，覆盖之前的文件
@@ -87,6 +86,12 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             type: "string",
             describe: "add suffix to filename",
         })
+        // 视频尺寸，长边最大数值
+        .option("dimension", {
+            type: "number",
+            default: 0,
+            describe: "chang max side for video",
+        })
         // 视频加速减速，默认不改动，范围0.25-4.0
         .option("speed", {
             type: "number",
@@ -105,9 +110,21 @@ const builder = function addOptions(ya, helpOrVersionSet) {
         // video-args = video-encoder + video-quality 
         // 如果此选项存在，会忽略其它 video-xxx 参数
         .option("video-args", {
-            aliases: ["va"],
+            alias: "va",
             type: "string",
             describe: "Set video args in ffmpeg command",
+        })
+        // 视频选项，指定码率
+        .option("video-bitrate", {
+            alias: "vb",
+            type: "string",
+            describe: "Set video bitrate in ffmpeg command",
+        })
+        // 视频选项，指定视频质量参数
+        .option("video-quality", {
+            alias: "vq",
+            type: "number",
+            describe: "Set video quality in ffmpeg command",
         })
         // 音频模式
         // 等于 --preset aac_medium
@@ -120,19 +137,31 @@ const builder = function addOptions(ya, helpOrVersionSet) {
         // audio-args = audio-encoder + audio-quality 
         // 如果此选项存在，会忽略其它 audio-xxx 参数
         .option("audio-args", {
-            aliases: ["aa"],
+            alias: "aa",
             type: "string",
             describe: "Set audio args in ffmpeg command",
         })
+        // 音频选项，指定码率
+        .option("audio-bitrate", {
+            alias: "ab",
+            type: "string",
+            describe: "Set audio bitrate in ffmpeg command",
+        })
+        // 音频选项，指定音频质量参数
+        .option("audio-quality", {
+            alias: "aq",
+            type: "number",
+            describe: "Set audio quality in ffmpeg command",
+        })
         // ffmpeg filter string
         .option("filters", {
-            aliases: ["fs"],
+            alias: "fs",
             type: "string",
             describe: "Set filters in ffmpeg command",
         })
         // ffmpeg complex filter string
         .option("filter-complex", {
-            aliases: ["fc"],
+            alias: "fc",
             type: "string",
             describe: "Set complex filters in ffmpeg command",
         })
@@ -183,20 +212,23 @@ async function cmdConvert(argv) {
     }
     // 只包含视频文件或音频文件
     let fileEntries = await mf.walk(root, {
+        withFiles: true,
         needStats: true,
-        entryFilter: (e) => {
-            if (!e.isFile) { return false }
-            const isMedia = (argv.videoMode ?
-                helper.isVideoFile(e.name) :
-                helper.isAudioFile(e.name))
-            if (extensions?.length > 0) {
-                // 如果有扩展名，则启用扩展名过滤
-                return isMedia && extensions.includes(helper.pathExt(e.path))
-            } else {
-                return isMedia
-            }
-        }
+        entryFilter: (e) => e.isFile && (argv.audioMode ? helper.isAudioFile(e.path) : helper.isVideoFile(e.path))
     })
+    // {
+    //     if (!e.isFile) { return false }
+    //     const isMedia = (argv.videoMode ?
+    //         helper.isVideoFile(e.name) :
+    //         helper.isAudioFile(e.name))
+    //     if (extensions?.length > 0) {
+    //         // 如果有扩展名，则启用扩展名过滤
+    //         return isMedia && extensions.includes(helper.pathExt(e.path))
+    //     } else {
+    //         return isMedia
+    //     }
+    // }
+
     // 过滤掉压缩过的文件
     fileEntries = fileEntries.filter(entry => !entry.name.toLowerCase().includes('shana'))
     fileEntries = fileEntries.map((f, i) => {
@@ -214,7 +246,7 @@ async function cmdConvert(argv) {
         log.showYellow(logTag, 'Nothing to do, abrot.')
         return
     }
-    let tasks = await pMap(fileEntries, checkAndPrepare, { concurrency: cpus().length * 4 })
+    let tasks = await pMap(fileEntries, checkAndPrepare, { concurrency: 1 })
     tasks = tasks.filter(t => t && t.fileDst)
     log.showYellow('PRESET:', preset)
     testMode && log.showYellow('++++++++++ TEST MODE (DRY RUN) ++++++++++')
@@ -278,8 +310,11 @@ async function runFFmpegCmd(entry) {
 
 async function checkAndPrepare(entry) {
     const logTag = 'Prepare'
-    const preset = entry.preset
     const index = entry.index + 1
+
+    log.info(logTag, `Processing(${index}) file: ${entry.path}`)
+
+    const preset = entry.preset
     const replaceArgs = {
         preset: `_${preset.name}`,
     }
@@ -313,6 +348,10 @@ async function checkAndPrepare(entry) {
         return false
     }
 
+    if (helper.isAudioFile(entry.path)) {
+        const meta = await readMetadataOne(entry)
+    }
+
     log.show(logTag, `AddTask(${index}) SRC: ${fileSrc} (${helper.humanSize(entry.size)})`)
     log.showGray(logTag, `AddTask(${index}) DST: ${fileDst}`)
     return {
@@ -320,6 +359,50 @@ async function checkAndPrepare(entry) {
         fileDst,
         fileDstTemp,
     }
+}
+
+// 读取单个音频文件的元数据
+async function readMetadataOne(entry) {
+    try {
+        const mt = await mm.parseFile(entry.path, { skipCovers: true })
+        if (mt?.format && mt.common) {
+            // log.show('format', mt.format)
+            // log.show('common', mt.common)
+            log.info("Metadata", `Read(${entry.index}) ${mt.format.codec}|${mt.format.duration}|${mt.format.bitrate}|${mt.format.lossless},${mt.common.artist},${mt.common.title},${mt.common.album}`)
+            entry.tags = mt.common
+            entry.format = mt.format
+            calculateAudioQuality(entry, format, tags)
+            return entry
+        } else {
+            log.info("Metadata", entry.index, "no tags found", helper.pathShort(entry.path))
+        }
+    } catch (error) {
+        log.info("Metadata", entry.index, "no tags found", helper.pathShort(entry.path), error.message)
+    }
+}
+
+function calculateAudioQuality(entry, format, tags) {
+    // eg. '-map a:0 -c:a libfdk_aac -b:a {bitrate}'
+    if (helper.isAudioLossless(entry.path) && !format.lossless) {
+        log.showRed(entry.path, format)
+    }
+    let bitrate = '320k'
+    if (format.lossless || format.bitrate > 320 * 1024 || helper.isAudioLossless(entry.path)) {
+        bitrate = '320k'
+    } else if (format.bitrate > 256 * 1024) {
+        bitrate = '192k'
+    } else {
+        bitrate = '128k'
+    }
+}
+
+function updateObject(target, source) {
+    for (const key in source) {
+        if (target.hasOwnProperty(key)) {
+            target[key] = source[key]
+        }
+    }
+    return target
 }
 
 // ===========================================
@@ -338,7 +421,14 @@ class Preset {
         streamArgs,
         outputArgs,
         filters,
-        complexFilter
+        complexFilter,
+        output,
+        videoBitrate,
+        videoQuality = 0,
+        audioBitrate,
+        audioQuality = 0,
+        dimension,
+        speed = 0
     }) {
         this.name = name
         this.format = format
@@ -352,8 +442,61 @@ class Preset {
         this.filters = filters
         this.complexFilter = complexFilter
         // 输出目录
-        this.output = null
+        this.output = output
+        // 视频码率和质量
+        this.videoBitrate = videoBitrate
+        this.videoQuality = videoQuality
+        // 音频码率和质量
+        this.audioBitrate = audioBitrate
+        this.audioQuality = audioQuality
+        // 视频尺寸
+        this.dimension = dimension
+        // 视频加速
+        this.speed = speed
     }
+
+    update(options) {
+        // return Object.assign(this, options)
+        return updateObject(this, options)
+    }
+
+    getReplaceArgs() {
+        return {
+            preset: `_${this.name}`,
+            prefix: this.prefix,
+            suffix: this.suffix,
+            audioBitrate: this.audioBitrate,
+            audioQuality: this.audioQuality,
+            videoBitrate: this.videoBitrate,
+            videoQuality: this.videoQuality,
+            dimension: this.dimension,
+            speed: this.speed
+        }
+    }
+
+    // 构造函数，参数为另一个 Preset 对象
+    static fromPreset(preset) {
+        return new Preset(preset.name, {
+            format: preset.format,
+            prefix: preset.prefix,
+            suffix: preset.suffix,
+            videoArgs: preset.videoArgs,
+            audioArgs: preset.audioArgs,
+            inputArgs: preset.inputArgs,
+            streamArgs: preset.streamArgs,
+            outputArgs: preset.outputArgs,
+            filters: preset.filters,
+            complexFilter: preset.complexFilter,
+            output: preset.output,
+            videoBitrate: preset.videoBitrate,
+            videoQuality: preset.videoQuality,
+            audioBitrate: preset.audioBitrate,
+            audioQuality: preset.audioQuality,
+            dimension: preset.dimension,
+            speed: preset.speed
+        })
+    }
+
 }
 
 // videoArgs = { args,codec,quality,bitrate,filters}
@@ -369,11 +512,11 @@ const HEVC_BASE = new Preset('hevc-base', {
     // 视频参数说明
     // video_codec block '-c:v hevc_nvenc -profile:v main -tune:v hq'
     // video_quality block '-cq {quality} -bufsize {bitrate} -maxrate {bitrate}'
-    videoArgs: '-c:v hevc_nvenc -profile:v main -tune:v hq -cq {quality} -bufsize {bitrate} -maxrate {bitrate}',
+    videoArgs: '-c:v hevc_nvenc -profile:v main -tune:v hq -cq {videoQuality} -bufsize {videoBitrate} -maxrate {videoBitrate}',
     // 音频参数说明
     // audio_codec block '-c:a libfdk_aac'
     // audio_quality block '-b:a {bitrate}'
-    audioArgs: '-c:a libfdk_aac -b:a {bitrate}',
+    audioArgs: '-c:a libfdk_aac -b:a {audioBitrate}',
     inputArgs: '',
     streamArgs: '',
     // 快速读取和播放
@@ -392,7 +535,7 @@ const AAC_BASE = new Preset('aac_base', {
     // 音频参数说明
     // audio_codec block '-c:a libfdk_aac'
     // audio_quality block '-b:a {bitrate}'
-    audioArgs: '-map a:0 -c:a libfdk_aac -b:a {bitrate}',
+    audioArgs: '-map a:0 -c:a libfdk_aac -b:a {audioBitrate}',
     inputArgs: '',
     streamArgs: '',
     outputArgs: '-movflags +faststart',
@@ -402,76 +545,88 @@ const AAC_BASE = new Preset('aac_base', {
 
 function initializePresets() {
 
+    const PRESET_HEVC_ULTRA = Preset.fromPreset(HEVC_BASE).update({
+        name: 'hevc_ultra',
+        videoQuality: 20,
+        videoBitrate: '20480k',
+        audioBitrate: '320k',
+        dimension: '3840'
+    })
+
+    const PRESET_HEVC_4K = Preset.fromPreset(HEVC_BASE).update({
+        name: 'hevc_4k',
+        videoQuality: 23,
+        videoBitrate: '10240K',
+        audioBitrate: '256k',
+        dimension: '3840'
+    })
+
+    const PRESET_HEVC_2K = Preset.fromPreset(HEVC_BASE).update({
+        name: 'hevc_2k',
+        videoQuality: 23,
+        videoBitrate: '4096K',
+        audioBitrate: '192k',
+        dimension: '1920'
+    })
+
+    const PRESET_HEVC_LOW = Preset.fromPreset(HEVC_BASE).update({
+        name: 'hevc_low',
+        videoQuality: 26,
+        videoBitrate: '2048K',
+        audioBitrate: '128k',
+        dimension: '1920'
+    })
+
+    const PRESET_HEVC_LOWEST = Preset.fromPreset(HEVC_BASE).update({
+        name: 'hevc_lowest',
+        videoQuality: 26,
+        videoBitrate: '512k',
+        audioBitrate: '128k',
+        dimension: '1920',
+        streamArgs: '-map [v] -map [a]',
+        // 音频参数说明
+        // audio_codec block '-c:a libfdk_aac -profile:a aac_he'
+        // audio_quality block '-b:a 48k'
+        _audioArgs: '-c:a libfdk_aac -profile:a aac_he -b:a {bitrate}',
+        // 这里单引号必须，否则逗号需要转义，Windows太多坑
+        complexFilter: formatArgs("[0:v]setpts=PTS/{speed},scale='if(gt(iw,1920),min(1920,iw),-2)':'if(gt(ih,1920),min(1920,ih),-2)'[v];[0:a]atempo={speed}[a]", { speed: 1.5 })
+    })
+
     const presets = {
         //4K超高码率和质量
-        PRESET_HEVC_ULTRA: {
-            ...HEVC_BASE,
-            name: 'hevc_ultra',
-            videoArgs: formatArgs(HEVC_BASE.videoArgs, { quality: 20, bitrate: '20480K' }),
-            audioArgs: formatArgs(HEVC_BASE.audioArgs, { bitrate: '320k' }),
-            filters: formatArgs(HEVC_BASE.filters, { dimension: '3840' })
-        },
+        PRESET_HEVC_ULTRA: PRESET_HEVC_ULTRA,
         //4k高码率和质量
-        PRESET_HEVC_4K: {
-            ...HEVC_BASE,
-            name: 'hevc_4k',
-            videoArgs: formatArgs(HEVC_BASE.videoArgs, { quality: 23, bitrate: '10240K' }),
-            audioArgs: formatArgs(HEVC_BASE.audioArgs, { bitrate: '256k' }),
-            filters: formatArgs(HEVC_BASE.filters, { dimension: '3840' })
-        },
+        PRESET_HEVC_4K: PRESET_HEVC_4K,
         //2K高码率和质量
-        PRESET_HEVC_2K: {
-            ...HEVC_BASE,
-            name: 'hevc_2k',
-            videoArgs: formatArgs(HEVC_BASE.videoArgs, { quality: 23, bitrate: '4096K' }),
-            audioArgs: formatArgs(HEVC_BASE.audioArgs, { bitrate: '192k' }),
-            filters: formatArgs(HEVC_BASE.filters, { dimension: '1920' }),
-        },
+        PRESET_HEVC_2K: PRESET_HEVC_2K,
         // 2K低码率和质量
-        PRESET_HEVC_LOW: {
-            ...HEVC_BASE,
-            name: 'hevc_low',
-            videoArgs: formatArgs(HEVC_BASE.videoArgs, { quality: 26, bitrate: '2048K' }),
-            audioArgs: formatArgs(HEVC_BASE.audioArgs, { bitrate: '128k' }),
-            filters: formatArgs(HEVC_BASE.filters, { dimension: '1920' })
-        },
+        PRESET_HEVC_LOW: PRESET_HEVC_LOW,
         // 极低画质和码率，适用于教程类视频
-        PRESET_HEVC_LOWEST: {
-            ...HEVC_BASE,
-            name: 'hevc_lowest',
-            streamArgs: '-map [v] -map [a]',
-            videoArgs: formatArgs(HEVC_BASE.videoArgs, { quality: 26, bitrate: '512k' }),
-            // 音频参数说明
-            // audio_codec block '-c:a libfdk_aac -profile:a aac_he'
-            // audio_quality block '-b:a 48k'
-            audioArgs: '-c:a libfdk_aac -profile:a aac_he -b:a 48k',
-            filters: '',
-            // 这里单引号必须，否则逗号需要转义，Windows太多坑
-            complexFilter: formatArgs("[0:v]setpts=PTS/{speed},scale='if(gt(iw,1920),min(1920,iw),-2)':'if(gt(ih,1920),min(1920,ih),-2)'[v];[0:a]atempo={speed}[a]", { speed: 1.5 })
-        },
+        PRESET_HEVC_LOWEST: PRESET_HEVC_LOWEST,
         //音频AAC最高码率
         PRESET_AAC_HIGH: {
             ...AAC_BASE,
             name: 'aac_high',
-            audioArgs: formatArgs(AAC_BASE.audioArgs, { bitrate: '320k' }),
+            audioBitrate: '320k',
         },
         //音频AAC中码率
         PRESET_AAC_MEDIUM: {
             ...AAC_BASE,
             name: 'aac_medium',
-            audioArgs: formatArgs(AAC_BASE.audioArgs, { bitrate: '192k' }),
+            audioBitrate: '192k',
         },
         // 音频AAC低码率
         PRESET_AAC_LOW: {
             ...AAC_BASE,
-            name: 'aac_medium',
-            audioArgs: formatArgs(AAC_BASE.audioArgs, { bitrate: '128k' }),
+            name: 'aac_low',
+            audioBitrate: '128k',
         },
         // 音频AAC极低码率，适用人声
         PRESET_AAC_VOICE: {
             ...AAC_BASE,
             name: 'aac_voice',
-            audioArgs: '-c:a libfdk_aac -profile:a aac_he -b:a 48k',
+            audioBitrate: '48k',
+            audioArgs: '-c:a libfdk_aac -profile:a aac_he -b:a {audioBitrate}',
         }
     }
 
@@ -540,26 +695,48 @@ function preparePreset(argv) {
     if (argv.suffix?.length > 0) {
         preset.suffix = argv.suffix
     }
+    if (argv.videoArgs?.length > 0) {
+        preset._videoArgs = argv.videoArgs
+    }
+    if (argv.audioArgs?.length > 0) {
+        preset._audioArgs = argv.audioArgs
+    }
+    if (argv.filters?.length > 0) {
+        preset.filters = argv.filters
+    }
+    if (argv.filterComplex?.length > 0) {
+        preset.complexFilter = argv.filterComplex
+    }
     // 输出目录
     if (argv.output?.length > 0) {
         preset.output = path.resolve(argv.output)
     }
-    // 假设最小长度
-    if (argv.videoArgs?.length > 5) {
-        preset.videoArgs = argv.videoArgs
+    // 视频尺寸
+    if (argv.dimension > 0) {
+        preset.dimension = String(argv.dimension)
     }
-    if (argv.audioArgs?.length > 5) {
-        preset.audioArgs = argv.audioArgs
+    // 视频速度
+    if (argv.speed > 0) {
+        preset.speed = argv.speed
     }
-    if (argv.filters?.length > 5) {
-        preset.filters = argv.filters
+    // 视频码率
+    if (argv.videoBitrate?.length > 0) {
+        preset.videoBitrate = argv.videoBitrate
     }
-    if (argv.filterComplex?.length > 5) {
-        preset.complexFilter = argv.filterComplex
+    if (argv.videoQuality > 0) {
+        preset.videoQuality = argv.videoQuality
+    }
+    // 音频码率
+    if (argv.audioBitrate?.length > 0) {
+        preset.audioBitrate = argv.audioBitrate
+    }
+    if (argv.audioQuality > 0) {
+        preset.audioQuality = argv.audioQuality
     }
 
     return preset
 }
+
 
 function createFFmpegArgs(entry) {
     const preset = entry.preset
@@ -575,22 +752,24 @@ function createFFmpegArgs(entry) {
     args.push(`"${entry.path}"`)
     if (preset.filters?.length > 0) {
         args.push('-vf')
-        args.push(`${preset.filters}`)
+        args.push(formatArgs(preset.filters, preset))
     }
     // 在输入文件后面
     if (preset.complexFilter?.length > 0) {
         args.push('-filter_complex')
-        args.push(`"${preset.complexFilter}"`)
+        args.push(`"${formatArgs(preset.complexFilter, preset)}"`)
     }
     // 在输入文件后面
     if (preset.streamArgs?.length > 0) {
         args = args.concat(preset.streamArgs.split(' '))
     }
     if (preset.videoArgs?.length > 0) {
-        args = args.concat(preset.videoArgs.split(' '))
+        const va = formatArgs(preset.videoArgs, preset)
+        args = args.concat(va.split(' '))
     }
     if (preset.audioArgs?.length > 0) {
-        args = args.concat(preset.audioArgs.split(' '))
+        const aa = formatArgs(preset.audioArgs, preset)
+        args = args.concat(aa.split(' '))
     }
     // 其它参数
     if (preset.extraArgs?.length > 0) {
