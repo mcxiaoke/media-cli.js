@@ -24,7 +24,6 @@ import * as mf from '../lib/file.js'
 import * as helper from '../lib/helper.js'
 
 import EventEmitter from 'events'
-import { getRunningPids } from "../lib/shared_state.js"
 EventEmitter.defaultMaxListeners = 1000
 
 const cpuCount = cpus().length
@@ -38,15 +37,6 @@ const configCli = (argv) => {
   log.setVerbose(argv.verbose)
   log.debug(argv)
 }
-
-// not working, process not killed
-// process.on('SIGINT', () => {
-//   console.log('SIGINT signal received')
-//   getRunningPids().forEach(pid => {
-//     console.log('kill process', pid)
-//     process.kill(pid)
-//   })
-// })
 
 try {
   await main()
