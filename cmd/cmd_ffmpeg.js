@@ -118,13 +118,15 @@ const builder = function addOptions(ya, helpOrVersionSet) {
         // 视频选项，指定码率
         .option("video-bitrate", {
             alias: "vb",
-            type: "string",
+            type: "number",
+            default: 0,
             describe: "Set video bitrate in ffmpeg command",
         })
         // 视频选项，指定视频质量参数
         .option("video-quality", {
             alias: "vq",
             type: "number",
+            default: 0,
             describe: "Set video quality in ffmpeg command",
         })
         // 音频模式
@@ -145,13 +147,15 @@ const builder = function addOptions(ya, helpOrVersionSet) {
         // 音频选项，指定码率
         .option("audio-bitrate", {
             alias: "ab",
-            type: "string",
+            type: "number",
+            default: 0,
             describe: "Set audio bitrate in ffmpeg command",
         })
         // 音频选项，指定音频质量参数
         .option("audio-quality", {
             alias: "aq",
             type: "number",
+            default: 0,
             describe: "Set audio quality in ffmpeg command",
         })
         // ffmpeg filter string
@@ -406,15 +410,15 @@ function calculateAudioQuality(entry, format) {
     if (helper.isAudioLossless(entry.path) && !format.lossless) {
         log.showRed(entry.path, format)
     }
-    let bitrate = '320k'
+    let bitrate = 320
     if (format.lossless || format.bitrate > 320 * 1024 || helper.isAudioLossless(entry.path)) {
-        bitrate = '320k'
+        bitrate = 320
     } else if (format.bitrate > 256 * 1024) {
-        bitrate = '256k'
+        bitrate = 256
     } else if (format.bitrate > 192 * 1024) {
-        bitrate = '192k'
+        bitrate = 192
     } else {
-        bitrate = '128k'
+        bitrate = 128
     }
     return bitrate
 }
@@ -446,11 +450,11 @@ class Preset {
         filters,
         complexFilter,
         output,
-        videoBitrate,
+        videoBitrate = 0,
         videoQuality = 0,
-        audioBitrate,
+        audioBitrate = 0,
         audioQuality = 0,
-        dimension,
+        dimension = 0,
         speed = 0
     }) {
         this.name = name
@@ -485,7 +489,6 @@ class Preset {
 
     getReplaceArgs() {
         return {
-            preset: `_${this.name}`,
             prefix: this.prefix,
             suffix: this.suffix,
             audioBitrate: this.audioBitrate,
@@ -535,11 +538,11 @@ const HEVC_BASE = new Preset('hevc-base', {
     // 视频参数说明
     // video_codec block '-c:v hevc_nvenc -profile:v main -tune:v hq'
     // video_quality block '-cq {quality} -bufsize {bitrate} -maxrate {bitrate}'
-    videoArgs: '-c:v hevc_nvenc -profile:v main -tune:v hq -cq {videoQuality} -bufsize {videoBitrate} -maxrate {videoBitrate}',
+    videoArgs: '-c:v hevc_nvenc -profile:v main -tune:v hq -cq {videoQuality} -bufsize {videoBitrate}k -maxrate {videoBitrate}k',
     // 音频参数说明
     // audio_codec block '-c:a libfdk_aac'
     // audio_quality block '-b:a {bitrate}'
-    audioArgs: '-c:a libfdk_aac -b:a {audioBitrate}',
+    audioArgs: '-c:a libfdk_aac -b:a {audioBitrate}k',
     inputArgs: '',
     streamArgs: '',
     // 快速读取和播放
@@ -558,7 +561,7 @@ const AAC_BASE = new Preset('aac_base', {
     // 音频参数说明
     // audio_codec block '-c:a libfdk_aac'
     // audio_quality block '-b:a {bitrate}'
-    audioArgs: '-map a:0 -c:a libfdk_aac -b:a {audioBitrate}',
+    audioArgs: '-map a:0 -c:a libfdk_aac -b:a {audioBitrate}k',
     inputArgs: '',
     streamArgs: '',
     outputArgs: '-movflags +faststart',
@@ -571,46 +574,46 @@ function initializePresets() {
     const PRESET_HEVC_ULTRA = Preset.fromPreset(HEVC_BASE).update({
         name: 'hevc_ultra',
         videoQuality: 20,
-        videoBitrate: '20480k',
-        audioBitrate: '320k',
-        dimension: '3840'
+        videoBitrate: 20480,
+        audioBitrate: 320,
+        dimension: 3840
     })
 
     const PRESET_HEVC_4K = Preset.fromPreset(HEVC_BASE).update({
         name: 'hevc_4k',
         videoQuality: 23,
-        videoBitrate: '10240K',
-        audioBitrate: '256k',
-        dimension: '3840'
+        videoBitrate: 10240,
+        audioBitrate: 256,
+        dimension: 3840
     })
 
     const PRESET_HEVC_2K = Preset.fromPreset(HEVC_BASE).update({
         name: 'hevc_2k',
         videoQuality: 23,
-        videoBitrate: '4096K',
-        audioBitrate: '192k',
-        dimension: '1920'
+        videoBitrate: 4096,
+        audioBitrate: 192,
+        dimension: 1920
     })
 
     const PRESET_HEVC_LOW = Preset.fromPreset(HEVC_BASE).update({
         name: 'hevc_low',
         videoQuality: 26,
-        videoBitrate: '2048K',
-        audioBitrate: '128k',
-        dimension: '1920'
+        videoBitrate: 2048,
+        audioBitrate: 128,
+        dimension: 1920
     })
 
     const PRESET_HEVC_LOWEST = Preset.fromPreset(HEVC_BASE).update({
         name: 'hevc_lowest',
         videoQuality: 26,
-        videoBitrate: '512k',
-        audioBitrate: '128k',
-        dimension: '1920',
+        videoBitrate: 512,
+        audioBitrate: 128,
+        dimension: 1920,
         streamArgs: '-map [v] -map [a]',
         // 音频参数说明
         // audio_codec block '-c:a libfdk_aac -profile:a aac_he'
         // audio_quality block '-b:a 48k'
-        _audioArgs: '-c:a libfdk_aac -profile:a aac_he -b:a {bitrate}',
+        _audioArgs: '-c:a libfdk_aac -profile:a aac_he -b:a {audioBitrate}k',
         // 这里单引号必须，否则逗号需要转义，Windows太多坑
         complexFilter: formatArgs("[0:v]setpts=PTS/{speed},scale='if(gt(iw,1920),min(1920,iw),-2)':'if(gt(ih,1920),min(1920,ih),-2)'[v];[0:a]atempo={speed}[a]", { speed: 1.5 })
     })
@@ -630,26 +633,26 @@ function initializePresets() {
         PRESET_AAC_HIGH: {
             ...AAC_BASE,
             name: 'aac_high',
-            audioBitrate: '320k',
+            audioBitrate: 320,
         },
         //音频AAC中码率
         PRESET_AAC_MEDIUM: {
             ...AAC_BASE,
             name: 'aac_medium',
-            audioBitrate: '192k',
+            audioBitrate: 192,
         },
         // 音频AAC低码率
         PRESET_AAC_LOW: {
             ...AAC_BASE,
             name: 'aac_low',
-            audioBitrate: '128k',
+            audioBitrate: 128,
         },
         // 音频AAC极低码率，适用人声
         PRESET_AAC_VOICE: {
             ...AAC_BASE,
             name: 'aac_voice',
-            audioBitrate: '48k',
-            audioArgs: '-c:a libfdk_aac -profile:a aac_he -b:a {audioBitrate}',
+            audioBitrate: 48,
+            audioArgs: '-c:a libfdk_aac -profile:a aac_he -b:a {audioBitrate}k',
         }
     }
 
@@ -743,14 +746,14 @@ function preparePreset(argv) {
         preset.speed = argv.speed
     }
     // 视频码率
-    if (argv.videoBitrate?.length > 0) {
+    if (argv.videoBitrate > 0) {
         preset.videoBitrate = argv.videoBitrate
     }
     if (argv.videoQuality > 0) {
         preset.videoQuality = argv.videoQuality
     }
     // 音频码率
-    if (argv.audioBitrate?.length > 0) {
+    if (argv.audioBitrate > 0) {
         preset.audioBitrate = argv.audioBitrate
     }
     if (argv.audioQuality > 0) {
