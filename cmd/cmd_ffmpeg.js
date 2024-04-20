@@ -22,7 +22,7 @@ import * as mf from '../lib/file.js'
 import * as helper from '../lib/helper.js'
 
 
-const LOG_TAG = "FFMPEG"
+const LOG_TAG = "FFConv"
 
 const VIDEO_EXTENSIONS = [".mp4", ".mov", ".wmv", ".avi", ".mkv", ".m4v", ".ts", ".flv", ".webm"]
 const PRESET_NAMES = []
@@ -207,9 +207,9 @@ async function cmdConvert(argv) {
     // 解析Preset，根据argv参数修改preset，返回对象
     const preset = preparePreset(argv)
     if (!testMode) {
-        log.fileLog(`Root: ${root}`, logTag)
-        log.fileLog(`Argv: ${JSON.stringify(argv)}`, logTag)
-        log.fileLog(`Preset: ${JSON.stringify(preset)}`, logTag)
+        log.fileLog(`Root: ${root}`, 'FFConv')
+        log.fileLog(`Argv: ${JSON.stringify(argv)}`, 'FFConv')
+        log.fileLog(`Preset: ${JSON.stringify(preset)}`, 'FFConv')
     }
     // 只包含视频文件或音频文件
     let fileEntries = await mf.walk(root, {
@@ -222,9 +222,9 @@ async function cmdConvert(argv) {
         fileEntries = fileEntries.filter(entry => extensions.includes(helper.pathExt(entry.name)))
         log.show(logTag, `Total ${fileEntries.length} files left after filter by extensions`)
     }
-    // 过滤掉压缩过的文件
-    fileEntries = fileEntries.filter(entry => !/shana|tmp/i.test(entry.name))
-    log.show(logTag, `Total ${fileEntries.length} files left after exclude shana|tmp filenames`)
+    // 过滤掉压缩过的文件 关键词 shana tmp m4a 
+    fileEntries = fileEntries.filter(entry => !/shana|tmp|\.m4a/i.test(entry.name))
+    log.show(logTag, `Total ${fileEntries.length} files left after exclude shana|tmp|m4a filenames`)
     fileEntries = fileEntries.map((f, i) => {
         return {
             ...f,
@@ -236,12 +236,17 @@ async function cmdConvert(argv) {
         }
     })
     if (fileEntries.length === 0) {
-        log.showYellow(logTag, 'Nothing to do, abrot.')
+        log.showYellow(logTag, 'No files left after filters, nothing to do.')
         return
     }
     let tasks = await pMap(fileEntries, prepareFFmpegCmd, { concurrency: cpus().length })
+    !testMode && log.fileLog(`ffmpegArgs:`, tasks.slice(-1)[0].ffmpegArgs, 'FFConv')
     tasks = tasks.filter(t => t && t.fileDst)
-    log.showYellow(logTag, 'CMD: ffmpeg', createFFmpegArgs(tasks[0]).join(' '))
+    if (tasks.length === 0) {
+        log.showYellow(logTag, 'All tasks are skipped, nothing to do.')
+        return
+    }
+    log.showYellow(logTag, 'CMD: ffmpeg', createFFmpegArgs(tasks.slice(-1)[0]).join(' '))
     testMode && log.showYellow('++++++++++ TEST MODE (DRY RUN) ++++++++++')
     const answer = await inquirer.prompt([
         {
@@ -259,20 +264,23 @@ async function cmdConvert(argv) {
         throw new Error("ffmpeg executable not found in path")
     }
     if (answer.yes) {
+        // 顺序执行，并发数1
         const results = await core.asyncMap(tasks, runFFmpegCmd)
-        log.showGreen(logTag, `Total ${results.length} files processed in ${helper.humanTime(startMs)}`)
+        testMode && log.showYellow(logTag, 'NO file processed in TEST MODE.')
+        const okResults = results.filter(r => r && r.ok)
+        !testMode && log.showGreen(logTag, `Total ${okResults.length} files processed in ${helper.humanTime(startMs)}`)
     }
 }
 
 async function runFFmpegCmd(entry) {
     const logTag = chalk.green('FFCMD')
-    const ffmpegArgs = createFFmpegArgs(entry, entry.preset)
+    const ffmpegArgs = entry.ffmpegArgs
     log.showYellow(logTag, `INPUT(${entry.index}) ${entry.path} (${helper.humanSize(entry.size)}) (${entry.preset.name})`)
     log.showGray(logTag, 'ffmpeg', ffmpegArgs.join(' '))
     const exePath = await which("ffmpeg")
     if (entry.testMode) {
         // 测试模式跳过
-        log.show(logTag, `Skipped(${entry.index}) ${entry.path} [TestMode]`)
+        log.show(logTag, `Skipped(${entry.index}) ${entry.path} (${helper.humanSize(entry.size)}) [TestMode]`)
         return
     }
     try {
@@ -286,17 +294,17 @@ async function runFFmpegCmd(entry) {
             const dstSize = (await fs.stat(entry.fileDstTemp))?.size || 0
             if (dstSize > mf.FILE_SIZE_1K) {
                 await fs.move(entry.fileDstTemp, entry.fileDst)
-                log.showGreen(logTag, `OUTPUT(${entry.index}) ${entry.fileDst} (${helper.humanSize(dstSize)})`)
-                log.fileLog(`OUTPUT(${entry.index}) <${entry.fileDst}>`, 'FFCMD')
-                entry.done = true
+                log.showGreen(logTag, `OUTPUT(${entry.index}) ${entry.fileDst} [${entry.fileDstBitrate || entry.preset.name}] (${helper.humanSize(dstSize)})`)
+                log.fileLog(`OUTPUT(${entry.index}) <${entry.fileDst}> [${entry.fileDstBitrate || entry.preset.name}] (${helper.humanSize(dstSize)})`, 'FFCMD')
+                entry.ok = true
                 return entry
             }
         }
         log.showYellow(logTag, `Failed(${entry.index}) ${entry.path}`)
-        log.fileLog(`Failed(${entry.index}) <${entry.path}>`, 'FFCMD')
+        log.fileLog(`Failed(${entry.index}) <${entry.path}> [${entry.fileDstBitrate || entry.preset.name}]`, 'FFCMD')
     } catch (error) {
         log.showRed(logTag, `Error(${entry.index}) ${entry.path} ${error}`)
-        log.fileLog(`Error(${entry.index}) <${entry.path}> ${error}`, 'FFCMD')
+        log.fileLog(`Error(${entry.index}) <${entry.path}> ${error} [${entry.fileDstBitrate || entry.preset.name}]`, 'FFCMD')
     }
 
 }
@@ -304,12 +312,23 @@ async function runFFmpegCmd(entry) {
 async function prepareFFmpegCmd(entry) {
     const logTag = chalk.green('Prepare')
     const index = entry.index + 1
-
     log.info(logTag, `Processing(${index}) file: ${entry.path}`)
     const preset = entry.preset
+
+
+    const isAudio = helper.isAudioFile(entry.path)
+    // 放前面，因为 fileDstBitrate 会用于前缀后缀参数
+    if (isAudio) {
+        await readMetadataOne(entry)
+    }
+    const info = await getMediaInfo(entry.path, { audio: isAudio })
+    if (info.codec_name) {
+        entry.info = info
+    }
     const replaceArgs = {
         ...preset,
         preset: preset.name,
+        audioBitrate: entry.fileDstBitrate || preset.audioBitrate
     }
     const fileSrc = entry.path
     const [srcDir, srcBase, srcExt] = helper.pathSplit(fileSrc)
@@ -323,7 +342,7 @@ async function prepareFFmpegCmd(entry) {
     // 临时文件后缀
     const tempSuffix = `_tmp@${helper.textHash(fileSrc)}@tmp_`
     // 临时文件名
-    const fileDstTemp = path.join(dstDir, `${srcBase}${tempSuffix}${dstExt}`)
+    const fileDstTemp = path.join(dstDir, `${dstBase}${tempSuffix}${dstExt}`)
     const fileDstSameDir = path.join(srcDir, `${dstBase}${dstExt}`)
 
     if (await fs.pathExists(fileDstTemp)) {
@@ -344,29 +363,22 @@ async function prepareFFmpegCmd(entry) {
         return false
     }
 
-    // log.show(entry.path)
-    const isAudio = helper.isAudioFile(entry.path)
-    if (isAudio) {
-        await readMetadataOne(entry)
-    }
-    const info = await getMediaInfo(entry.path, { audio: isAudio })
-    if (info.codec_name) {
-        entry.info = info
-    }
-
     let entryInfo = ''
     if (info.codec_name) {
         const infoSuffix = isAudio ? `${info.sample_rate}|${info.channels}` : `${info.width}x${info.height}`
-        entryInfo = `[${info.codec_name},${Math.floor((info.format.bit_rate || info.bit_rate || 0) / 1000)}k,${infoSuffix}]`
+        entryInfo = chalk.cyan(`[${info.codec_name},${Math.floor((info.format.bit_rate || info.bit_rate || 0) / 1000)}k,${infoSuffix}]`)
     }
-    log.show(logTag, `Task(${index}) S:${fileSrc} ${entryInfo} (${helper.humanSize(entry.size)})`)
+    log.show(logTag, `Task(${index}) S:${fileSrc} (${helper.humanSize(entry.size)}) ${entryInfo}`, chalk.yellow(isAudio ? entry.fileDstBitrate : entry.preset.name))
     log.info(logTag, `Task(${index}) D:${fileDst}`)
     // log.show(logTag, `Entry(${index})`, entry)
-    return {
+    const newEntry = {
         ...entry,
         fileDst,
         fileDstTemp,
     }
+    const ffmpegArgs = createFFmpegArgs(newEntry)
+    // log.info(logTag, 'ffmpeg', ffmpegArgs.join(' '))
+    return Object.assign(newEntry, { ffmpegArgs })
 }
 
 // 读取单个音频文件的元数据
@@ -376,7 +388,7 @@ async function readMetadataOne(entry) {
         if (mt?.format && mt.common) {
             // log.show('format', mt.format)
             // log.show('common', mt.common)
-            log.info("Metadata", `Read(${entry.index}) ${mt.format.codec}|${mt.format.duration}|${mt.format.bitrate}|${mt.format.lossless},${mt.common.artist},${mt.common.title},${mt.common.album}`)
+            log.info("Metadata", `Read(${entry.index}) ${entry.name} [${mt.format.codec}|${mt.format.duration}|${mt.format.bitrate}|${mt.format.lossless}, ${mt.common.artist},${mt.common.title},${mt.common.album}]`)
             entry.tags = mt.common
             entry.format = mt.format
             entry.fileDstBitrate = calculateAudioQuality(entry, mt.format)
@@ -398,6 +410,8 @@ function calculateAudioQuality(entry, format) {
     if (format.lossless || format.bitrate > 320 * 1024 || helper.isAudioLossless(entry.path)) {
         bitrate = '320k'
     } else if (format.bitrate > 256 * 1024) {
+        bitrate = '256k'
+    } else if (format.bitrate > 192 * 1024) {
         bitrate = '192k'
     } else {
         bitrate = '128k'
@@ -538,7 +552,7 @@ const HEVC_BASE = new Preset('hevc-base', {
 const AAC_BASE = new Preset('aac_base', {
     format: '.m4a',
     prefix: '',
-    suffix: '',
+    suffix: '_{audioBitrate}',
     description: 'AAC_BASE',
     videoArgs: '',
     // 音频参数说明
@@ -778,7 +792,10 @@ function createFFmpegArgs(entry) {
         args = args.concat(va.split(' '))
     }
     if (preset.audioArgs?.length > 0) {
-        const aa = formatArgs(preset.audioArgs, preset)
+        const aa = formatArgs(preset.audioArgs, {
+            ...preset,
+            audioBitrate: entry.fileDstBitrate || preset.audioBitrate
+        })
         args = args.concat(aa.split(' '))
     }
     // 其它参数
