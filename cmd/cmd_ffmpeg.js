@@ -17,6 +17,7 @@ import which from "which"
 import * as core from '../lib/core.js'
 import { formatArgs } from '../lib/core.js'
 import * as log from '../lib/debug.js'
+import { getMediaInfo } from '../lib/ffprobe.js'
 import * as mf from '../lib/file.js'
 import * as helper from '../lib/helper.js'
 
@@ -227,7 +228,7 @@ async function cmdConvert(argv) {
     fileEntries = fileEntries.map((f, i) => {
         return {
             ...f,
-            argv,
+            // argv,
             preset,
             index: i,
             total: fileEntries.length,
@@ -238,9 +239,9 @@ async function cmdConvert(argv) {
         log.showYellow(logTag, 'Nothing to do, abrot.')
         return
     }
-    let tasks = await pMap(fileEntries, checkAndPrepare, { concurrency: 1 })
+    let tasks = await pMap(fileEntries, prepareFFmpegCmd, { concurrency: cpus().length })
     tasks = tasks.filter(t => t && t.fileDst)
-    log.show(logTag, 'CMD: ffmpeg', createFFmpegArgs(tasks[0]).join(' '))
+    log.showYellow(logTag, 'CMD: ffmpeg', createFFmpegArgs(tasks[0]).join(' '))
     testMode && log.showYellow('++++++++++ TEST MODE (DRY RUN) ++++++++++')
     const answer = await inquirer.prompt([
         {
@@ -271,7 +272,7 @@ async function runFFmpegCmd(entry) {
     const exePath = await which("ffmpeg")
     if (entry.testMode) {
         // 测试模式跳过
-        log.show(logTag, `[TestMode]Skipped(${entry.index}) ${entry.path}`)
+        log.show(logTag, `Skipped(${entry.index}) ${entry.path} [TestMode]`)
         return
     }
     try {
@@ -300,7 +301,7 @@ async function runFFmpegCmd(entry) {
 
 }
 
-async function checkAndPrepare(entry) {
+async function prepareFFmpegCmd(entry) {
     const logTag = chalk.green('Prepare')
     const index = entry.index + 1
 
@@ -343,12 +344,24 @@ async function checkAndPrepare(entry) {
         return false
     }
 
-    if (helper.isAudioFile(entry.path)) {
-        const meta = await readMetadataOne(entry)
+    // log.show(entry.path)
+    const isAudio = helper.isAudioFile(entry.path)
+    if (isAudio) {
+        await readMetadataOne(entry)
+    }
+    const info = await getMediaInfo(entry.path, { audio: isAudio })
+    if (info.codec_name) {
+        entry.info = info
     }
 
-    log.show(logTag, `AddTask(${index}) SRC: ${fileSrc} (${helper.humanSize(entry.size)})`)
-    log.info(logTag, `AddTask(${index}) DST: ${fileDst}`)
+    let entryInfo = ''
+    if (info.codec_name) {
+        const infoSuffix = isAudio ? `${info.sample_rate}|${info.channels}` : `${info.width}x${info.height}`
+        entryInfo = `[${info.codec_name},${Math.floor((info.format.bit_rate || info.bit_rate || 0) / 1000)}k,${infoSuffix}]`
+    }
+    log.show(logTag, `Task(${index}) S:${fileSrc} ${entryInfo} (${helper.humanSize(entry.size)})`)
+    log.info(logTag, `Task(${index}) D:${fileDst}`)
+    // log.show(logTag, `Entry(${index})`, entry)
     return {
         ...entry,
         fileDst,
@@ -366,7 +379,7 @@ async function readMetadataOne(entry) {
             log.info("Metadata", `Read(${entry.index}) ${mt.format.codec}|${mt.format.duration}|${mt.format.bitrate}|${mt.format.lossless},${mt.common.artist},${mt.common.title},${mt.common.album}`)
             entry.tags = mt.common
             entry.format = mt.format
-            calculateAudioQuality(entry, format, tags)
+            entry.fileDstBitrate = calculateAudioQuality(entry, mt.format)
             return entry
         } else {
             log.info("Metadata", entry.index, "no tags found", helper.pathShort(entry.path))
@@ -376,7 +389,7 @@ async function readMetadataOne(entry) {
     }
 }
 
-function calculateAudioQuality(entry, format, tags) {
+function calculateAudioQuality(entry, format) {
     // eg. '-map a:0 -c:a libfdk_aac -b:a {bitrate}'
     if (helper.isAudioLossless(entry.path) && !format.lossless) {
         log.showRed(entry.path, format)
@@ -389,6 +402,7 @@ function calculateAudioQuality(entry, format, tags) {
     } else {
         bitrate = '128k'
     }
+    return bitrate
 }
 
 function updateObject(target, source) {
