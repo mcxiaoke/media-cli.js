@@ -521,7 +521,7 @@ const HEVC_BASE = new Preset('hevc-base', {
     streamArgs: '',
     // 快速读取和播放
     outputArgs: '-movflags +faststart',
-    filters: "scale='if(gt(iw,{dimension}),min({dimension},iw),-2)':'if(gt(ih,{dimension}),min({dimension},ih),-2)'",
+    filters: "scale='if(gte(iw,ih),min({dimension},iw),-2)':'if(lt(iw,ih),min({dimension},ih),-2)'",
     complexFilter: '',
 })
 
