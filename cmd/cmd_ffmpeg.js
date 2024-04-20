@@ -185,7 +185,7 @@ const handler = cmdConvert
 
 async function cmdConvert(argv) {
     const testMode = !argv.doit
-    const logTag = 'FFConv'
+    const logTag = chalk.green('FFConv')
     const root = path.resolve(argv.input)
     if (!root || !(await fs.pathExists(root))) {
         throw new Error(`Invalid Input: ${root}`)
@@ -214,23 +214,16 @@ async function cmdConvert(argv) {
     let fileEntries = await mf.walk(root, {
         withFiles: true,
         needStats: true,
-        entryFilter: (e) => e.isFile && (argv.audioMode ? helper.isAudioFile(e.path) : helper.isVideoFile(e.path))
+        entryFilter: (e) => e.isFile && (argv.audioMode ? helper.isAudioFile(e.name) : helper.isVideoFile(e.name))
     })
-    // {
-    //     if (!e.isFile) { return false }
-    //     const isMedia = (argv.videoMode ?
-    //         helper.isVideoFile(e.name) :
-    //         helper.isAudioFile(e.name))
-    //     if (extensions?.length > 0) {
-    //         // 如果有扩展名，则启用扩展名过滤
-    //         return isMedia && extensions.includes(helper.pathExt(e.path))
-    //     } else {
-    //         return isMedia
-    //     }
-    // }
-
+    log.show(logTag, `Total ${fileEntries.length} files found in ${helper.humanTime(startMs)}`)
+    if (extensions?.length > 0) {
+        fileEntries = fileEntries.filter(entry => extensions.includes(helper.pathExt(entry.name)))
+        log.show(logTag, `Total ${fileEntries.length} files left after filter by extensions`)
+    }
     // 过滤掉压缩过的文件
-    fileEntries = fileEntries.filter(entry => !entry.name.toLowerCase().includes('shana'))
+    fileEntries = fileEntries.filter(entry => !/shana|tmp/i.test(entry.name))
+    log.show(logTag, `Total ${fileEntries.length} files left after exclude shana|tmp filenames`)
     fileEntries = fileEntries.map((f, i) => {
         return {
             ...f,
@@ -241,14 +234,13 @@ async function cmdConvert(argv) {
             testMode: testMode
         }
     })
-    log.show(logTag, `Total ${fileEntries.length} files found in ${helper.humanTime(startMs)}`)
     if (fileEntries.length === 0) {
         log.showYellow(logTag, 'Nothing to do, abrot.')
         return
     }
     let tasks = await pMap(fileEntries, checkAndPrepare, { concurrency: 1 })
     tasks = tasks.filter(t => t && t.fileDst)
-    log.showYellow('PRESET:', preset)
+    log.show(logTag, 'CMD: ffmpeg', createFFmpegArgs(tasks[0]).join(' '))
     testMode && log.showYellow('++++++++++ TEST MODE (DRY RUN) ++++++++++')
     const answer = await inquirer.prompt([
         {
@@ -272,7 +264,7 @@ async function cmdConvert(argv) {
 }
 
 async function runFFmpegCmd(entry) {
-    const logTag = 'FFCMD'
+    const logTag = chalk.green('FFCMD')
     const ffmpegArgs = createFFmpegArgs(entry, entry.preset)
     log.showYellow(logTag, `INPUT(${entry.index}) ${entry.path} (${helper.humanSize(entry.size)}) (${entry.preset.name})`)
     log.showGray(logTag, 'ffmpeg', ffmpegArgs.join(' '))
@@ -294,32 +286,32 @@ async function runFFmpegCmd(entry) {
             if (dstSize > mf.FILE_SIZE_1K) {
                 await fs.move(entry.fileDstTemp, entry.fileDst)
                 log.showGreen(logTag, `OUTPUT(${entry.index}) ${entry.fileDst} (${helper.humanSize(dstSize)})`)
-                log.fileLog(`OUTPUT(${entry.index}) <${entry.fileDst}>`, logTag)
+                log.fileLog(`OUTPUT(${entry.index}) <${entry.fileDst}>`, 'FFCMD')
                 entry.done = true
                 return entry
             }
         }
         log.showYellow(logTag, `Failed(${entry.index}) ${entry.path}`)
-        log.fileLog(`Failed(${entry.index}) <${entry.path}>`, logTag)
+        log.fileLog(`Failed(${entry.index}) <${entry.path}>`, 'FFCMD')
     } catch (error) {
         log.showRed(logTag, `Error(${entry.index}) ${entry.path} ${error}`)
-        log.fileLog(`Error(${entry.index}) <${entry.path}> ${error}`, logTag)
+        log.fileLog(`Error(${entry.index}) <${entry.path}> ${error}`, 'FFCMD')
     }
 
 }
 
 async function checkAndPrepare(entry) {
-    const logTag = 'Prepare'
+    const logTag = chalk.green('Prepare')
     const index = entry.index + 1
 
     log.info(logTag, `Processing(${index}) file: ${entry.path}`)
-
     const preset = entry.preset
     const replaceArgs = {
-        preset: `_${preset.name}`,
+        ...preset,
+        preset: preset.name,
     }
-    const prefix = formatArgs(preset.prefix || "", replaceArgs)
-    const suffix = formatArgs(preset.suffix || "", replaceArgs)
+    const prefix = helper.filenameSafe(formatArgs(preset.prefix || "", replaceArgs))
+    const suffix = helper.filenameSafe(formatArgs(preset.suffix || "", replaceArgs))
     const fileSrc = entry.path
     const dstExt = preset.format || ext
     const [dir, base, ext] = helper.pathSplit(fileSrc)
@@ -353,7 +345,7 @@ async function checkAndPrepare(entry) {
     }
 
     log.show(logTag, `AddTask(${index}) SRC: ${fileSrc} (${helper.humanSize(entry.size)})`)
-    log.showGray(logTag, `AddTask(${index}) DST: ${fileDst}`)
+    log.info(logTag, `AddTask(${index}) DST: ${fileDst}`)
     return {
         ...entry,
         fileDst,
@@ -736,6 +728,7 @@ function preparePreset(argv) {
 
     return preset
 }
+
 
 
 function createFFmpegArgs(entry) {
