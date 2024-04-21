@@ -17,10 +17,10 @@ import inquirer from "inquirer"
 import { cpus } from "os"
 import pMap from 'p-map'
 import path from "path"
-import sharp from "sharp"
 import { promisify } from 'util'
+import { getMediaInfo } from '../lib/ffprobe.js'
 
-import { comparePathSmart, comparePathSmartBy } from "../lib/core.js"
+import { comparePathSmartBy } from "../lib/core.js"
 import * as log from '../lib/debug.js'
 import * as enc from '../lib/encoding.js'
 import * as mf from '../lib/file.js'
@@ -397,20 +397,49 @@ async function preRemoveArgs(f) {
     try {
         // 检查文件是否损坏
         if (hasCorrupted && f.isFile) {
-            // size  < 10k , corrputed
-            if (isImageExt && f.size < 100 * 1024) {
-                log.showGray("preRemove[BadImage]:", `${ipx} ${fileSrc}`)
-                itemDesc += " BadImage"
-                testCorrupted = true
-            } else {
-                const ft = await fileTypeFromFile(fileSrc)
-                if (!ft?.mime) {
-                    log.showGray("preRemove[Corrupted]:", `${ipx} ${fileSrc}`)
-                    itemDesc += " Corrupted"
+            // only check video/audio/image type files
+            const isAudioExt = helper.isAudioFile(fileName)
+            const isVideoExt = helper.isVideoFile(fileName)
+            const isRawExt = helper.isRawFile(fileName)
+            const isArchiveExt = helper.isArchiveFile(fileName)
+            if (isAudioExt || isVideoExt) {
+                // size  < 5k , maybe corrputed
+                if (f.size < 5 * 1024) {
+                    log.showGray("preRemove[BadSizeM]:", `${ipx} ${fileSrc}`)
+                    itemDesc += " BadSizeM"
                     testCorrupted = true
                 } else {
-                    log.info("preRemove[Good]:", `${ipx} ${fileSrc}`)
+                    // file-type库支持格式不全，不能用用于判断文件是否损坏
+                    // 对于媒体文件，用ffprobe试试
+                    const info = await getMediaInfo(fileSrc, { audio: isAudioExt, video: isVideoExt })
+                    // 正常的多媒体文件有这两个字段
+                    const validMediaFile = info?.format?.duration && info?.format?.bit_rate
+                    if (!validMediaFile) {
+                        log.showGray("preRemove[CorruptedMedia]:", `${ipx} ${fileSrc}`, info?.format || "unknwon format")
+                        itemDesc += " Corrupted"
+                        testCorrupted = true
+                    }
                 }
+            } else if (isImageExt || isRawExt || isArchiveExt) {
+                // size  < 5k , maybe corrputed
+                if (f.size < 5 * 1024) {
+                    log.showGray("preRemove[BadSizeF]:", `${ipx} ${fileSrc}`)
+                    itemDesc += " BadSizeF"
+                    testCorrupted = true
+                } else {
+                    // file-type库支持格式不全，但可用于图片文件损坏判断
+                    const ft = await fileTypeFromFile(fileSrc)
+                    if (!ft?.mime) {
+                        log.showGray("preRemove[CorruptedFormat]:", `${ipx} ${fileSrc}`)
+                        itemDesc += " Corrupted"
+                        testCorrupted = true
+                    }
+                }
+            } else {
+                // 其它类型文件，暂时没有判断是否损坏的可靠方法
+            }
+            if (!testCorrupted) {
+                log.info("preRemove[Good]:", `${ipx} ${fileSrc}`)
             }
         }
 
@@ -524,8 +553,8 @@ async function preRemoveArgs(f) {
             }
             log.show(
                 "PreRemove add:",
-                `${ipx} ${helper.pathShort(fileSrc)} ${itemDesc} ${testCorrupted} ${flag} (${helper.humanSize(itemSize)},${itemCount})`)
-            log.fileLog(`Prepared: ${ipx} <${fileSrc}> ${itemDesc} ${flag} (${helper.humanSize(itemSize)},${itemCount})`, "PreRemove")
+                `${ipx} ${helper.pathShort(fileSrc)} [C=${itemDesc}] ${testCorrupted} ${flag} (${helper.humanSize(itemSize)},${itemCount})`)
+            log.fileLog(`add: ${ipx} <${fileSrc}> ${itemDesc} ${flag} (${helper.humanSize(itemSize)},${itemCount})`, "PreRemove")
         } else {
             (testName || testSize || testMeasure) && log.info(
                 "PreRemove ignore:",

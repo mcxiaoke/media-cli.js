@@ -7,6 +7,7 @@
  */
 import chalk from 'chalk'
 import { $, execa } from 'execa'
+import { fileTypeFromFile } from 'file-type'
 import fs from 'fs-extra'
 import inquirer from "inquirer"
 import mm from 'music-metadata'
@@ -195,7 +196,7 @@ async function cmdConvert(argv) {
     if (!root || !(await fs.pathExists(root))) {
         throw new Error(`Invalid Input: ${root}`)
     }
-    const startMs = Date.now()
+    let startMs = Date.now()
     log.show(logTag, `Input: ${root}`)
     const extensions = argv.extensions?.toLowerCase()
     if (extensions?.length > 0 && !/\.[a-z]{2,4}/.test(extensions)) {
@@ -215,6 +216,7 @@ async function cmdConvert(argv) {
         log.fileLog(`Argv: ${JSON.stringify(argv)}`, 'FFConv')
         log.fileLog(`Preset: ${JSON.stringify(preset)}`, 'FFConv')
     }
+
     // 只包含视频文件或音频文件
     let fileEntries = await mf.walk(root, {
         withFiles: true,
@@ -229,36 +231,60 @@ async function cmdConvert(argv) {
     // 过滤掉压缩过的文件 关键词 shana tmp m4a 
     fileEntries = fileEntries.filter(entry => !/shana|tmp|\.m4a/i.test(entry.name))
     log.show(logTag, `Total ${fileEntries.length} files left after exclude shana|tmp|m4a filenames`)
+    if (fileEntries.length === 0) {
+        log.showYellow(logTag, 'No files left after filters, nothing to do.')
+        return
+    }
+    if (fileEntries.length > 5000) {
+        const continueAnswer = await inquirer.prompt([
+            {
+                type: 'confirm',
+                name: 'yes',
+                default: false,
+                message: chalk.bold.red(
+                    `Are you sure to continue to process these ${fileEntries.length} files?`
+                )
+            }
+        ])
+        if (!continueAnswer.yes) {
+            return
+        }
+    }
+    startMs = Date.now()
     fileEntries = fileEntries.map((f, i) => {
         return {
             ...f,
             // argv,
             preset,
+            startMs: startMs,
             index: i,
             total: fileEntries.length,
             testMode: testMode
         }
     })
-    if (fileEntries.length === 0) {
-        log.showYellow(logTag, 'No files left after filters, nothing to do.')
-        return
-    }
-    let tasks = await pMap(fileEntries, prepareFFmpegCmd, { concurrency: cpus().length })
+    // todo udpate total and index
+    // todo add progress bar
+    log.showGreen(logTag, 'Now Preparing task files and ffmpeg cmd args...')
+    let tasks = await pMap(fileEntries, prepareFFmpegCmd, { concurrency: argv.jobs || cpus().length * 2 })
     !testMode && log.fileLog(`ffmpegArgs:`, tasks.slice(-1)[0].ffmpegArgs, 'FFConv')
     tasks = tasks.filter(t => t && t.fileDst)
     if (tasks.length === 0) {
         log.showYellow(logTag, 'All tasks are skipped, nothing to do.')
         return
     }
-    log.showYellow(logTag, 'CMD: ffmpeg', createFFmpegArgs(tasks.slice(-1)[0]).join(' '))
+    log.show('-----------------------------------------------------------')
+    log.showYellow(logTag, 'PRESET:', core.pickTrueValues(preset))
+    log.showYellow(logTag, 'CMD: ffmpeg', tasks.slice(-1)[0].ffmpegArgs.join(' '))
+    log.show('-----------------------------------------------------------')
     testMode && log.showYellow('++++++++++ TEST MODE (DRY RUN) ++++++++++')
+    log.showRed(logTag, 'Please CHECK task details BEFORE continue!')
     const answer = await inquirer.prompt([
         {
             type: 'confirm',
             name: 'yes',
             default: false,
             message: chalk.bold.red(
-                `Are you sure to process these ${fileEntries.length} files?`
+                `Are you sure to process these ${tasks.length} files?`
             )
         }
     ])
@@ -267,24 +293,36 @@ async function cmdConvert(argv) {
     if (!ffmpegPath) {
         throw new Error("ffmpeg executable not found in path")
     }
-    if (answer.yes) {
-        // 顺序执行，并发数1
-        const results = await core.asyncMap(tasks, runFFmpegCmd)
-        testMode && log.showYellow(logTag, 'NO file processed in TEST MODE.')
-        const okResults = results.filter(r => r && r.ok)
-        !testMode && log.showGreen(logTag, `Total ${okResults.length} files processed in ${helper.humanTime(startMs)}`)
+    if (!answer.yes) {
+        return
     }
+    // 记录开始时间
+    startMs = Date.now()
+    tasks.forEach((t, i) => {
+        t.startMs = startMs
+        t.index = i
+        t.total = tasks.length
+    })
+    // 先写入一次LOG
+    await log.flushFileLog()
+    // 并发数视频1，音频4，或者参数指定
+    const jobCount = argv.jobs || (argv.audioMode ? 4 : 1)
+    const results = await pMap(tasks, runFFmpegCmd, { concurrency: jobCount })
+    testMode && log.showYellow(logTag, 'NO file processed in TEST MODE.')
+    const okResults = results.filter(r => r && r.ok)
+    !testMode && log.showGreen(logTag, `Total ${okResults.length} files processed in ${helper.humanTime(startMs)}`)
 }
 
 async function runFFmpegCmd(entry) {
+    const ipx = `${entry.index}/${entry.total}`
     const logTag = chalk.green('FFCMD')
     const ffmpegArgs = entry.ffmpegArgs
-    log.showYellow(logTag, `INPUT(${entry.index}) ${entry.path} (${helper.humanSize(entry.size)}) (${entry.preset.name})`)
+    log.show(logTag, `(${ipx}) ${entry.path} (${helper.humanSize(entry.size)}) (${entry.preset.name}) ${helper.humanTime(entry.startMs)}`)
     log.showGray(logTag, 'ffmpeg', ffmpegArgs.join(' '))
     const exePath = await which("ffmpeg")
     if (entry.testMode) {
         // 测试模式跳过
-        log.show(logTag, `Skipped(${entry.index}) ${entry.path} (${helper.humanSize(entry.size)}) [TestMode]`)
+        log.show(logTag, `Skipped(${ipx}) ${entry.path} (${helper.humanSize(entry.size)}) [TestMode]`)
         return
     }
     try {
@@ -298,105 +336,149 @@ async function runFFmpegCmd(entry) {
             const dstSize = (await fs.stat(entry.fileDstTemp))?.size || 0
             if (dstSize > mf.FILE_SIZE_1K) {
                 await fs.move(entry.fileDstTemp, entry.fileDst)
-                log.showGreen(logTag, `OUTPUT(${entry.index}) ${entry.fileDst} [${entry.fileDstBitrate || entry.preset.name}] (${helper.humanSize(dstSize)})`)
-                log.fileLog(`OUTPUT(${entry.index}) <${entry.fileDst}> [${entry.fileDstBitrate || entry.preset.name}] (${helper.humanSize(dstSize)})`, 'FFCMD')
+                log.showGreen(logTag, `(${ipx}) OK ${entry.fileDst} [${entry.dstBitrate || entry.preset.name}] (${helper.humanSize(dstSize)})`)
+                log.fileLog(`OK(${ipx}) <${entry.fileDst}> [${entry.dstBitrate || entry.preset.name}] (${helper.humanSize(dstSize)})`, 'FFCMD')
                 entry.ok = true
                 return entry
             }
         }
-        log.showYellow(logTag, `Failed(${entry.index}) ${entry.path}`)
-        log.fileLog(`Failed(${entry.index}) <${entry.path}> [${entry.fileDstBitrate || entry.preset.name}]`, 'FFCMD')
+        log.showYellow(logTag, `Failed(${ipx}) ${entry.path}`)
+        log.fileLog(`Failed(${ipx}) <${entry.path}> [${entry.dstBitrate || entry.preset.name}]`, 'FFCMD')
     } catch (error) {
-        log.showRed(logTag, `Error(${entry.index}) ${entry.path} ${error}`)
-        log.fileLog(`Error(${entry.index}) <${entry.path}> ${error} [${entry.fileDstBitrate || entry.preset.name}]`, 'FFCMD')
+        const errMsg = error.message?.substring(0, 160) || error.message || '[unknown]'
+        log.showRed(logTag, `Error(${ipx}) ${entry.path} ${errMsg}`)
+        log.fileLog(`Error(${ipx}) <${entry.path}> [${entry.dstBitrate || entry.preset.name}] ${errMsg}`, 'FFCMD')
+    } finally {
+        await fs.remove(entry.fileDstTemp)
     }
 
 }
 
 async function prepareFFmpegCmd(entry) {
     const logTag = chalk.green('Prepare')
-    const index = entry.index + 1
-    log.info(logTag, `Processing(${index}) file: ${entry.path}`)
-    const preset = entry.preset
-
-
+    const ipx = `${entry.index}/${entry.total}`
+    log.info(logTag, `Processing(${ipx}) file: ${entry.path}`)
     const isAudio = helper.isAudioFile(entry.path)
-    // 放前面，因为 fileDstBitrate 会用于前缀后缀参数
-    if (isAudio) {
-        await readMetadataOne(entry)
-    }
-    const info = await getMediaInfo(entry.path, { audio: isAudio })
-    if (info.codec_name) {
-        entry.info = info
-    }
-    const replaceArgs = {
-        ...preset,
-        preset: preset.name,
-        audioBitrate: entry.fileDstBitrate || preset.audioBitrate
-    }
     const fileSrc = entry.path
     const [srcDir, srcBase, srcExt] = helper.pathSplit(fileSrc)
-    const prefix = helper.filenameSafe(formatArgs(preset.prefix || "", replaceArgs))
-    const suffix = helper.filenameSafe(formatArgs(preset.suffix || "", replaceArgs))
+    const preset = entry.preset
     const dstExt = preset.format || srcExt
-    // 如果没有指定输出目录，直接输出在原文件同目录；否则使用指定输出目录
-    const dstDir = preset.output ? helper.pathRewrite(srcDir, preset.output) : path.resolve(srcDir)
-    const dstBase = `${prefix}${srcBase}${suffix}`
-    const fileDst = path.join(dstDir, `${dstBase}${dstExt}`)
-    // 临时文件后缀
-    const tempSuffix = `_tmp@${helper.textHash(fileSrc)}@tmp_`
-    // 临时文件名
-    const fileDstTemp = path.join(dstDir, `${dstBase}${tempSuffix}${dstExt}`)
-    const fileDstSameDir = path.join(srcDir, `${dstBase}${dstExt}`)
 
-    if (await fs.pathExists(fileDstTemp)) {
-        await fs.remove(fileDstTemp)
-    }
+    try {
+        if (isAudio) {
+            // 不带后缀只改扩展名的m4a文件，如果存在也需要首先忽略
+            // 可能是其它压缩工具生成的文件，不需要重复压缩
+            const fileDstSameDirNoSuffix = path.join(srcDir, `${srcBase}${dstExt}`)
+            if (await fs.pathExists(fileDstSameDirNoSuffix)) {
+                log.info(
+                    logTag,
+                    `(${ipx}) SkipDst0: ${helper.pathShort(fileSrc)} (${helper.humanSize(entry.size)})`)
+                return false
+            }
+        }
+        // 使用ffprobe读取媒体信息，速度较慢
+        // 注意flac和ape格式的stream里没有bit_rate字段 format里有
+        entry.info = await getMediaInfo(entry.path, { audio: isAudio })
+        if (isAudio) {
+            // 放前面，因为 dstBitrate 会用于前缀后缀参数
+            // music-metadata 不支持tta和tak，需要修改
+            const meta = await readMusicMeta(entry)
+            entry.format = meta?.format
+            entry.tags = meta?.tags
+            // 如果ffprobe或music-metadata获取的数据中有比特率数据
+            log.info(entry.name, preset.name)
+            if (entry.format?.bitrate || entry.info?.bit_rate || entry.info?.format?.bit_rate) {
+                const { srcBitrate, dstBitrate } = selectAudioBitrate(entry)
+                // music-metada:bitrate, mediainfo:bit_rate
+                log.info(logTag, `BitrateF:(FB,IB,IFB)`, (entry.format?.bitrate || 0).toFixed(2), entry.info?.bit_rate || 0, entry.info?.format.bit_rate || 0)
+                log.info(logTag, `BitrateT:(SRC,DST,LOSELESS):`, srcBitrate.toFixed(2), dstBitrate, entry.format?.lossless ? "Loseless" : "Lossy")
+                if (dstBitrate > 0) {
+                    preset.audioBitrate = dstBitrate
+                    entry.srcBitrate = srcBitrate
+                    entry.dstBitrate = dstBitrate
+                }
+            } else {
+                // 如果无法获取元数据，认为不是合法的音频文件，忽略
+                log.showYellow('Prepare', `(${ipx}) SkipInvalid: ${entry.path} (${helper.humanSize(entry.size)})`)
+                log.fileLog(`(${ipx}) SkipInvalid: <${entry.path}> (${helper.humanSize(entry.size)})`, 'Prepare')
+                return false
+            }
+        } else {
+            const ft = await fileTypeFromFile(fileSrc)
+            // 忽略损坏的文件，记录日志
+            if (!ft?.mime) {
+                log.showYellow('Prepare', `(${ipx}) SkipCorrupted: ${fileSrc} (${helper.humanSize(entry.size)})`)
+                log.fileLog(`(${ipx}) SkipCorrupted: <${entry.path}> (${helper.humanSize(entry.size)})`, 'Prepare')
+                return false
+            }
+        }
+        const replaceArgs = {
+            ...preset,
+            preset: preset.name,
+            // audioBitrate: entry.dstBitrate || preset.audioBitrate
+        }
+        const prefix = helper.filenameSafe(formatArgs(preset.prefix || "", replaceArgs))
+        const suffix = helper.filenameSafe(formatArgs(preset.suffix || "", replaceArgs))
 
-    if (await fs.pathExists(fileDst)) {
-        log.showGray(
-            logTag,
-            `SkipDst1(${index}): ${helper.pathShort(fileSrc)} (${helper.humanSize(entry.size)})`)
-        return false
-    }
+        // 如果没有指定输出目录，直接输出在原文件同目录；否则使用指定输出目录
+        const dstDir = preset.output ? helper.pathRewrite(srcDir, preset.output) : path.resolve(srcDir)
+        const dstBase = `${prefix}${srcBase}${suffix}`
+        const fileDst = path.join(dstDir, `${dstBase}${dstExt}`)
+        // 临时文件后缀
+        const tempSuffix = `_tmp@${helper.textHash(fileSrc)}@tmp_`
+        // 临时文件名
+        const fileDstTemp = path.join(dstDir, `${dstBase}${tempSuffix}${dstExt}`)
+        const fileDstSameDir = path.join(srcDir, `${dstBase}${dstExt}`)
 
-    if (await fs.pathExists(fileDstSameDir)) {
-        log.showGray(
-            logTag,
-            `SkipDst2(${index}): ${helper.pathShort(fileSrc)} (${helper.humanSize(entry.size)})`)
-        return false
+        if (await fs.pathExists(fileDst)) {
+            log.info(
+                logTag,
+                `(${ipx}) SkipDst1: ${helper.pathShort(fileSrc)} (${helper.humanSize(entry.size)})`)
+            return false
+        }
+        if (await fs.pathExists(fileDstSameDir)) {
+            log.info(
+                logTag,
+                `(${ipx}) SkipDst2: ${helper.pathShort(fileSrc)} (${helper.humanSize(entry.size)})`)
+            return false
+        }
+        if (await fs.pathExists(fileDstTemp)) {
+            await fs.remove(fileDstTemp)
+        }
+        let entryInfo = ''
+        if (entry.info?.codec_name) {
+            const info = entry.info
+            const infoSuffix = isAudio ? `${info.sample_rate}|${info.channels}` : `${info.width}x${info.height}`
+            entryInfo = chalk.cyan(`[${info.codec_name},${Math.floor((info.format.bit_rate || info.bit_rate || 0) / 1000)}k,${infoSuffix}]`)
+        }
+        log.show(logTag, `(${ipx}) Task ${fileSrc} (${helper.humanSize(entry.size)}) ${entryInfo}`, chalk.yellow(isAudio ? entry.dstBitrate : entry.preset.name), helper.humanTime(entry.startMs))
+        log.info(logTag, `(${ipx}) Task DST:${fileDst}`)
+        // log.show(logTag, `Entry(${ipx})`, entry)
+        const newEntry = {
+            ...entry,
+            fileDst,
+            fileDstTemp,
+        }
+        const ffmpegArgs = createFFmpegArgs(newEntry)
+        // log.info(logTag, 'ffmpeg', ffmpegArgs.join(' '))
+        return Object.assign(newEntry, { ffmpegArgs })
+    } catch (error) {
+        log.warn(logTag, `(${ipx}) Error on ${fileSrc} ${error.message}`)
     }
-
-    let entryInfo = ''
-    if (info.codec_name) {
-        const infoSuffix = isAudio ? `${info.sample_rate}|${info.channels}` : `${info.width}x${info.height}`
-        entryInfo = chalk.cyan(`[${info.codec_name},${Math.floor((info.format.bit_rate || info.bit_rate || 0) / 1000)}k,${infoSuffix}]`)
-    }
-    log.show(logTag, `Task(${index}) S:${fileSrc} (${helper.humanSize(entry.size)}) ${entryInfo}`, chalk.yellow(isAudio ? entry.fileDstBitrate : entry.preset.name))
-    log.info(logTag, `Task(${index}) D:${fileDst}`)
-    // log.show(logTag, `Entry(${index})`, entry)
-    const newEntry = {
-        ...entry,
-        fileDst,
-        fileDstTemp,
-    }
-    const ffmpegArgs = createFFmpegArgs(newEntry)
-    // log.info(logTag, 'ffmpeg', ffmpegArgs.join(' '))
-    return Object.assign(newEntry, { ffmpegArgs })
 }
 
 // 读取单个音频文件的元数据
-async function readMetadataOne(entry) {
+async function readMusicMeta(entry) {
     try {
         const mt = await mm.parseFile(entry.path, { skipCovers: true })
         if (mt?.format && mt.common) {
             // log.show('format', mt.format)
             // log.show('common', mt.common)
             log.info("Metadata", `Read(${entry.index}) ${entry.name} [${mt.format.codec}|${mt.format.duration}|${mt.format.bitrate}|${mt.format.lossless}, ${mt.common.artist},${mt.common.title},${mt.common.album}]`)
-            entry.tags = mt.common
-            entry.format = mt.format
-            entry.fileDstBitrate = calculateAudioQuality(entry, mt.format)
-            return entry
+            return {
+                format: mt.format,
+                tags: mt.common
+            }
         } else {
             log.info("Metadata", entry.index, "no tags found", helper.pathShort(entry.path))
         }
@@ -405,22 +487,25 @@ async function readMetadataOne(entry) {
     }
 }
 
-function calculateAudioQuality(entry, format) {
+function selectAudioBitrate(entry) {
     // eg. '-map a:0 -c:a libfdk_aac -b:a {bitrate}'
-    if (helper.isAudioLossless(entry.path) && !format.lossless) {
-        log.showRed(entry.path, format)
-    }
-    let bitrate = 320
-    if (format.lossless || format.bitrate > 320 * 1024 || helper.isAudioLossless(entry.path)) {
-        bitrate = 320
-    } else if (format.bitrate > 256 * 1024) {
-        bitrate = 256
-    } else if (format.bitrate > 192 * 1024) {
-        bitrate = 192
+    let dstBitrate = 0
+    const srcBitrate = entry.format?.bitrate
+        || entry.info?.bit_rate
+        || entry.info?.format?.bit_rate || 0
+    if (
+        srcBitrate > 320 * 1024
+        || entry.format?.lossless
+        || helper.isAudioLossless(entry.path)) {
+        dstBitrate = 320
+    } else if (srcBitrate > 256 * 1024) {
+        dstBitrate = 256
+    } else if (srcBitrate > 192 * 1024) {
+        dstBitrate = 192
     } else {
-        bitrate = 128
+        dstBitrate = 128
     }
-    return bitrate
+    return { srcBitrate, dstBitrate }
 }
 
 function updateObject(target, source) {
@@ -532,6 +617,7 @@ class Preset {
 // HEVC基础参数
 const HEVC_BASE = new Preset('hevc-base', {
     format: '.mp4',
+    intro: 'hevc|hevc_nvenc|libfdk_aac',
     prefix: '[SHANA] ',
     suffix: '',
     description: 'HEVC_BASE',
@@ -554,8 +640,10 @@ const HEVC_BASE = new Preset('hevc-base', {
 // 音频AAC基础参数
 const AAC_BASE = new Preset('aac_base', {
     format: '.m4a',
+    intro: 'aac|libfdk_aac',
     prefix: '',
-    suffix: '_{audioBitrate}',
+    suffix: '',
+    // suffix: '_{audioBitrate}',
     description: 'AAC_BASE',
     videoArgs: '',
     // 音频参数说明
@@ -714,7 +802,7 @@ function preparePreset(argv) {
     // 克隆对象，不修改Map中的内容
     preset = structuredClone(preset)
     // 保存argv方便调试
-    preset.argv = JSON.stringify(argv)
+    // preset.argv = JSON.stringify(argv)
     if (argv.prefix?.length > 0) {
         preset.prefix = argv.prefix
     }
@@ -797,7 +885,7 @@ function createFFmpegArgs(entry) {
     if (preset.audioArgs?.length > 0) {
         const aa = formatArgs(preset.audioArgs, {
             ...preset,
-            audioBitrate: entry.fileDstBitrate || preset.audioBitrate
+            audioBitrate: entry.dstBitrate || preset.audioBitrate
         })
         args = args.concat(aa.split(' '))
     }

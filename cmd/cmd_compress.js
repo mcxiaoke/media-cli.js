@@ -18,6 +18,7 @@ import { cpus } from "os"
 import pMap from 'p-map'
 import path from "path"
 import sharp from "sharp"
+import * as core from '../lib/core.js'
 import * as log from '../lib/debug.js'
 import * as mf from '../lib/file.js'
 import * as helper from '../lib/helper.js'
@@ -176,7 +177,7 @@ const handler = async function cmdCompress(argv) {
     })
     log.show(logTag, `in ${helper.humanTime(startMs)} tasks:`)
     tasks.slice(-1).forEach(t => {
-        log.show(helper._omit(t, "stats", "bar1"))
+        log.show(core.omit(t, "stats", "bar1"))
     })
     log.info(logTag, argv)
     testMode && log.showYellow("++++++++++ TEST MODE (DRY RUN) ++++++++++")

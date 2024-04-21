@@ -7,7 +7,7 @@
  */
 
 import { execa } from 'execa'
-import fs from 'fs'
+import fs from 'fs-extra'
 import path from 'path'
 import { getMediaInfo } from '../lib/ffprobe.js' // 导入您之前定义的解析器函数
 import * as helper from '../lib/helper.js'
@@ -35,14 +35,20 @@ function findMediaFiles(directory, mediaFiles = []) {
 }
 
 // 递归遍历目录，找到所有音视频文件，并获取其信息
-async function showMediaFilesInfo(directory) {
-    const mediaFiles = findMediaFiles(directory)
-
-    for (const filePath of mediaFiles) {
+async function showMediaFilesInfo(input) {
+    const st = await fs.stat(input)
+    let files = []
+    if (st.isFile()) {
+        files = [path.resolve(input)]
+    }
+    else {
+        files = findMediaFiles(input)
+    }
+    for (const filePath of files) {
         const mediaInfo = await getMediaInfo(filePath)
+        console.log(filePath)
         console.log(mediaInfo?.format)
     }
-
 }
 
 // 示例用法
