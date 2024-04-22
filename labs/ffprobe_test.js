@@ -47,7 +47,7 @@ async function showMediaFilesInfo(input) {
     for (const filePath of files) {
         const mediaInfo = await getMediaInfo(filePath)
         console.log(filePath)
-        console.log(mediaInfo?.format)
+        console.log(mediaInfo)
     }
 }
 

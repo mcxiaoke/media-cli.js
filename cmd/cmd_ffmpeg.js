@@ -6,7 +6,8 @@
  * License: Apache License 2.0
  */
 import chalk from 'chalk'
-import { $, execa } from 'execa'
+import dayjs from 'dayjs'
+import { execa } from 'execa'
 import { fileTypeFromFile } from 'file-type'
 import fs from 'fs-extra'
 import inquirer from "inquirer"
@@ -25,7 +26,6 @@ import * as helper from '../lib/helper.js'
 
 const LOG_TAG = "FFConv"
 
-const VIDEO_EXTENSIONS = [".mp4", ".mov", ".wmv", ".avi", ".mkv", ".m4v", ".ts", ".flv", ".webm"]
 const PRESET_NAMES = []
 const PRESET_MAP = new Map()
 
@@ -171,6 +171,12 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             type: "string",
             describe: "Set complex filters in ffmpeg command",
         })
+        // 记录日志到文件
+        // 可选text文件或json文件
+        .option("error-file", {
+            describe: "Write error logs to file [json or text]",
+            type: "string",
+        })
         // 并行操作限制，并发数，默认为 CPU 核心数
         .option("jobs", {
             alias: "j",
@@ -254,11 +260,12 @@ async function cmdConvert(argv) {
     fileEntries = fileEntries.map((f, i) => {
         return {
             ...f,
-            // argv,
+            argv,
             preset,
             startMs: startMs,
             index: i,
             total: fileEntries.length,
+            errorFile: argv.errorFile,
             testMode: testMode
         }
     })
@@ -277,7 +284,7 @@ async function cmdConvert(argv) {
     log.showYellow(logTag, 'CMD: ffmpeg', tasks.slice(-1)[0].ffmpegArgs.join(' '))
     log.show('-----------------------------------------------------------')
     testMode && log.showYellow('++++++++++ TEST MODE (DRY RUN) ++++++++++')
-    log.showRed(logTag, 'Please CHECK task details BEFORE continue!')
+    log.showMagenta(logTag, 'Please CHECK task details BEFORE continue!')
     const answer = await inquirer.prompt([
         {
             type: 'confirm',
@@ -317,14 +324,16 @@ async function runFFmpegCmd(entry) {
     const ipx = `${entry.index}/${entry.total}`
     const logTag = chalk.green('FFCMD')
     const ffmpegArgs = entry.ffmpegArgs
-    log.show(logTag, `(${ipx}) ${entry.path} (${helper.humanSize(entry.size)}) (${entry.preset.name}) ${helper.humanTime(entry.startMs)}`)
+    log.show(logTag, `(${ipx}) Processing ${entry.path}`, getEntryShowInfo(entry), chalk.yellow(entry.preset.name), helper.humanSize(entry.size), helper.humanTime(entry.startMs))
+
     log.showGray(logTag, 'ffmpeg', ffmpegArgs.join(' '))
     const exePath = await which("ffmpeg")
     if (entry.testMode) {
         // 测试模式跳过
-        log.show(logTag, `Skipped(${ipx}) ${entry.path} (${helper.humanSize(entry.size)}) [TestMode]`)
+        log.show(logTag, `(${ipx}) Skipped ${entry.path} (${helper.humanSize(entry.size)}) [TestMode]`)
         return
     }
+
     try {
         await fs.remove(entry.fileDstTemp)
         // 此处 { shell: true } 必须，否则报错
@@ -334,24 +343,44 @@ async function runFFmpegCmd(entry) {
         const { stdout, stderr } = await ffmpegProcess
         if (await fs.pathExists(entry.fileDstTemp)) {
             const dstSize = (await fs.stat(entry.fileDstTemp))?.size || 0
-            if (dstSize > mf.FILE_SIZE_1K) {
+            if (dstSize > 20 * mf.FILE_SIZE_1K) {
                 await fs.move(entry.fileDstTemp, entry.fileDst)
-                log.showGreen(logTag, `(${ipx}) OK ${entry.fileDst} [${entry.dstBitrate || entry.preset.name}] (${helper.humanSize(dstSize)})`)
-                log.fileLog(`OK(${ipx}) <${entry.fileDst}> [${entry.dstBitrate || entry.preset.name}] (${helper.humanSize(dstSize)})`, 'FFCMD')
+                log.showGreen(logTag, `(${ipx}) Done ${entry.fileDst}`, helper.humanSize(entry.size), chalk.cyan(`${Math.round(entry.srcAudioBitrate / 1024)}k:${Math.round(entry.srcVideoBitrate / 1024)}k`), chalk.yellow(entry.preset.name), helper.humanTime(entry.startMs))
+                log.fileLog(`(${ipx}) Done <${entry.fileDst}> [${entry.preset.name}] (${helper.humanSize(dstSize)})`, 'FFCMD')
                 entry.ok = true
                 return entry
+            } else {
+                // 转换失败，删除临时文件
             }
         }
-        log.showYellow(logTag, `Failed(${ipx}) ${entry.path}`)
-        log.fileLog(`Failed(${ipx}) <${entry.path}> [${entry.dstBitrate || entry.preset.name}]`, 'FFCMD')
+        log.showYellow(logTag, `Failed(${ipx}) ${entry.path}`, entry.preset.name, helper.humanSize(dstSize))
+        log.fileLog(`Failed(${ipx}) <${entry.path}> [${entry.dstAudioBitrate || entry.preset.name}]`, 'FFCMD')
     } catch (error) {
-        const errMsg = error.message?.substring(0, 160) || error.message || '[unknown]'
-        log.showRed(logTag, `Error(${ipx}) ${entry.path} ${errMsg}`)
-        log.fileLog(`Error(${ipx}) <${entry.path}> [${entry.dstBitrate || entry.preset.name}] ${errMsg}`, 'FFCMD')
+        const errMsg = error.stderr || error.message?.substring(0, 240) || '[ERROR]'
+        log.showRed(logTag, `Error(${ipx}) ${errMsg}`)
+        log.fileLog(`Error(${ipx}) <${entry.path}> [${entry.preset.name}] ${errMsg}`, 'FFCMD')
+        await writeErrorFile(entry, error)
     } finally {
         await fs.remove(entry.fileDstTemp)
     }
 
+}
+
+// 失败了在输出目录写一个Error文件
+async function writeErrorFile(entry, error) {
+    if (entry.errorFile) {
+        const useJson = entry.errorFile === 'json'
+        const fileExt = useJson ? '.json' : '.txt'
+        const nowStr = dayjs().format('YYYYMMDDHHmmss')
+        const errorFile = path.join(entry.fileDstDir, `${path.parse(entry.name).name}_${entry.preset.name}_error_${nowStr}${fileExt}`)
+        const errorObj = {
+            ...entry,
+            error: error,
+            date: Date.now(),
+        }
+        const errData = Object.entries(errorObj).map(([key, value]) => `${key} =: ${value}`).join('\n')
+        await fs.writeFile(errorFile, useJson ? JSON.stringify(errorObj, null, 4) : errData)
+    }
 }
 
 async function prepareFFmpegCmd(entry) {
@@ -363,108 +392,144 @@ async function prepareFFmpegCmd(entry) {
     const [srcDir, srcBase, srcExt] = helper.pathSplit(fileSrc)
     const preset = entry.preset
     const dstExt = preset.format || srcExt
-
-    try {
-        if (isAudio) {
-            // 不带后缀只改扩展名的m4a文件，如果存在也需要首先忽略
-            // 可能是其它压缩工具生成的文件，不需要重复压缩
-            const fileDstSameDirNoSuffix = path.join(srcDir, `${srcBase}${dstExt}`)
-            if (await fs.pathExists(fileDstSameDirNoSuffix)) {
-                log.info(
-                    logTag,
-                    `(${ipx}) SkipDst0: ${helper.pathShort(fileSrc)} (${helper.humanSize(entry.size)})`)
-                return false
-            }
+    if (isAudio) {
+        // 不带后缀只改扩展名的m4a文件，如果存在也需要首先忽略
+        // 可能是其它压缩工具生成的文件，不需要重复压缩
+        const fileDstSameDirNoSuffix = path.join(srcDir, `${srcBase}${dstExt}`)
+        if (await fs.pathExists(fileDstSameDirNoSuffix)) {
+            log.info(
+                logTag,
+                `(${ipx}) Skip[Dst0]: ${helper.pathShort(fileSrc)} (${helper.humanSize(entry.size)})`)
+            return false
         }
+    }
+    try {
         // 使用ffprobe读取媒体信息，速度较慢
         // 注意flac和ape格式的stream里没有bit_rate字段 format里有
         entry.info = await getMediaInfo(entry.path, { audio: isAudio })
+        const audioCodec = entry.info?.audio?.codec_name
+        const videoCodec = entry.info?.video?.codec_name
         if (isAudio) {
-            // 放前面，因为 dstBitrate 会用于前缀后缀参数
+            // 检查音频文件
+            // 放前面，因为 dstAudioBitrate 会用于前缀后缀参数
             // music-metadata 不支持tta和tak，需要修改
             const meta = await readMusicMeta(entry)
             entry.format = meta?.format
             entry.tags = meta?.tags
             // 如果ffprobe或music-metadata获取的数据中有比特率数据
             log.info(entry.name, preset.name)
-            if (entry.format?.bitrate || entry.info?.bit_rate || entry.info?.format?.bit_rate) {
-                const { srcBitrate, dstBitrate } = selectAudioBitrate(entry)
-                // music-metada:bitrate, mediainfo:bit_rate
-                log.info(logTag, `BitrateF:(FB,IB,IFB)`, (entry.format?.bitrate || 0).toFixed(2), entry.info?.bit_rate || 0, entry.info?.format.bit_rate || 0)
-                log.info(logTag, `BitrateT:(SRC,DST,LOSELESS):`, srcBitrate.toFixed(2), dstBitrate, entry.format?.lossless ? "Loseless" : "Lossy")
-                if (dstBitrate > 0) {
-                    preset.audioBitrate = dstBitrate
-                    entry.srcBitrate = srcBitrate
-                    entry.dstBitrate = dstBitrate
-                }
+            if (entry.format?.bitrate || entry.info?.audio.bit_rate || entry.info?.format?.bit_rate) {
+                // 可以读取码率，文件未损坏
             } else {
-                // 如果无法获取元数据，认为不是合法的音频文件，忽略
-                log.showYellow('Prepare', `(${ipx}) SkipInvalid: ${entry.path} (${helper.humanSize(entry.size)})`)
-                log.fileLog(`(${ipx}) SkipInvalid: <${entry.path}> (${helper.humanSize(entry.size)})`, 'Prepare')
+                // 如果无法获取元数据，认为不是合法的音频或视频文件，忽略
+                log.showYellow('Prepare', `(${ipx}) Skip[Invalid]: ${entry.path} (${helper.humanSize(entry.size)})`)
+                log.fileLog(`(${ipx}) Skip[Invalid]: <${entry.path}> (${helper.humanSize(entry.size)})`, 'Prepare')
                 return false
             }
         } else {
+            // 检查视频文件
             const ft = await fileTypeFromFile(fileSrc)
             // 忽略损坏的文件，记录日志
             if (!ft?.mime) {
-                log.showYellow('Prepare', `(${ipx}) SkipCorrupted: ${fileSrc} (${helper.humanSize(entry.size)})`)
-                log.fileLog(`(${ipx}) SkipCorrupted: <${entry.path}> (${helper.humanSize(entry.size)})`, 'Prepare')
+                log.showYellow('Prepare', `(${ipx}) Skip[Corrupted]: ${fileSrc} (${helper.humanSize(entry.size)})`)
+                log.fileLog(`(${ipx}) Skip[Corrupted]: <${entry.path}> (${helper.humanSize(entry.size)})`, 'Prepare')
                 return false
             }
         }
-        const replaceArgs = {
-            ...preset,
-            preset: preset.name,
-            // audioBitrate: entry.dstBitrate || preset.audioBitrate
+        // 获取原始音频码率，计算目标音频码率
+        // vp9视频和opus音频无法获取码率
+        const mediaBitrate = calculateBitrate(entry)
+        // 计算后的视频和音频码率，关联文件
+        // 与预设独立，优先级高于预设
+        // srcXX单位为bytes dstXXX单位为kbytes
+        Object.assign(entry, mediaBitrate)
+        log.info(logTag, entry.path, mediaBitrate)
+        // 如果转换目标是音频，但是源文件不含音频流，忽略
+        if (entry.preset.type === 'audio' && !audioCodec) {
+            log.showYellow('Prepare', `(${ipx}) Skip[NoAudio]: ${fileSrc}`, getEntryShowInfo(entry), helper.humanSize(entry.size))
+            log.fileLog(`(${ipx}) Skip[NoAudio]: <${entry.path}> (${helper.humanSize(entry.size)})`, 'Prepare')
+            return false
         }
-        const prefix = helper.filenameSafe(formatArgs(preset.prefix || "", replaceArgs))
-        const suffix = helper.filenameSafe(formatArgs(preset.suffix || "", replaceArgs))
-
+        // 如果转换目标是视频，但是源文件不含视频流，忽略
+        if (entry.preset.type === 'video' && !videoCodec) {
+            log.showYellow('Prepare', `(${ipx}) Skip[NoVideo]: ${fileSrc}`, getEntryShowInfo(entry), helper.humanSize(entry.size))
+            log.fileLog(`(${ipx}) Skip[NoVideo]: <${entry.path}> (${helper.humanSize(entry.size)})`, 'Prepare')
+            return false
+        }
+        // 输出文件名基本名，含前后缀，不含扩展名
+        const fileDstBase = createDstBaseName(entry)
         // 如果没有指定输出目录，直接输出在原文件同目录；否则使用指定输出目录
-        const dstDir = preset.output ? helper.pathRewrite(srcDir, preset.output) : path.resolve(srcDir)
-        const dstBase = `${prefix}${srcBase}${suffix}`
-        const fileDst = path.join(dstDir, `${dstBase}${dstExt}`)
+        const fileDstDir = preset.output ? helper.pathRewrite(srcDir, preset.output) : path.resolve(srcDir)
+        const fileDst = path.join(fileDstDir, `${fileDstBase}${dstExt}`)
         // 临时文件后缀
         const tempSuffix = `_tmp@${helper.textHash(fileSrc)}@tmp_`
         // 临时文件名
-        const fileDstTemp = path.join(dstDir, `${dstBase}${tempSuffix}${dstExt}`)
-        const fileDstSameDir = path.join(srcDir, `${dstBase}${dstExt}`)
+        const fileDstTemp = path.join(fileDstDir, `${fileDstBase}${tempSuffix}${dstExt}`)
+        const fileDstSameDir = path.join(srcDir, `${fileDstBase}${dstExt}`)
 
         if (await fs.pathExists(fileDst)) {
             log.info(
                 logTag,
-                `(${ipx}) SkipDst1: ${helper.pathShort(fileSrc)} (${helper.humanSize(entry.size)})`)
+                `(${ipx}) Skip[Dst1]: ${helper.pathShort(fileSrc)} (${helper.humanSize(entry.size)})`)
             return false
         }
         if (await fs.pathExists(fileDstSameDir)) {
             log.info(
                 logTag,
-                `(${ipx}) SkipDst2: ${helper.pathShort(fileSrc)} (${helper.humanSize(entry.size)})`)
+                `(${ipx}) Skip[Dst2]: ${helper.pathShort(fileSrc)} (${helper.humanSize(entry.size)})`)
             return false
         }
         if (await fs.pathExists(fileDstTemp)) {
             await fs.remove(fileDstTemp)
         }
-        let entryInfo = ''
-        if (entry.info?.codec_name) {
-            const info = entry.info
-            const infoSuffix = isAudio ? `${info.sample_rate}|${info.channels}` : `${info.width}x${info.height}`
-            entryInfo = chalk.cyan(`[${info.codec_name},${Math.floor((info.format.bit_rate || info.bit_rate || 0) / 1000)}k,${infoSuffix}]`)
-        }
-        log.show(logTag, `(${ipx}) Task ${fileSrc} (${helper.humanSize(entry.size)}) ${entryInfo}`, chalk.yellow(isAudio ? entry.dstBitrate : entry.preset.name), helper.humanTime(entry.startMs))
+        log.show(logTag, `(${ipx}) Task ${fileSrc}`, getEntryShowInfo(entry), chalk.yellow(entry.preset.name), helper.humanSize(entry.size), helper.humanTime(entry.startMs))
         log.info(logTag, `(${ipx}) Task DST:${fileDst}`)
         // log.show(logTag, `Entry(${ipx})`, entry)
         const newEntry = {
             ...entry,
+            fileDstDir,
+            fileDstBase,
             fileDst,
             fileDstTemp,
         }
         const ffmpegArgs = createFFmpegArgs(newEntry)
+        newEntry.ffmpegArgs = ffmpegArgs
         // log.info(logTag, 'ffmpeg', ffmpegArgs.join(' '))
-        return Object.assign(newEntry, { ffmpegArgs })
+        return newEntry
     } catch (error) {
-        log.warn(logTag, `(${ipx}) Error on ${fileSrc} ${error.message}`)
+        log.warn(logTag, `(${ipx}) Skip[Error]: ${fileSrc}`, error)
     }
+}
+
+// 创建目标文件名基本名，不包含路径和扩展名
+function createDstBaseName(entry) {
+    const srcBase = path.parse(entry.name).name
+    // 模板参数变量，除了Preset的字段，有些需要替换
+    const replaceArgs = {
+        ...entry.preset,
+        preset: entry.preset.name,
+        audioBitrate: getBestAudioBitrate(entry),
+        videoBitrate: getBestVideoBitrate(entry),
+        audioQuality: getBestAudioQuality(entry),
+        videoQuality: getBestVideoQuality(entry),
+        srcAudioBitrate: entry.srcAudioBitrate,
+        srcVideoBitrate: entry.srcVideoBitrate,
+    }
+    // 应用模板参数到前缀和后缀字符串模板
+    const prefix = helper.filenameSafe(formatArgs(entry.preset.prefix || "", replaceArgs))
+    const suffix = helper.filenameSafe(formatArgs(entry.preset.suffix || "", replaceArgs))
+    // return { prefix, suffix }
+    return `${prefix}${srcBase}${suffix}`
+}
+
+// 显示媒体编码和码率信息，调试用
+function getEntryShowInfo(entry) {
+    const ac = entry.info?.audio?.codec_name
+    const vc = entry.info?.video?.codec_name
+    const showInfo = []
+    if (ac) showInfo.push(`audio|${ac}|${Math.round(entry.srcAudioBitrate / 1024)}K,${entry.dstAudioBitrate || entry.preset.audioBitrate}K`, getBestAudioBitrate(entry))
+    if (vc) showInfo.push(`video|${vc}|${Math.round(entry.srcVideoBitrate / 1024)}K,${entry.dstVideoBitrate || entry.preset.videoBitrate}K`, getBestVideoBitrate(entry))
+    return showInfo
 }
 
 // 读取单个音频文件的元数据
@@ -487,34 +552,154 @@ async function readMusicMeta(entry) {
     }
 }
 
-function selectAudioBitrate(entry) {
-    // eg. '-map a:0 -c:a libfdk_aac -b:a {bitrate}'
-    let dstBitrate = 0
-    const srcBitrate = entry.format?.bitrate
-        || entry.info?.bit_rate
-        || entry.info?.format?.bit_rate || 0
-    if (
-        srcBitrate > 320 * 1024
-        || entry.format?.lossless
-        || helper.isAudioLossless(entry.path)) {
-        dstBitrate = 320
-    } else if (srcBitrate > 256 * 1024) {
-        dstBitrate = 256
-    } else if (srcBitrate > 192 * 1024) {
-        dstBitrate = 192
-    } else {
-        dstBitrate = 128
-    }
-    return { srcBitrate, dstBitrate }
-}
+// 音频码率映射表
+const bitrateMap = [
+    { threshold: 320 * 1024, value: 320 },
+    { threshold: 256 * 1024, value: 256 },
+    { threshold: 192 * 1024, value: 192 },
+    { threshold: 128 * 1024, value: 128 },
+    { threshold: 96 * 1024, value: 96 },
+    { threshold: 64 * 1024, value: 64 },
+    { threshold: 0, value: 48 } // 默认值
+]
 
-function updateObject(target, source) {
-    for (const key in source) {
-        if (target.hasOwnProperty(key)) {
-            target[key] = source[key]
+// 计算视频和音频码率
+function calculateBitrate(entry) {
+    // eg. '-map a:0 -c:a libfdk_aac -b:a {bitrate}'
+    // 这个是文件整体码率，如果是是视频文件，等于是视频和音频的码率相加
+    const fileBitrate = entry.info?.format?.bit_rate || 0
+    let srcAudioBitrate = 0
+    let srcVideoBitrate = 0
+    let dstVideoBitrate = 0
+    if (helper.isAudioFile(entry.path)) {
+        if (entry.format?.lossless || helper.isAudioLossless(entry.path)) {
+            // 无损音频，设置默认值
+            srcAudioBitrate = srcAudioBitrate > 320 ? srcAudioBitrate : 999 * 1024
+        }
+        // audio file
+        srcAudioBitrate = entry.format?.bitrate
+            || entry.info?.audio?.bit_rate
+            || fileBitrate || 0
+    } else {
+        // video file
+        srcAudioBitrate = entry.info?.audio?.bit_rate || 0
+        // 减去音频的码率，估算为48k
+        srcVideoBitrate = entry.info?.video?.bit_rate
+            || fileBitrate - 48 * 1024 || 0
+        // 压缩后的视频比特率不能高于源文件比特率
+        if (entry.preset.videoBitrate * 1024 > srcVideoBitrate) {
+            dstVideoBitrate = Math.round(srcVideoBitrate / 1024)
+        } else {
+            dstVideoBitrate = entry.preset.videoBitrate
         }
     }
-    return target
+    // 有的文件无法获取音频码率，如opus，此时srcAudioBitrate=0
+    // opus用于极低码率音频，此时 dstAudioBitrate=48 可以接受
+    const dstAudioBitrate = bitrateMap.find(br => srcAudioBitrate > br.threshold)?.value || 48
+    const result = { srcAudioBitrate, dstAudioBitrate, srcVideoBitrate, dstVideoBitrate }
+    // log.showRed(entry.path, result)
+    return result
+}
+
+// 选择最佳视频码率
+// 优先级
+// 用户指定参数 > 计算出的参数 > 预设里的参数
+// entry.preset.userVideoBitrate 用户指定，命令行参数，优先级最高
+// entry.dstVideoBitrate 计算出来的目标文件码率
+// entry.preset.videoBitrate 预设里指定的码率，优先级最低
+// 后面几种同上
+function getBestVideoBitrate(entry) {
+    return entry.preset.userVideoBitrate
+        || entry.dstVideoBitrate
+        || entry.preset.videoBitrate
+}
+// 选择最佳视频质量
+function getBestVideoQuality(entry) {
+    return entry.preset.userVideoQuality
+        || entry.dstVideoQuality
+        || entry.preset.videoQuality
+}
+
+// 选择最佳音频码率
+function getBestAudioBitrate(entry) {
+    return entry.preset.userAudioBitrate
+        || entry.dstAudioBitrate
+        || entry.preset.audioBitrate
+}
+// 选择最佳音频质量
+function getBestAudioQuality(entry) {
+    return entry.preset.userAudioQuality
+        || entry.dstAudioQuality
+        || entry.preset.audioQuality
+}
+
+
+
+
+function createFFmpegArgs(entry) {
+    const preset = entry.preset
+    // 显示详细信息
+    // let args = "-hide_banner -n -loglevel repeat+level+info -stats".split(" ")
+    // 只显示进度和错误
+    let args = "-hide_banner -n -v error -stats".split(" ")
+    // 输入参数在输入文件前面，顺序重要
+    if (preset.inputArgs?.length > 0) {
+        args = args.concat(this.preset.inputArgs.split(' '))
+    }
+    args.push('-i')
+    args.push(`"${entry.path}"`)
+
+    // 在输入文件后面
+    // complexFilter 和 filters 不能同时存在
+    if (preset.complexFilter?.length > 0) {
+        args.push('-filter_complex')
+        args.push(`"${formatArgs(preset.complexFilter, preset)}"`)
+    } else if (preset.filters?.length > 0) {
+        args.push('-vf')
+        args.push(formatArgs(preset.filters, preset))
+    }
+    // 在输入文件后面
+    if (preset.streamArgs?.length > 0) {
+        args = args.concat(preset.streamArgs.split(' '))
+    }
+    if (preset.videoArgs?.length > 0) {
+        const va = formatArgs(preset.videoArgs, {
+            ...preset,
+            videoBitrate: getBestVideoBitrate(entry),
+            videoQuality: getBestVideoQuality(entry)
+        })
+        args = args.concat(va.split(' '))
+    }
+    if (preset.audioArgs?.length > 0) {
+        // extract_audio模式下需要只能选择编码器
+        // 直接复制音频流或者重新编码
+        let audioArgsFixed = preset.audioArgs
+        if (preset.name === PRESET_AUDIO_EXTRACT.name) {
+            if (entry.info?.audio?.codec_name === 'aac') {
+                audioArgsFixed = preset.audioArgsCopy
+            } else {
+                audioArgsFixed = preset.audioArgsEncode
+            }
+        } else {
+            audioArgsFixed = preset.audioArgs
+        }
+        const aa = formatArgs(audioArgsFixed, {
+            ...preset,
+            audioBitrate: getBestAudioBitrate(entry),
+            audioQuality: getBestAudioQuality(entry)
+        })
+        args = args.concat(aa.split(' '))
+    }
+    // 其它参数
+    if (preset.extraArgs?.length > 0) {
+        args = args.concat(preset.extraArgs.split(' '))
+    }
+    // 输出参数在最后，在输出文件前面，顺序重要
+    if (preset.outputArgs?.length > 0) {
+        args = args.concat(preset.outputArgs.split(' '))
+    }
+    args.push(`"${entry.fileDstTemp}"`)
+    return args
 }
 
 // ===========================================
@@ -525,6 +710,7 @@ function updateObject(target, source) {
 class Preset {
     constructor(name, {
         format,
+        type,
         prefix,
         suffix,
         videoArgs,
@@ -541,9 +727,10 @@ class Preset {
         audioQuality = 0,
         dimension = 0,
         speed = 0
-    }) {
+    } = {}) {
         this.name = name
         this.format = format
+        this.type = type
         this.prefix = prefix
         this.suffix = suffix
         this.videoArgs = videoArgs
@@ -565,47 +752,26 @@ class Preset {
         this.dimension = dimension
         // 视频加速
         this.speed = speed
+        // 用户从命令行设定的参数
+        // 优先级最高
+        this.userVideoBitrate = 0
+        this.userVideoQuality = 0
+        this.userAudioBitrate = 0
+        this.userAudioQuality = 0
     }
 
-    update(options) {
-        // return Object.assign(this, options)
-        return updateObject(this, options)
-    }
-
-    getReplaceArgs() {
-        return {
-            prefix: this.prefix,
-            suffix: this.suffix,
-            audioBitrate: this.audioBitrate,
-            audioQuality: this.audioQuality,
-            videoBitrate: this.videoBitrate,
-            videoQuality: this.videoQuality,
-            dimension: this.dimension,
-            speed: this.speed
+    update(source) {
+        for (const key in source) {
+            // if (this.hasOwnProperty(key)) {
+            this[key] = source[key]
+            // }
         }
+        return this
     }
 
     // 构造函数，参数为另一个 Preset 对象
     static fromPreset(preset) {
-        return new Preset(preset.name, {
-            format: preset.format,
-            prefix: preset.prefix,
-            suffix: preset.suffix,
-            videoArgs: preset.videoArgs,
-            audioArgs: preset.audioArgs,
-            inputArgs: preset.inputArgs,
-            streamArgs: preset.streamArgs,
-            outputArgs: preset.outputArgs,
-            filters: preset.filters,
-            complexFilter: preset.complexFilter,
-            output: preset.output,
-            videoBitrate: preset.videoBitrate,
-            videoQuality: preset.videoQuality,
-            audioBitrate: preset.audioBitrate,
-            audioQuality: preset.audioQuality,
-            dimension: preset.dimension,
-            speed: preset.speed
-        })
+        return new Preset(preset.name).update(preset)
     }
 
 }
@@ -617,9 +783,10 @@ class Preset {
 // HEVC基础参数
 const HEVC_BASE = new Preset('hevc-base', {
     format: '.mp4',
+    type: 'video',
     intro: 'hevc|hevc_nvenc|libfdk_aac',
     prefix: '[SHANA] ',
-    suffix: '',
+    suffix: '_{preset}',
     description: 'HEVC_BASE',
     // 视频参数说明
     // video_codec block '-c:v hevc_nvenc -profile:v main -tune:v hq'
@@ -640,6 +807,7 @@ const HEVC_BASE = new Preset('hevc-base', {
 // 音频AAC基础参数
 const AAC_BASE = new Preset('aac_base', {
     format: '.m4a',
+    type: 'audio',
     intro: 'aac|libfdk_aac',
     prefix: '',
     suffix: '',
@@ -649,12 +817,24 @@ const AAC_BASE = new Preset('aac_base', {
     // 音频参数说明
     // audio_codec block '-c:a libfdk_aac'
     // audio_quality block '-b:a {bitrate}'
-    audioArgs: '-map a:0 -c:a libfdk_aac -b:a {audioBitrate}k',
+    audioArgs: '-map 0:a -c:a libfdk_aac -b:a {audioBitrate}k',
     inputArgs: '',
     streamArgs: '',
     outputArgs: '-movflags +faststart',
     filters: '',
     complexFilter: '',
+})
+
+
+const PRESET_AUDIO_EXTRACT = Preset.fromPreset(AAC_BASE).update({
+    name: 'audio_extract',
+    intro: 'aac|extract',
+    prefix: '',
+    // suffix: '_audio',
+    audioArgs: '-c:a copy',
+    audioArgsCopy: '-c:a copy',
+    audioArgsEncode: '-c:a libfdk_aac -b:a {audioBitrate}k',
+    streamArgs: '-vn -map 0:a:0'
 })
 
 function initializePresets() {
@@ -702,8 +882,10 @@ function initializePresets() {
         // audio_codec block '-c:a libfdk_aac -profile:a aac_he'
         // audio_quality block '-b:a 48k'
         _audioArgs: '-c:a libfdk_aac -profile:a aac_he -b:a {audioBitrate}k',
+        // filters 和 complexFilter 不能共存，此预设使用 complexFilter
+        filters: '',
         // 这里单引号必须，否则逗号需要转义，Windows太多坑
-        complexFilter: formatArgs("[0:v]setpts=PTS/{speed},scale='if(gt(iw,1920),min(1920,iw),-2)':'if(gt(ih,1920),min(1920,ih),-2)'[v];[0:a]atempo={speed}[a]", { speed: 1.5 })
+        complexFilter: "[0:v]setpts=PTS/{speed},scale='if(gt(iw,1280),min(1280,iw),-2)':'if(gt(ih,1280),min(1280,ih),-2)'[v];[0:a]atempo={speed}[a]"
     })
 
     const presets = {
@@ -717,31 +899,29 @@ function initializePresets() {
         PRESET_HEVC_LOW: PRESET_HEVC_LOW,
         // 极低画质和码率，适用于教程类视频
         PRESET_HEVC_LOWEST: PRESET_HEVC_LOWEST,
+        // 提取视频中的音频，复制或转换为AAC格式
+        PRESET_AUDIO_EXTRACT: PRESET_AUDIO_EXTRACT,
         //音频AAC最高码率
-        PRESET_AAC_HIGH: {
-            ...AAC_BASE,
+        PRESET_AAC_HIGH: Preset.fromPreset(AAC_BASE).update({
             name: 'aac_high',
             audioBitrate: 320,
-        },
+        }),
         //音频AAC中码率
-        PRESET_AAC_MEDIUM: {
-            ...AAC_BASE,
+        PRESET_AAC_MEDIUM: Preset.fromPreset(AAC_BASE).update({
             name: 'aac_medium',
             audioBitrate: 192,
-        },
+        }),
         // 音频AAC低码率
-        PRESET_AAC_LOW: {
-            ...AAC_BASE,
+        PRESET_AAC_LOW: Preset.fromPreset(AAC_BASE).update({
             name: 'aac_low',
             audioBitrate: 128,
-        },
+        }),
         // 音频AAC极低码率，适用人声
-        PRESET_AAC_VOICE: {
-            ...AAC_BASE,
+        PRESET_AAC_VOICE: Preset.fromPreset(AAC_BASE).update({
             name: 'aac_voice',
             audioBitrate: 48,
             audioArgs: '-c:a libfdk_aac -profile:a aac_he -b:a {audioBitrate}k',
-        }
+        })
     }
 
     core.modifyObjectWithKeyField(presets, 'description')
@@ -751,51 +931,6 @@ function initializePresets() {
     }
 }
 
-// 命令行参数示例
-// ARGV: {
-//     _: [ 'ffmpeg' ],
-//     preset: 'hevc_lowest',
-//     vm: true,
-//     'video-mode': true,
-//     videoMode: true,
-//     speed: 2,
-//     extensions: '.mp4|.mov|.wmv|.avi|.mkv|.m4v|.ts|.flv|.webm',
-//     e: '.mp4|.mov|.wmv|.avi|.mkv|.m4v|.ts|.flv|.webm',
-//     override: false,
-//     O: false,
-//     prefix: '[SHANA] ',
-//     P: '[SHANA] ',
-//     suffix: '',
-//     S: '',
-//     'video-codec': 'hevc_nvenc',
-//     videoCodec: 'hevc_nvenc',
-//     'video-quality': '0',
-//     vq: '0',
-//     videoQuality: '0',
-//     'audio-codec': 'libfdk_aac',
-//     audioCodec: 'libfdk_aac',
-//     'audio-quality': '0',
-//     aq: '0',
-//     audioQuality: '0',
-//     verbose: 0,
-//     v: 0,
-//     input: '.'
-//   }
-//
-// 预设示例
-// PRESET: {
-//     name: 'hevc_lowest',
-//     description: 'PRESET_HEVC_LOWEST',
-//     videoArgs: '-c:v hevc_nvenc -profile:v main -tune:v hq -cq 26 -bufsize 512k -maxrate 512k',
-//     audioArgs: '-c:a libfdk_aac -profile:a aac_he -b:a 48k',
-//     inputArgs: '',
-//     streamArgs: '-map [v] -map [a]',
-//     extraArgs: '',
-//     outputArgs: '-movflags +faststart',
-//     filters: '',
-//     complexFilter: "[0:v]setpts=PTS/1.5,scale='if(gt(iw,1920),min(1920,iw),-2)':'if(gt(ih,1920),min(1920,ih),-2)'[v];[0:a]atempo=1.5[a]"
-//   }
-//
 function preparePreset(argv) {
     const defaultName = argv.audioMode ? "aac_medium" : "hevc_2k"
     let preset = PRESET_MAP.get(argv.preset || defaultName)
@@ -810,10 +945,10 @@ function preparePreset(argv) {
         preset.suffix = argv.suffix
     }
     if (argv.videoArgs?.length > 0) {
-        preset._videoArgs = argv.videoArgs
+        preset.videoArgs = argv.videoArgs
     }
     if (argv.audioArgs?.length > 0) {
-        preset._audioArgs = argv.audioArgs
+        preset.audioArgs = argv.audioArgs
     }
     if (argv.filters?.length > 0) {
         preset.filters = argv.filters
@@ -833,19 +968,19 @@ function preparePreset(argv) {
     if (argv.speed > 0) {
         preset.speed = argv.speed
     }
-    // 视频码率
+    // 视频码率，用户指定，优先级最高
     if (argv.videoBitrate > 0) {
-        preset.videoBitrate = argv.videoBitrate
+        preset.userVideoBitrate = argv.videoBitrate
     }
     if (argv.videoQuality > 0) {
-        preset.videoQuality = argv.videoQuality
+        preset.userVideoQuality = argv.videoQuality
     }
-    // 音频码率
+    // 音频码率，用户指定，优先级最高
     if (argv.audioBitrate > 0) {
-        preset.audioBitrate = argv.audioBitrate
+        preset.userAudioBitrate = argv.audioBitrate
     }
     if (argv.audioQuality > 0) {
-        preset.audioQuality = argv.audioQuality
+        preset.userAudioQuality = argv.audioQuality
     }
 
     return preset
@@ -853,53 +988,6 @@ function preparePreset(argv) {
 
 
 
-function createFFmpegArgs(entry) {
-    const preset = entry.preset
-    // 显示详细信息
-    // let args = "-hide_banner -n -loglevel repeat+level+info -stats".split(" ")
-    // 只显示进度和错误
-    let args = "-hide_banner -n -v warning -stats".split(" ")
-    // 输入参数在输入文件前面，顺序重要
-    if (preset.inputArgs?.length > 0) {
-        args = args.concat(this.preset.inputArgs.split(' '))
-    }
-    args.push('-i')
-    args.push(`"${entry.path}"`)
-    if (preset.filters?.length > 0) {
-        args.push('-vf')
-        args.push(formatArgs(preset.filters, preset))
-    }
-    // 在输入文件后面
-    if (preset.complexFilter?.length > 0) {
-        args.push('-filter_complex')
-        args.push(`"${formatArgs(preset.complexFilter, preset)}"`)
-    }
-    // 在输入文件后面
-    if (preset.streamArgs?.length > 0) {
-        args = args.concat(preset.streamArgs.split(' '))
-    }
-    if (preset.videoArgs?.length > 0) {
-        const va = formatArgs(preset.videoArgs, preset)
-        args = args.concat(va.split(' '))
-    }
-    if (preset.audioArgs?.length > 0) {
-        const aa = formatArgs(preset.audioArgs, {
-            ...preset,
-            audioBitrate: entry.dstBitrate || preset.audioBitrate
-        })
-        args = args.concat(aa.split(' '))
-    }
-    // 其它参数
-    if (preset.extraArgs?.length > 0) {
-        args = args.concat(preset.extraArgs.split(' '))
-    }
-    // 输出参数在最后，在输出文件前面，顺序重要
-    if (preset.outputArgs?.length > 0) {
-        args = args.concat(preset.outputArgs.split(' '))
-    }
-    args.push(`"${entry.fileDstTemp}"`)
-    return args
-}
 
 // 初始化调用
 initializePresets()

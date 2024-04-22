@@ -482,7 +482,7 @@ async function preRemoveArgs(f) {
             if (f.size > 0 && f.size <= cSize) {
                 log.info(
                     "preRemove[Size]:",
-                    `${ipx} ${fileName} [${helper.humanSize(fSize)}] [Size=${helper.humanSize(cSize)}]`
+                    `${ipx} ${fileName} [${helper.humanSize(itemSize)}] [Size=${helper.humanSize(cSize)}]`
                 )
                 testSize = true
             }
