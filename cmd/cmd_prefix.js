@@ -309,8 +309,8 @@ const handler = async function cmdPrefix(argv) {
     let files = await mf.walk(root, {
         needStats: true,
         entryFilter: (entry) =>
-            entry.stats.isFile() &&
-            entry.stats.size > 1024
+            entry.isFile &&
+            entry.size > 1024
     })
     log.show(logTag, `Total ${files.length} files found in ${helper.humanTime(startMs)}`)
     if (argv.include?.length >= 3) {

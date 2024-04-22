@@ -441,8 +441,8 @@ async function cmdThumbs(argv) {
   const RE_THUMB = /(小图|精选|feature|web|thumb)/i
   const walkOpts = {
     entryFilter: (f) =>
-      f.stats.isFile() &&
-      f.stats.size > 500 * 1024 &&
+      f.isFile &&
+      f.size > 500 * 1024 &&
       helper.isImageFile(f.path) &&
       !RE_THUMB.test(f.path),
   }

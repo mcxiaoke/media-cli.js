@@ -107,9 +107,9 @@ const handler = async function cmdCompress(argv) {
     const walkOpts = {
         needStats: true,
         entryFilter: (f) =>
-            f.stats.isFile()
+            f.isFile
             && !RE_THUMB.test(f.path)
-            && f.stats.size > minFileSize
+            && f.size > minFileSize
             && helper.isImageFile(f.path)
     }
     log.showGreen(logTag, `Walking files ...`)
@@ -361,8 +361,8 @@ async function purgeSrcFiles(results) {
 // 给定图片长宽，给定长边数值，计算缩放后的长宽，只缩小不放大
 function calculateImageScale(imgWidth, imgHeight, maxSide) {
     // 不需要缩放的情况
-    if (iw <= maxSide && ih <= maxSide) {
-        return { dstWidth: iw, dstHeight: ih }
+    if (imgWidth <= maxSide && imgHeight <= maxSide) {
+        return { dstWidth: imgWidth, dstHeight: imgHeight }
     }
     // 计算缩放比例
     let scaleFactor = maxSide / Math.max(imgWidth, imgHeight)

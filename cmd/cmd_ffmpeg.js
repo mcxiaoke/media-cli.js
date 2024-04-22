@@ -643,7 +643,7 @@ const AAC_BASE = new Preset('aac_base', {
     intro: 'aac|libfdk_aac',
     prefix: '',
     suffix: '',
-    // suffix: '_{audioBitrate}',
+    suffix: '_{audioBitrate}k',
     description: 'AAC_BASE',
     videoArgs: '',
     // 音频参数说明

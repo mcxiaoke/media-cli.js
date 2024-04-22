@@ -114,7 +114,7 @@ async function cmdZipUnicode(argv) {
     let files = await mf.walk(root, {
         needStats: true,
         entryFilter: (entry) =>
-            entry.stats.isFile() &&
+            entry.isFile &&
             helper.pathExt(entry.name) === '.zip'
     })
     files = files.sort(compareSmartBy('path'))

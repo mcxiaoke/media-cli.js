@@ -37,7 +37,7 @@ const builder = function addOptions(ya, helpOrVersionSet) {
         .option("include", {
             alias: "I",
             type: "string",
-            description: " filename include pattern",
+            description: "filename include pattern",
         })
         // 仅处理不符合指定条件的文件，例外文件名规则
         .option("exclude", {
@@ -47,7 +47,7 @@ const builder = function addOptions(ya, helpOrVersionSet) {
         })
         // 遍历目录层次深度限制
         .option("max-depth", {
-            aliases: ['depth'],
+            alias: 'depth',
             type: "number",
             default: 99,
             description: "max depth when walk directories and files",
@@ -66,7 +66,7 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             description: "remove ugly and special chars in filename",
         })
         .option("separator", {
-            aliases: ['sep'],
+            alias: 'sep',
             type: "string",
             description: "word separator for clean filenames ",
         })
@@ -78,29 +78,40 @@ const builder = function addOptions(ya, helpOrVersionSet) {
         // $是特殊符号，powershell中需要使用单引号包裹，双引号不行
         // 或者针对 $ 使用反引号转义，如 `$
         .option("replace", {
+            alias: 'rp',
             type: "array",
             description: "replace filename chars by pattern [from,to]",
         })
+        // 替换特殊模式flag
+        // d = applied to dir names
+        // f = applied to file names
+        .option("replace-flags", {
+            alias: 'rpf',
+            type: "string",
+            default: 'd,f',
+            description: "special flag for replace operations",
+        })
         // 默认使用字符串模式替换，可启用正则模式替换
         .option("regex", {
+            alias: 're',
             type: "boolean",
             description: "replace filename by regex pattern",
         })
         // 修复文件名乱码
         .option("fixenc", {
-            aliases: ['fixenocidng', 'e'],
+            alias: 'fc',
             type: "boolean",
             description: "fix filenames by guess encoding",
         })
         // 繁体转简体
         .option("tcsc", {
-            aliases: ["t", 'tc2sc'],
+            alias: 'tc2sc',
             type: "boolean",
             description: "convert from tc to sc for Chinese chars",
         })
         // 合并多层重复目录，减少层级，不改动文件名
         .option("merge-dirs", {
-            aliases: ["simplify-dirs"],
+            alias: "simplify-dirs",
             type: "boolean",
             description: "reduce duplicate named directory hierarchy",
         })
@@ -275,19 +286,28 @@ async function preRename(f) {
         const strMode = argv.regex ? "regex" : "str"
         const strFrom = argv.regex ? new RegExp(argv.replace[0], "ugi") : argv.replace[0]
         const strTo = argv.replace[1] || ""
-        log.info(logTag, `Replace: ${oldDir} = ${oldBase} P=${strFrom}`)
+        const flags = argv.replaceFlags
+        log.info(logTag, `Replace: ${oldDir} = ${oldBase} P=${strFrom} F=${flags}`)
 
+        const replaceBaseName = flags.includes('f')
+        const replaceDirName = flags.includes('d')
         // 默认使用字符串模式替换，可启用正则模式替换
-        let tempBase = oldBase.replaceAll(strFrom, strTo)
-        if (tempBase !== oldBase) {
-            tmpNewBase = tempBase
+        let tempBase = oldBase
+        if (replaceBaseName) {
+            tempBase = oldBase.replaceAll(strFrom, strTo)
+            if (tempBase !== oldBase) {
+                tmpNewBase = tempBase
+            }
         }
-        // 路径各个部分先分解，单独替换，然后组合路径
-        let parts = oldDir.split(path.sep).map(s => s.replaceAll(strFrom, strTo).trim())
-        // 过滤掉空路径，比如被完全替换，减少层级，然后再组合
-        let tempDir = combinePath(...parts.filter(Boolean))
-        if (tempDir !== oldDir) {
-            tmpNewDir = tempDir
+        let tempDir = oldDir
+        if (replaceDirName) {
+            // 路径各个部分先分解，单独替换，然后组合路径
+            // 过滤掉空路径，比如被完全替换，减少层级，然后再组合
+            let parts = oldDir.split(path.sep).map(s => s.replaceAll(strFrom, strTo).trim())
+            tempDir = combinePath(...parts.filter(Boolean))
+            if (tempDir !== oldDir) {
+                tmpNewDir = tempDir
+            }
         }
         const tmpNewPath = path.join(tmpNewDir || oldDir, (tmpNewBase || oldBase) + ext)
         if (tmpNewPath !== oldPath) {
