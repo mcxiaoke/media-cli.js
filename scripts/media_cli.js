@@ -10,6 +10,8 @@
 import assert from "assert"
 import chalk from 'chalk'
 import dayjs from "dayjs"
+import EventEmitter from 'events'
+import exitHook from 'exit-hook'
 import fs from 'fs-extra'
 import inquirer from "inquirer"
 import { cpus } from "os"
@@ -22,8 +24,7 @@ import * as log from '../lib/debug.js'
 import * as exif from '../lib/exif.js'
 import * as mf from '../lib/file.js'
 import * as helper from '../lib/helper.js'
-
-import EventEmitter from 'events'
+// fix max listeners
 EventEmitter.defaultMaxListeners = 1000
 
 const cpuCount = cpus().length
@@ -37,6 +38,11 @@ const configCli = (argv) => {
   log.setVerbose(argv.verbose)
   log.debug(argv)
 }
+
+// exitHook(signal => {
+//   console.log(`Exiting with signal: ${signal}, kill ffmpeg`)
+//   helper.killProcessSync('ffmpeg')
+// })
 
 try {
   await main()

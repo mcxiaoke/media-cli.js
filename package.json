@@ -72,6 +72,7 @@
     "execa": "^8.0.1",
     "exif-reader": "^2.0.1",
     "exiftool-vendored": "^25.2.0",
+    "exit-hook": "^4.0.0",
     "fastest-levenshtein": "^1.0.16",
     "fdir": "^6.1.1",
     "file-type": "^19.0.0",

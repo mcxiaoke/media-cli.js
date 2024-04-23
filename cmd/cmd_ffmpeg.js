@@ -286,8 +286,22 @@ async function cmdConvert(argv) {
             testMode: testMode
         }
     })
-    // todo udpate total and index
-    // todo add progress bar
+    log.showYellow(logTag, 'ARGV:', core.pickTrueValues(argv))
+    log.showYellow(logTag, 'PRESET:', core.pickTrueValues(preset))
+    const prepareAnswer = await inquirer.prompt([
+        {
+            type: 'confirm',
+            name: 'yes',
+            default: false,
+            message: chalk.bold.red(
+                `Please check above values, then press y/yes to continue.`
+            )
+        }
+    ])
+    if (!prepareAnswer.yes) {
+        log.showYellow("Will do nothing, aborted by user.")
+        return
+    }
     log.showGreen(logTag, 'Now Preparing task files and ffmpeg cmd args...')
     let tasks = await pMap(fileEntries, prepareFFmpegCmd, { concurrency: argv.jobs || (core.isUNCPath(root) ? 4 : cpus().length) })
     !testMode && log.fileLog(`ffmpegArgs:`, tasks.slice(-1)[0].ffmpegArgs, 'FFConv')
@@ -301,7 +315,7 @@ async function cmdConvert(argv) {
     log.showYellow(logTag, 'CMD: ffmpeg', tasks.slice(-1)[0].ffmpegArgs.join(' '))
     log.show('-----------------------------------------------------------')
     testMode && log.showYellow('++++++++++ TEST MODE (DRY RUN) ++++++++++')
-    log.showMagenta(logTag, 'Please CHECK task details BEFORE continue!')
+    log.showYellow(logTag, 'Please CHECK above details BEFORE continue!')
     const answer = await inquirer.prompt([
         {
             type: 'confirm',
@@ -312,13 +326,14 @@ async function cmdConvert(argv) {
             )
         }
     ])
+    if (!answer.yes) {
+        log.showYellow("Will do nothing, aborted by user.")
+        return
+    }
     // 检查ffmpeg可执行文件是否存在
     const ffmpegPath = await which("ffmpeg", { nothrow: true })
     if (!ffmpegPath) {
         throw new Error("ffmpeg executable not found in path")
-    }
-    if (!answer.yes) {
-        return
     }
     // 记录开始时间
     startMs = Date.now()
@@ -516,7 +531,8 @@ async function prepareFFmpegCmd(entry) {
         if (await fs.pathExists(fileDstTemp)) {
             await fs.remove(fileDstTemp)
         }
-        log.show(logTag, `(${ipx}) Task ${helper.pathShort(entry.path)}`, getEntryShowInfo(entry), chalk.yellow(entry.preset.name), helper.humanSize(entry.size), helper.humanTime(entry.startMs))
+        log.show(logTag, `(${ipx}) Task ${helper.pathShort(entry.path, 64)}`, helper.humanTime(entry.startMs))
+        log.show(`\t`, getEntryShowInfo(entry), chalk.yellow(entry.preset.name), helper.humanSize(entry.size))
         log.info(logTag, `(${ipx}) Task DST:${fileDst}`)
         // log.show(logTag, `Entry(${ipx})`, entry)
         const newEntry = {
@@ -549,6 +565,7 @@ function createDstBaseName(entry) {
         srcAudioBitrate: entry.srcAudioBitrate,
         srcVideoBitrate: entry.srcVideoBitrate,
     }
+    // log.show(entry.preset)
     // 应用模板参数到前缀和后缀字符串模板
     const prefix = helper.filenameSafe(formatArgs(entry.preset.prefix || "", replaceArgs))
     const suffix = helper.filenameSafe(formatArgs(entry.preset.suffix || "", replaceArgs))
@@ -864,7 +881,7 @@ const PRESET_AUDIO_EXTRACT = Preset.fromPreset(AAC_BASE).update({
     name: 'audio_extract',
     intro: 'aac|extract',
     prefix: '',
-    // suffix: '_audio',
+    suffix: '_audio',
     audioArgs: '-c:a copy',
     audioArgsCopy: '-c:a copy',
     audioArgsEncode: '-c:a libfdk_aac -b:a {audioBitrate}k',
@@ -982,10 +999,12 @@ function preparePreset(argv) {
     preset = structuredClone(preset)
     // 保存argv方便调试
     // preset.argv = JSON.stringify(argv)
-    if (argv.prefix?.length > 0) {
+    // 前缀可以为空字符串
+    if (typeof argv.prefix === 'string') {
         preset.prefix = argv.prefix
     }
-    if (argv.suffix?.length > 0) {
+    // 后缀可以为空字符串
+    if (typeof argv.suffix === 'string') {
         preset.suffix = argv.suffix
     }
     if (argv.videoArgs?.length > 0) {
