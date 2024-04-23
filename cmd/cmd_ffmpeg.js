@@ -716,6 +716,13 @@ function getBestAudioQuality(entry) {
 // 此函数仅读取参数，不修改preset对象
 function createFFmpegArgs(entry, forDisplay = false) {
     const preset = entry.preset
+    const fixedPreset = {
+        ...preset,
+        videoBitrate: getBestVideoBitrate(entry),
+        videoQuality: getBestVideoQuality(entry),
+        audioBitrate: getBestAudioBitrate(entry),
+        audioQuality: getBestAudioQuality(entry)
+    }
     // 显示详细信息
     // let args = "-hide_banner -n -loglevel repeat+level+info -stats".split(" ")
     // 只显示进度和错误
@@ -737,11 +744,7 @@ function createFFmpegArgs(entry, forDisplay = false) {
         args.push(formatArgs(preset.filters, preset))
     }
     if (preset.videoArgs?.length > 0) {
-        const va = formatArgs(preset.videoArgs, {
-            ...preset,
-            videoBitrate: getBestVideoBitrate(entry),
-            videoQuality: getBestVideoQuality(entry)
-        })
+        const va = formatArgs(preset.videoArgs, fixedPreset)
         args = args.concat(va.split(' '))
     }
     if (preset.audioArgs?.length > 0) {
@@ -759,11 +762,7 @@ function createFFmpegArgs(entry, forDisplay = false) {
         } else {
             audioArgsFixed = preset.audioArgs
         }
-        const aa = formatArgs(audioArgsFixed, {
-            ...preset,
-            audioBitrate: getBestAudioBitrate(entry),
-            audioQuality: getBestAudioQuality(entry)
-        })
+        const aa = formatArgs(audioArgsFixed, fixedPreset)
         args = args.concat(aa.split(' '))
     }
     // 在输入文件后面
@@ -775,9 +774,10 @@ function createFFmpegArgs(entry, forDisplay = false) {
     let extraArgsArray = []
     // 添加自定义metadata字段
     //description, comment, copyright
+
     extraArgsArray.push(`-metadata`, `description="encoder=mediac-ffmpeg"`)
     extraArgsArray.push(`-metadata`, `copyright="name=${entry.name}"`)
-    extraArgsArray.push(`-metadata`, `comment="preset=${preset.name},vargs=${formatArgs(preset.videoArgs, preset)},aargs=${formatArgs(preset.audioArgs, preset)}"`)
+    extraArgsArray.push(`-metadata`, `comment="preset=${preset.name},vargs=${formatArgs(preset.videoArgs, fixedPreset)},aargs=${formatArgs(preset.audioArgs, fixedPreset)}"`)
     // 检查源文件元数据
     if (entry.tags?.title) {
         const KEY_LIST = ['title', 'artist', 'album', 'albumartist', 'year']
