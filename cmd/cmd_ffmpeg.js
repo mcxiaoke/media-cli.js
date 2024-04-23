@@ -59,7 +59,7 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             alias: 'otree',
             describe: "keep folder tree structure in output folder",
             type: "boolean",
-            default: true,
+            default: false,
         })
         // 正则，包含文件名规则
         .option("include", {
@@ -378,9 +378,12 @@ async function runFFmpegCmd(entry) {
     const ipx = `${entry.index}/${entry.total}`
     const logTag = chalk.green('FFCMD')
     const ffmpegArgs = entry.ffmpegArgs
-    log.show(logTag, `(${ipx}) Processing ${entry.path}`, getEntryShowInfo(entry), chalk.yellow(entry.preset.name), helper.humanSize(entry.size), helper.humanTime(entry.startMs))
 
-    log.showGray(logTag, 'ffmpeg', ffmpegArgs.join(' '))
+    log.show(logTag, `(${ipx}) Processing ${helper.pathShort(entry.path, 72)}`, helper.humanTime(entry.startMs))
+    log.showGray(logTag, getEntryShowInfo(entry), chalk.yellow(entry.preset.name), helper.humanSize(entry.size))
+
+
+    log.showGray(logTag, 'ffmpeg', createFFmpegArgs(entry, true).join(' '))
     const exePath = await which("ffmpeg")
     if (entry.testMode) {
         // 测试模式跳过
@@ -563,8 +566,8 @@ async function prepareFFmpegCmd(entry) {
         if (await fs.pathExists(fileDstTemp)) {
             await fs.remove(fileDstTemp)
         }
-        log.show(logTag, `(${ipx}) Task ${helper.pathShort(entry.path, 64)}`, helper.humanTime(entry.startMs))
-        log.show(`\t`, getEntryShowInfo(entry), chalk.yellow(entry.preset.name), helper.humanSize(entry.size))
+        log.show(logTag, `(${ipx}) Task ${helper.pathShort(entry.path, 72)}`, helper.humanTime(entry.startMs))
+        log.showGray(logTag, getEntryShowInfo(entry), chalk.yellow(entry.preset.name), helper.humanSize(entry.size))
         log.info(logTag, `(${ipx}) Task DST:${fileDst}`)
         // log.show(logTag, `Entry(${ipx})`, entry)
         const newEntry = {
@@ -574,8 +577,7 @@ async function prepareFFmpegCmd(entry) {
             fileDst,
             fileDstTemp,
         }
-        const ffmpegArgs = createFFmpegArgs(newEntry)
-        newEntry.ffmpegArgs = ffmpegArgs
+        newEntry.ffmpegArgs = createFFmpegArgs(newEntry)
         // log.info(logTag, 'ffmpeg', ffmpegArgs.join(' '))
         return newEntry
     } catch (error) {
@@ -613,9 +615,9 @@ function getEntryShowInfo(entry) {
         || entry?.info?.video?.duration
         || entry?.info?.format?.duration || 0
     const showInfo = []
-    if (ac) showInfo.push(`audio|${ac}|${Math.round(entry.srcAudioBitrate / 1024)}K=>${getBestAudioBitrate(entry)}K|${helper.humanDuration(duration * 1000, 0)}`)
-    if (vc) showInfo.push(`vido|${vc}|${Math.round(entry.srcVideoBitrate / 1024)}K=>${getBestVideoBitrate(entry)}K|${helper.humanDuration(duration * 1000, 0)}`,)
-    return showInfo.join(',')
+    if (ac) showInfo.push(`audio|${ac}|${Math.round(entry.srcAudioBitrate / 1024)}K=>${getBestAudioBitrate(entry)}K|${helper.humanDuration(duration * 1000)}`)
+    if (vc) showInfo.push(`video|${vc}|${Math.round(entry.srcVideoBitrate / 1024)}K=>${getBestVideoBitrate(entry)}K|${helper.humanDuration(duration * 1000)}`,)
+    return showInfo.join(', ')
 }
 
 // 读取单个音频文件的元数据
@@ -719,10 +721,8 @@ function getBestAudioQuality(entry) {
         || entry.preset.audioQuality
 }
 
-
-
-
-function createFFmpegArgs(entry) {
+// 组合各种参数，替换模板参数，输出最终的ffmpeg命令行参数
+function createFFmpegArgs(entry, forDisplay = false) {
     const preset = entry.preset
     // 显示详细信息
     // let args = "-hide_banner -n -loglevel repeat+level+info -stats".split(" ")
@@ -784,7 +784,8 @@ function createFFmpegArgs(entry) {
     if (preset.outputArgs?.length > 0) {
         args = args.concat(preset.outputArgs.split(' '))
     }
-    args.push(`"${entry.fileDstTemp}"`)
+    // 显示数据时用最终路径，实际使用时用临时文件路径
+    args.push(`"${forDisplay ? entry.fileDst : entry.fileDstTemp}"`)
     return args
 }
 
