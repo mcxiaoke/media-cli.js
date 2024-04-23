@@ -19,7 +19,7 @@ import * as enc from '../lib/encoding.js'
 import * as mf from '../lib/file.js'
 import * as helper from '../lib/helper.js'
 import { mergePath } from '../lib/path-merge.js'
-import { cleanFileName, renameFiles } from "./cmd_shared.js"
+import { applyFileNameRules, cleanFileName, renameFiles } from "./cmd_shared.js"
 
 const TYPE_LIST = ['a', 'f', 'd']
 
@@ -34,16 +34,26 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             describe: 'input directory',
             type: 'string',
         })
+        // 正则，包含文件名规则
         .option("include", {
             alias: "I",
             type: "string",
             description: "filename include pattern",
         })
-        // 仅处理不符合指定条件的文件，例外文件名规则
+        //字符串或正则，不包含文件名规则
+        // 如果是正则的话需要转义
+        // 默认排除 [SHANA] 开头的文件
         .option("exclude", {
             alias: "E",
             type: "string",
+            default: '[SHANA]',
             description: "filename exclude pattern ",
+        })
+        // 需要处理的扩展名列表，默认为常见视频文件
+        .option("extensions", {
+            alias: "e",
+            type: "string",
+            describe: "include files by extensions (eg. .wav|.flac)",
         })
         // 遍历目录层次深度限制
         .option("max-depth", {
@@ -154,20 +164,12 @@ async function cmdRename(argv) {
     }
     let entries = await mf.walk(root, options)
     log.show(logTag, `Total ${entries.length} entries found (type=${type})`)
-
-    const predicate = (fpath, pattern) => {
-        const name = path.basename(fpath)
-        const rgx = new RegExp(pattern, "ui")
-        return name.includes(pattern) || rgx.test(name)
+    // 应用文件名过滤规则
+    entries = await applyFileNameRules(entries, argv)
+    if (entries.length === 0) {
+        log.showYellow(logTag, 'No files left after rules, nothing to do.')
+        return
     }
-    if (argv.include?.length > 0) {
-        // 处理include规则
-        entries = await asyncFilter(entries, x => predicate(x.path, argv.include))
-    } else if (argv.exclude?.length > 0) {
-        // 处理exclude规则
-        entries = await asyncFilter(entries, x => !predicate(x.path, argv.exclude))
-    }
-    log.show(logTag, `${entries.length} files after applied include/exclude rules`)
     entries = entries.map((f, i) => {
         return {
             ...f,

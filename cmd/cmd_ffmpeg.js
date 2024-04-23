@@ -10,6 +10,7 @@ import dayjs from 'dayjs'
 import { execa } from 'execa'
 import { fileTypeFromFile } from 'file-type'
 import fs from 'fs-extra'
+import iconv from "iconv-lite"
 import inquirer from "inquirer"
 import mm from 'music-metadata'
 import { cpus } from "os"
@@ -17,12 +18,12 @@ import pMap from 'p-map'
 import path from "path"
 import which from "which"
 import * as core from '../lib/core.js'
-import { formatArgs } from '../lib/core.js'
+import { asyncFilter, formatArgs } from '../lib/core.js'
 import * as log from '../lib/debug.js'
 import { getMediaInfo } from '../lib/ffprobe.js'
 import * as mf from '../lib/file.js'
 import * as helper from '../lib/helper.js'
-
+import { applyFileNameRules } from './cmd_shared.js'
 
 const LOG_TAG = "FFConv"
 
@@ -52,6 +53,21 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             alias: "o",
             describe: "Folder store ouput files, keep tree structure",
             type: "string",
+        })
+        // 正则，包含文件名规则
+        .option("include", {
+            alias: "I",
+            type: "string",
+            description: "filename include pattern",
+        })
+        //字符串或正则，不包含文件名规则
+        // 如果是正则的话需要转义
+        // 默认排除 [SHANA] 开头的文件
+        .option("exclude", {
+            alias: "E",
+            type: "string",
+            default: '[SHANA]',
+            description: "filename exclude pattern ",
         })
         // 需要处理的扩展名列表，默认为常见视频文件
         .option("extensions", {
@@ -230,15 +246,16 @@ async function cmdConvert(argv) {
         entryFilter: (e) => e.isFile && (argv.audioMode ? helper.isAudioFile(e.name) : helper.isVideoFile(e.name))
     })
     log.show(logTag, `Total ${fileEntries.length} files found in ${helper.humanTime(startMs)}`)
-    if (extensions?.length > 0) {
-        fileEntries = fileEntries.filter(entry => extensions.includes(helper.pathExt(entry.name)))
-        log.show(logTag, `Total ${fileEntries.length} files left after filter by extensions`)
+    // 应用文件名过滤规则
+    fileEntries = await applyFileNameRules(fileEntries, argv)
+    // 提取音频时不判断文件名
+    if (!preset.name.includes('extract')) {
+        // 过滤掉压缩过的文件 关键词 shana tmp m4a 
+        fileEntries = fileEntries.filter(entry => !/tmp|\.m4a/i.test(entry.name))
+        log.show(logTag, `Total ${fileEntries.length} files left after exclude tmp|m4a filenames`)
     }
-    // 过滤掉压缩过的文件 关键词 shana tmp m4a 
-    fileEntries = fileEntries.filter(entry => !/shana|tmp|\.m4a/i.test(entry.name))
-    log.show(logTag, `Total ${fileEntries.length} files left after exclude shana|tmp|m4a filenames`)
     if (fileEntries.length === 0) {
-        log.showYellow(logTag, 'No files left after filters, nothing to do.')
+        log.showYellow(logTag, 'No files left after rules, nothing to do.')
         return
     }
     if (fileEntries.length > 5000) {
@@ -272,7 +289,7 @@ async function cmdConvert(argv) {
     // todo udpate total and index
     // todo add progress bar
     log.showGreen(logTag, 'Now Preparing task files and ffmpeg cmd args...')
-    let tasks = await pMap(fileEntries, prepareFFmpegCmd, { concurrency: argv.jobs || cpus().length * 2 })
+    let tasks = await pMap(fileEntries, prepareFFmpegCmd, { concurrency: argv.jobs || (core.isUNCPath(root) ? 4 : cpus().length) })
     !testMode && log.fileLog(`ffmpegArgs:`, tasks.slice(-1)[0].ffmpegArgs, 'FFConv')
     tasks = tasks.filter(t => t && t.fileDst)
     if (tasks.length === 0) {
@@ -320,6 +337,10 @@ async function cmdConvert(argv) {
     !testMode && log.showGreen(logTag, `Total ${okResults.length} files processed in ${helper.humanTime(startMs)}`)
 }
 
+function fixEncoding(str = '') {
+    return iconv.decode(Buffer.from(str, 'binary'), 'cp936')
+}
+
 async function runFFmpegCmd(entry) {
     const ipx = `${entry.index}/${entry.total}`
     const logTag = chalk.green('FFCMD')
@@ -334,13 +355,18 @@ async function runFFmpegCmd(entry) {
         return
     }
 
+    // 创建输出目录
+    await fs.mkdirp(entry.fileDstDir)
+    await fs.remove(entry.fileDstTemp)
     try {
-        await fs.remove(entry.fileDstTemp)
-        // 此处 { shell: true } 必须，否则报错
-        const ffmpegProcess = execa(exePath, ffmpegArgs, { shell: true })
+        // https://2ality.com/2022/07/nodejs-child-process.html
+        // Windows下 { shell: true } 必须，否则报错
+        const ffmpegProcess = execa(exePath, ffmpegArgs, { shell: true, encoding: 'binary' })
         ffmpegProcess.pipeStdout(process.stdout)
         ffmpegProcess.pipeStderr(process.stderr)
         const { stdout, stderr } = await ffmpegProcess
+        // const stdoutFixed = fixEncoding(stdout || "")
+        // const stderrFixed = fixEncoding(stderr || "")
         if (await fs.pathExists(entry.fileDstTemp)) {
             const dstSize = (await fs.stat(entry.fileDstTemp))?.size || 0
             if (dstSize > 20 * mf.FILE_SIZE_1K) {
@@ -388,18 +414,28 @@ async function prepareFFmpegCmd(entry) {
     const ipx = `${entry.index}/${entry.total}`
     log.info(logTag, `Processing(${ipx}) file: ${entry.path}`)
     const isAudio = helper.isAudioFile(entry.path)
-    const fileSrc = entry.path
-    const [srcDir, srcBase, srcExt] = helper.pathSplit(fileSrc)
+    const [srcDir, srcBase, srcExt] = helper.pathSplit(entry.path)
     const preset = entry.preset
     const dstExt = preset.format || srcExt
-    if (isAudio) {
+    // 如果没有指定输出目录，直接输出在原文件同目录；否则使用指定输出目录
+    const fileDstDir = preset.output ? helper.pathRewrite(srcDir, preset.output) : path.resolve(srcDir)
+    if (isAudio || preset.name === PRESET_AUDIO_EXTRACT.name) {
         // 不带后缀只改扩展名的m4a文件，如果存在也需要首先忽略
         // 可能是其它压缩工具生成的文件，不需要重复压缩
+        // 检查输出目录
+        const fileDstNoSuffix = path.join(fileDstDir, `${srcBase}${dstExt}`)
+        if (await fs.pathExists(fileDstNoSuffix)) {
+            log.info(
+                logTag,
+                `(${ipx}) Skip[DstOut]: ${helper.pathShort(entry.path)} (${helper.humanSize(entry.size)})`)
+            return false
+        }
+        // 检查源文件同目录
         const fileDstSameDirNoSuffix = path.join(srcDir, `${srcBase}${dstExt}`)
         if (await fs.pathExists(fileDstSameDirNoSuffix)) {
             log.info(
                 logTag,
-                `(${ipx}) Skip[Dst0]: ${helper.pathShort(fileSrc)} (${helper.humanSize(entry.size)})`)
+                `(${ipx}) Skip[DstSame]: ${helper.pathShort(entry.path)} (${helper.humanSize(entry.size)})`)
             return false
         }
     }
@@ -428,10 +464,10 @@ async function prepareFFmpegCmd(entry) {
             }
         } else {
             // 检查视频文件
-            const ft = await fileTypeFromFile(fileSrc)
+            const ft = await fileTypeFromFile(entry.path)
             // 忽略损坏的文件，记录日志
             if (!ft?.mime) {
-                log.showYellow('Prepare', `(${ipx}) Skip[Corrupted]: ${fileSrc} (${helper.humanSize(entry.size)})`)
+                log.showYellow('Prepare', `(${ipx}) Skip[Corrupted]: ${entry.path} (${helper.humanSize(entry.size)})`)
                 log.fileLog(`(${ipx}) Skip[Corrupted]: <${entry.path}> (${helper.humanSize(entry.size)})`, 'Prepare')
                 return false
             }
@@ -446,23 +482,21 @@ async function prepareFFmpegCmd(entry) {
         log.info(logTag, entry.path, mediaBitrate)
         // 如果转换目标是音频，但是源文件不含音频流，忽略
         if (entry.preset.type === 'audio' && !audioCodec) {
-            log.showYellow('Prepare', `(${ipx}) Skip[NoAudio]: ${fileSrc}`, getEntryShowInfo(entry), helper.humanSize(entry.size))
+            log.showYellow('Prepare', `(${ipx}) Skip[NoAudio]: ${entry.path}`, getEntryShowInfo(entry), helper.humanSize(entry.size))
             log.fileLog(`(${ipx}) Skip[NoAudio]: <${entry.path}> (${helper.humanSize(entry.size)})`, 'Prepare')
             return false
         }
         // 如果转换目标是视频，但是源文件不含视频流，忽略
         if (entry.preset.type === 'video' && !videoCodec) {
-            log.showYellow('Prepare', `(${ipx}) Skip[NoVideo]: ${fileSrc}`, getEntryShowInfo(entry), helper.humanSize(entry.size))
+            log.showYellow('Prepare', `(${ipx}) Skip[NoVideo]: ${entry.path}`, getEntryShowInfo(entry), helper.humanSize(entry.size))
             log.fileLog(`(${ipx}) Skip[NoVideo]: <${entry.path}> (${helper.humanSize(entry.size)})`, 'Prepare')
             return false
         }
         // 输出文件名基本名，含前后缀，不含扩展名
         const fileDstBase = createDstBaseName(entry)
-        // 如果没有指定输出目录，直接输出在原文件同目录；否则使用指定输出目录
-        const fileDstDir = preset.output ? helper.pathRewrite(srcDir, preset.output) : path.resolve(srcDir)
         const fileDst = path.join(fileDstDir, `${fileDstBase}${dstExt}`)
         // 临时文件后缀
-        const tempSuffix = `_tmp@${helper.textHash(fileSrc)}@tmp_`
+        const tempSuffix = `_tmp@${helper.textHash(entry.path)}@tmp_`
         // 临时文件名
         const fileDstTemp = path.join(fileDstDir, `${fileDstBase}${tempSuffix}${dstExt}`)
         const fileDstSameDir = path.join(srcDir, `${fileDstBase}${dstExt}`)
@@ -470,19 +504,19 @@ async function prepareFFmpegCmd(entry) {
         if (await fs.pathExists(fileDst)) {
             log.info(
                 logTag,
-                `(${ipx}) Skip[Dst1]: ${helper.pathShort(fileSrc)} (${helper.humanSize(entry.size)})`)
+                `(${ipx}) Skip[Dst1]: ${helper.pathShort(entry.path)} (${helper.humanSize(entry.size)})`)
             return false
         }
         if (await fs.pathExists(fileDstSameDir)) {
             log.info(
                 logTag,
-                `(${ipx}) Skip[Dst2]: ${helper.pathShort(fileSrc)} (${helper.humanSize(entry.size)})`)
+                `(${ipx}) Skip[Dst2]: ${helper.pathShort(entry.path)} (${helper.humanSize(entry.size)})`)
             return false
         }
         if (await fs.pathExists(fileDstTemp)) {
             await fs.remove(fileDstTemp)
         }
-        log.show(logTag, `(${ipx}) Task ${fileSrc}`, getEntryShowInfo(entry), chalk.yellow(entry.preset.name), helper.humanSize(entry.size), helper.humanTime(entry.startMs))
+        log.show(logTag, `(${ipx}) Task ${helper.pathShort(entry.path)}`, getEntryShowInfo(entry), chalk.yellow(entry.preset.name), helper.humanSize(entry.size), helper.humanTime(entry.startMs))
         log.info(logTag, `(${ipx}) Task DST:${fileDst}`)
         // log.show(logTag, `Entry(${ipx})`, entry)
         const newEntry = {
@@ -497,7 +531,7 @@ async function prepareFFmpegCmd(entry) {
         // log.info(logTag, 'ffmpeg', ffmpegArgs.join(' '))
         return newEntry
     } catch (error) {
-        log.warn(logTag, `(${ipx}) Skip[Error]: ${fileSrc}`, error)
+        log.warn(logTag, `(${ipx}) Skip[Error]: ${entry.path}`, error)
     }
 }
 
@@ -811,7 +845,7 @@ const AAC_BASE = new Preset('aac_base', {
     intro: 'aac|libfdk_aac',
     prefix: '',
     suffix: '',
-    suffix: '_{audioBitrate}k',
+    suffix: '_{preset}',
     description: 'AAC_BASE',
     videoArgs: '',
     // 音频参数说明
@@ -863,11 +897,19 @@ function initializePresets() {
         dimension: 1920
     })
 
-    const PRESET_HEVC_LOW = Preset.fromPreset(HEVC_BASE).update({
-        name: 'hevc_low',
+    const PRESET_HEVC_MEDIUM = Preset.fromPreset(HEVC_BASE).update({
+        name: 'hevc_medium',
         videoQuality: 26,
         videoBitrate: 2048,
         audioBitrate: 128,
+        dimension: 1920
+    })
+
+    const PRESET_HEVC_LOW = Preset.fromPreset(HEVC_BASE).update({
+        name: 'hevc_low',
+        videoQuality: 26,
+        videoBitrate: 1536,
+        audioBitrate: 96,
         dimension: 1920
     })
 
@@ -893,8 +935,10 @@ function initializePresets() {
         PRESET_HEVC_ULTRA: PRESET_HEVC_ULTRA,
         //4k高码率和质量
         PRESET_HEVC_4K: PRESET_HEVC_4K,
-        //2K高码率和质量
+        // 2K高码率和质量
         PRESET_HEVC_2K: PRESET_HEVC_2K,
+        // 2K中码率和质量
+        PRESET_HEVC_MEDIUM: PRESET_HEVC_MEDIUM,
         // 2K低码率和质量
         PRESET_HEVC_LOW: PRESET_HEVC_LOW,
         // 极低画质和码率，适用于教程类视频

@@ -17,8 +17,10 @@ import pMap from 'p-map'
 import path from "path"
 import sharp from "sharp"
 import which from "which"
+import { asyncFilter } from '../lib/core.js'
 import * as log from '../lib/debug.js'
 import * as helper from '../lib/helper.js'
+
 // https://day.js.org/docs/zh-CN/display/format
 const DATE_FORMAT = 'YYYY-MM-DD HH:mm:ss.SSS Z'
 
@@ -309,4 +311,34 @@ export function cleanFileName(nameString, options = {}) {
     log.debug(`cleanFileName DST: [${nameStr}]`)
     // 确保是合法的文件名
     return helper.filenameSafe(nameStr)
+}
+
+const filenNamePredicate = (fpath, pattern) => {
+    const name = path.basename(fpath)
+    const rgx = new RegExp(pattern, "ui")
+    return name.includes(pattern) || rgx.test(name)
+}
+// 通用文件名过滤 = 扩展名规则 包含规则 排除规则
+// 仅匹配文件名，不包含路径
+export async function applyFileNameRules(fileEntries, argv) {
+    const logTag = chalk.green('NameRules')
+    log.show(logTag, `extensions="${argv.extensions || ''}",include="${argv.include || ''}",exclude="${argv.exclude || ''}"`)
+    const extensions = argv.extensions?.toLowerCase()
+    if (extensions?.length > 0 && !/\.[a-z0-9]{2,4}/.test(extensions)) {
+        // 有扩展名参数，但是参数错误，报错
+        throw new Error(`Invalid extensions argument: ${extensions}`)
+    }
+    if (extensions?.length > 0) {
+        fileEntries = fileEntries.filter(entry => extensions.includes(helper.pathExt(entry.name)))
+        log.show(logTag, `${fileEntries.length} entries left after filter by extensions`)
+    }
+    if (argv.include?.length > 0) {
+        // 处理include规则
+        fileEntries = await asyncFilter(fileEntries, x => filenNamePredicate(x.path, argv.include))
+    } else if (argv.exclude?.length > 0) {
+        // 处理exclude规则
+        fileEntries = await asyncFilter(fileEntries, x => !filenNamePredicate(x.path, argv.exclude))
+    }
+    log.show(logTag, `${fileEntries.length} entries left after include/exclude rules`)
+    return fileEntries
 }
