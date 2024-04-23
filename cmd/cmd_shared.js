@@ -313,32 +313,44 @@ export function cleanFileName(nameString, options = {}) {
     return helper.filenameSafe(nameStr)
 }
 
-const filenNamePredicate = (fpath, pattern) => {
+function filterFileNames(fpath, pattern, useRegex = false) {
     const name = path.basename(fpath)
-    const rgx = new RegExp(pattern, "ui")
-    return name.includes(pattern) || rgx.test(name)
+    if (useRegex) {
+        const rgx = new RegExp(pattern, "ui")
+        // log.show(name, pattern, rgx)
+        return name.includes(pattern) || rgx.test(name)
+    }
+    return name.includes(pattern)
 }
 // 通用文件名过滤 = 扩展名规则 包含规则 排除规则
 // 仅匹配文件名，不包含路径
 export async function applyFileNameRules(fileEntries, argv) {
+    const beforeCount = fileEntries.length
     const logTag = chalk.green('NameRules')
-    log.show(logTag, `extensions="${argv.extensions || ''}",include="${argv.include || ''}",exclude="${argv.exclude || ''}"`)
+    if (argv.extensions || argv.include || argv.exclude) {
+        log.show(logTag, `extensions="${argv.extensions || ''}", include="${argv.include || ''}", exclude="${argv.exclude || ''}"`)
+    }
     const extensions = argv.extensions?.toLowerCase()
-    if (extensions?.length > 0 && !/\.[a-z0-9]{2,4}/.test(extensions)) {
-        // 有扩展名参数，但是参数错误，报错
-        throw new Error(`Invalid extensions argument: ${extensions}`)
-    }
     if (extensions?.length > 0) {
+        if (!/\.[a-z0-9]{2,4}/.test(extensions)) {
+            // 有扩展名参数，但是参数错误，报错
+            throw new Error(`Invalid extensions argument: ${extensions}`)
+        }
         fileEntries = fileEntries.filter(entry => extensions.includes(helper.pathExt(entry.name)))
-        log.show(logTag, `${fileEntries.length} entries left after filter by extensions`)
+        log.info(logTag, `${fileEntries.length} entries left by extension rules`)
     }
-    if (argv.include?.length > 0) {
-        // 处理include规则
-        fileEntries = await asyncFilter(fileEntries, x => filenNamePredicate(x.path, argv.include))
-    } else if (argv.exclude?.length > 0) {
+    if (argv.exclude?.length > 0) {
         // 处理exclude规则
-        fileEntries = await asyncFilter(fileEntries, x => !filenNamePredicate(x.path, argv.exclude))
+        fileEntries = await asyncFilter(fileEntries, x => !filterFileNames(x.path, argv.exclude, argv.regex))
+        log.info(logTag, `${fileEntries.length} entries left by exclude rules`)
+    } else if (argv.include?.length > 0) {
+        // 处理include规则
+        fileEntries = await asyncFilter(fileEntries, x => filterFileNames(x.path, argv.include, argv.regex))
+        log.info(logTag, `${fileEntries.length} entries left by include rules`)
     }
-    log.show(logTag, `${fileEntries.length} entries left after include/exclude rules`)
+    const afterCount = fileEntries.length
+    if (beforeCount - afterCount > 0) {
+        log.show(logTag, `${beforeCount - afterCount} entries removed by include/exclude/extension rules`)
+    }
     return fileEntries
 }

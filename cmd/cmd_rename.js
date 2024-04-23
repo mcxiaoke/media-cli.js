@@ -101,11 +101,11 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             default: 'd,f',
             description: "special flag for replace operations",
         })
-        // 默认使用字符串模式替换，可启用正则模式替换
+        // 默认使用字符串模式，可启用正则模式
         .option("regex", {
             alias: 're',
             type: "boolean",
-            description: "replace filename by regex pattern",
+            description: "match filenames by regex pattern",
         })
         // 修复文件名乱码
         .option("fixenc", {
@@ -187,14 +187,10 @@ async function cmdRename(argv) {
         logTag, `Total ${fCount - tCount} files are skipped. (type=${type})`
     )
     if (tasks.length > 0) {
-        log.showGreen(
-            logTag,
-            `Total ${tasks.length} files ready to rename. (type=${type})`
+        log.showGreen(logTag, `Total ${tasks.length} files ready to rename. (type=${type})`
         )
     } else {
-        log.showYellow(
-            logTag,
-            `Nothing to do, abort. (type=${type})`)
+        log.showYellow(logTag, `Nothing to do, abort. (type=${type})`)
         return
     }
 

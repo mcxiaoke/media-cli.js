@@ -51,8 +51,15 @@ const builder = function addOptions(ya, helpOrVersionSet) {
         // 输出目录，默认输出文件与原文件同目录
         .option("output", {
             alias: "o",
-            describe: "Folder store ouput files, keep tree structure",
+            describe: "Folder store ouput files",
             type: "string",
+        })
+        // 保持源文件目录结构
+        .option("output-tree", {
+            alias: 'otree',
+            describe: "keep folder tree structure in output folder",
+            type: "boolean",
+            default: true,
         })
         // 正则，包含文件名规则
         .option("include", {
@@ -69,6 +76,12 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             default: '[SHANA]',
             description: "filename exclude pattern ",
         })
+        // 默认使用字符串模式，可启用正则模式
+        .option("regex", {
+            alias: 're',
+            type: "boolean",
+            description: "match filenames by regex pattern",
+        })
         // 需要处理的扩展名列表，默认为常见视频文件
         .option("extensions", {
             alias: "e",
@@ -80,6 +93,11 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             type: "choices",
             choices: PRESET_NAMES,
             describe: "convert preset args for ffmpeg command",
+        })
+        // 显示预设列表
+        .option("show-presets", {
+            type: "boolean",
+            description: "show presets details list",
         })
         // 强制解压，覆盖之前的文件
         .option('override', {
@@ -212,6 +230,13 @@ const builder = function addOptions(ya, helpOrVersionSet) {
 const handler = cmdConvert
 
 async function cmdConvert(argv) {
+    // 显示预设列表
+    if (argv.showPresets) {
+        for (const [key, value] of PRESET_MAP) {
+            log.show(key, core.pickTrueValues(value))
+        }
+        return
+    }
     const testMode = !argv.doit
     const logTag = chalk.green('FFConv')
     const root = path.resolve(argv.input)
@@ -220,17 +245,10 @@ async function cmdConvert(argv) {
     }
     let startMs = Date.now()
     log.show(logTag, `Input: ${root}`)
-    const extensions = argv.extensions?.toLowerCase()
-    if (extensions?.length > 0 && !/\.[a-z]{2,4}/.test(extensions)) {
-        // 有扩展名参数，但是参数错误，报错
-        throw new Error(`Invalid extensions argument: ${extensions}`)
-    }
-
     if (!argv.videoMode && !argv.audioMode) {
         // 没有指定模式，报错
         throw new Error(`No mode specified, please use --video-mode or --audio-mode`)
     }
-
     // 解析Preset，根据argv参数修改preset，返回对象
     const preset = preparePreset(argv)
     if (!testMode) {
@@ -238,7 +256,6 @@ async function cmdConvert(argv) {
         log.fileLog(`Argv: ${JSON.stringify(argv)}`, 'FFConv')
         log.fileLog(`Preset: ${JSON.stringify(preset)}`, 'FFConv')
     }
-
     // 只包含视频文件或音频文件
     let fileEntries = await mf.walk(root, {
         withFiles: true,
@@ -252,8 +269,8 @@ async function cmdConvert(argv) {
     if (!preset.name.includes('extract')) {
         // 过滤掉压缩过的文件 关键词 shana tmp m4a 
         fileEntries = fileEntries.filter(entry => !/tmp|\.m4a/i.test(entry.name))
-        log.show(logTag, `Total ${fileEntries.length} files left after exclude tmp|m4a filenames`)
     }
+    log.showYellow(logTag, `Total ${fileEntries.length} files left after filename rules.`)
     if (fileEntries.length === 0) {
         log.showYellow(logTag, 'No files left after rules, nothing to do.')
         return
@@ -270,6 +287,7 @@ async function cmdConvert(argv) {
             }
         ])
         if (!continueAnswer.yes) {
+            log.showYellow("Will do nothing, aborted by user.")
             return
         }
     }
@@ -294,7 +312,7 @@ async function cmdConvert(argv) {
             name: 'yes',
             default: false,
             message: chalk.bold.red(
-                `Please check above values, then press y/yes to continue.`
+                `Please check above values, press y/yes to continue.`
             )
         }
     ])
@@ -431,9 +449,23 @@ async function prepareFFmpegCmd(entry) {
     const isAudio = helper.isAudioFile(entry.path)
     const [srcDir, srcBase, srcExt] = helper.pathSplit(entry.path)
     const preset = entry.preset
+    const argv = entry.argv
     const dstExt = preset.format || srcExt
-    // 如果没有指定输出目录，直接输出在原文件同目录；否则使用指定输出目录
-    const fileDstDir = preset.output ? helper.pathRewrite(srcDir, preset.output) : path.resolve(srcDir)
+    let fileDstDir
+    // 命令行参数指定输出目录
+    if (preset.output) {
+        // 默认true 保留目录结构，可以防止文件名冲突
+        if (argv.ouputTree) {
+            // 如果要保持源文件目录结构
+            fileDstDir = helper.pathRewrite(srcDir, preset.output)
+        } else {
+            // 不保留源文件目录结构，则只保留源文件父目录
+            fileDstDir = path.join(preset.output, path.basename(srcDir))
+        }
+    } else {
+        // 如果没有指定输出目录，直接输出在原文件同目录
+        fileDstDir = path.resolve(srcDir)
+    }
     if (isAudio || preset.name === PRESET_AUDIO_EXTRACT.name) {
         // 不带后缀只改扩展名的m4a文件，如果存在也需要首先忽略
         // 可能是其它压缩工具生成的文件，不需要重复压缩
@@ -577,10 +609,13 @@ function createDstBaseName(entry) {
 function getEntryShowInfo(entry) {
     const ac = entry.info?.audio?.codec_name
     const vc = entry.info?.video?.codec_name
+    const duration = entry?.info?.audio?.duration
+        || entry?.info?.video?.duration
+        || entry?.info?.format?.duration || 0
     const showInfo = []
-    if (ac) showInfo.push(`audio|${ac}|${Math.round(entry.srcAudioBitrate / 1024)}K,${entry.dstAudioBitrate || entry.preset.audioBitrate}K`, getBestAudioBitrate(entry))
-    if (vc) showInfo.push(`video|${vc}|${Math.round(entry.srcVideoBitrate / 1024)}K,${entry.dstVideoBitrate || entry.preset.videoBitrate}K`, getBestVideoBitrate(entry))
-    return showInfo
+    if (ac) showInfo.push(`audio|${ac}|${Math.round(entry.srcAudioBitrate / 1024)}K=>${getBestAudioBitrate(entry)}K|${helper.humanDuration(duration * 1000, 0)}`)
+    if (vc) showInfo.push(`vido|${vc}|${Math.round(entry.srcVideoBitrate / 1024)}K=>${getBestVideoBitrate(entry)}K|${helper.humanDuration(duration * 1000, 0)}`,)
+    return showInfo.join(',')
 }
 
 // 读取单个音频文件的元数据
