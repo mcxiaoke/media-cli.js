@@ -28,6 +28,7 @@ import { applyFileNameRules } from './cmd_shared.js'
 
 const LOG_TAG = "FFConv"
 
+const HWACCEL_LIST = ['cpu', 'audo', 'd3d11', 'cuda', '']
 const PRESET_NAMES = []
 const PRESET_MAP = new Map()
 
@@ -37,8 +38,8 @@ const PRESET_MAP = new Map()
 
 
 export { aliases, builder, command, describe, handler }
-
-const command = "ffmpeg <input> [options]"
+// directories 表示额外输入文件，用于支持多个目录
+const command = "ffmpeg <input> [directories...]"
 const aliases = ["transcode", "aconv", "vconv", "avconv"]
 const describe = 'convert audio or video files using ffmpeg.'
 
@@ -60,7 +61,7 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             alias: 'otree',
             describe: "keep folder tree structure in output folder",
             type: "boolean",
-            default: false,
+            default: true,
         })
         // 正则，包含文件名规则
         .option("include", {
@@ -198,6 +199,12 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             describe: "Write error logs to file [json or text]",
             type: "string",
         })
+        // 硬件加速方式
+        .option("hwaccel", {
+            alias: "hw",
+            describe: "hardware acceleration for video decode and encode",
+            type: "string",
+        })
         // 并行操作限制，并发数，默认为 CPU 核心数
         .option("jobs", {
             alias: "j",
@@ -240,11 +247,26 @@ async function cmdConvert(argv) {
         log.fileLog(`Preset: ${JSON.stringify(preset)}`, 'FFConv')
     }
     // 首先找到所有的视频和音频文件
-    let fileEntries = await mf.walk(root, {
+    const walkOpts = {
         withFiles: true,
         needStats: true,
         entryFilter: (e) => e.isFile && helper.isMediaFile(e.name)
-    })
+    }
+    let fileEntries = await mf.walk(root, walkOpts)
+    // 处理额外目录参数
+    if (argv.directories?.length > 0) {
+        for (const dirName of argv.directories) {
+            const dirPath = path.resolve(dirName)
+            const st = await fs.stat(dirPath)
+            if (st.isDirectory()) {
+                const dirFiles = await mf.walk(dirPath, walkOpts)
+                if (dirFiles.length > 0) {
+                    log.show(logTag, `Add ${dirFiles.length} extra files from ${dirPath}`)
+                    fileEntries = fileEntries.concat(dirFiles)
+                }
+            }
+        }
+    }
     log.show(logTag, `Total ${fileEntries.length} files found [${preset.name}] (${helper.humanTime(startMs)})`)
     // 再根据preset过滤找到的文件
     if (preset.type === 'video' || preset.name === PRESET_AUDIO_EXTRACT.name) {
@@ -375,7 +397,6 @@ async function runFFmpegCmd(entry) {
     log.show(logTag, `(${ipx}) Processing ${helper.pathShort(entry.path, 72)}`, helper.humanTime(entry.startMs))
     log.showGray(logTag, getEntryShowInfo(entry), chalk.yellow(entry.preset.name), helper.humanSize(entry.size))
 
-
     log.showGray(logTag, 'ffmpeg', createFFmpegArgs(entry, true).join(' '))
     const exePath = await which("ffmpeg")
     if (entry.testMode) {
@@ -387,6 +408,7 @@ async function runFFmpegCmd(entry) {
     // 创建输出目录
     await fs.mkdirp(entry.fileDstDir)
     await fs.remove(entry.fileDstTemp)
+    const ffmpegStartMs = Date.now()
     try {
         // https://2ality.com/2022/07/nodejs-child-process.html
         // Windows下 { shell: true } 必须，否则报错
@@ -400,7 +422,7 @@ async function runFFmpegCmd(entry) {
             const dstSize = (await fs.stat(entry.fileDstTemp))?.size || 0
             if (dstSize > 20 * mf.FILE_SIZE_1K) {
                 await fs.move(entry.fileDstTemp, entry.fileDst)
-                log.showGreen(logTag, `(${ipx}) Done ${entry.fileDst}`, helper.humanSize(entry.size), chalk.cyan(`${Math.round(entry.srcAudioBitrate / 1024)}k:${Math.round(entry.srcVideoBitrate / 1024)}k`), chalk.yellow(entry.preset.name), helper.humanTime(entry.startMs))
+                log.showGreen(logTag, `(${ipx}) Done ${entry.fileDst}`, helper.humanSize(entry.size), chalk.cyan(`${Math.round(entry.srcAudioBitrate / 1024)}k:${Math.round(entry.srcVideoBitrate / 1024)}k`), chalk.yellow(entry.preset.name), helper.humanTime(ffmpegStartMs))
                 log.fileLog(`(${ipx}) Done <${entry.fileDst}> [${entry.preset.name}] (${helper.humanSize(dstSize)})`, 'FFCMD')
                 entry.ok = true
                 return entry
@@ -449,9 +471,9 @@ async function prepareFFmpegCmd(entry) {
     const dstExt = preset.format || srcExt
     let fileDstDir
     // 命令行参数指定输出目录
-    if (preset.output) {
+    if (argv.output) {
         // 默认true 保留目录结构，可以防止文件名冲突
-        if (argv.ouputTree) {
+        if (argv.outputTree) {
             // 如果要保持源文件目录结构
             fileDstDir = helper.pathRewrite(srcDir, preset.output)
         } else {
@@ -470,7 +492,7 @@ async function prepareFFmpegCmd(entry) {
         if (await fs.pathExists(fileDstNoSuffix)) {
             log.info(
                 logTag,
-                `(${ipx}) Skip[DstOut]: ${helper.pathShort(entry.path)} (${helper.humanSize(entry.size)})`)
+                `${ipx} Skip[DstOut]: ${helper.pathShort(entry.path)} (${helper.humanSize(entry.size)})`)
             return false
         }
         // 检查源文件同目录
@@ -478,7 +500,7 @@ async function prepareFFmpegCmd(entry) {
         if (await fs.pathExists(fileDstSameDirNoSuffix)) {
             log.info(
                 logTag,
-                `(${ipx}) Skip[DstSame]: ${helper.pathShort(entry.path)} (${helper.humanSize(entry.size)})`)
+                `${ipx} Skip[DstSame]: ${helper.pathShort(entry.path)} (${helper.humanSize(entry.size)})`)
             return false
         }
     }
@@ -489,8 +511,8 @@ async function prepareFFmpegCmd(entry) {
 
         // ffprobe无法读取时长和比特率，可以认为文件损坏，或不支持的格式，跳过
         if (!(entry.info?.format?.duration || entry.info?.format?.bit_rate)) {
-            log.showYellow('Prepare', `(${ipx}) Skip[Corrupted]: ${entry.path} (${helper.humanSize(entry.size)})`)
-            log.fileLog(`(${ipx}) Skip[Corrupted]: <${entry.path}> (${helper.humanSize(entry.size)})`, 'Prepare')
+            log.showYellow(logTag, `${ipx} Skip[Corrupted]: ${entry.path} (${helper.humanSize(entry.size)})`)
+            log.fileLog(`${ipx} Skip[Corrupted]: <${entry.path}> (${helper.humanSize(entry.size)})`, 'Prepare')
             return false
         }
         const audioCodec = entry.info?.audio?.codec_name
@@ -508,8 +530,8 @@ async function prepareFFmpegCmd(entry) {
                 // 可以读取码率，文件未损坏
             } else {
                 // 如果无法获取元数据，认为不是合法的音频或视频文件，忽略
-                log.showYellow('Prepare', `(${ipx}) Skip[Invalid]: ${entry.path} (${helper.humanSize(entry.size)})`)
-                log.fileLog(`(${ipx}) Skip[Invalid]: <${entry.path}> (${helper.humanSize(entry.size)})`, 'Prepare')
+                log.showYellow(logTag, `${ipx} Skip[Invalid]: ${entry.path} (${helper.humanSize(entry.size)})`)
+                log.fileLog(`${ipx} Skip[Invalid]: <${entry.path}> (${helper.humanSize(entry.size)})`, 'Prepare')
                 return false
             }
         }
@@ -523,14 +545,14 @@ async function prepareFFmpegCmd(entry) {
         log.info(logTag, entry.path, mediaBitrate)
         // 如果转换目标是音频，但是源文件不含音频流，忽略
         if (entry.preset.type === 'audio' && !audioCodec) {
-            log.showYellow('Prepare', `(${ipx}) Skip[NoAudio]: ${entry.path}`, getEntryShowInfo(entry), helper.humanSize(entry.size))
-            log.fileLog(`(${ipx}) Skip[NoAudio]: <${entry.path}> (${helper.humanSize(entry.size)})`, 'Prepare')
+            log.showYellow(logTag, `${ipx} Skip[NoAudio]: ${entry.path}`, getEntryShowInfo(entry), helper.humanSize(entry.size))
+            log.fileLog(`${ipx} Skip[NoAudio]: <${entry.path}> (${helper.humanSize(entry.size)})`, 'Prepare')
             return false
         }
         // 如果转换目标是视频，但是源文件不含视频流，忽略
         if (entry.preset.type === 'video' && !videoCodec) {
-            log.showYellow('Prepare', `(${ipx}) Skip[NoVideo]: ${entry.path}`, getEntryShowInfo(entry), helper.humanSize(entry.size))
-            log.fileLog(`(${ipx}) Skip[NoVideo]: <${entry.path}> (${helper.humanSize(entry.size)})`, 'Prepare')
+            log.showYellow(logTag, `${ipx} Skip[NoVideo]: ${entry.path}`, getEntryShowInfo(entry), helper.humanSize(entry.size))
+            log.fileLog(`${ipx} Skip[NoVideo]: <${entry.path}> (${helper.humanSize(entry.size)})`, 'Prepare')
             return false
         }
         // 输出文件名基本名，含前后缀，不含扩展名
@@ -545,21 +567,21 @@ async function prepareFFmpegCmd(entry) {
         if (await fs.pathExists(fileDst)) {
             log.info(
                 logTag,
-                `(${ipx}) Skip[Dst1]: ${helper.pathShort(entry.path)} (${helper.humanSize(entry.size)})`)
+                `${ipx} Skip[Dst1]: ${helper.pathShort(entry.path)} (${helper.humanSize(entry.size)})`)
             return false
         }
         if (await fs.pathExists(fileDstSameDir)) {
             log.info(
                 logTag,
-                `(${ipx}) Skip[Dst2]: ${helper.pathShort(entry.path)} (${helper.humanSize(entry.size)})`)
+                `${ipx} Skip[Dst2]: ${helper.pathShort(entry.path)} (${helper.humanSize(entry.size)})`)
             return false
         }
         if (await fs.pathExists(fileDstTemp)) {
             await fs.remove(fileDstTemp)
         }
-        log.show(logTag, `(${ipx}) Task ${helper.pathShort(entry.path, 72)}`, helper.humanTime(entry.startMs))
-        log.showGray(logTag, getEntryShowInfo(entry), chalk.yellow(entry.preset.name), helper.humanSize(entry.size))
-        log.info(logTag, `(${ipx}) Task DST:${fileDst}`)
+        log.show(logTag, `${ipx} TaskSRC: ${helper.pathShort(entry.path, 72)}`, helper.humanTime(entry.startMs))
+        log.showGray(logTag, `${ipx} TaskDST:`, `${fileDst}`)
+        log.showGray(logTag, `${ipx} Streams:`, getEntryShowInfo(entry), chalk.yellow(entry.preset.name), helper.humanSize(entry.size))
         // log.show(logTag, `Entry(${ipx})`, entry)
         const newEntry = {
             ...entry,
@@ -572,7 +594,7 @@ async function prepareFFmpegCmd(entry) {
         // log.info(logTag, 'ffmpeg', ffmpegArgs.join(' '))
         return newEntry
     } catch (error) {
-        log.warn(logTag, `(${ipx}) Skip[Error]: ${entry.path}`, error)
+        log.warn(logTag, `${ipx} Skip[Error]: ${entry.path}`, error)
     }
 }
 
@@ -723,10 +745,21 @@ function createFFmpegArgs(entry, forDisplay = false) {
         audioBitrate: getBestAudioBitrate(entry),
         audioQuality: getBestAudioQuality(entry)
     }
+    // 几种ffmpeg参数设置的时间和功耗
+    // ffmpeg -hide_banner -n -v error -stats -i 
+    // 32s 110w
+    // ffmpeg -hide_banner -n -v error -stats -hwaccel auto -i
+    // 34s 56w
+    // ffmpeg -hide_banner -n -v error -stats  -hwaccel d3d11va -hwaccel_output_format d3d11 
+    // 27s 45w rm格式死机蓝屏
+    // ffmpeg -hide_banner -n -v error -stats -hwaccel cuda -hwaccel_output_format cuda 
+    // 27s 41w
+    // ffmpeg -hide_banner -n -v error -stats -hwaccel cuda -i
+    // 31s 60w
     // 显示详细信息
     // let args = "-hide_banner -n -loglevel repeat+level+info -stats".split(" ")
     // 只显示进度和错误
-    let args = "-hide_banner -n -v error -stats".split(" ")
+    let args = "-hide_banner -n -v error -stats -hwaccel cuda -hwaccel_output_format cuda".split(" ")
     // 输入参数在输入文件前面，顺序重要
     if (preset.inputArgs?.length > 0) {
         args = args.concat(this.preset.inputArgs.split(' '))
@@ -911,7 +944,9 @@ const HEVC_BASE = new Preset('hevc-base', {
     streamArgs: '-map_metadata 0 -map_metadata:s:v 0:s:v',
     // 快速读取和播放
     outputArgs: '-movflags +faststart -movflags use_metadata_tags',
-    filters: "scale='if(gte(iw,ih),min({dimension},iw),-2)':'if(lt(iw,ih),min({dimension},ih),-2)'",
+    // todo fixme cuda不支持，暂时注释掉，需要修改
+    // todo 缩放使用JS计算设置宽高，不适用filter，避免硬件加速不支持filter
+    // filters: "scale='if(gte(iw,ih),min({dimension},iw),-2)':'if(lt(iw,ih),min({dimension},ih),-2)'",
     complexFilter: '',
 })
 
