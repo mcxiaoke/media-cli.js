@@ -24,6 +24,7 @@ import * as enc from '../lib/encoding.js'
 import { getMediaInfo } from '../lib/ffprobe.js'
 import * as mf from '../lib/file.js'
 import * as helper from '../lib/helper.js'
+import { FFMPEG_BINARY } from '../lib/shared.js'
 import { applyFileNameRules } from './cmd_shared.js'
 
 const LOG_TAG = "FFConv"
@@ -255,8 +256,8 @@ async function cmdConvert(argv) {
     let fileEntries = await mf.walk(root, walkOpts)
     // 处理额外目录参数
     if (argv.directories?.length > 0) {
-        for (const dirName of argv.directories) {
-            const dirPath = path.resolve(dirName)
+        const extraDirs = new Set(argv.directories.map(d => path.resolve(d)))
+        for (const dirPath of extraDirs) {
             const st = await fs.stat(dirPath)
             if (st.isDirectory()) {
                 const dirFiles = await mf.walk(dirPath, walkOpts)
@@ -267,6 +268,8 @@ async function cmdConvert(argv) {
             }
         }
     }
+    // 根据完整路径去重
+    fileEntries = core.uniqueByFields(fileEntries, 'path')
     log.show(logTag, `Total ${fileEntries.length} files found [${preset.name}] (${helper.humanTime(startMs)})`)
     // 再根据preset过滤找到的文件
     if (preset.type === 'video' || preset.name === PRESET_AUDIO_EXTRACT.name) {
@@ -390,15 +393,15 @@ function fixEncoding(str = '') {
 }
 
 async function runFFmpegCmd(entry) {
-    const ipx = `${entry.index}/${entry.total}`
+    const ipx = `${entry.index + 1}/${entry.total}`
     const logTag = chalk.green('FFCMD')
     const ffmpegArgs = entry.ffmpegArgs
 
-    log.show(logTag, `(${ipx}) Processing ${helper.pathShort(entry.path, 72)}`, helper.humanTime(entry.startMs))
+    log.show(logTag, `(${ipx}) Processing ${helper.pathShort(entry.path, 72)}`, chalk.yellow(getDurationInfo(entry)), helper.humanTime(entry.startMs))
     log.showGray(logTag, getEntryShowInfo(entry), chalk.yellow(entry.preset.name), helper.humanSize(entry.size))
 
     log.showGray(logTag, 'ffmpeg', createFFmpegArgs(entry, true).join(' '))
-    const exePath = await which("ffmpeg")
+    const exePath = await which(FFMPEG_BINARY)
     if (entry.testMode) {
         // 测试模式跳过
         log.show(logTag, `(${ipx}) Skipped ${entry.path} (${helper.humanSize(entry.size)}) [TestMode]`)
@@ -462,7 +465,7 @@ async function writeErrorFile(entry, error) {
 
 async function prepareFFmpegCmd(entry) {
     const logTag = chalk.green('Prepare')
-    const ipx = `${entry.index}/${entry.total}`
+    const ipx = `${entry.index + 1}/${entry.total}`
     log.info(logTag, `Processing(${ipx}) file: ${entry.path}`)
     const isAudio = helper.isAudioFile(entry.path)
     const [srcDir, srcBase, srcExt] = helper.pathSplit(entry.path)
@@ -580,7 +583,7 @@ async function prepareFFmpegCmd(entry) {
             await fs.remove(fileDstTemp)
         }
         log.show(logTag, `${ipx} TaskSRC: ${helper.pathShort(entry.path, 72)}`, helper.humanTime(entry.startMs))
-        log.showGray(logTag, `${ipx} TaskDST:`, `${fileDst}`)
+        log.info(logTag, `${ipx} TaskDST:`, `${fileDst}`)
         log.showGray(logTag, `${ipx} Streams:`, getEntryShowInfo(entry), chalk.yellow(entry.preset.name), helper.humanSize(entry.size))
         // log.show(logTag, `Entry(${ipx})`, entry)
         const newEntry = {
@@ -631,6 +634,10 @@ function getEntryShowInfo(entry) {
     if (ac) showInfo.push(`audio|${ac}|${Math.round(entry.srcAudioBitrate / 1024)}K=>${getBestAudioBitrate(entry)}K|${helper.humanDuration(duration * 1000)}`)
     if (vc) showInfo.push(`video|${vc}|${Math.round(entry.srcVideoBitrate / 1024)}K=>${getBestVideoBitrate(entry)}K|${helper.humanDuration(duration * 1000)}`,)
     return showInfo.join(', ')
+}
+
+function getDurationInfo(entry) {
+    return helper.humanDuration((entry?.info?.audio?.duration || entry?.info?.video?.duration || entry?.info?.format?.duration || 0) * 1000)
 }
 
 // 读取单个音频文件的元数据
