@@ -25,14 +25,14 @@ import { getMediaInfo } from '../lib/ffprobe.js'
 import * as mf from '../lib/file.js'
 import * as helper from '../lib/helper.js'
 import { FFMPEG_BINARY } from '../lib/shared.js'
-import { applyFileNameRules } from './cmd_shared.js'
+import { addEntryProps, applyFileNameRules } from './cmd_shared.js'
 
 const LOG_TAG = "FFConv"
 
 const HWACCEL_LIST = ['cpu', 'audo', 'd3d11', 'cuda', '']
 const PRESET_NAMES = []
 const PRESET_MAP = new Map()
-
+const PREFIX_MEDIAC = "[SHANA] "
 // ===========================================
 // 命令内容执行
 // ===========================================
@@ -72,17 +72,18 @@ const builder = function addOptions(ya, helpOrVersionSet) {
         })
         //字符串或正则，不包含文件名规则
         // 如果是正则的话需要转义
-        // 默认排除 [SHANA] 开头的文件
+        // 默认排除含shana的文件和.m4a文件
         .option("exclude", {
             alias: "E",
             type: "string",
-            default: '[SHANA]',
+            default: 'shana|.m4a',
             description: "filename exclude pattern ",
         })
-        // 默认使用字符串模式，可启用正则模式
+        // 默认启用正则模式，禁用则为字符串模式
         .option("regex", {
             alias: 're',
             type: "boolean",
+            default: true,
             description: "match filenames by regex pattern",
         })
         // 需要处理的扩展名列表，默认为常见视频文件
@@ -310,14 +311,15 @@ async function cmdConvert(argv) {
         }
     }
     startMs = Date.now()
-    fileEntries = fileEntries.map((f, i) => {
+    addEntryProps(fileEntries)
+    fileEntries = fileEntries.map((entry, index) => {
         return {
-            ...f,
+            ...entry,
             argv,
             preset,
-            startMs: startMs,
-            index: i,
-            total: fileEntries.length,
+            // startMs: startMs,
+            // index: index,
+            // total: fileEntries.length,
             errorFile: argv.errorFile,
             testMode: testMode
         }
@@ -373,11 +375,7 @@ async function cmdConvert(argv) {
     }
     // 记录开始时间
     startMs = Date.now()
-    tasks.forEach((t, i) => {
-        t.startMs = startMs
-        t.index = i
-        t.total = tasks.length
-    })
+    addEntryProps(tasks)
     // 先写入一次LOG
     await log.flushFileLog()
     // 并发数视频1，音频4，或者参数指定
@@ -397,14 +395,14 @@ async function runFFmpegCmd(entry) {
     const logTag = chalk.green('FFCMD')
     const ffmpegArgs = entry.ffmpegArgs
 
-    log.show(logTag, `(${ipx}) Processing ${helper.pathShort(entry.path, 72)}`, chalk.yellow(getDurationInfo(entry)), helper.humanTime(entry.startMs))
+    log.show(logTag, `${ipx} Processing ${helper.pathShort(entry.path, 72)}`, helper.humanSize(entry.size), chalk.yellow(getDurationInfo(entry)), helper.humanTime(entry.startMs))
     log.showGray(logTag, getEntryShowInfo(entry), chalk.yellow(entry.preset.name), helper.humanSize(entry.size))
 
     log.showGray(logTag, 'ffmpeg', createFFmpegArgs(entry, true).join(' '))
     const exePath = await which(FFMPEG_BINARY)
     if (entry.testMode) {
         // 测试模式跳过
-        log.show(logTag, `(${ipx}) Skipped ${entry.path} (${helper.humanSize(entry.size)}) [TestMode]`)
+        log.show(logTag, `${ipx} Skipped ${entry.path} (${helper.humanSize(entry.size)}) [TestMode]`)
         return
     }
 
@@ -421,22 +419,27 @@ async function runFFmpegCmd(entry) {
         const { stdout, stderr } = await ffmpegProcess
         // const stdoutFixed = fixEncoding(stdout || "")
         // const stderrFixed = fixEncoding(stderr || "")
+        if (await fs.pathExists(entry.fileDst)) {
+            log.showYellow(logTag, `${ipx} DstExists ${entry.fileDst}`, helper.humanSize(entry.size), chalk.yellow(entry.preset.name), helper.humanTime(ffmpegStartMs))
+            await fs.remove(entry.fileDstTemp)
+            return
+        }
         if (await fs.pathExists(entry.fileDstTemp)) {
             const dstSize = (await fs.stat(entry.fileDstTemp))?.size || 0
             if (dstSize > 20 * mf.FILE_SIZE_1K) {
                 await fs.move(entry.fileDstTemp, entry.fileDst)
-                log.showGreen(logTag, `(${ipx}) Done ${entry.fileDst}`, helper.humanSize(entry.size), chalk.cyan(`${Math.round(entry.srcAudioBitrate / 1024)}k:${Math.round(entry.srcVideoBitrate / 1024)}k`), chalk.yellow(entry.preset.name), helper.humanTime(ffmpegStartMs))
-                log.fileLog(`(${ipx}) Done <${entry.fileDst}> [${entry.preset.name}] (${helper.humanSize(dstSize)})`, 'FFCMD')
+                log.showGreen(logTag, `${ipx} Done ${entry.fileDst}`, chalk.cyan(`${helper.humanSize(entry.size)}=>${helper.humanSize(dstSize)}`), chalk.yellow(entry.preset.name), helper.humanTime(ffmpegStartMs))
+                log.fileLog(`${ipx} Done <${entry.fileDst}> [${entry.preset.name}] (${helper.humanSize(dstSize)})`, 'FFCMD')
                 entry.ok = true
                 return entry
             } else {
                 // 转换失败，删除临时文件
             }
         }
-        log.showYellow(logTag, `Failed(${ipx}) ${entry.path}`, entry.preset.name, helper.humanSize(dstSize))
-        log.fileLog(`Failed(${ipx}) <${entry.path}> [${entry.dstAudioBitrate || entry.preset.name}]`, 'FFCMD')
+        log.showYellow(logTag, `${ipx} Failed ${entry.path}`, entry.preset.name, helper.humanSize(dstSize))
+        log.fileLog(`${ipx} Failed <${entry.path}> [${entry.dstAudioBitrate || entry.preset.name}]`, 'FFCMD')
     } catch (error) {
-        const errMsg = error.stderr || error.message?.substring(0, 240) || '[ERROR]'
+        const errMsg = (error.stderr || error.message || '[Unknown]').substring(0, 240)
         log.showRed(logTag, `Error(${ipx}) ${errMsg}`)
         log.fileLog(`Error(${ipx}) <${entry.path}> [${entry.preset.name}] ${errMsg}`, 'FFCMD')
         await writeErrorFile(entry, error)
@@ -491,21 +494,21 @@ async function prepareFFmpegCmd(entry) {
         // 不带后缀只改扩展名的m4a文件，如果存在也需要首先忽略
         // 可能是其它压缩工具生成的文件，不需要重复压缩
         // 检查输出目录
-        const fileDstNoSuffix = path.join(fileDstDir, `${srcBase}${dstExt}`)
-        if (await fs.pathExists(fileDstNoSuffix)) {
-            log.info(
-                logTag,
-                `${ipx} Skip[DstOut]: ${helper.pathShort(entry.path)} (${helper.humanSize(entry.size)})`)
-            return false
-        }
+        // const fileDstNoSuffix = path.join(fileDstDir, `${srcBase}${dstExt}`)
+        // if (await fs.pathExists(fileDstNoSuffix)) {
+        //     log.info(
+        //         logTag,
+        //         `${ipx} Skip[DstM4A]: ${helper.pathShort(entry.path)} (${helper.humanSize(entry.size)})`)
+        //     return false
+        // }
         // 检查源文件同目录
-        const fileDstSameDirNoSuffix = path.join(srcDir, `${srcBase}${dstExt}`)
-        if (await fs.pathExists(fileDstSameDirNoSuffix)) {
-            log.info(
-                logTag,
-                `${ipx} Skip[DstSame]: ${helper.pathShort(entry.path)} (${helper.humanSize(entry.size)})`)
-            return false
-        }
+        // const fileDstSameDirNoSuffix = path.join(srcDir, `${srcBase}${dstExt}`)
+        // if (await fs.pathExists(fileDstSameDirNoSuffix)) {
+        //     log.info(
+        //         logTag,
+        //         `${ipx} Skip[DstSame]: ${helper.pathShort(entry.path)} (${helper.humanSize(entry.size)})`)
+        //     return false
+        // }
     }
     try {
         // 使用ffprobe读取媒体信息，速度较慢
@@ -677,9 +680,11 @@ function calculateBitrate(entry) {
     // 这个是文件整体码率，如果是是视频文件，等于是视频和音频的码率相加
     const fileBitrate = entry.info?.format?.bit_rate || 0
     let srcAudioBitrate = 0
+    let dstAudioBitrate = 0
     let srcVideoBitrate = 0
     let dstVideoBitrate = 0
     if (helper.isAudioFile(entry.path)) {
+        // 对于音频文件，音频格式转换
         if (entry.format?.lossless || helper.isAudioLossless(entry.path)) {
             // 无损音频，设置默认值
             srcAudioBitrate = srcAudioBitrate > 320 ? srcAudioBitrate : 999 * 1024
@@ -688,25 +693,35 @@ function calculateBitrate(entry) {
         srcAudioBitrate = entry.format?.bitrate
             || entry.info?.audio?.bit_rate
             || fileBitrate || 0
+        // 有的文件无法获取音频码率，如opus，此时srcAudioBitrate=0
+        // opus用于极低码率音频，此时 dstAudioBitrate=48 可以接受
+        dstAudioBitrate = bitrateMap.find(br => srcAudioBitrate > br.threshold)?.value || 48
+        // 忽略计算结果，直接使用预设数值
+        if (!entry.preset.smartBitrate) {
+            dstAudioBitrate = entry.preset.audioBitrate
+        }
     } else {
-        // video file
+        // 对于视频文件
+        // 计算码率原则
+        // 计算出的音频码率不高于源文件的音频码率
+        // 计算出的音频码率不高于预设指定的码率
         srcAudioBitrate = entry.info?.audio?.bit_rate || 0
+        dstAudioBitrate = Math.min(Math.round(srcAudioBitrate / 1024), entry.preset.audioBitrate)
+
+        // 计算出的视频码率不高于源文件的视频码率
         // 减去音频的码率，估算为48k
         srcVideoBitrate = entry.info?.video?.bit_rate
             || fileBitrate - 48 * 1024 || 0
         // 压缩后的视频比特率不能高于源文件比特率
-        if (entry.preset.videoBitrate * 1024 > srcVideoBitrate) {
-            dstVideoBitrate = Math.round(srcVideoBitrate / 1024)
-        } else {
+        dstVideoBitrate = Math.min(Math.round(srcVideoBitrate / 1024), entry.preset.videoBitrate)
+        // 忽略计算结果，直接使用预设数值
+        if (!entry.preset.smartBitrate) {
+            dstAudioBitrate = entry.preset.audioBitrate
             dstVideoBitrate = entry.preset.videoBitrate
         }
     }
-    // 有的文件无法获取音频码率，如opus，此时srcAudioBitrate=0
-    // opus用于极低码率音频，此时 dstAudioBitrate=48 可以接受
-    const dstAudioBitrate = bitrateMap.find(br => srcAudioBitrate > br.threshold)?.value || 48
-    const result = { srcAudioBitrate, dstAudioBitrate, srcVideoBitrate, dstVideoBitrate }
-    // log.showRed(entry.path, result)
-    return result
+
+    return { srcAudioBitrate, dstAudioBitrate, srcVideoBitrate, dstVideoBitrate }
 }
 
 // 选择最佳视频码率
@@ -750,7 +765,9 @@ function createFFmpegArgs(entry, forDisplay = false) {
         videoBitrate: getBestVideoBitrate(entry),
         videoQuality: getBestVideoQuality(entry),
         audioBitrate: getBestAudioBitrate(entry),
-        audioQuality: getBestAudioQuality(entry)
+        audioQuality: getBestAudioQuality(entry),
+        srcAudioBitrate: entry.srcAudioBitrate,
+        srcVideoBitrate: entry.srcVideoBitrate
     }
     // 几种ffmpeg参数设置的时间和功耗
     // ffmpeg -hide_banner -n -v error -stats -i 
@@ -766,7 +783,12 @@ function createFFmpegArgs(entry, forDisplay = false) {
     // 显示详细信息
     // let args = "-hide_banner -n -loglevel repeat+level+info -stats".split(" ")
     // 只显示进度和错误
-    let args = "-hide_banner -n -v error -stats -hwaccel cuda -hwaccel_output_format cuda".split(" ")
+    let args = "-hide_banner -n -v error".split(" ")
+    // 输出视频时才需要cuda加速，音频用cpu就行
+    if (preset.type === 'video') {
+        // -hwaccel cuda -hwaccel_output_format cuda
+        args = args.concat(["-stats", "-hwaccel", "cuda", "-hwaccel_output_format", "cuda"])
+    }
     // 输入参数在输入文件前面，顺序重要
     if (preset.inputArgs?.length > 0) {
         args = args.concat(this.preset.inputArgs.split(' '))
@@ -824,9 +846,11 @@ function createFFmpegArgs(entry, forDisplay = false) {
         // 验证 非空值，无乱码，值为字符串或数字
         const validTags = core.filterFields(entry.tags, (key, value) => {
             return KEY_LIST.includes(key)
-                && !enc.hasBadCJKChar(value)
+                && Boolean(value)
                 && ((typeof value === 'string' && value.length > 0)
                     || typeof value === 'number')
+                && !enc.hasBadCJKChar(value)
+                && !enc.hasBadUnicode(value)
         })
         extraArgsArray = extraArgsArray.concat(...Object.entries(validTags)
             .map(([key, value]) => [`-metadata`, `${key}="${value}"`]))
@@ -861,6 +885,7 @@ class Preset {
     constructor(name, {
         format,
         type,
+        smartBitrate,
         prefix,
         suffix,
         videoArgs,
@@ -882,6 +907,7 @@ class Preset {
         this.name = name
         this.format = format
         this.type = type
+        this.smartBitrate = smartBitrate
         this.prefix = prefix
         this.suffix = suffix
         this.videoArgs = videoArgs
@@ -935,8 +961,9 @@ class Preset {
 const HEVC_BASE = new Preset('hevc-base', {
     format: '.mp4',
     type: 'video',
+    smartBitrate: true,
     intro: 'hevc|hevc_nvenc|libfdk_aac',
-    prefix: '[SHANA] ',
+    prefix: PREFIX_MEDIAC,
     suffix: '_{preset}_{videoBitrate}k',
     description: 'HEVC_BASE',
     // 视频参数说明
@@ -957,29 +984,47 @@ const HEVC_BASE = new Preset('hevc-base', {
     complexFilter: '',
 })
 
-// 音频AAC基础参数
-const AAC_BASE = new Preset('aac_base', {
+// 音频AAC CBR基础参数
+const AAC_CBR_BASE = new Preset('aac_cbr_base', {
     format: '.m4a',
     type: 'audio',
-    intro: 'aac|libfdk_aac',
-    prefix: '',
+    smartBitrate: true,
+    intro: 'aac_cbr|libfdk_aac',
+    prefix: PREFIX_MEDIAC,
     suffix: '_{preset}_{audioBitrate}k',
-    description: 'AAC_BASE',
+    description: 'AAC_CBR_BASE',
     videoArgs: '',
     // 音频参数说明
     // audio_codec block '-c:a libfdk_aac'
     // audio_quality block '-b:a {bitrate}'
     audioArgs: '-map 0:a -c:a libfdk_aac -b:a {audioBitrate}k',
     inputArgs: '',
-    streamArgs: '-map_metadata 0 -map_metadata:s:a 0:s:a',
+    streamArgs: '-vn -map_metadata 0 -map_metadata:s:a 0:s:a',
     outputArgs: '-movflags +faststart -movflags use_metadata_tags',
 })
 
+// 音频AAC VBR基础参数
+const AAC_VBR_BASE = new Preset('aac_vbr_base', {
+    format: '.m4a',
+    type: 'audio',
+    smartBitrate: false,
+    intro: 'aac_vbr|libfdk_aac',
+    prefix: PREFIX_MEDIAC,
+    suffix: '_{preset}_q{audioQuality}',
+    description: 'AAC_VBR_BASE',
+    videoArgs: '',
+    audioArgs: '-map 0:a -c:a libfdk_aac -vbr {audioQuality}',
+    inputArgs: '',
+    streamArgs: '-vn -map_metadata 0 -map_metadata:s:a 0:s:a',
+    outputArgs: '-movflags +faststart -movflags use_metadata_tags',
+})
 
-const PRESET_AUDIO_EXTRACT = Preset.fromPreset(AAC_BASE).update({
+// 从视频中提取音频，音频参数，音频码率自适应
+const PRESET_AUDIO_EXTRACT = Preset.fromPreset(AAC_CBR_BASE).update({
     name: 'audio_extract',
     intro: 'aac|extract',
     audioArgs: '-c:a copy',
+    // -vn 参数，忽略视频流，还可以避免cover被当作视频流
     streamArgs: '-vn -map 0:a:0 -map_metadata 0 -map_metadata:s:a 0:s:a'
 })
 
@@ -1027,6 +1072,7 @@ function initializePresets() {
 
     const PRESET_HEVC_LOWEST = Preset.fromPreset(HEVC_BASE).update({
         name: 'hevc_lowest',
+        autoBitrate: false,
         videoQuality: 26,
         videoBitrate: 512,
         audioBitrate: 48,
@@ -1035,11 +1081,51 @@ function initializePresets() {
         // 音频参数说明
         // audio_codec block '-c:a libfdk_aac -profile:a aac_he'
         // audio_quality block '-b:a 48k'
-        audioArgs: '-c:a libfdk_aac -profile:a aac_he -b:a {audioBitrate}k',
+        audioArgs: '-c:a libfdk_aac -profile:a aac_he -vbr {audioQuality} -b:a {audioBitrate}k',
         // filters 和 complexFilter 不能共存，此预设使用 complexFilter
         filters: '',
         // 这里单引号必须，否则逗号需要转义，Windows太多坑
         complexFilter: "[0:v]setpts=PTS/{speed},scale='if(gt(iw,1280),min(1280,iw),-2)':'if(gt(ih,1280),min(1280,ih),-2)'[v];[0:a]atempo={speed}[a]"
+    })
+
+
+    //音频AAC最高码率
+    const PRESET_AAC_HIGH = Preset.fromPreset(AAC_CBR_BASE).update({
+        name: 'aac_high',
+        audioBitrate: 320,
+    })
+    //音频AAC中码率
+    const PRESET_AAC_MEDIUM = Preset.fromPreset(AAC_CBR_BASE).update({
+        name: 'aac_medium',
+        audioBitrate: 192,
+    })
+    // 音频AAC低码率
+    const PRESET_AAC_LOW = Preset.fromPreset(AAC_CBR_BASE).update({
+        name: 'aac_low',
+        audioBitrate: 128,
+    })
+
+    // 使用AAC_HE编码器，可指定码率和质量，默认VBR1
+    const PRESET_AAC_HE = Preset.fromPreset(AAC_CBR_BASE).update({
+        name: 'aac_he',
+        smartBitrate: false,
+        audioQuality: 2,
+        audioBitrate: 80,
+        audioArgs: '-c:a libfdk_aac -profile:a aac_he -vbr {audioQuality} -b:a {audioBitrate}k',
+    })
+
+    // VBR模式，忽略码率
+    const PRESET_AAC_VBR = Preset.fromPreset(AAC_VBR_BASE).update({
+        name: 'aac_vbr',
+        audioQuality: 4,
+    })
+
+    // 音频AAC极低码率，适用人声
+    const PRESET_AAC_VOICE = Preset.fromPreset(AAC_CBR_BASE).update({
+        name: 'aac_voice',
+        smartBitrate: false,
+        audioBitrate: 48,
+        audioArgs: '-c:a libfdk_aac -profile:a aac_he -vbr {audioQuality} -b:a {audioBitrate}k',
     })
 
     const presets = {
@@ -1058,26 +1144,17 @@ function initializePresets() {
         // 提取视频中的音频，复制或转换为AAC格式
         PRESET_AUDIO_EXTRACT: PRESET_AUDIO_EXTRACT,
         //音频AAC最高码率
-        PRESET_AAC_HIGH: Preset.fromPreset(AAC_BASE).update({
-            name: 'aac_high',
-            audioBitrate: 320,
-        }),
+        PRESET_AAC_HIGH: PRESET_AAC_HIGH,
         //音频AAC中码率
-        PRESET_AAC_MEDIUM: Preset.fromPreset(AAC_BASE).update({
-            name: 'aac_medium',
-            audioBitrate: 192,
-        }),
+        PRESET_AAC_MEDIUM: PRESET_AAC_MEDIUM,
         // 音频AAC低码率
-        PRESET_AAC_LOW: Preset.fromPreset(AAC_BASE).update({
-            name: 'aac_low',
-            audioBitrate: 128,
-        }),
+        PRESET_AAC_LOW: PRESET_AAC_LOW,
+        // 使用AAC_HE编码器，可指定码率和质量，默认VBR1
+        PRESET_AAC_HE: PRESET_AAC_HE,
+        // VBR模式，忽略码率
+        PRESET_AAC_VBR: PRESET_AAC_VBR,
         // 音频AAC极低码率，适用人声
-        PRESET_AAC_VOICE: Preset.fromPreset(AAC_BASE).update({
-            name: 'aac_voice',
-            audioBitrate: 48,
-            audioArgs: '-c:a libfdk_aac -profile:a aac_he -b:a {audioBitrate}k',
-        })
+        PRESET_AAC_VOICE: PRESET_AAC_VOICE
     }
 
     core.modifyObjectWithKeyField(presets, 'description')
@@ -1090,6 +1167,9 @@ function initializePresets() {
 function preparePreset(argv) {
     // 参数中指定的preset
     let preset = PRESET_MAP.get(argv.preset)
+
+    // log.show('ARGV', argv)
+    // log.show('P1', preset)
     // 克隆对象，不修改Map中的内容
     preset = structuredClone(preset)
     // 保存argv方便调试
@@ -1140,7 +1220,7 @@ function preparePreset(argv) {
     if (argv.audioQuality > 0) {
         preset.userAudioQuality = argv.audioQuality
     }
-
+    // log.show('P2', preset)
     return preset
 }
 

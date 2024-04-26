@@ -17,7 +17,7 @@ import pMap from 'p-map'
 import path from "path"
 import sharp from "sharp"
 import which from "which"
-import { asyncFilter } from '../lib/core.js'
+import { asyncFilter, copyFields } from '../lib/core.js'
 import * as log from '../lib/debug.js'
 import * as helper from '../lib/helper.js'
 
@@ -340,8 +340,18 @@ export async function applyFileNameRules(fileEntries, argv) {
         log.info(logTag, `${fileEntries.length} entries left by extension rules`)
     }
     if (argv.exclude?.length > 0) {
+        const excludeFunc = (entry) => {
+            const name = entry.name
+            const pattern = argv.exclude
+            if (argv.regex) {
+                const rgx = new RegExp(pattern, "ui")
+                return !name.includes(pattern) && !rgx.test(name)
+            }
+            log.info(name, pattern)
+            return !name.includes(pattern)
+        }
         // 处理exclude规则
-        fileEntries = await asyncFilter(fileEntries, x => !filterFileNames(x.path, argv.exclude, argv.regex))
+        fileEntries = await asyncFilter(fileEntries, x => excludeFunc(x))
         log.info(logTag, `${fileEntries.length} entries left by exclude rules`)
     } else if (argv.include?.length > 0) {
         // 处理include规则
@@ -353,4 +363,14 @@ export async function applyFileNameRules(fileEntries, argv) {
         log.show(logTag, `${beforeCount - afterCount} entries removed by include/exclude/extension rules`)
     }
     return fileEntries
+}
+
+export function addEntryProps(entries, extraProps = {}) {
+    const startMs = Date.now()
+    entries.forEach((entry, index) => {
+        entry.startMs = startMs
+        entry.index = index
+        entry.total = entries.length
+        copyFields(extraProps, entry)
+    })
 }

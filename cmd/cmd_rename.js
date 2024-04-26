@@ -42,11 +42,9 @@ const builder = function addOptions(ya, helpOrVersionSet) {
         })
         //字符串或正则，不包含文件名规则
         // 如果是正则的话需要转义
-        // 默认排除 [SHANA] 开头的文件
         .option("exclude", {
             alias: "E",
             type: "string",
-            default: '[SHANA]',
             description: "filename exclude pattern ",
         })
         // 需要处理的扩展名列表，默认为常见视频文件
@@ -98,7 +96,7 @@ const builder = function addOptions(ya, helpOrVersionSet) {
         .option("replace-flags", {
             alias: 'rpf',
             type: "string",
-            default: 'd,f',
+            default: 'f',
             description: "special flag for replace operations",
         })
         // 默认使用字符串模式，可启用正则模式
@@ -310,7 +308,7 @@ async function preRename(f) {
         const tmpNewPath = path.join(tmpNewDir || oldDir, (tmpNewBase || oldBase) + ext)
         if (tmpNewPath !== oldPath) {
             log.info(logTag, `Replace: pattern=${strFrom} replacement=${strTo} mode=${strMode}`)
-            log.info(logTag, `Replace: ${oldPath}=>${tmpNewPath} (${strMode})`)
+            log.info(logTag, `Replace: "${oldPath}"=>"${tmpNewPath}" (${strMode})`)
         }
     }
     // ==================================
@@ -318,20 +316,20 @@ async function preRename(f) {
     // ==================================
     if (argv.clean) {
         // 执行净化文件名操作
-        tmpNewBase = cleanFileName(oldBase, {
+        tmpNewBase = cleanFileName(tmpNewBase || oldBase, {
             separator: argv.separator,
             keepDateStr: true,
             tc2sc: false
         })
-        tmpNewDir = oldDir
+        tmpNewDir = tmpNewDir || oldDir
     }
     // ==================================
     // 文件名繁体转简体
     // ==================================
     if (argv.tcsc) {
         // 执行繁体转简体操作
-        tmpNewBase = sify(oldBase)
-        tmpNewDir = sify(oldDir)
+        tmpNewBase = sify(tmpNewBase || oldBase)
+        tmpNewDir = sify(tmpNewDir || oldDir)
     }
 
     tmpNewDir = tmpNewDir || oldDir
