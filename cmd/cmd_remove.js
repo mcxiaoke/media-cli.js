@@ -20,6 +20,7 @@ import path from "path"
 import { promisify } from 'util'
 import { getMediaInfo } from '../lib/ffprobe.js'
 
+import { argv } from "process"
 import { comparePathSmartBy } from "../lib/core.js"
 import * as log from '../lib/debug.js'
 import * as enc from '../lib/encoding.js'
@@ -73,7 +74,14 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             type: "string",
             default: "",
             // 文件名匹配，字符串或正则表达式
-            description: "Files name pattern matche value will be removed",
+            description: "Files name pattern matched value will be removed",
+        })
+        // 启用反转匹配模式
+        .option("not-match", {
+            alias: "n",
+            type: "boolean",
+            default: false,
+            description: "Files name pattern not matched value will be removed",
         })
         .option("list", {
             type: "string",
@@ -171,6 +179,7 @@ async function cmdRemove(argv) {
     const cBadChars = argv.badchars || false
     const cSize = argv.size * 1024 || 0
     const cPattern = argv.pattern || ""
+    const cNotMatch = argv.notMatch || false
     const cReverse = argv.reverse || false
     const cList = argv.list || "-not-exists"
 
@@ -223,6 +232,7 @@ async function cmdRemove(argv) {
         height: cHeight,
         size: cSize,
         pattern: cPattern,
+        notMatch: cNotMatch,
         names: cNames || new Set(),
         reverse: cReverse,
         purge,
@@ -263,7 +273,7 @@ async function cmdRemove(argv) {
         log.showYellow(logTag, `Attention: use file name list, ignore all other conditions`)
         log.showRed(logTag, `Attention: Will DELETE all files ${cReverse ? "NOT IN" : "IN"} the name list!`)
     }
-    log.fileLog(`Conditions: list=${cNames.size},loose=${cLoose},corrupted=${cCorrupted},width=${cWidth},height=${cHeight},size=${cSize / 1024}k,name=${cPattern},type=${type}`, logTag)
+    log.fileLog(`Conditions: list=${cNames.size},loose=${cLoose},corrupted=${cCorrupted},width=${cWidth},height=${cHeight},size=${cSize / 1024}k,pattern=${cPattern},not=${cNotMatch},type=${type}`, logTag)
     testMode && log.showYellow("++++++++++ TEST MODE (DRY RUN) ++++++++++")
     const answer = await inquirer.prompt([
         {
@@ -376,6 +386,8 @@ async function preRemoveArgs(f) {
     const cSize = c.size || 0
     // 文件名匹配文本
     const cPattern = (c.pattern || "").toLowerCase()
+    // 启用反向匹配
+    const cNotMatch = c.notMatch || false
 
     const hasName = cPattern?.length > 0//1
     const hasSize = cSize > 0//2
@@ -385,7 +397,7 @@ async function preRemoveArgs(f) {
 
     let testCorrupted = false
     let testBadChars = false
-    let testName = false
+    let testPattern = false
     let testSize = false
     let testMeasure = false
 
@@ -455,20 +467,16 @@ async function preRemoveArgs(f) {
         // 首先检查名字正则匹配
         if (!testCorrupted && hasName) {
             const fName = fileName.toLowerCase()
-            const rp = new RegExp(cPattern, "gi")
+            const rp = new RegExp(cPattern, "ui")
             itemDesc += ` P=${cPattern}`
             // 开头匹配，或末尾匹配，或正则匹配
-            if (fName.startsWith(cPattern) || fName.endsWith(cPattern) || fName.match(rp)) {
-                if (f.isDir) {
-                    log.showGray(
-                        "preRemove[Name]:", `${ipx} ${helper.humanSize(fileSrc)} [P=${rp}] (${helper.humanSize(itemSize)},${itemCount})`
-                    )
-                } else {
-                    log.info(
-                        "preRemove[Name]:", `${ipx} ${fileName} [P=${rp}]`
-                    )
-                }
-                testName = true
+            const pMatched = fName.startsWith(cPattern) || fName.endsWith(cPattern) || rp.test(fName)
+            // 条件反转判断
+            testPattern = cNotMatch ? !pMatched : pMatched
+            if (testPattern) {
+                log.info(
+                    "preRemove[Name]:", `${ipx} ${helper.pathShort(fileSrc)} [P=${rp}] (${helper.humanSize(itemSize)},${itemCount})`
+                )
             } else {
                 log.debug(
                     "preRemove[Name]:", `${ipx} ${fileName} [P=${rp}]`
@@ -540,25 +548,25 @@ async function preRemoveArgs(f) {
             shouldRemove = true
         } else {
             if (hasLoose) {
-                shouldRemove = testName || testSize || testMeasure
+                shouldRemove = testPattern || testSize || testMeasure
             } else {
-                log.debug("PreRemove ", `${ipx} ${helper.pathShort(fileSrc)} hasName=${hasName}-${testName} hasSize=${hasSize}-${testSize} hasMeasure=${hasMeasure}-${testMeasure} testCorrupted=${testCorrupted},testBadChars=${testBadChars},flag=${flag}`)
+                log.debug("PreRemove ", `${ipx} ${helper.pathShort(fileSrc)} hasName=${hasName}-${testPattern} hasSize=${hasSize}-${testSize} hasMeasure=${hasMeasure}-${testMeasure} testCorrupted=${testCorrupted},testBadChars=${testBadChars},flag=${flag}`)
                 shouldRemove = checkConditions()
             }
         }
 
         if (shouldRemove) {
             if (itemSize > mf.FILE_SIZE_1M * 50 || itemCount > 50) {
-                log.showYellow("PreRemove[Large]:", `${ipx} ${helper.pathShort(fileSrc)} DirSize=${helper.humanSize(itemSize)},DirFileCount=${itemCount}`)
+                log.showYellow("PreRemove[Large]:", `${ipx} ${helper.pathShort(fileSrc)} ItemSize=${helper.humanSize(itemSize)},ItemCount=${itemCount}`)
             }
             log.show(
                 "PreRemove add:",
-                `${ipx} ${helper.pathShort(fileSrc)} [C=${itemDesc}] ${testCorrupted} ${flag} (${helper.humanSize(itemSize)},${itemCount})`)
+                `${ipx} ${helper.pathShort(fileSrc)} [C=${itemDesc}] ${testCorrupted ? "Corrupted" : ""} ${flag} (${helper.humanSize(itemSize)},${itemCount})`)
             log.fileLog(`add: ${ipx} <${fileSrc}> ${itemDesc} ${flag} (${helper.humanSize(itemSize)},${itemCount})`, "PreRemove")
         } else {
-            (testName || testSize || testMeasure) && log.info(
+            (testPattern || testSize || testMeasure) && log.info(
                 "PreRemove ignore:",
-                `${ipx} ${helper.pathShort(fileSrc)} [${itemDesc}] (${testName} ${testSize} ${testMeasure}) ${flag}`)
+                `${ipx} ${helper.pathShort(fileSrc)} [${itemDesc}] (${testPattern} ${testSize} ${testMeasure}) ${flag}`)
         }
 
         return buildRemoveArgs(f.index, itemDesc, shouldRemove, fileSrc, itemSize)
@@ -572,11 +580,11 @@ async function preRemoveArgs(f) {
     function checkConditions() {
         // 当三个条件都为真时
         if (hasName && hasSize && hasMeasure) {
-            return testName && testSize && testMeasure
+            return testPattern && testSize && testMeasure
         }
         // hasMeasure = false
         else if (hasName && hasSize && !hasMeasure) {
-            return testName && testSize
+            return testPattern && testSize
         }
         // hasName = false
         else if (!hasName && hasSize && hasMeasure) {
@@ -584,13 +592,13 @@ async function preRemoveArgs(f) {
         }
         // hasSize = false
         else if (hasName && !hasSize && hasMeasure) {
-            return testName && testMeasure
+            return testPattern && testMeasure
         }
         // 其他情况下，三个hasXXX条件只有一个为真， 
         // hasXXX为false时 testXXX一定为false
         // 所以可以简化测试方法
         else {
-            return testName || testSize || testMeasure
+            return testPattern || testSize || testMeasure
         }
     }
 }
