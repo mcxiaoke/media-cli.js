@@ -351,7 +351,8 @@ export async function applyFileNameRules(fileEntries, argv) {
             return !name.includes(pattern)
         }
         // 处理exclude规则
-        fileEntries = await asyncFilter(fileEntries, x => excludeFunc(x))
+        // fileEntries = await asyncFilter(fileEntries, x => excludeFunc(x))
+        fileEntries = await asyncFilter(fileEntries, x => !filterFileNames(x.path, argv.exclude, argv.regex))
         log.info(logTag, `${fileEntries.length} entries left by exclude rules`)
     } else if (argv.include?.length > 0) {
         // 处理include规则
