@@ -20,6 +20,7 @@ import * as core from '../lib/core.js'
 import { asyncFilter, formatArgs } from '../lib/core.js'
 import * as log from '../lib/debug.js'
 import * as enc from '../lib/encoding.js'
+import presets from '../lib/ffmpeg_presets.js'
 import { getMediaInfo } from '../lib/ffprobe.js'
 import * as mf from '../lib/file.js'
 import * as helper from '../lib/helper.js'
@@ -27,11 +28,6 @@ import { FFMPEG_BINARY } from '../lib/shared.js'
 import { addEntryProps, applyFileNameRules } from './cmd_shared.js'
 
 const LOG_TAG = "FFConv"
-
-const HWACCEL_LIST = ['cpu', 'audo', 'd3d11', 'cuda', '']
-const PRESET_NAMES = []
-const PRESET_MAP = new Map()
-const PREFIX_MEDIAC = "[SHANA] "
 // ===========================================
 // 命令内容执行
 // ===========================================
@@ -94,7 +90,7 @@ const builder = function addOptions(ya, helpOrVersionSet) {
         // 选择预设，从预设列表中选一个，预设等于一堆预定义参数
         .option("preset", {
             type: "choices",
-            choices: PRESET_NAMES,
+            choices: presets.getAllNames(),
             default: 'hevc_2k',
             describe: "convert preset args for ffmpeg command",
         })
@@ -235,7 +231,7 @@ const handler = cmdConvert
 async function cmdConvert(argv) {
     // 显示预设列表
     if (argv.showPresets) {
-        for (const [key, value] of PRESET_MAP) {
+        for (const [key, value] of presets.getAllPresets()) {
             log.show(key, core.pickTrueValues(value))
         }
         return
@@ -280,7 +276,7 @@ async function cmdConvert(argv) {
     fileEntries = core.uniqueByFields(fileEntries, 'path')
     log.show(logTag, `Total ${fileEntries.length} files found [${preset.name}] (${helper.humanTime(startMs)})`)
     // 再根据preset过滤找到的文件
-    if (preset.type === 'video' || preset.name === PRESET_AUDIO_EXTRACT.name) {
+    if (preset.type === 'video' || presets.isAudioExtract(preset)) {
         // 视频转换模式，保留视频文件
         // 提取音频模式，保留视频文件
         fileEntries = fileEntries.filter(e => helper.isVideoFile(e.name))
@@ -292,7 +288,7 @@ async function cmdConvert(argv) {
     // 应用文件名过滤规则
     fileEntries = await applyFileNameRules(fileEntries, argv)
     // 提取音频时不判断文件名
-    if (!preset.name === PRESET_AUDIO_EXTRACT.name) {
+    if (!presets.isAudioExtract(preset)) {
         // 过滤掉压缩过的文件 关键词 shana tmp m4a 
         fileEntries = fileEntries.filter(entry => !/tmp|\.m4a/i.test(entry.name))
     }
@@ -497,7 +493,7 @@ async function prepareFFmpegCmd(entry) {
         // 如果没有指定输出目录，直接输出在原文件同目录
         fileDstDir = path.resolve(srcDir)
     }
-    if (isAudio || preset.name === PRESET_AUDIO_EXTRACT.name) {
+    if (isAudio || presets.isAudioExtract(preset)) {
         // 不带后缀只改扩展名的m4a文件，如果存在也需要首先忽略
         // 可能是其它压缩工具生成的文件，不需要重复压缩
         // 检查输出目录
@@ -835,7 +831,7 @@ function createFFmpegArgs(entry, forDisplay = false) {
         // audioArgsCopy: '-c:a copy',
         // audioArgsEncode: '-c:a libfdk_aac -b:a {audioBitrate}k',
         let audioArgsFixed = preset.audioArgs
-        if (preset.name === PRESET_AUDIO_EXTRACT.name) {
+        if (presets.isAudioExtract(preset)) {
             if (entry.info?.audio?.codec_name === 'aac') {
                 audioArgsFixed = '-c:a copy'
             } else {
@@ -896,330 +892,9 @@ function createFFmpegArgs(entry, forDisplay = false) {
     return args
 }
 
-// ===========================================
-// 数据类定义
-// ===========================================
-
-// ffmpeg命令参数预设类
-class Preset {
-    constructor(name, {
-        format,
-        type,
-        prefix,
-        suffix,
-        videoArgs,
-        audioArgs,
-        inputArgs,
-        streamArgs,
-        extraArgs,
-        outputArgs,
-        filters,
-        complexFilter,
-        output,
-        videoBitrate = 0,
-        videoQuality = 0,
-        audioBitrate = 0,
-        audioQuality = 0,
-        dimension = 0,
-        speed = 1,
-        framerate = 0,
-        smartBitrate,
-    } = {}) {
-        this.name = name
-        this.format = format
-        this.type = type
-        this.prefix = prefix
-        this.suffix = suffix
-        this.videoArgs = videoArgs
-        this.audioArgs = audioArgs
-        this.inputArgs = inputArgs
-        this.streamArgs = streamArgs
-        this.extraArgs = extraArgs
-        this.outputArgs = outputArgs
-        this.filters = filters
-        this.complexFilter = complexFilter
-        // 输出目录
-        this.output = output
-        // 视频码率和质量
-        this.videoBitrate = videoBitrate
-        this.videoQuality = videoQuality
-        // 音频码率和质量
-        this.audioBitrate = audioBitrate
-        this.audioQuality = audioQuality
-        // 视频尺寸
-        this.dimension = dimension
-        // 视频加速
-        this.speed = speed
-        // 视频帧率
-        this.framerate = framerate
-        // 智能计算码率
-        this.smartBitrate = smartBitrate
-        // 元数据参数
-        // 用户从命令行设定的参数
-        // 优先级最高
-        this.userVideoBitrate = 0
-        this.userVideoQuality = 0
-        this.userAudioBitrate = 0
-        this.userAudioQuality = 0
-    }
-
-    update(source) {
-        for (const key in source) {
-            this[key] = source[key]
-        }
-        return this
-    }
-
-    // 构造函数，参数为另一个 Preset 对象
-    static fromPreset(preset) {
-        return new Preset(preset.name, preset)
-    }
-
-}
-
-// videoArgs = { args,codec,quality,bitrate,filters}
-// audioOptons = {args,codec, quality,bitrate,filters} 
-// audioArgs = {prefix,suffix}
-const ACODEC_LC = '-c:a libfdk_aac'
-const ACODEC_HE = '-c:a libfdk_aac -profile:a aac_he'
-const VCODEC_HEVC = '-c:v hevc_nvenc -profile:v main -tune:v hq'
-
-// HEVC基础参数
-const HEVC_BASE = new Preset('hevc-base', {
-    format: '.mp4',
-    type: 'video',
-    smartBitrate: true,
-    intro: 'hevc|hevc_nvenc|libfdk_aac',
-    prefix: PREFIX_MEDIAC,
-    suffix: '_{preset}_{videoBitrate}k',
-    description: 'HEVC_BASE',
-    // 视频参数说明
-    // video_codec block '-c:v hevc_nvenc -profile:v main -tune:v hq'
-    // video_quality block '-cq {quality} -bufsize {bitrate} -maxrate {bitrate}'
-    videoArgs: VCODEC_HEVC + ' -cq {videoQuality} -bufsize {videoBitrate}k -maxrate {videoBitrate}k',
-    // 音频参数说明
-    // audio_codec block '-c:a libfdk_aac'
-    // audio_quality block '-b:a {bitrate}'
-    audioArgs: '-c:a libfdk_aac -b:a {audioBitrate}k',
-    inputArgs: '',
-    streamArgs: '-map_metadata 0 -map_metadata:s:v 0:s:v',
-    // 快速读取和播放
-    outputArgs: '-movflags +faststart -movflags use_metadata_tags',
-    // todo 缩放使用JS计算设置宽高，更灵活，有时可以不用filter
-    // -vf 'scale=if(gte(iw\,ih)\,min(1280\,iw)\,-2):if(lt(iw\,ih)\,min(1280\,ih)\,-2)'
-    filters: "scale_cuda='if(gte(iw,ih),min({dimension},iw),-2)':'if(lt(iw,ih),min({dimension},ih),-2)'",
-    complexFilter: '',
-})
-
-// 音频AAC CBR基础参数
-const AAC_CBR_BASE = new Preset('aac_cbr_base', {
-    format: '.m4a',
-    type: 'audio',
-    smartBitrate: true,
-    intro: 'aac_cbr|libfdk_aac',
-    prefix: PREFIX_MEDIAC,
-    suffix: '_{preset}_{audioBitrate}k',
-    description: 'AAC_CBR_BASE',
-    videoArgs: '',
-    // 音频参数说明
-    // audio_codec block '-c:a libfdk_aac'
-    // audio_quality block '-b:a {bitrate}'
-    audioArgs: '-map 0:a -c:a libfdk_aac -b:a {audioBitrate}k',
-    inputArgs: '',
-    streamArgs: '-vn -map_metadata 0 -map_metadata:s:a 0:s:a',
-    outputArgs: '-movflags +faststart -movflags use_metadata_tags',
-})
-
-// 音频AAC VBR基础参数
-const AAC_VBR_BASE = new Preset('aac_vbr_base', {
-    format: '.m4a',
-    type: 'audio',
-    smartBitrate: false,
-    intro: 'aac_vbr|libfdk_aac',
-    prefix: PREFIX_MEDIAC,
-    suffix: '_{preset}_q{audioQuality}',
-    description: 'AAC_VBR_BASE',
-    videoArgs: '',
-    audioArgs: '-map 0:a -c:a libfdk_aac -vbr {audioQuality}',
-    inputArgs: '',
-    streamArgs: '-vn -map_metadata 0 -map_metadata:s:a 0:s:a',
-    outputArgs: '-movflags +faststart -movflags use_metadata_tags',
-})
-
-// 从视频中提取音频，音频参数，音频码率自适应
-const PRESET_AUDIO_EXTRACT = Preset.fromPreset(AAC_CBR_BASE).update({
-    name: 'audio_extract',
-    intro: 'aac|extract',
-    audioArgs: '-c:a copy',
-    // -vn 参数，忽略视频流，还可以避免cover被当作视频流
-    streamArgs: '-vn -map 0:a:0 -map_metadata 0 -map_metadata:s:a 0:s:a'
-})
-
-
-function initializePresets() {
-
-    const PRESET_HEVC_ULTRA = Preset.fromPreset(HEVC_BASE).update({
-        name: 'hevc_ultra',
-        videoQuality: 20,
-        videoBitrate: 20480,
-        audioBitrate: 320,
-        dimension: 3840
-    })
-
-    const PRESET_HEVC_4K = Preset.fromPreset(HEVC_BASE).update({
-        name: 'hevc_4k',
-        videoQuality: 22,
-        videoBitrate: 10240,
-        audioBitrate: 256,
-        dimension: 3840
-    })
-
-    const PRESET_HEVC_2K = Preset.fromPreset(HEVC_BASE).update({
-        name: 'hevc_2k',
-        videoQuality: 22,
-        videoBitrate: 4096,
-        audioBitrate: 192,
-        dimension: 1920
-    })
-
-    const PRESET_HEVC_MEDIUM = Preset.fromPreset(HEVC_BASE).update({
-        name: 'hevc_medium',
-        videoQuality: 24,
-        videoBitrate: 2048,
-        audioBitrate: 128,
-        dimension: 1920
-    })
-
-    const PRESET_HEVC_LOW = Preset.fromPreset(HEVC_BASE).update({
-        name: 'hevc_low',
-        videoQuality: 26,
-        videoBitrate: 1536,
-        audioBitrate: 96,
-        dimension: 1920
-    })
-
-    const PRESET_HEVC_LOWEST = Preset.fromPreset(HEVC_BASE).update({
-        name: 'hevc_lowest',
-        videoQuality: 26,
-        videoBitrate: 1024,
-        audioQuality: 2,
-        audioBitrate: 64,
-        dimension: 1920,
-        framerate: 25,
-        autoBitrate: false,
-        audioArgs: ACODEC_HE + ' -vbr {audioQuality} -b:a {audioBitrate}k',
-    })
-
-    // AAC VBR Mode bitrate range
-    //     VBR	kbps/channel	AOTs
-    // 1	20-32	LC,HE,HEv2
-    // 2	32-40	LC,HE,HEv2
-    // 3	48-56	LC,HE,HEv2
-    // 4	64-72	LC
-    // 5	96-112	LC
-    const PRESET_HEVC_SPEED = Preset.fromPreset(HEVC_BASE).update({
-        name: 'hevc_speed',
-        suffix: '_{preset}_{videoBitrate}k_{speed}x',
-        videoQuality: 26,
-        videoBitrate: 512,
-        audioQuality: 1,
-        audioBitrate: 48,
-        dimension: 1920,
-        speed: 1.5,
-        framerate: 25,
-        autoBitrate: false,
-        streamArgs: '-map [v] -map [a]',
-        // 音频参数说明
-        // audio_codec block '-c:a libfdk_aac -profile:a aac_he'
-        // audio_quality block '-b:a 48k'
-        audioArgs: ACODEC_HE + ' -vbr {audioQuality} -b:a {audioBitrate}k',
-        // filters 和 complexFilter 不能共存，此预设使用 complexFilter
-        filters: '',
-        // 这里单引号必须，否则逗号需要转义，Windows太多坑
-        complexFilter: "[0:v]setpts=PTS/{speed},scale_cuda='if(gte(iw,ih),min({dimension},iw),-2)':'if(lt(iw,ih),min({dimension},ih),-2)'[v];[0:a]atempo={speed}[a]"
-    })
-
-
-    //音频AAC最高码率
-    const PRESET_AAC_HIGH = Preset.fromPreset(AAC_CBR_BASE).update({
-        name: 'aac_high',
-        audioBitrate: 320,
-    })
-    //音频AAC中码率
-    const PRESET_AAC_MEDIUM = Preset.fromPreset(AAC_CBR_BASE).update({
-        name: 'aac_medium',
-        audioBitrate: 192,
-    })
-    // 音频AAC低码率
-    const PRESET_AAC_LOW = Preset.fromPreset(AAC_CBR_BASE).update({
-        name: 'aac_low',
-        audioBitrate: 128,
-    })
-
-    // 使用AAC_HE编码器，可指定码率和质量，默认VBR1
-    const PRESET_AAC_HE = Preset.fromPreset(AAC_CBR_BASE).update({
-        name: 'aac_he',
-        smartBitrate: false,
-        audioQuality: 2,
-        audioBitrate: 80,
-        audioArgs: ACODEC_HE + ' -vbr {audioQuality} -b:a {audioBitrate}k',
-    })
-
-    // VBR模式，忽略码率
-    const PRESET_AAC_VBR = Preset.fromPreset(AAC_VBR_BASE).update({
-        name: 'aac_vbr',
-        audioQuality: 4,
-    })
-
-    // 音频AAC极低码率，适用人声
-    const PRESET_AAC_VOICE = Preset.fromPreset(AAC_CBR_BASE).update({
-        name: 'aac_voice',
-        smartBitrate: false,
-        audioBitrate: 48,
-        audioArgs: ACODEC_HE + ' -vbr {audioQuality} -b:a {audioBitrate}k',
-    })
-
-    const presets = {
-        //4K超高码率和质量
-        PRESET_HEVC_ULTRA: PRESET_HEVC_ULTRA,
-        //4k高码率和质量
-        PRESET_HEVC_4K: PRESET_HEVC_4K,
-        // 2K高码率和质量
-        PRESET_HEVC_2K: PRESET_HEVC_2K,
-        // 2K中码率和质量
-        PRESET_HEVC_MEDIUM: PRESET_HEVC_MEDIUM,
-        // 2K低码率和质量
-        PRESET_HEVC_LOW: PRESET_HEVC_LOW,
-        // 极低画质和码率
-        PRESET_HEVC_LOWEST: PRESET_HEVC_LOWEST,
-        // 极速模式，适用于视频教程
-        PRESET_HEVC_SPEED: PRESET_HEVC_SPEED,
-        // 提取视频中的音频，复制或转换为AAC格式
-        PRESET_AUDIO_EXTRACT: PRESET_AUDIO_EXTRACT,
-        //音频AAC最高码率
-        PRESET_AAC_HIGH: PRESET_AAC_HIGH,
-        //音频AAC中码率
-        PRESET_AAC_MEDIUM: PRESET_AAC_MEDIUM,
-        // 音频AAC低码率
-        PRESET_AAC_LOW: PRESET_AAC_LOW,
-        // 使用AAC_HE编码器，可指定码率和质量，默认VBR1
-        PRESET_AAC_HE: PRESET_AAC_HE,
-        // VBR模式，忽略码率
-        PRESET_AAC_VBR: PRESET_AAC_VBR,
-        // 音频AAC极低码率，适用人声
-        PRESET_AAC_VOICE: PRESET_AAC_VOICE
-    }
-
-    core.modifyObjectWithKeyField(presets, 'description')
-    for (const [key, preset] of Object.entries(presets)) {
-        PRESET_NAMES.push(preset.name)
-        PRESET_MAP.set(preset.name, preset)
-    }
-}
-
 function preparePreset(argv) {
     // 参数中指定的preset
-    let preset = PRESET_MAP.get(argv.preset)
+    let preset = presets.getPreset(argv.preset)
 
     // log.show('ARGV', argv)
     // log.show('P1', preset)
@@ -1287,9 +962,3 @@ function preparePreset(argv) {
     // log.show('P2', preset)
     return preset
 }
-
-
-
-
-// 初始化调用
-initializePresets()
