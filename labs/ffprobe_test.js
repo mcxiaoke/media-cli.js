@@ -9,7 +9,7 @@
 import { execa } from 'execa'
 import fs from 'fs-extra'
 import path from 'path'
-import { getMediaInfo } from '../lib/ffprobe.js' // 导入您之前定义的解析器函数
+import { getMediaInfo, getSimpleInfo } from '../lib/ffprobe.js' // 导入您之前定义的解析器函数
 import * as helper from '../lib/helper.js'
 
 // 递归遍历目录，找到所有音视频文件
@@ -37,17 +37,17 @@ function findMediaFiles(directory, mediaFiles = []) {
 // 递归遍历目录，找到所有音视频文件，并获取其信息
 async function showMediaFilesInfo(input) {
     const st = await fs.stat(input)
-    let files = []
     if (st.isFile()) {
-        files = [path.resolve(input)]
+        const info = await getMediaInfo(input)
+        console.log(path.basename(input))
+        console.log(info)
+        return
     }
-    else {
-        files = findMediaFiles(input)
-    }
+    let files = findMediaFiles(input)
     for (const filePath of files) {
-        const mediaInfo = await getMediaInfo(filePath)
-        console.log(filePath)
-        console.log(mediaInfo)
+        const info = await getSimpleInfo(filePath)
+        console.log(path.basename(filePath))
+        console.log(info)
     }
 }
 

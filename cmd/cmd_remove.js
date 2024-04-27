@@ -18,12 +18,10 @@ import { cpus } from "os"
 import pMap from 'p-map'
 import path from "path"
 import { promisify } from 'util'
-import { getMediaInfo } from '../lib/ffprobe.js'
-
-import { argv } from "process"
 import { comparePathSmartBy } from "../lib/core.js"
 import * as log from '../lib/debug.js'
 import * as enc from '../lib/encoding.js'
+import { getMediaInfo } from '../lib/ffprobe.js'
 import * as mf from '../lib/file.js'
 import * as helper from '../lib/helper.js'
 // a = all, f = files, d = directories

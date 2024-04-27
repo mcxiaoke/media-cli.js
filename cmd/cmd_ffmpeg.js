@@ -8,14 +8,13 @@
 import chalk from 'chalk'
 import dayjs from 'dayjs'
 import { execa } from 'execa'
-import { fileTypeFromFile } from 'file-type'
 import fs from 'fs-extra'
 import iconv from "iconv-lite"
 import inquirer from "inquirer"
 import mm from 'music-metadata'
 import { cpus } from "os"
 import pMap from 'p-map'
-import path, { format } from "path"
+import path from "path"
 import which from "which"
 import * as core from '../lib/core.js'
 import { asyncFilter, formatArgs } from '../lib/core.js'
@@ -133,10 +132,17 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             default: 0,
             describe: "chang max side for video",
         })
+        // 视频帧率，FPS
+        .option("fps", {
+            alias: 'framerate',
+            type: "number",
+            default: 0,
+            describe: "output framerate value",
+        })
         // 视频加速减速，默认不改动，范围0.25-4.0
         .option("speed", {
             type: "number",
-            default: 1,
+            default: 0,
             describe: "chang speed for video and audio",
         })
         // 视频选项
@@ -222,6 +228,7 @@ const builder = function addOptions(ya, helpOrVersionSet) {
         })
 }
 
+//todo 实现一种更方便的传参数的方法，比如逗号分割 -preset-values=ab=128,aq=3,ac=aac,ap=aac_he;vb=1536,vq=23,vc=hevc_nvenc,vs=1280*720,vw=1280,vh=720;vf=xxx,cf=xxx,
 
 const handler = cmdConvert
 
@@ -760,14 +767,20 @@ function getBestAudioQuality(entry) {
 // 此函数仅读取参数，不修改preset对象
 function createFFmpegArgs(entry, forDisplay = false) {
     const preset = entry.preset
-    const fixedPreset = {
+    // 用于模板字符串的模板参数，针对当前文件
+    const entryPreset = {
         ...preset,
         videoBitrate: getBestVideoBitrate(entry),
         videoQuality: getBestVideoQuality(entry),
         audioBitrate: getBestAudioBitrate(entry),
         audioQuality: getBestAudioQuality(entry),
         srcAudioBitrate: entry.srcAudioBitrate,
-        srcVideoBitrate: entry.srcVideoBitrate
+        srcVideoBitrate: entry.srcVideoBitrate,
+        width: entry.info.video.width,
+        height: entry.info.video.height,
+        framerate: entry.info.video.r_frame_rate,
+        duration: entry.info.format.duration,
+        codec: entry.info.video.codec_name,
     }
     // 几种ffmpeg参数设置的时间和功耗
     // ffmpeg -hide_banner -n -v error -stats -i 
@@ -801,12 +814,13 @@ function createFFmpegArgs(entry, forDisplay = false) {
     if (preset.complexFilter?.length > 0) {
         args.push('-filter_complex')
         args.push(`"${formatArgs(preset.complexFilter, preset)}"`)
-    } else if (preset.filters?.length > 0) {
+    } else if (preset.filters.length > 0) {
         args.push('-vf')
         args.push(formatArgs(preset.filters, preset))
     }
+
     if (preset.videoArgs?.length > 0) {
-        const va = formatArgs(preset.videoArgs, fixedPreset)
+        const va = formatArgs(preset.videoArgs, entryPreset)
         args = args.concat(va.split(' '))
     }
     if (preset.audioArgs?.length > 0) {
@@ -824,7 +838,7 @@ function createFFmpegArgs(entry, forDisplay = false) {
         } else {
             audioArgsFixed = preset.audioArgs
         }
-        const aa = formatArgs(audioArgsFixed, fixedPreset)
+        const aa = formatArgs(audioArgsFixed, entryPreset)
         args = args.concat(aa.split(' '))
     }
     // 在输入文件后面
@@ -839,7 +853,7 @@ function createFFmpegArgs(entry, forDisplay = false) {
 
     extraArgsArray.push(`-metadata`, `description="encoder=mediac-ffmpeg"`)
     extraArgsArray.push(`-metadata`, `copyright="name=${entry.name}"`)
-    extraArgsArray.push(`-metadata`, `comment="preset=${preset.name},vargs=${formatArgs(preset.videoArgs, fixedPreset)},aargs=${formatArgs(preset.audioArgs, fixedPreset)}"`)
+    extraArgsArray.push(`-metadata`, `comment="preset=${preset.name},vargs=${formatArgs(preset.videoArgs, entryPreset)},aargs=${formatArgs(preset.audioArgs, entryPreset)}"`)
     // 检查源文件元数据
     if (entry.tags?.title) {
         const KEY_LIST = ['title', 'artist', 'album', 'albumartist', 'year']
@@ -885,7 +899,6 @@ class Preset {
     constructor(name, {
         format,
         type,
-        smartBitrate,
         prefix,
         suffix,
         videoArgs,
@@ -902,12 +915,13 @@ class Preset {
         audioBitrate = 0,
         audioQuality = 0,
         dimension = 0,
-        speed = 1
+        speed = 1,
+        framerate = 0,
+        smartBitrate,
     } = {}) {
         this.name = name
         this.format = format
         this.type = type
-        this.smartBitrate = smartBitrate
         this.prefix = prefix
         this.suffix = suffix
         this.videoArgs = videoArgs
@@ -930,6 +944,10 @@ class Preset {
         this.dimension = dimension
         // 视频加速
         this.speed = speed
+        // 视频帧率
+        this.framerate = framerate
+        // 智能计算码率
+        this.smartBitrate = smartBitrate
         // 元数据参数
         // 用户从命令行设定的参数
         // 优先级最高
@@ -956,6 +974,9 @@ class Preset {
 // videoArgs = { args,codec,quality,bitrate,filters}
 // audioOptons = {args,codec, quality,bitrate,filters} 
 // audioArgs = {prefix,suffix}
+const ACODEC_LC = '-c:a libfdk_aac'
+const ACODEC_HE = '-c:a libfdk_aac -profile:a aac_he'
+const VCODEC_HEVC = '-c:v hevc_nvenc -profile:v main -tune:v hq'
 
 // HEVC基础参数
 const HEVC_BASE = new Preset('hevc-base', {
@@ -969,7 +990,7 @@ const HEVC_BASE = new Preset('hevc-base', {
     // 视频参数说明
     // video_codec block '-c:v hevc_nvenc -profile:v main -tune:v hq'
     // video_quality block '-cq {quality} -bufsize {bitrate} -maxrate {bitrate}'
-    videoArgs: '-c:v hevc_nvenc -profile:v main -tune:v hq -cq {videoQuality} -bufsize {videoBitrate}k -maxrate {videoBitrate}k',
+    videoArgs: VCODEC_HEVC + ' -cq {videoQuality} -bufsize {videoBitrate}k -maxrate {videoBitrate}k',
     // 音频参数说明
     // audio_codec block '-c:a libfdk_aac'
     // audio_quality block '-b:a {bitrate}'
@@ -978,9 +999,9 @@ const HEVC_BASE = new Preset('hevc-base', {
     streamArgs: '-map_metadata 0 -map_metadata:s:v 0:s:v',
     // 快速读取和播放
     outputArgs: '-movflags +faststart -movflags use_metadata_tags',
-    // todo fixme cuda不支持，暂时注释掉，需要修改
-    // todo 缩放使用JS计算设置宽高，不适用filter，避免硬件加速不支持filter
-    // filters: "scale='if(gte(iw,ih),min({dimension},iw),-2)':'if(lt(iw,ih),min({dimension},ih),-2)'",
+    // todo 缩放使用JS计算设置宽高，更灵活，有时可以不用filter
+    // -vf 'scale=if(gte(iw\,ih)\,min(1280\,iw)\,-2):if(lt(iw\,ih)\,min(1280\,ih)\,-2)'
+    filters: "scale_cuda='if(gte(iw,ih),min({dimension},iw),-2)':'if(lt(iw,ih),min({dimension},ih),-2)'",
     complexFilter: '',
 })
 
@@ -1028,6 +1049,7 @@ const PRESET_AUDIO_EXTRACT = Preset.fromPreset(AAC_CBR_BASE).update({
     streamArgs: '-vn -map 0:a:0 -map_metadata 0 -map_metadata:s:a 0:s:a'
 })
 
+
 function initializePresets() {
 
     const PRESET_HEVC_ULTRA = Preset.fromPreset(HEVC_BASE).update({
@@ -1072,20 +1094,43 @@ function initializePresets() {
 
     const PRESET_HEVC_LOWEST = Preset.fromPreset(HEVC_BASE).update({
         name: 'hevc_lowest',
+        videoQuality: 26,
+        videoBitrate: 1024,
+        audioQuality: 2,
+        audioBitrate: 64,
+        dimension: 1920,
+        framerate: 25,
         autoBitrate: false,
+        audioArgs: ACODEC_HE + ' -vbr {audioQuality} -b:a {audioBitrate}k',
+    })
+
+    // AAC VBR Mode bitrate range
+    //     VBR	kbps/channel	AOTs
+    // 1	20-32	LC,HE,HEv2
+    // 2	32-40	LC,HE,HEv2
+    // 3	48-56	LC,HE,HEv2
+    // 4	64-72	LC
+    // 5	96-112	LC
+    const PRESET_HEVC_SPEED = Preset.fromPreset(HEVC_BASE).update({
+        name: 'hevc_speed',
+        suffix: '_{preset}_{videoBitrate}k_{speed}x',
         videoQuality: 26,
         videoBitrate: 512,
+        audioQuality: 1,
         audioBitrate: 48,
         dimension: 1920,
+        speed: 1.5,
+        framerate: 25,
+        autoBitrate: false,
         streamArgs: '-map [v] -map [a]',
         // 音频参数说明
         // audio_codec block '-c:a libfdk_aac -profile:a aac_he'
         // audio_quality block '-b:a 48k'
-        audioArgs: '-c:a libfdk_aac -profile:a aac_he -vbr {audioQuality} -b:a {audioBitrate}k',
+        audioArgs: ACODEC_HE + ' -vbr {audioQuality} -b:a {audioBitrate}k',
         // filters 和 complexFilter 不能共存，此预设使用 complexFilter
         filters: '',
         // 这里单引号必须，否则逗号需要转义，Windows太多坑
-        complexFilter: "[0:v]setpts=PTS/{speed},scale='if(gt(iw,1280),min(1280,iw),-2)':'if(gt(ih,1280),min(1280,ih),-2)'[v];[0:a]atempo={speed}[a]"
+        complexFilter: "[0:v]setpts=PTS/{speed},scale_cuda='if(gte(iw,ih),min({dimension},iw),-2)':'if(lt(iw,ih),min({dimension},ih),-2)'[v];[0:a]atempo={speed}[a]"
     })
 
 
@@ -1111,7 +1156,7 @@ function initializePresets() {
         smartBitrate: false,
         audioQuality: 2,
         audioBitrate: 80,
-        audioArgs: '-c:a libfdk_aac -profile:a aac_he -vbr {audioQuality} -b:a {audioBitrate}k',
+        audioArgs: ACODEC_HE + ' -vbr {audioQuality} -b:a {audioBitrate}k',
     })
 
     // VBR模式，忽略码率
@@ -1125,7 +1170,7 @@ function initializePresets() {
         name: 'aac_voice',
         smartBitrate: false,
         audioBitrate: 48,
-        audioArgs: '-c:a libfdk_aac -profile:a aac_he -vbr {audioQuality} -b:a {audioBitrate}k',
+        audioArgs: ACODEC_HE + ' -vbr {audioQuality} -b:a {audioBitrate}k',
     })
 
     const presets = {
@@ -1139,8 +1184,10 @@ function initializePresets() {
         PRESET_HEVC_MEDIUM: PRESET_HEVC_MEDIUM,
         // 2K低码率和质量
         PRESET_HEVC_LOW: PRESET_HEVC_LOW,
-        // 极低画质和码率，适用于教程类视频
+        // 极低画质和码率
         PRESET_HEVC_LOWEST: PRESET_HEVC_LOWEST,
+        // 极速模式，适用于视频教程
+        PRESET_HEVC_SPEED: PRESET_HEVC_SPEED,
         // 提取视频中的音频，复制或转换为AAC格式
         PRESET_AUDIO_EXTRACT: PRESET_AUDIO_EXTRACT,
         //音频AAC最高码率
@@ -1205,6 +1252,15 @@ function preparePreset(argv) {
     // 视频速度
     if (argv.speed > 0) {
         preset.speed = argv.speed
+    }
+    // 视频帧率
+    if (argv.framerate > 0) {
+        preset.framerate = argv.framerate
+        if (preset.filters?.length > 0) {
+            preset.filters += ',fps={framerate}'
+        } else {
+            preset.filters = 'fps={framerate}'
+        }
     }
     // 视频码率，用户指定，优先级最高
     if (argv.videoBitrate > 0) {
