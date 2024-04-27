@@ -12,6 +12,7 @@ import inquirer from "inquirer"
 import { cpus } from "os"
 import pMap from 'p-map'
 import path from "path"
+import argparser from '../lib/argparser.js'
 import * as core from '../lib/core.js'
 import * as log from '../lib/debug.js'
 import * as enc from '../lib/encoding.js'
@@ -33,6 +34,12 @@ const builder = function addOptions(ya, helpOrVersionSet) {
         .positional('input', {
             describe: 'input directory',
             type: 'string',
+        })
+        // 复杂字符串参数，单独解析
+        .option("complex-args", {
+            alias: "cargs",
+            describe: "complex combined string arguments for parse",
+            type: "string",
         })
         // 正则，包含文件名规则
         .option("include", {
@@ -151,8 +158,10 @@ async function cmdRename(argv) {
         log.fileLog(`Argv: ${JSON.stringify(argv)}`, logTag)
     }
     const startMs = Date.now()
-    log.show(logTag, `Input: ${root}`)
-    if (!(argv.clean || argv.fixenc || argv.tcsc || argv.replace || argv.suffixMedia || argv.mergeDirs)) {
+    log.show(logTag, `Input:`, root)
+    const complexArgs = argparser.parseArgs(argv.complexArgs)
+    log.show(logTag, `ComplexArgs:`, complexArgs)
+    if (!(argv.complexArgs || argv.clean || argv.fixenc || argv.tcsc || argv.replace || argv.suffixMedia || argv.mergeDirs)) {
         // log.error(`Error: replace|clean|encoding|tcsc|mergeDirs, one is required`)
         throw new Error(`replace|clean|encoding|tcsc|mergeDirs, one is required`)
     }
