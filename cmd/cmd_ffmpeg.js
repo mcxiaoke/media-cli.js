@@ -52,6 +52,11 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             describe: "Folder store ouput files",
             type: "string",
         })
+        // 复杂字符串参数，单独解析
+        .option("params", {
+            describe: "complex combined string parameters for parse",
+            type: "string",
+        })
         // 保持源文件目录结构
         .option("output-tree", {
             alias: 'otree',
