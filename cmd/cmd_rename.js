@@ -13,9 +13,9 @@ import { cpus } from "os"
 import pMap from 'p-map'
 import path from "path"
 import * as core from '../lib/core.js'
-import { asyncFilter } from '../lib/core.js'
 import * as log from '../lib/debug.js'
 import * as enc from '../lib/encoding.js'
+import { getMediaInfo } from '../lib/ffprobe.js'
 import * as mf from '../lib/file.js'
 import * as helper from '../lib/helper.js'
 import { mergePath } from '../lib/path-merge.js'
@@ -117,6 +117,12 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             type: "boolean",
             description: "convert from tc to sc for Chinese chars",
         })
+        // 视频文件添加后缀
+        .option("suffix-video", {
+            alias: 'sv',
+            type: "string",
+            description: "add suffix to video files, support template args",
+        })
         // 合并多层重复目录，减少层级，不改动文件名
         .option("merge-dirs", {
             alias: "simplify-dirs",
@@ -146,7 +152,7 @@ async function cmdRename(argv) {
     }
     const startMs = Date.now()
     log.show(logTag, `Input: ${root}`)
-    if (!(argv.clean || argv.fixenc || argv.tcsc || argv.replace || argv.mergeDirs)) {
+    if (!(argv.clean || argv.fixenc || argv.tcsc || argv.replace || argv.suffixVideo || argv.mergeDirs)) {
         // log.error(`Error: replace|clean|encoding|tcsc|mergeDirs, one is required`)
         throw new Error(`replace|clean|encoding|tcsc|mergeDirs, one is required`)
     }
@@ -330,6 +336,32 @@ async function preRename(f) {
         // 执行繁体转简体操作
         tmpNewBase = sify(tmpNewBase || oldBase)
         tmpNewDir = sify(tmpNewDir || oldDir)
+    }
+
+    // 给视频文件添加后缀，支持模板参数
+    // video: {
+    //     codec_name: 'h264',
+    //     codec_long_name: 'H.264 / AVC',
+    //     profile: 'High',
+    //     codec_type: 'video',
+    //     codec_tag_string: 'avc1',
+    //     width: 1920,
+    //     height: 1080,
+    //     display_aspect_ratio: '16:9',
+    //     pix_fmt: 'yuv420p',
+    //     r_frame_rate: 25,
+    //     avg_frame_rate: 25,
+    //     time_base: '1/90000',
+    //     duration: 307.8,
+    //     bit_rate: 2054929
+    //   },
+    if (argv.suffixVideo?.length > 0 && helper.isVideoFile(oldPath)) {
+        const info = await getMediaInfo(oldPath)
+        if (info.video?.duration > 0) {
+            // 替换模板字符串
+            const suffix = core.formatArgs(argv.suffixVideo, info.video)
+            tmpNewBase = `${tmpNewBase || oldBase}${suffix}`
+        }
     }
 
     tmpNewDir = tmpNewDir || oldDir
