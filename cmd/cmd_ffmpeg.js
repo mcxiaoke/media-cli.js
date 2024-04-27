@@ -228,7 +228,7 @@ const builder = function addOptions(ya, helpOrVersionSet) {
         })
 }
 
-//todo 实现一种更方便的传参数的方法，比如逗号分割 -preset-values=ab=128,aq=3,ac=aac,ap=aac_he;vb=1536,vq=23,vc=hevc_nvenc,vs=1280*720,vw=1280,vh=720;vf=xxx,cf=xxx,
+//todo 实现一种更方便的传参数的方法，比如逗号分割 -preset ab=128,aq=3,ac=aac,ap=aac_he;vb=1536,vq=23,vc=hevc_nvenc,vs=1280*720,vw=1280,vh=720;vf=xxx,cf=xxx,
 
 const handler = cmdConvert
 
@@ -640,9 +640,10 @@ function getEntryShowInfo(entry) {
     const duration = entry?.info?.audio?.duration
         || entry?.info?.video?.duration
         || entry?.info?.format?.duration || 0
+    const fps = entry.info?.video?.r_frame_rate || 0
     const showInfo = []
     if (ac) showInfo.push(`audio|${ac}|${Math.round(entry.srcAudioBitrate / 1024)}K=>${getBestAudioBitrate(entry)}K|${helper.humanDuration(duration * 1000)}`)
-    if (vc) showInfo.push(`video|${vc}|${Math.round(entry.srcVideoBitrate / 1024)}K=>${getBestVideoBitrate(entry)}K|${helper.humanDuration(duration * 1000)}`,)
+    if (vc) showInfo.push(`video|${vc}|${Math.round(entry.srcVideoBitrate / 1024)}K=>${getBestVideoBitrate(entry)}K|${helper.humanDuration(duration * 1000)}|${fps}`,)
     return showInfo.join(', ')
 }
 
@@ -770,17 +771,22 @@ function createFFmpegArgs(entry, forDisplay = false) {
     // 用于模板字符串的模板参数，针对当前文件
     const entryPreset = {
         ...preset,
+        // 这几个会覆盖preset的预设数值
         videoBitrate: getBestVideoBitrate(entry),
         videoQuality: getBestVideoQuality(entry),
         audioBitrate: getBestAudioBitrate(entry),
         audioQuality: getBestAudioQuality(entry),
+        // 下面的是源文件参数
         srcAudioBitrate: entry.srcAudioBitrate,
         srcVideoBitrate: entry.srcVideoBitrate,
-        width: entry.info.video.width,
-        height: entry.info.video.height,
-        framerate: entry.info.video.r_frame_rate,
-        duration: entry.info.format.duration,
-        codec: entry.info.video.codec_name,
+        srcWidth: entry.info.video?.width || 0,
+        srcHeight: entry.info.video?.height || 0,
+        srcFrameRate: entry.info.video?.r_frame_rate || 0,
+        srcDuration: entry.info.format?.duration || 0,
+        srcSize: entry.info.format?.size || 0,
+        srcVideoCodec: entry.info.video?.codec_name,
+        srcAudioCodec: entry.info.audio?.codec_name,
+        srcFormat: entry.info.format?.format_name,
     }
     // 几种ffmpeg参数设置的时间和功耗
     // ffmpeg -hide_banner -n -v error -stats -i 
@@ -1256,6 +1262,8 @@ function preparePreset(argv) {
     // 视频帧率
     if (argv.framerate > 0) {
         preset.framerate = argv.framerate
+    }
+    if (preset.framerate > 0) {
         if (preset.filters?.length > 0) {
             preset.filters += ',fps={framerate}'
         } else {
