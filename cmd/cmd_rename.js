@@ -23,11 +23,12 @@ import { mergePath } from '../lib/path-merge.js'
 import { applyFileNameRules, cleanFileName, renameFiles } from "./cmd_shared.js"
 
 const TYPE_LIST = ['a', 'f', 'd']
+const MODE_LIST = ['clean', 'zhcn', 'replace', 'fixenc', 'mergedir', 'suffix', 'prefix']
 
 export { aliases, builder, command, describe, handler }
 const command = "rename <input>"
 const aliases = ["fn", "fxn"]
-const describe = 'Reanme files: fix encoding, replace by regex, clean chars, fro tc to sc.'
+const describe = 'Reanme files: fix encoding, replace by regex, clean chars, from tc to sc.'
 
 const builder = function addOptions(ya, helpOrVersionSet) {
     return ya// 仅处理符合指定条件的文件，包含文件名规则
@@ -35,9 +36,8 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             describe: 'input directory',
             type: 'string',
         })
-        // 复杂字符串参数，单独解析
-        .option("complex-args", {
-            alias: "cargs",
+        // 复杂字符串参数，单独解析 cargs = complex args
+        .option("cargs", {
             describe: "complex combined string arguments for parse",
             type: "string",
         })
@@ -119,16 +119,21 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             description: "fix filenames by guess encoding",
         })
         // 繁体转简体
-        .option("tcsc", {
-            alias: 'tc2sc',
+        .option("zhcn", {
             type: "boolean",
             description: "convert from tc to sc for Chinese chars",
         })
-        // 视频文件添加后缀
-        .option("suffix-media", {
-            alias: 'sfm',
+        // 文件添加前缀
+        .option("prefix-media", {
+            alias: 'pxm',
             type: "string",
-            description: "add suffix to audio and video files, support template args",
+            description: "add prefix to filename, support media template args",
+        })
+        // 文件添加后缀
+        .option("suffix-media", {
+            alias: 'sxm',
+            type: "string",
+            description: "add suffix to filename, support media template args",
         })
         // 合并多层重复目录，减少层级，不改动文件名
         .option("merge-dirs", {
@@ -159,11 +164,11 @@ async function cmdRename(argv) {
     }
     const startMs = Date.now()
     log.show(logTag, `Input:`, root)
-    const complexArgs = argparser.parseArgs(argv.complexArgs)
-    log.show(logTag, `ComplexArgs:`, complexArgs)
-    if (!(argv.complexArgs || argv.clean || argv.fixenc || argv.tcsc || argv.replace || argv.suffixMedia || argv.mergeDirs)) {
-        // log.error(`Error: replace|clean|encoding|tcsc|mergeDirs, one is required`)
-        throw new Error(`replace|clean|encoding|tcsc|mergeDirs, one is required`)
+    argv.cargs = argparser.parseArgs(argv.cargs)
+    log.show(logTag, `cargs:`, argv.cargs)
+    if (!(argv.complexArgs || argv.clean || argv.fixenc || argv.zhcn || argv.replace || argv.suffixMedia || argv.mergeDirs)) {
+        // log.error(`Error: replace|clean|encoding|zhcn|mergeDirs, one is required`)
+        throw new Error(`replace|clean|encoding|zhcn|mergeDirs, one is required`)
     }
     const type = (argv.type || 'f').toLowerCase()
     if (!TYPE_LIST.includes(type)) {
@@ -176,6 +181,10 @@ async function cmdRename(argv) {
         maxDepth: argv.maxDepth || 99,
     }
     let entries = await mf.walk(root, options)
+    if (entries.length === 0) {
+        log.showYellow(logTag, `No files found, abort. (type=${type})`)
+        return
+    }
     log.show(logTag, `Total ${entries.length} entries found (type=${type})`)
     // 应用文件名过滤规则
     entries = await applyFileNameRules(entries, argv)
@@ -334,14 +343,14 @@ async function preRename(f) {
         tmpNewBase = cleanFileName(tmpNewBase || oldBase, {
             separator: argv.separator,
             keepDateStr: true,
-            tc2sc: false
+            zhcn: false
         })
         tmpNewDir = tmpNewDir || oldDir
     }
     // ==================================
     // 文件名繁体转简体
     // ==================================
-    if (argv.tcsc) {
+    if (argv.zhcn) {
         // 执行繁体转简体操作
         tmpNewBase = sify(tmpNewBase || oldBase)
         tmpNewDir = sify(tmpNewDir || oldDir)
@@ -380,7 +389,8 @@ async function preRename(f) {
     //     duration: 4986.92,
     //     bit_rate: 137
     //   },
-    if (argv.suffixMedia?.length > 0 && helper.isMediaFile(oldPath)) {
+
+    if (helper.isMediaFile(oldPath) && (argv.suffixMedia || argv.prefixMedia)) {
         const isAudio = helper.isAudioFile(oldPath)
         const info = await getMediaInfo(oldPath)
         const duration = info.format?.duration
@@ -389,9 +399,11 @@ async function preRename(f) {
         const tplValues = isAudio ? info.audio : info.video
         if (duration > 0) {
             // 替换模板字符串
-            const suffix = core.formatArgs(argv.suffixMedia, tplValues)
-            tmpNewBase = `${tmpNewBase || oldBase}${suffix}`
-            log.info(logTag, `Suffix: ${oldBase} => ${tmpNewBase}`)
+            const base = tmpNewBase || oldBase
+            const prefix = core.formatArgs(argv.prefixMedia || '', tplValues)
+            const suffix = core.formatArgs(argv.suffixMedia || '', tplValues)
+            tmpNewBase = `${prefix}${base}${suffix}`
+            log.info(logTag, `PrefixSuffix: ${base} => ${tmpNewBase}`)
         }
     }
 
