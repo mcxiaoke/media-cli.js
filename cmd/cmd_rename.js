@@ -118,10 +118,10 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             description: "convert from tc to sc for Chinese chars",
         })
         // 视频文件添加后缀
-        .option("suffix-video", {
-            alias: 'sv',
+        .option("suffix-media", {
+            alias: 'sfm',
             type: "string",
-            description: "add suffix to video files, support template args",
+            description: "add suffix to audio and video files, support template args",
         })
         // 合并多层重复目录，减少层级，不改动文件名
         .option("merge-dirs", {
@@ -152,7 +152,7 @@ async function cmdRename(argv) {
     }
     const startMs = Date.now()
     log.show(logTag, `Input: ${root}`)
-    if (!(argv.clean || argv.fixenc || argv.tcsc || argv.replace || argv.suffixVideo || argv.mergeDirs)) {
+    if (!(argv.clean || argv.fixenc || argv.tcsc || argv.replace || argv.suffixMedia || argv.mergeDirs)) {
         // log.error(`Error: replace|clean|encoding|tcsc|mergeDirs, one is required`)
         throw new Error(`replace|clean|encoding|tcsc|mergeDirs, one is required`)
     }
@@ -355,12 +355,34 @@ async function preRename(f) {
     //     duration: 307.8,
     //     bit_rate: 2054929
     //   },
-    if (argv.suffixVideo?.length > 0 && helper.isVideoFile(oldPath)) {
+    // audio: {
+    //     codec_name: 'aac',
+    //     codec_long_name: 'AAC (Advanced Audio Coding)',
+    //     profile: 'LC',
+    //     codec_type: 'audio',
+    //     codec_tag_string: 'mp4a',
+    //     sample_fmt: 'fltp',
+    //     sample_rate: 48000,
+    //     channels: 2,
+    //     bits_per_sample: 0,
+    //     r_frame_rate: 0,
+    //     avg_frame_rate: 0,
+    //     time_base: '1/48000',
+    //     duration: 4986.92,
+    //     bit_rate: 137
+    //   },
+    if (argv.suffixMedia?.length > 0 && helper.isMediaFile(oldPath)) {
+        const isAudio = helper.isAudioFile(oldPath)
         const info = await getMediaInfo(oldPath)
-        if (info.video?.duration > 0) {
+        const duration = info.format?.duration
+            || info.video?.duration
+            || info.audio?.duratio || 0
+        const tplValues = isAudio ? info.audio : info.video
+        if (duration > 0) {
             // 替换模板字符串
-            const suffix = core.formatArgs(argv.suffixVideo, info.video)
+            const suffix = core.formatArgs(argv.suffixMedia, tplValues)
             tmpNewBase = `${tmpNewBase || oldBase}${suffix}`
+            log.info(logTag, `Suffix: ${oldBase} => ${tmpNewBase}`)
         }
     }
 
