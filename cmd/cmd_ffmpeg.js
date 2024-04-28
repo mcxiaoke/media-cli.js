@@ -446,7 +446,7 @@ async function runFFmpegCmd(entry) {
 
     // 每10个输出一次ffmpeg详细信息，避免干扰
     // if (entry.index % 10 === 0) {
-    log.showGray(logTag, `${ipx} streams`, getEntryShowInfo(entry), chalk.yellow(entry.preset.name), helper.humanSize(entry.size))
+    log.showGray(logTag, `${ipx}`, getEntryShowInfo(entry), chalk.yellow(entry.preset.name), helper.humanSize(entry.size))
     log.showGray(logTag, `${ipx} ffmpeg`, createFFmpegArgs(entry, true).join(' '))
     // }
     const exePath = await which(FFMPEG_BINARY)
@@ -612,38 +612,45 @@ async function prepareFFmpegCmd(entry) {
             return false
         }
         // 输出文件名基本名，含前后缀，不含扩展名
-        const fileDstBase = createDstBaseName(entry)
-        const fileDst = path.join(fileDstDir, `${fileDstBase}${dstExt}`)
+        const [fileDstBase, prefix, suffix] = createDstBaseName(entry)
+        const fileDstName = `${fileDstBase}${dstExt}`
+        const fileDst = path.join(fileDstDir, `${fileDstName}`)
         // 临时文件后缀
         const tempSuffix = `_tmp@${helper.textHash(entry.path)}@tmp_`
         // 临时文件名
+
         const fileDstTemp = path.join(fileDstDir, `${fileDstBase}${tempSuffix}${dstExt}`)
-        const fileDstSameDir = path.join(srcDir, `${fileDstBase}${dstExt}`)
+        const fileDstSameDir = path.join(srcDir, `${fileDstName}`)
 
         if (await fs.pathExists(fileDst)) {
             log.info(
                 logTag,
-                `${ipx} Skip[Dst1]: ${helper.pathShort(entry.path)} (${helper.humanSize(entry.size)})`)
+                `${ipx} Skip[Dst1]: ${entry.path} (${helper.humanSize(entry.size)})`)
             return {
                 ...entry,
                 dstExists: true,
             }
         }
-        if (await fs.pathExists(fileDstSameDir)) {
-            log.info(
-                logTag,
-                `${ipx} Skip[Dst2]: ${helper.pathShort(entry.path)} (${helper.humanSize(entry.size)})`)
-            return {
-                ...entry,
-                dstExists: true,
+        // 文件名变了，带有前缀或后缀
+        // 才需要判断同目录的文件是否存在
+        if (prefix || suffix) {
+            // if (fileDstName !== entry.name) {
+            if (await fs.pathExists(fileDstSameDir)) {
+                log.info(
+                    logTag,
+                    `${ipx} Skip[Dst2]: ${entry.path} (${helper.humanSize(entry.size)})`)
+                return {
+                    ...entry,
+                    dstExists: true,
+                }
             }
         }
         if (await fs.pathExists(fileDstTemp)) {
             await fs.remove(fileDstTemp)
         }
-        log.show(logTag, `${ipx} TaskSRC: ${helper.pathShort(entry.path, 72)}`, helper.humanTime(entry.startMs))
-        log.info(logTag, `${ipx} TaskDST:`, `${fileDst}`)
-        log.showGray(logTag, `${ipx} Streams:`, getEntryShowInfo(entry), chalk.yellow(entry.preset.name), helper.humanSize(entry.size))
+        log.show(logTag, `${ipx} FR: ${helper.pathShort(entry.path, 80)}`, helper.humanTime(entry.startMs))
+        log.showGray(logTag, `${ipx} TO:`, fileDst, 100)
+        log.showGray(logTag, `${ipx}`, getEntryShowInfo(entry), chalk.yellow(entry.preset.name), helper.humanSize(entry.size))
         // log.show(logTag, `Entry(${ipx})`, entry)
         const newEntry = {
             ...entry,
@@ -679,7 +686,7 @@ function createDstBaseName(entry) {
     const prefix = helper.filenameSafe(formatArgs(entry.preset.prefix || "", replaceArgs))
     const suffix = helper.filenameSafe(formatArgs(entry.preset.suffix || "", replaceArgs))
     // return { prefix, suffix }
-    return `${prefix}${srcBase}${suffix}`
+    return [`${prefix}${srcBase}${suffix}`, prefix, suffix]
 }
 
 // 显示媒体编码和码率信息，调试用
@@ -691,8 +698,8 @@ function getEntryShowInfo(entry) {
         || entry?.info?.format?.duration || 0
     const fps = entry.info?.video?.r_frame_rate || 0
     const showInfo = []
-    if (ac) showInfo.push(`audio,codec:${ac},bitrate:${Math.round(entry.srcAudioBitrate / 1000)}K=>${getBestAudioBitrate(entry)}K,time:${helper.humanDuration(duration * 1000)},vbr:${entry.preset.audioQuality}`)
-    if (vc) showInfo.push(`video,codec:${vc},bitrate:${Math.round(entry.srcVideoBitrate / 1000)}K=>${getBestVideoBitrate(entry)}K,time:${helper.humanDuration(duration * 1000)},fps:${fps}`,)
+    if (ac) showInfo.push(`a:${ac},bit:${Math.round(entry.srcAudioBitrate / 1000)}K=>${getBestAudioBitrate(entry)}K,dur:${helper.humanDuration(duration * 1000)},vbr:${entry.preset.audioQuality}`)
+    if (vc) showInfo.push(`v:${vc},bit:${Math.round(entry.srcVideoBitrate / 1000)}K=>${getBestVideoBitrate(entry)}K,dur:${helper.humanDuration(duration * 1000)},fps:${fps}`,)
     return showInfo.join(', ')
 }
 
