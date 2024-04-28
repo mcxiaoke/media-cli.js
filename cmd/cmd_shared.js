@@ -370,4 +370,5 @@ export function addEntryProps(entries, extraProps = {}) {
         entry.total = entries.length
         copyFields(extraProps, entry)
     })
+    return entries
 }

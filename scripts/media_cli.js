@@ -11,13 +11,11 @@ import assert from "assert"
 import chalk from 'chalk'
 import dayjs from "dayjs"
 import EventEmitter from 'events'
-import exitHook from 'exit-hook'
 import fs from 'fs-extra'
 import inquirer from "inquirer"
 import { cpus } from "os"
 import pMap from 'p-map'
 import path from "path"
-import PrettyError from 'pretty-error'
 import sharp from "sharp"
 import yargs from "yargs"
 import * as log from '../lib/debug.js'
@@ -32,8 +30,6 @@ const cpuCount = cpus().length
 const configCli = (argv) => {
   // 太冗长了删掉
   delete argv.$0
-  const pe = PrettyError.start()
-  pe.skipNodeFiles()
   // log.setName("MediaCli");
   log.setVerbose(argv.verbose)
   log.debug(argv)

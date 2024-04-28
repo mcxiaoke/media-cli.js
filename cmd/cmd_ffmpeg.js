@@ -16,6 +16,7 @@ import { cpus } from "os"
 import pMap from 'p-map'
 import path from "path"
 import which from "which"
+import argparser from '../lib/argparser.js'
 import * as core from '../lib/core.js'
 import { asyncFilter, formatArgs } from '../lib/core.js'
 import * as log from '../lib/debug.js'
@@ -35,17 +36,17 @@ const LOG_TAG = "FFConv"
 
 export { aliases, builder, command, describe, handler }
 // directories 表示额外输入文件，用于支持多个目录
-const command = "ffmpeg <input> [directories...]"
+const command = "ffmpeg [input] [directories...]"
 const aliases = ["transcode", "aconv", "vconv", "avconv"]
 const describe = 'convert audio or video files using ffmpeg.'
 
 const builder = function addOptions(ya, helpOrVersionSet) {
     return ya
         // 输入目录，根目录
-        .positional("input", {
-            describe: "Input folder that contains media files",
-            type: "string",
-        })
+        // .positional("input", {
+        //     describe: "Input folder that contains media files",
+        //     type: "string",
+        // })
         // 输出目录，默认输出文件与原文件同目录
         .option("output", {
             alias: "o",
@@ -53,8 +54,8 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             type: "string",
         })
         // 复杂字符串参数，单独解析
-        .option("params", {
-            describe: "complex combined string parameters for parse",
+        .option("ffargs", {
+            describe: "complex combined string parameters for ffmpeg",
             type: "string",
         })
         // 保持源文件目录结构
@@ -99,7 +100,7 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             default: 'hevc_2k',
             describe: "convert preset args for ffmpeg command",
         })
-        // 显示预设列表
+        // 显示预设名字列表
         .option("show-presets", {
             type: "boolean",
             description: "show presets details list",
@@ -220,6 +221,12 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             describe: "multi jobs running parallelly",
             type: "number",
         })
+        // 如果目标文件已存在或转换成功，删除源文件
+        .option("purge-source-files", {
+            type: "boolean",
+            default: false,
+            description: "delete source file if destination is exists",
+        })
         // 确认执行所有系统操作，非测试模式，如删除和重命名和移动操作
         .option("doit", {
             alias: "d",
@@ -229,26 +236,36 @@ const builder = function addOptions(ya, helpOrVersionSet) {
         })
 }
 
-//todo 实现一种更方便的传参数的方法，比如逗号分割 -preset ab=128,aq=3,ac=aac,ap=aac_he;vb=1536,vq=23,vc=hevc_nvenc,vs=1280*720,vw=1280,vh=720;vf=xxx,cf=xxx,
-
 const handler = cmdConvert
 
 async function cmdConvert(argv) {
     // 显示预设列表
     if (argv.showPresets) {
         for (const [key, value] of presets.getAllPresets()) {
-            log.show(key, core.pickTrueValues(value))
+            log.show(core.pick(value, 'name', 'type', 'format'))
         }
         return
     }
+    const root = await helper.validateInput(argv.input)
     const testMode = !argv.doit
     const logTag = chalk.green('FFConv')
-    const root = path.resolve(argv.input)
-    if (!root || !(await fs.pathExists(root))) {
-        throw new Error(`Invalid Input: ${root}`)
-    }
     let startMs = Date.now()
     log.show(logTag, `Input: ${root}`)
+    // 解析单参数复合参数 ffargs
+    // 简写 名称 等价别名
+    // vb=video bitrate vbit vbitrate
+    // vq=video quality vquality
+    // vc = video codec vcodec
+    // ab=audio bitrate abit abitrate
+    // aq=audio quality aquality
+    // ac = audio codec acodec
+    // px = prefix
+    // sx = suffix
+    // sp = speed
+    // dm = dimension
+    // fps = framerate
+    argv.ffargs = argparser.parseArgs(argv.ffargs)
+    log.show(logTag, `ffargs:`, argv.ffargs)
     // 解析Preset，根据argv参数修改preset，返回对象
     const preset = preparePreset(argv)
     if (!testMode) {
@@ -292,11 +309,6 @@ async function cmdConvert(argv) {
     log.show(logTag, `Total ${fileEntries.length} files left [${preset.name}] (${helper.humanTime(startMs)})`)
     // 应用文件名过滤规则
     fileEntries = await applyFileNameRules(fileEntries, argv)
-    // 提取音频时不判断文件名
-    if (!presets.isAudioExtract(preset)) {
-        // 过滤掉压缩过的文件 关键词 shana tmp m4a 
-        fileEntries = fileEntries.filter(entry => !/tmp|\.m4a/i.test(entry.name))
-    }
     log.showYellow(logTag, `Total ${fileEntries.length} files left after filename rules.`)
     if (fileEntries.length === 0) {
         log.showYellow(logTag, 'No files left after rules, nothing to do.')
@@ -350,6 +362,32 @@ async function cmdConvert(argv) {
     }
     log.showGreen(logTag, 'Now Preparing task files and ffmpeg cmd args...')
     let tasks = await pMap(fileEntries, prepareFFmpegCmd, { concurrency: argv.jobs || (core.isUNCPath(root) ? 4 : cpus().length) })
+
+    // 如果选择了清理源文件
+    if (argv.purgeSourceFiles) {
+        // 删除目标文件已存在的源文件
+        let dstExitsTasks = tasks.filter(t => t && t.dstExists && !t.fileDst)
+        if (dstExitsTasks.length > 0) {
+            const answer = await inquirer.prompt([
+                {
+                    type: 'confirm',
+                    name: 'yes',
+                    default: false,
+                    message: chalk.bold.red(
+                        `Destination files of ${dstExitsTasks.length} entries already exists, do you want to delete the source files of them?`
+                    )
+                }
+            ])
+            if (answer.yes) {
+                addEntryProps(dstExitsTasks)
+                await pMap(dstExitsTasks, async (entry) => {
+                    await helper.safeRemove(entry.path)
+                    log.showYellow(logTag, `SafeDel ${entry.index}/${entry.total} ${entry.path}`)
+                }, { concurrency: cpus().length * 2 })
+            }
+        }
+    }
+
     !testMode && log.fileLog(`ffmpegArgs:`, tasks.slice(-1)[0].ffmpegArgs, 'FFConv')
     tasks = tasks.filter(t => t && t.fileDst)
     if (tasks.length === 0) {
@@ -407,10 +445,10 @@ async function runFFmpegCmd(entry) {
     log.show(logTag, `${ipx} Processing ${helper.pathShort(entry.path, 72)}`, helper.humanSize(entry.size), chalk.yellow(getDurationInfo(entry)), helper.humanTime(entry.startMs))
 
     // 每10个输出一次ffmpeg详细信息，避免干扰
-    if (entry.index % 10 === 0) {
-        log.showGray(logTag, `${ipx} streams`, getEntryShowInfo(entry), chalk.yellow(entry.preset.name), helper.humanSize(entry.size))
-        log.showGray(logTag, `${ipx} ffmpeg`, createFFmpegArgs(entry, true).join(' '))
-    }
+    // if (entry.index % 10 === 0) {
+    log.showGray(logTag, `${ipx} streams`, getEntryShowInfo(entry), chalk.yellow(entry.preset.name), helper.humanSize(entry.size))
+    log.showGray(logTag, `${ipx} ffmpeg`, createFFmpegArgs(entry, true).join(' '))
+    // }
     const exePath = await which(FFMPEG_BINARY)
     if (entry.testMode) {
         // 测试模式跳过
@@ -451,7 +489,7 @@ async function runFFmpegCmd(entry) {
         log.showYellow(logTag, `${ipx} Failed ${entry.path}`, entry.preset.name, helper.humanSize(dstSize))
         log.fileLog(`${ipx} Failed <${entry.path}> [${entry.dstAudioBitrate || entry.preset.name}]`, 'FFCMD')
     } catch (error) {
-        const errMsg = (error.stderr || error.message || '[Unknown]').substring(0, 240)
+        const errMsg = (error.stderr || error.message || '[Unknown]').substring(0, 360)
         log.showRed(logTag, `Error(${ipx}) ${errMsg}`)
         log.fileLog(`Error(${ipx}) <${entry.path}> [${entry.preset.name}] ${errMsg}`, 'FFCMD')
         await writeErrorFile(entry, error)
@@ -586,13 +624,19 @@ async function prepareFFmpegCmd(entry) {
             log.info(
                 logTag,
                 `${ipx} Skip[Dst1]: ${helper.pathShort(entry.path)} (${helper.humanSize(entry.size)})`)
-            return false
+            return {
+                ...entry,
+                dstExists: true,
+            }
         }
         if (await fs.pathExists(fileDstSameDir)) {
             log.info(
                 logTag,
                 `${ipx} Skip[Dst2]: ${helper.pathShort(entry.path)} (${helper.humanSize(entry.size)})`)
-            return false
+            return {
+                ...entry,
+                dstExists: true,
+            }
         }
         if (await fs.pathExists(fileDstTemp)) {
             await fs.remove(fileDstTemp)
@@ -647,8 +691,8 @@ function getEntryShowInfo(entry) {
         || entry?.info?.format?.duration || 0
     const fps = entry.info?.video?.r_frame_rate || 0
     const showInfo = []
-    if (ac) showInfo.push(`audio|${ac}|${Math.round(entry.srcAudioBitrate / 1000)}K=>${getBestAudioBitrate(entry)}K|${helper.humanDuration(duration * 1000)}|${entry.preset.audioQuality}`)
-    if (vc) showInfo.push(`video|${vc}|${Math.round(entry.srcVideoBitrate / 1000)}K=>${getBestVideoBitrate(entry)}K|${helper.humanDuration(duration * 1000)}|${fps}`,)
+    if (ac) showInfo.push(`audio,codec:${ac},bitrate:${Math.round(entry.srcAudioBitrate / 1000)}K=>${getBestAudioBitrate(entry)}K,time:${helper.humanDuration(duration * 1000)},vbr:${entry.preset.audioQuality}`)
+    if (vc) showInfo.push(`video,codec:${vc},bitrate:${Math.round(entry.srcVideoBitrate / 1000)}K=>${getBestVideoBitrate(entry)}K,time:${helper.humanDuration(duration * 1000)},fps:${fps}`,)
     return showInfo.join(', ')
 }
 
@@ -878,6 +922,12 @@ function createFFmpegArgs(entry, forDisplay = false) {
                 && !enc.hasBadCJKChar(value)
                 && !enc.hasBadUnicode(value)
         })
+        // 去掉值字符串中的单双引号，避免参数解析错误
+        for (const [key, value] of Object.entries(validTags)) {
+            if (typeof value === 'string') {
+                validTags[key] = value.replaceAll(/['"]/gi, " ")
+            }
+        }
         extraArgsArray = extraArgsArray.concat(...Object.entries(validTags)
             .map(([key, value]) => [`-metadata`, `${key}="${value}"`]))
         // log.show(extraArgsArray)

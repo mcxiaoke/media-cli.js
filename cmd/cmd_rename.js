@@ -154,10 +154,7 @@ const handler = cmdRename
 async function cmdRename(argv) {
     const testMode = !argv.doit
     const logTag = "cmdRename"
-    const root = path.resolve(argv.input)
-    if (!root || !(await fs.pathExists(root))) {
-        throw new Error(`Invalid Input: ${root}`)
-    }
+    const root = await helper.validateInput(argv.input)
     if (!testMode) {
         log.fileLog(`Root: ${root}`, logTag)
         log.fileLog(`Argv: ${JSON.stringify(argv)}`, logTag)
@@ -304,6 +301,7 @@ async function preRename(f) {
     // 正则模式 和 字符串模式
     // 适用 完整路径
     // ==================================
+    // todo 除了正则，增加简单的通配符支持，使用第三方库
     if (argv.replace?.[0]?.length > 0) {
         // 替换不涉及扩展名和目录路径，只处理文件名部分
         // 只想处理特定类型文件，可以用include规则
