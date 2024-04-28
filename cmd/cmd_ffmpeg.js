@@ -389,6 +389,7 @@ async function cmdConvert(argv) {
     // 并发数视频1，音频4，或者参数指定
     const jobCount = argv.jobs || (preset.type === 'video' ? 1 : 4)
     const results = await pMap(tasks, runFFmpegCmd, { concurrency: jobCount })
+    // const results = await core.asyncMapGroup(tasks, runFFmpegCmd, jobCount)
     testMode && log.showYellow(logTag, 'NO file processed in TEST MODE.')
     const okResults = results.filter(r => r && r.ok)
     !testMode && log.showGreen(logTag, `Total ${okResults.length} files processed in ${helper.humanTime(startMs)}`)
@@ -404,9 +405,12 @@ async function runFFmpegCmd(entry) {
     const ffmpegArgs = entry.ffmpegArgs
 
     log.show(logTag, `${ipx} Processing ${helper.pathShort(entry.path, 72)}`, helper.humanSize(entry.size), chalk.yellow(getDurationInfo(entry)), helper.humanTime(entry.startMs))
-    log.showGray(logTag, getEntryShowInfo(entry), chalk.yellow(entry.preset.name), helper.humanSize(entry.size))
 
-    log.showGray(logTag, 'ffmpeg', createFFmpegArgs(entry, true).join(' '))
+    // 每10个输出一次ffmpeg详细信息，避免干扰
+    if (entry.index % 10 === 0) {
+        log.showGray(logTag, `${ipx} streams`, getEntryShowInfo(entry), chalk.yellow(entry.preset.name), helper.humanSize(entry.size))
+        log.showGray(logTag, `${ipx} ffmpeg`, createFFmpegArgs(entry, true).join(' '))
+    }
     const exePath = await which(FFMPEG_BINARY)
     if (entry.testMode) {
         // 测试模式跳过
@@ -491,7 +495,7 @@ async function prepareFFmpegCmd(entry) {
             // 如果要保持源文件目录结构
             fileDstDir = helper.pathRewrite(srcDir, preset.output)
         } else {
-            // 不保留源文件目录结构，则只保留源文件父目录
+            // 不保留源文件目录结构，只保留源文件父目录
             fileDstDir = path.join(preset.output, path.basename(srcDir))
         }
     } else {
@@ -643,8 +647,8 @@ function getEntryShowInfo(entry) {
         || entry?.info?.format?.duration || 0
     const fps = entry.info?.video?.r_frame_rate || 0
     const showInfo = []
-    if (ac) showInfo.push(`audio|${ac}|${Math.round(entry.srcAudioBitrate / 1024)}K=>${getBestAudioBitrate(entry)}K|${helper.humanDuration(duration * 1000)}`)
-    if (vc) showInfo.push(`video|${vc}|${Math.round(entry.srcVideoBitrate / 1024)}K=>${getBestVideoBitrate(entry)}K|${helper.humanDuration(duration * 1000)}|${fps}`,)
+    if (ac) showInfo.push(`audio|${ac}|${Math.round(entry.srcAudioBitrate / 1000)}K=>${getBestAudioBitrate(entry)}K|${helper.humanDuration(duration * 1000)}|${entry.preset.audioQuality}`)
+    if (vc) showInfo.push(`video|${vc}|${Math.round(entry.srcVideoBitrate / 1000)}K=>${getBestVideoBitrate(entry)}K|${helper.humanDuration(duration * 1000)}|${fps}`,)
     return showInfo.join(', ')
 }
 
@@ -673,13 +677,14 @@ async function readMusicMeta(entry) {
 }
 
 // 音频码率映射表
+// 只有存储设备如内存和硬盘用1K=1024，其它时候都是1K=1000
 const bitrateMap = [
-    { threshold: 320 * 1024, value: 320 },
-    { threshold: 256 * 1024, value: 256 },
-    { threshold: 192 * 1024, value: 192 },
-    { threshold: 128 * 1024, value: 128 },
-    { threshold: 96 * 1024, value: 96 },
-    { threshold: 64 * 1024, value: 64 },
+    { threshold: 320 * 1000, value: 320 },
+    { threshold: 256 * 1000, value: 256 },
+    { threshold: 192 * 1000, value: 192 },
+    { threshold: 128 * 1000, value: 128 },
+    { threshold: 96 * 1000, value: 96 },
+    { threshold: 64 * 1000, value: 64 },
     { threshold: 0, value: 48 } // 默认值
 ]
 
@@ -696,7 +701,7 @@ function calculateBitrate(entry) {
         // 对于音频文件，音频格式转换
         if (entry.format?.lossless || helper.isAudioLossless(entry.path)) {
             // 无损音频，设置默认值
-            srcAudioBitrate = srcAudioBitrate > 320 ? srcAudioBitrate : 999 * 1024
+            srcAudioBitrate = srcAudioBitrate > 320 ? srcAudioBitrate : 999 * 1000
         }
         // audio file
         srcAudioBitrate = entry.format?.bitrate
@@ -715,14 +720,14 @@ function calculateBitrate(entry) {
         // 计算出的音频码率不高于源文件的音频码率
         // 计算出的音频码率不高于预设指定的码率
         srcAudioBitrate = entry.info?.audio?.bit_rate || 0
-        dstAudioBitrate = Math.min(Math.round(srcAudioBitrate / 1024), entry.preset.audioBitrate)
+        dstAudioBitrate = Math.min(Math.round(srcAudioBitrate / 1000), entry.preset.audioBitrate)
 
         // 计算出的视频码率不高于源文件的视频码率
         // 减去音频的码率，估算为48k
         srcVideoBitrate = entry.info?.video?.bit_rate
-            || fileBitrate - 48 * 1024 || 0
+            || fileBitrate - 48 * 1000 || 0
         // 压缩后的视频比特率不能高于源文件比特率
-        dstVideoBitrate = Math.min(Math.round(srcVideoBitrate / 1024), entry.preset.videoBitrate)
+        dstVideoBitrate = Math.min(Math.round(srcVideoBitrate / 1000), entry.preset.videoBitrate)
         // 忽略计算结果，直接使用预设数值
         if (!entry.preset.smartBitrate) {
             dstAudioBitrate = entry.preset.audioBitrate
@@ -821,7 +826,7 @@ function createFFmpegArgs(entry, forDisplay = false) {
     if (preset.complexFilter?.length > 0) {
         args.push('-filter_complex')
         args.push(`"${formatArgs(preset.complexFilter, preset)}"`)
-    } else if (preset.filters.length > 0) {
+    } else if (preset.filters?.length > 0) {
         args.push('-vf')
         args.push(formatArgs(preset.filters, preset))
     }

@@ -205,6 +205,11 @@ async function cmdRename(argv) {
     tasks = tasks.filter(f => f && (f.outPath || f.outName))
     log.show(logTag, argv)
     const tCount = tasks.length
+    // todo 这里检测 outPath 如果很多重名文件，需要提醒注意
+    const outPathSet = new Set(tasks.map(f => f.outPath || f.outName))
+    if (outPathSet.size < tCount) {
+        log.showCyan(logTag, `${tCount}=>${outPathSet.size} some files have duplicate names, please check.`)
+    }
     log.showYellow(
         logTag, `Total ${fCount - tCount} files are skipped. (type=${type})`
     )
@@ -249,7 +254,7 @@ async function preRename(f) {
     const flag = isDir ? "D" : "F"
     const logTag = `PreRename${flag}`
     const argv = f.argv
-    const ipx = f.index
+    const ipx = `${f.index}/${f.total}`
     const oldPath = path.resolve(f.path)
     const pathParts = path.parse(oldPath)
     // 这里由于文件名里有.等特殊字符
@@ -393,11 +398,19 @@ async function preRename(f) {
     if (helper.isMediaFile(oldPath) && (argv.suffixMedia || argv.prefixMedia)) {
         const isAudio = helper.isAudioFile(oldPath)
         const info = await getMediaInfo(oldPath)
-        const duration = info.format?.duration
-            || info.video?.duration
-            || info.audio?.duratio || 0
-        const tplValues = isAudio ? info.audio : info.video
+        const duration = info?.format?.duration
+            || info?.video?.duration
+            || info?.audio?.duratio || 0
+        // duration>0 表示有效的媒体文件
         if (duration > 0) {
+            const bitrate = info.format?.bit_rate || info?.audio?.bit_rate || info.video?.bit_rate || 0
+            let tplValues = isAudio ? info.audio : info.video
+            tplValues = {
+                ...tplValues,
+                duration_s: Math.floor(duration),
+                duration_m: Math.floor(duration / 60),
+                bitrate_k: Math.floor(bitrate / 1000),
+            }
             // 替换模板字符串
             const base = tmpNewBase || oldBase
             const prefix = core.formatArgs(argv.prefixMedia || '', tplValues)
@@ -442,6 +455,7 @@ async function preRename(f) {
         log.info(logTag, `Skip Same: ${ipx} ${helper.pathShort(oldPath)}`)
         f.skipped = true
     }
+    // todo 这里已存在和重复名的判断需要优化或调整
     else if (await fs.pathExists(newPath)) {
         let dupCount = 0
         do {
@@ -480,8 +494,8 @@ async function preRename(f) {
         // 没有outPath时使用
         f.outName = newName
         // 如果二者都没有，取消重命名
-        log.showGray(logTag, `SRC: ${ipx} <${oldPath}> ${pathDepth}`)
-        log.show(logTag, `DST: ${ipx} <${newPath}> ${pathDepth}`)
+        log.showGray(logTag, `SRC: ${ipx} ${oldPath} ${pathDepth}`)
+        log.show(logTag, `DST: ${ipx} ${newPath}`)
         log.fileLog(`Add: ${ipx} <${oldPath}> [SRC]`, logTag)
         log.fileLog(`Add: ${ipx} <${newPath}> [DST]`, logTag)
         return f

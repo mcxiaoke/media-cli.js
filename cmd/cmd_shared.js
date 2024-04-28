@@ -30,9 +30,10 @@ async function renameOneFile(f) {
     const logTag = 'Rename' + flag + ipx
     // 生成输出文件的路径，优先 outPath  
     const outPath = f.outPath || path.join(path.dirname(f.path), f.outName)
+    log.showGray(logTag, `Source: ${f.path} ${flag}`)
     // 如果输出文件名不存在或者输入文件路径等于输出文件路径，忽略该文件并打印警告信息  
     if (!f.outName || f.path === f.outPath) {
-        log.showYellow(logTag, "ignore", f.path, flag)
+        log.showYellow(logTag, "Ignore:", f.path, flag)
         return
     }
     try {
@@ -42,10 +43,15 @@ async function renameOneFile(f) {
             await fs.mkdirs(outDir)
         }
 
+        // 如果目标文件已存在，不能覆盖
+        if (await fs.pathExists(outPath)) {
+            log.showYellow(logTag, "SkipExists:", outPath, flag)
+            return
+        }
+
         // 使用 fs 模块的 rename 方法重命名文件，并等待操作完成  
         await fs.rename(f.path, outPath)
         // 打印重命名成功的日志信息，显示输出文件的路径  
-        log.showGray(logTag, `Source: ${f.path} ${flag}`)
         log.show(logTag, `${chalk.green(`Renamed:`)} ${outPath} ${flag}`)
         log.fileLog(`SRC: <${f.path}>`, logTag)
         log.fileLog(`DST: <${f.outPath}>`, logTag)
@@ -340,16 +346,6 @@ export async function applyFileNameRules(fileEntries, argv) {
         log.info(logTag, `${fileEntries.length} entries left by extension rules`)
     }
     if (argv.exclude?.length > 0) {
-        const excludeFunc = (entry) => {
-            const name = entry.name
-            const pattern = argv.exclude
-            if (argv.regex) {
-                const rgx = new RegExp(pattern, "ui")
-                return !name.includes(pattern) && !rgx.test(name)
-            }
-            log.info(name, pattern)
-            return !name.includes(pattern)
-        }
         // 处理exclude规则
         // fileEntries = await asyncFilter(fileEntries, x => excludeFunc(x))
         fileEntries = await asyncFilter(fileEntries, x => !filterFileNames(x.path, argv.exclude, argv.regex))
