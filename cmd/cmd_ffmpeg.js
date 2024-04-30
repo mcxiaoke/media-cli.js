@@ -388,12 +388,12 @@ async function cmdConvert(argv) {
         }
     }
 
-    !testMode && log.fileLog(`ffmpegArgs:`, tasks.slice(-1)[0].ffmpegArgs.flat(), 'FFConv')
     tasks = tasks.filter(t => t && t.fileDst)
     if (tasks.length === 0) {
         log.showYellow(logTag, 'All tasks are skipped, nothing to do.')
         return
     }
+    !testMode && log.fileLog(`ffmpegArgs:`, tasks.slice(-1)[0].ffmpegArgs.flat(), 'FFConv')
     log.show('-----------------------------------------------------------')
     log.showYellow(logTag, 'PRESET:', core.pickTrueValues(preset))
     log.showCyan(logTag, 'CMD: ffmpeg', tasks.slice(-1)[0].ffmpegArgs.flat().join(' '))
@@ -460,7 +460,7 @@ async function runFFmpegCmd(entry) {
     const ffmpegStartMs = Date.now()
 
     const [inputArgs, middleArgs, outputArgs] = entry.ffmpegArgs
-    const metaComment = getMetaCommentArgs(entry)
+    const metaComment = getCommentArgs(entry)
     const ffmpegArgs = [...inputArgs, ...middleArgs, ...metaComment, ...outputArgs]
 
     try {
@@ -502,7 +502,7 @@ async function runFFmpegCmd(entry) {
 
 }
 
-function getMetaCommentArgs(entry) {
+function getCommentArgs(entry) {
     // 将所有ffmpeg参数放到comment
     const ffmpegArgsText = createFFmpegArgs(entry, true).flat().join(' ').replaceAll(/['"]/gi, " ")
     return ['-metadata', `comment="${ffmpegArgsText}"`]
@@ -666,7 +666,7 @@ async function prepareFFmpegCmd(entry) {
             fileSubtitle = path.basename(fileSubtitle)
         }
         log.show(logTag, `${ipx} FR: ${helper.pathShort(entry.path, 80)}`, helper.humanTime(entry.startMs))
-        log.showGray(logTag, `${ipx} TO:`, fileDst, 100)
+        log.showGray(logTag, `${ipx} TO:`, fileDst)
         log.showGray(logTag, `${ipx}`, getEntryShowInfo(entry), chalk.yellow(entry.preset.name), helper.humanSize(entry.size))
         // log.show(logTag, `Entry(${ipx})`, entry)
         const newEntry = {
@@ -678,7 +678,7 @@ async function prepareFFmpegCmd(entry) {
             fileSubtitle,
         }
         newEntry.ffmpegArgs = createFFmpegArgs(newEntry)
-        // log.info(logTag, 'ffmpeg', ffmpegArgs.join(' '))
+        log.info(logTag, 'ffmpeg', newEntry.ffmpegArgs.flat().join(' '))
         return newEntry
     } catch (error) {
         log.error(logTag, `${ipx} Skip[Error]: ${entry.path}`, error)
@@ -869,20 +869,23 @@ function createFFmpegArgs(entry, forDisplay = false) {
         // 计算目标帧率，不能超过源文件帧率
         dstFrameRate: Math.min(entry.preset.framerate, ev.srcFrameRate),
     }
-
     // 输入参数
     let inputArgs = []
 
     // 是否需要添加fps filter
     if (ep.dstFrameRate > 0) {
-        ep.framerate = dstFrameRate
+        ep.framerate = ep.dstFrameRate
         if (ep.filters?.length > 0) {
             ep.filters += ',fps={framerate}'
         } else {
             ep.filters = 'fps={framerate}'
         }
     }
-    log.showGreen(entry.name, ep.filters)
+
+    if (!forDisplay) {
+        log.info('createFFmpegArgs', 'entryPreset', core.pickTrueValues(ep))
+    }
+
     // 几种ffmpeg参数设置的时间和功耗
     // ffmpeg -hide_banner -n -v error -stats -i 
     // 32s 110w
