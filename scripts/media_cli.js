@@ -18,10 +18,13 @@ import pMap from 'p-map'
 import path from "path"
 import sharp from "sharp"
 import yargs from "yargs"
+import { compressImage } from '../cmd/cmd_shared.js'
 import * as log from '../lib/debug.js'
 import * as exif from '../lib/exif.js'
 import * as mf from '../lib/file.js'
 import * as helper from '../lib/helper.js'
+
+
 // fix max listeners
 EventEmitter.defaultMaxListeners = 1000
 
@@ -314,8 +317,8 @@ async function cmdLRMove(argv) {
   // const output = argv.output || root;
   log.show(`LRMove: input:`, root)
   // log.show(`LRMove: output:`, output);
-  let filenames = await mf.walkDir(root, { needStats: false, })
-  filenames = filenames.filter(f => path.basename(f) === "JPEG")
+  let filenames = await mf.walk(root, { needStats: true, withFiles: false, withDirs: true })
+  filenames = filenames.map(entry => entry.path).filter(f => path.basename(f) === "JPEG")
   log.show("LRMove:", `Total ${filenames.length} JPEG folders found`)
   if (filenames.length === 0) {
     log.showGreen("Nothing to do, abort.")
@@ -378,7 +381,7 @@ async function prepareThumbArgs(f, options) {
   let dirDst
   // 如果output存在，使用output重写目录目标路径  
   if (output) {
-    dirDst = helper.pathRewrite(dir, output)
+    dirDst = helper.pathRewrite(f.root, dir, output, false)
   } else {
     // 否则，将目录目标路径替换为'Thumbs'文件夹，或者如果目录目标路径和目录相同，则创建一个新目录（例如'202206_thumbs'）  
     dirDst = dir.replace(/JPEG|Photos/i, 'Thumbs')

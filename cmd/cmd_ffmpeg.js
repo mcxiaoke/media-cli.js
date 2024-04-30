@@ -540,7 +540,7 @@ async function prepareFFmpegCmd(entry) {
         // 默认true 保留目录结构，可以防止文件名冲突
         if (argv.outputTree) {
             // 如果要保持源文件目录结构
-            fileDstDir = helper.pathRewrite(srcDir, preset.output)
+            fileDstDir = helper.pathRewrite(root, srcDir, preset.output)
         } else {
             // 不保留源文件目录结构，只保留源文件父目录
             fileDstDir = path.join(preset.output, path.basename(srcDir))
@@ -602,12 +602,12 @@ async function prepareFFmpegCmd(entry) {
         }
         // 获取原始音频码率，计算目标音频码率
         // vp9视频和opus音频无法获取码率
-        const mediaBitrate = calculateBitrate(entry)
+        const mediaArgs = calculateDstArgs(entry)
         // 计算后的视频和音频码率，关联文件
         // 与预设独立，优先级高于预设
         // srcXX单位为bytes dstXXX单位为kbytes
-        Object.assign(entry, mediaBitrate)
-        log.info(logTag, entry.path, mediaBitrate)
+        Object.assign(entry, mediaArgs)
+        log.info(logTag, entry.path, mediaArgs)
         // 如果转换目标是音频，但是源文件不含音频流，忽略
         if (entry.preset.type === 'audio' && !audioCodec) {
             log.showYellow(logTag, `${ipx} Skip[NoAudio]: ${entry.path}`, getEntryShowInfo(entry), helper.humanSize(entry.size))
@@ -654,10 +654,6 @@ async function prepareFFmpegCmd(entry) {
                 }
             }
         }
-        if (await fs.pathExists(fileDstTemp)) {
-            await fs.remove(fileDstTemp)
-        }
-
         // 字幕文件
         let fileSubtitle = path.join(srcDir, `${srcBase}.ass`)
         if (!(await fs.pathExists(fileSubtitle))) {
@@ -759,7 +755,7 @@ const bitrateMap = [
 ]
 
 // 计算视频和音频码率
-function calculateBitrate(entry) {
+function calculateDstArgs(entry) {
     // eg. '-map a:0 -c:a libfdk_aac -b:a {bitrate}'
     // 这个是文件整体码率，如果是是视频文件，等于是视频和音频的码率相加
     const fileBitrate = entry.info?.format?.bit_rate || 0
@@ -805,7 +801,10 @@ function calculateBitrate(entry) {
         }
     }
 
-    return { srcAudioBitrate, dstAudioBitrate, srcVideoBitrate, dstVideoBitrate }
+    let srcFrameRate = entry.info.video?.r_frame_rate || entry.info.video?.avg_frame_rate || 0
+    let dstFrameRate = Math.min(entry.preset.userFrameRate, srcFrameRate)
+
+    return { srcAudioBitrate, dstAudioBitrate, srcVideoBitrate, dstVideoBitrate, dstFrameRate }
 }
 
 // 选择最佳视频码率
@@ -840,6 +839,12 @@ function getBestAudioQuality(entry) {
         || entry.preset.audioQuality
 }
 
+function getBestFrameRate(entry) {
+    return entry.preset.userFrameRate
+        || entry.dstFrameRate
+        || entry.preset.framerate
+}
+
 // 组合各种参数，替换模板参数，输出最终的ffmpeg命令行参数
 // 此函数仅读取参数，不修改preset对象
 function createFFmpegArgs(entry, forDisplay = false) {
@@ -850,6 +855,7 @@ function createFFmpegArgs(entry, forDisplay = false) {
         videoQuality: getBestVideoQuality(entry),
         audioBitrate: getBestAudioBitrate(entry),
         audioQuality: getBestAudioQuality(entry),
+        framerate: getBestFrameRate(entry),
         // 下面的是源文件参数
         srcAudioBitrate: entry.srcAudioBitrate,
         srcVideoBitrate: entry.srcVideoBitrate,
@@ -866,15 +872,12 @@ function createFFmpegArgs(entry, forDisplay = false) {
     const ep = {
         ...entry.preset,
         ...ev,
-        // 计算目标帧率，不能超过源文件帧率
-        dstFrameRate: Math.min(entry.preset.framerate, ev.srcFrameRate),
     }
     // 输入参数
     let inputArgs = []
 
     // 是否需要添加fps filter
-    if (ep.dstFrameRate > 0) {
-        ep.framerate = ep.dstFrameRate
+    if (ep.framerate > 0) {
         if (ep.filters?.length > 0) {
             ep.filters += ',fps={framerate}'
         } else {
@@ -984,7 +987,7 @@ function createFFmpegArgs(entry, forDisplay = false) {
     descArgs.push(`vc=${ep.srcVideoCodec}`)
     descArgs.push(`vb=${ep.videoBitrate}`)
     descArgs.push(`vq=${ep.videoQuality}`)
-    descArgs.push(`fps=${ep.dstFrameRate}`)
+    descArgs.push(`fps=${ep.framerate}`)
     descArgs.push(`sp=${ep.speed}`)
     const descArgsText = descArgs.join('|')
     metaArgs.push(`-metadata`, `description="${descArgsText}"`)
@@ -1080,20 +1083,10 @@ function preparePreset(argv) {
     if (argv.speed > 0) {
         preset.speed = argv.speed
     }
-    // 视频帧率
+    // 视频帧率，用户指定，优先级最高
     if (argv.framerate > 0) {
-        preset.framerate = argv.framerate
-        // if (preset.framerate > 0) {
-        //     if (preset.filters?.length > 0) {
-        //         preset.filters += ',fps={framerate}'
-        //     } else {
-        //         preset.filters = 'fps={framerate}'
-        //     }
-        // }
-    } else {
-        // 没有指定帧率，使用源文件帧率
+        preset.userFrameRate = argv.framerate
     }
-
     // 视频码率，用户指定，优先级最高
     if (argv.videoBitrate > 0) {
         preset.userVideoBitrate = argv.videoBitrate

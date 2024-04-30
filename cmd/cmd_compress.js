@@ -34,12 +34,26 @@ const SIZE_DEFAULT = 2048 // in kbytes
 const WIDTH_DEFAULT = 6000
 
 const builder = function addOptions(ya, helpOrVersionSet) {
-    return ya.option("purge", {
-        alias: "p",
-        type: "boolean",
-        default: false,
-        description: "Purge original image files",
-    })
+    return ya
+        .option("purge", {
+            alias: "p",
+            type: "boolean",
+            default: false,
+            description: "Purge original image files",
+        })
+        // 输出目录，默认输出文件与原文件同目录
+        .option("output", {
+            alias: "o",
+            describe: "Folder store ouput files",
+            type: "string",
+        })
+        // 压缩后的文件后缀，默认为 _Z4K
+        .option("suffix", {
+            alias: "S",
+            describe: "filename suffix for compressed files",
+            type: "string",
+            default: "_Z4K",
+        })
         .option("purge-only", {
             type: "boolean",
             default: false,
@@ -72,6 +86,12 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             default: WIDTH_DEFAULT,
             description: "Max width of long side of image thumb",
         })
+        // 并行操作限制，并发数，默认为 CPU 核心数
+        .option("jobs", {
+            alias: "j",
+            describe: "multi jobs running parallelly",
+            type: "number",
+        })
         // 确认执行所有系统操作，非测试模式，如删除和重命名和移动操作
         .option("doit", {
             alias: "d",
@@ -81,7 +101,10 @@ const builder = function addOptions(ya, helpOrVersionSet) {
         })
 }
 
-const handler = async function cmdCompress(argv) {
+
+const handler = cmdCompress
+
+async function cmdCompress(argv) {
     const testMode = !argv.doit
     const logTag = "cmdCompress"
     const root = path.resolve(argv.input)
@@ -108,9 +131,9 @@ const handler = async function cmdCompress(argv) {
         needStats: true,
         entryFilter: (f) =>
             f.isFile
+            && helper.isImageFile(f.path)
             && !RE_THUMB.test(f.path)
             && f.size > minFileSize
-            && helper.isImageFile(f.path)
     }
     log.showGreen(logTag, `Walking files ...`)
     let files = await mf.walk(root, walkOpts)
@@ -141,6 +164,8 @@ const handler = async function cmdCompress(argv) {
     const addArgsFunc = async (f, i) => {
         return {
             ...f,
+            suffix: argv.suffix,
+            output: argv.output,
             total: files.length,
             index: i,
             quality,
@@ -154,7 +179,7 @@ const handler = async function cmdCompress(argv) {
         t.needBar = needBar
     })
     needBar && bar1.start(files.length, 0)
-    let tasks = await pMap(files, preCompress, { concurrency: cpus().length * 4 })
+    let tasks = await pMap(files, preCompress, { concurrency: argv.jobs || cpus().length * 4 })
     needBar && bar1.update(files.length)
     needBar && bar1.stop()
     log.info(logTag, "before filter: ", tasks.length)
@@ -233,13 +258,20 @@ let compressLastUpdatedAt = 0
 const bar1 = new cliProgress.SingleBar({ etaBuffer: 300 }, cliProgress.Presets.shades_classic)
 // 文心一言注释 20231206
 // 准备压缩图片的参数，并进行相应的处理  
-async function preCompress(f, options = {}) {
+async function preCompress(f) {
     const logTag = 'PreCompress'
     const maxWidth = f.maxWidth || 6000 // 获取最大宽度限制，默认为6000  
     let fileSrc = path.resolve(f.path) // 解析源文件路径  
     const [dir, base, ext] = helper.pathSplit(fileSrc) // 将路径分解为目录、基本名和扩展名  
-    const fileDstTmp = path.join(dir, `_TMP_${base}.jpg`)
-    let fileDst = path.join(dir, `${base}_Z4K.jpg`) // 构建目标文件路径，添加压缩后的文件名后缀  
+    const suffix = f.suffix || "_Z4K"
+    log.info(logTag, 'Processing ', fileSrc, suffix)
+
+    let fileDstDir = f.output ? helper.pathRewrite(f.root, dir, f.output, false) : dir
+    const tempSuffix = `_tmp@${helper.textHash(fileSrc)}@tmp_`
+    const fileDstTmp = path.join(fileDstDir, `${base}${suffix}${tempSuffix}.jpg`)
+    // 构建目标文件路径，添加压缩后的文件名后缀 
+    let fileDst = path.join(fileDstDir, `${base}${suffix}.jpg`)
+
     fileSrc = path.resolve(fileSrc) // 解析源文件路径（再次确认）  
     fileDst = path.resolve(fileDst) // 解析目标文件路径（再次确认）  
 
@@ -298,6 +330,7 @@ async function preCompress(f, options = {}) {
                 helper.pathShort(fileSrc),
                 `${m.width}x${m.height}=>${dstWidth}x${dstHeight} ${helper.humanSize(st.size)}`
             )
+            log.showGray(logTag, `${f.index}/${f.total} DST:`, fileDst)
         }
         log.fileLog(`Pre: ${f.index}/${f.total} <${fileSrc}> ` +
             `${dstWidth}x${dstHeight}) ${m.format} ${helper.humanSize(st.size)}`, logTag)
