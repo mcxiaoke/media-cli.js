@@ -297,8 +297,8 @@ async function cmdRemove(argv) {
         log.showYellow(logTag, `${tasks.length} files, NO file removed in TEST MODE.`)
     } else {
         for (const task of tasks) {
+            const flag = task.isDir ? "D" : "F"
             try {
-                const flag = task.stats?.isDirectory() ? "D" : "F"
                 // 此选项为永久删除
                 if (purge) {
                     await fs.remove(task.src)
@@ -341,7 +341,7 @@ async function preRemoveArgs(f) {
     const fileSrc = path.resolve(f.path)
     const fileName = path.basename(fileSrc)
     const [dir, base, ext] = helper.pathSplit(fileSrc)
-    const flag = f.stats?.isDirectory() ? "D" : "F"
+    const flag = f.isDir ? "D" : "F"
     const c = f.conditions || {}
     const ipx = `${f.index}/${f.total}`
     //log.show("prepareRM options:", options);
