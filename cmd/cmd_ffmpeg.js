@@ -388,7 +388,7 @@ async function cmdConvert(argv) {
         }
     }
 
-    !testMode && log.fileLog(`ffmpegArgs:`, tasks.slice(-1)[0].ffmpegArgs, 'FFConv')
+    !testMode && log.fileLog(`ffmpegArgs:`, tasks.slice(-1)[0].ffmpegArgs.flat(), 'FFConv')
     tasks = tasks.filter(t => t && t.fileDst)
     if (tasks.length === 0) {
         log.showYellow(logTag, 'All tasks are skipped, nothing to do.')
@@ -396,7 +396,7 @@ async function cmdConvert(argv) {
     }
     log.show('-----------------------------------------------------------')
     log.showYellow(logTag, 'PRESET:', core.pickTrueValues(preset))
-    log.showYellow(logTag, 'CMD: ffmpeg', tasks.slice(-1)[0].ffmpegArgs.join(' '))
+    log.showCyan(logTag, 'CMD: ffmpeg', tasks.slice(-1)[0].ffmpegArgs.flat().join(' '))
     log.show('-----------------------------------------------------------')
     testMode && log.showYellow('++++++++++ TEST MODE (DRY RUN) ++++++++++')
     log.showYellow(logTag, 'Please CHECK above details BEFORE continue!')
@@ -440,14 +440,12 @@ function fixEncoding(str = '') {
 async function runFFmpegCmd(entry) {
     const ipx = `${entry.index + 1}/${entry.total}`
     const logTag = chalk.green('FFCMD')
-    const ffmpegArgs = entry.ffmpegArgs
-
     log.show(logTag, `${ipx} Processing ${helper.pathShort(entry.path, 72)}`, helper.humanSize(entry.size), chalk.yellow(getDurationInfo(entry)), helper.humanTime(entry.startMs))
 
     // 每10个输出一次ffmpeg详细信息，避免干扰
     // if (entry.index % 10 === 0) {
     log.showGray(logTag, `${ipx}`, getEntryShowInfo(entry), chalk.yellow(entry.preset.name), helper.humanSize(entry.size))
-    log.showGray(logTag, `${ipx} ffmpeg`, createFFmpegArgs(entry, true).join(' '))
+    log.showGray(logTag, `${ipx} ffmpeg`, entry.ffmpegArgs.flat().join(' '))
     // }
     const exePath = await which(FFMPEG_BINARY)
     if (entry.testMode) {
@@ -460,6 +458,11 @@ async function runFFmpegCmd(entry) {
     await fs.mkdirp(entry.fileDstDir)
     await fs.remove(entry.fileDstTemp)
     const ffmpegStartMs = Date.now()
+
+    const [inputArgs, middleArgs, outputArgs] = entry.ffmpegArgs
+    const metaComment = getMetaCommentArgs(entry)
+    const ffmpegArgs = [...inputArgs, ...middleArgs, ...metaComment, ...outputArgs]
+
     try {
         // https://2ality.com/2022/07/nodejs-child-process.html
         // Windows下 { shell: true } 必须，否则报错
@@ -497,6 +500,12 @@ async function runFFmpegCmd(entry) {
         await fs.remove(entry.fileDstTemp)
     }
 
+}
+
+function getMetaCommentArgs(entry) {
+    // 将所有ffmpeg参数放到comment
+    const ffmpegArgsText = createFFmpegArgs(entry, true).flat().join(' ').replaceAll(/['"]/gi, " ")
+    return ['-metadata', `comment="${ffmpegArgsText}"`]
 }
 
 // 失败了在输出目录写一个Error文件
@@ -648,6 +657,14 @@ async function prepareFFmpegCmd(entry) {
         if (await fs.pathExists(fileDstTemp)) {
             await fs.remove(fileDstTemp)
         }
+
+        // 字幕文件
+        let fileSubtitle = path.join(srcDir, `${srcBase}.ass`)
+        if (!(await fs.pathExists(fileSubtitle))) {
+            fileSubtitle = null
+        } else {
+            fileSubtitle = path.basename(fileSubtitle)
+        }
         log.show(logTag, `${ipx} FR: ${helper.pathShort(entry.path, 80)}`, helper.humanTime(entry.startMs))
         log.showGray(logTag, `${ipx} TO:`, fileDst, 100)
         log.showGray(logTag, `${ipx}`, getEntryShowInfo(entry), chalk.yellow(entry.preset.name), helper.humanSize(entry.size))
@@ -658,12 +675,14 @@ async function prepareFFmpegCmd(entry) {
             fileDstBase,
             fileDst,
             fileDstTemp,
+            fileSubtitle,
         }
         newEntry.ffmpegArgs = createFFmpegArgs(newEntry)
         // log.info(logTag, 'ffmpeg', ffmpegArgs.join(' '))
         return newEntry
     } catch (error) {
-        log.warn(logTag, `${ipx} Skip[Error]: ${entry.path}`, error)
+        log.error(logTag, `${ipx} Skip[Error]: ${entry.path}`, error)
+        throw error
     }
 }
 
@@ -824,10 +843,8 @@ function getBestAudioQuality(entry) {
 // 组合各种参数，替换模板参数，输出最终的ffmpeg命令行参数
 // 此函数仅读取参数，不修改preset对象
 function createFFmpegArgs(entry, forDisplay = false) {
-    const preset = entry.preset
     // 用于模板字符串的模板参数，针对当前文件
-    const entryPreset = {
-        ...preset,
+    const ev = {
         // 这几个会覆盖preset的预设数值
         videoBitrate: getBestVideoBitrate(entry),
         videoQuality: getBestVideoQuality(entry),
@@ -845,6 +862,27 @@ function createFFmpegArgs(entry, forDisplay = false) {
         srcAudioCodec: entry.info.audio?.codec_name,
         srcFormat: entry.info.format?.format_name,
     }
+    // 不要使用 entry.perset，下面复制一份针对每个entry
+    const ep = {
+        ...entry.preset,
+        ...ev,
+        // 计算目标帧率，不能超过源文件帧率
+        dstFrameRate: Math.min(entry.preset.framerate, ev.srcFrameRate),
+    }
+
+    // 输入参数
+    let inputArgs = []
+
+    // 是否需要添加fps filter
+    if (ep.dstFrameRate > 0) {
+        ep.framerate = dstFrameRate
+        if (ep.filters?.length > 0) {
+            ep.filters += ',fps={framerate}'
+        } else {
+            ep.filters = 'fps={framerate}'
+        }
+    }
+    log.showGreen(entry.name, ep.filters)
     // 几种ffmpeg参数设置的时间和功耗
     // ffmpeg -hide_banner -n -v error -stats -i 
     // 32s 110w
@@ -859,66 +897,98 @@ function createFFmpegArgs(entry, forDisplay = false) {
     // 显示详细信息
     // let args = "-hide_banner -n -loglevel repeat+level+info -stats".split(" ")
     // 只显示进度和错误
-    let args = "-hide_banner -n -v error".split(" ")
+    //
+    //===============================================================
+    // 输入参数部分，在 -i input 前面
+    //===============================================================
+    //
+    inputArgs = "-hide_banner -n -v error".split(" ")
     // 输出视频时才需要cuda加速，音频用cpu就行
-    if (preset.type === 'video') {
+    if (ep.type === 'video') {
         // -hwaccel cuda -hwaccel_output_format cuda
-        args = args.concat(["-stats", "-hwaccel", "cuda", "-hwaccel_output_format", "cuda"])
+        inputArgs = inputArgs.concat(["-stats", "-hwaccel", "cuda", "-hwaccel_output_format", "cuda"])
     }
     // 输入参数在输入文件前面，顺序重要
-    if (preset.inputArgs?.length > 0) {
-        args = args.concat(this.preset.inputArgs.split(' '))
+    if (ep.inputArgs?.length > 0) {
+        inputArgs = inputArgs.concat(ep.inputArgs.split(' '))
     }
-    args.push('-i')
-    args.push(`"${entry.path}"`)
+    inputArgs.push('-i')
+    inputArgs.push(forDisplay ? "input.mkv" : `"${entry.path}"`)
+    // 添加MP4内嵌字幕文件
+    if (entry.fileSubtitle) {
+        inputArgs.push('-i')
+        inputArgs.push(`"${entry.fileSubtitle}"`)
+        const subArgs = '-c:s mov_text -metadata:s:s:0 language=chi -disposition:s:0 default'
+        inputArgs = inputArgs.concat(subArgs.split(' '))
+    }
+    //
+    //===============================================================
+    // 中间参数部分，在 -i input 后面
+    // 顺序建议 filters codec stream metadata
+    //===============================================================
+    //
+    // 中间参数
+    let middleArgs = []
 
-    // 在输入文件后面
+    // 添加MP4硬字幕
+    // if (entry.fileSubtitle) {
+    //     entryPreset.filters = `-subtitles="${entry.fileSubtitle}"`
+    // }
+
+    // 滤镜参数
     // complexFilter 和 filters 不能同时存在
-    if (preset.complexFilter?.length > 0) {
-        args.push('-filter_complex')
-        args.push(`"${formatArgs(preset.complexFilter, preset)}"`)
-    } else if (preset.filters?.length > 0) {
-        args.push('-vf')
-        args.push(formatArgs(preset.filters, preset))
+    if (ep.complexFilter?.length > 0) {
+        middleArgs.push('-filter_complex')
+        middleArgs.push(`"${formatArgs(ep.complexFilter, ep)}"`)
+    } else if (ep.filters?.length > 0) {
+        middleArgs.push('-vf')
+        middleArgs.push(formatArgs(ep.filters, ep))
     }
-
-    if (preset.videoArgs?.length > 0) {
-        const va = formatArgs(preset.videoArgs, entryPreset)
-        args = args.concat(va.split(' '))
+    // 视频参数
+    if (ep.videoArgs?.length > 0) {
+        const va = formatArgs(ep.videoArgs, ep)
+        middleArgs = middleArgs.concat(va.split(' '))
     }
-    if (preset.audioArgs?.length > 0) {
+    // 音频参数
+    if (ep.audioArgs?.length > 0) {
         // extract_audio模式下智能选择编码器
         // 直接复制音频流或者重新编码
         // audioArgsCopy: '-c:a copy',
         // audioArgsEncode: '-c:a libfdk_aac -b:a {audioBitrate}k',
-        let audioArgsFixed = preset.audioArgs
-        if (presets.isAudioExtract(preset)) {
+        let audioArgsFixed = ep.audioArgs
+        if (presets.isAudioExtract(ep)) {
             if (entry.info?.audio?.codec_name === 'aac') {
                 audioArgsFixed = '-c:a copy'
             } else {
                 audioArgsFixed = '-c:a libfdk_aac -b:a {audioBitrate}k'
             }
         } else {
-            audioArgsFixed = preset.audioArgs
+            audioArgsFixed = ep.audioArgs
         }
-        const aa = formatArgs(audioArgsFixed, entryPreset)
-        args = args.concat(aa.split(' '))
-    }
-    // 在输入文件后面
-    if (preset.streamArgs?.length > 0) {
-        args = args.concat(preset.streamArgs.split(' '))
+        const aa = formatArgs(audioArgsFixed, ep)
+        middleArgs = middleArgs.concat(aa.split(' '))
     }
     // 其它参数
     // metadata 参数放这里
-    let extraArgsArray = []
+    let metaArgs = []
     // 添加自定义metadata字段
     //description, comment, copyright
-
-    extraArgsArray.push(`-metadata`, `description="encoder=mediac-ffmpeg"`)
-    extraArgsArray.push(`-metadata`, `copyright="name=${entry.name}"`)
-    extraArgsArray.push(`-metadata`, `comment="preset=${preset.name},vargs=${formatArgs(preset.videoArgs, entryPreset)},aargs=${formatArgs(preset.audioArgs, entryPreset)}"`)
+    const descArgs = []
+    descArgs.push(`pt=${ep.name}`)
+    descArgs.push(`ac=${ep.srcAudioCodec}`)
+    descArgs.push(`ab=${ep.audioBitrate}`)
+    descArgs.push(`aq=${ep.audioQuality}`)
+    descArgs.push(`vc=${ep.srcVideoCodec}`)
+    descArgs.push(`vb=${ep.videoBitrate}`)
+    descArgs.push(`vq=${ep.videoQuality}`)
+    descArgs.push(`fps=${ep.dstFrameRate}`)
+    descArgs.push(`sp=${ep.speed}`)
+    const descArgsText = descArgs.join('|')
+    metaArgs.push(`-metadata`, `description="${descArgsText}"`)
+    metaArgs.push(`-metadata`, `copyright="${entry.name}"`)
+    // 音频文件才添加元数据
     // 检查源文件元数据
-    if (entry.tags?.title) {
+    if (helper.isAudioFile(entry.path) && entry.tags?.title) {
         const KEY_LIST = ['title', 'artist', 'album', 'albumartist', 'year']
         // 验证 非空值，无乱码，值为字符串或数字
         const validTags = core.filterFields(entry.tags, (key, value) => {
@@ -935,28 +1005,34 @@ function createFFmpegArgs(entry, forDisplay = false) {
                 validTags[key] = value.replaceAll(/['"]/gi, " ")
             }
         }
-        extraArgsArray = extraArgsArray.concat(...Object.entries(validTags)
+        metaArgs = metaArgs.concat(...Object.entries(validTags)
             .map(([key, value]) => [`-metadata`, `${key}="${value}"`]))
         // log.show(extraArgsArray)
     } else {
-        extraArgsArray.push(`-metadata`, `title="${entry.name}"`)
+        metaArgs.push(`-metadata`, `title="${entry.name}"`)
     }
-    // 不要漏掉本来的extraArgs
-    if (preset.extraArgs?.length > 0) {
-        extraArgsArray = extraArgs.concat(preset.extraArgs.split(' '))
+    if (metaArgs.length > 0) {
+        middleArgs = middleArgs.concat(metaArgs)
     }
-    if (extraArgsArray.length > 0) {
-        args = args.concat(extraArgsArray)
+    // 不要漏掉 extraArgs
+    if (ep.extraArgs?.length > 0) {
+        middleArgs = middleArgs.concat(ep.extraArgs.split(' '))
+    }
+    // 流参数 streamArgs -map xxx 等
+    if (ep.streamArgs?.length > 0) {
+        middleArgs = middleArgs.concat(ep.streamArgs.split(' '))
     }
     // 输出参数在最后，在输出文件前面，顺序重要
-    if (preset.outputArgs?.length > 0) {
-        args = args.concat(preset.outputArgs.split(' '))
+    if (ep.outputArgs?.length > 0) {
+        middleArgs = middleArgs.concat(ep.outputArgs.split(' '))
     }
+    //===============================================================
+    // 输出参数部分，只有一个输出文件路径
+    //===============================================================
     // 显示数据时用最终路径，实际使用时用临时文件路径
-    args.push(`"${forDisplay ? entry.fileDst : entry.fileDstTemp}"`)
-
-
-    return args
+    const outputArgs = [forDisplay ? "output.mp4" : `"${entry.fileDstTemp}"`]
+    // 返回三种参数，方便后面组合保存ffmpeg参数到元数据
+    return [inputArgs, middleArgs, outputArgs]
 }
 
 function preparePreset(argv) {
@@ -1004,14 +1080,17 @@ function preparePreset(argv) {
     // 视频帧率
     if (argv.framerate > 0) {
         preset.framerate = argv.framerate
+        // if (preset.framerate > 0) {
+        //     if (preset.filters?.length > 0) {
+        //         preset.filters += ',fps={framerate}'
+        //     } else {
+        //         preset.filters = 'fps={framerate}'
+        //     }
+        // }
+    } else {
+        // 没有指定帧率，使用源文件帧率
     }
-    if (preset.framerate > 0) {
-        if (preset.filters?.length > 0) {
-            preset.filters += ',fps={framerate}'
-        } else {
-            preset.filters = 'fps={framerate}'
-        }
-    }
+
     // 视频码率，用户指定，优先级最高
     if (argv.videoBitrate > 0) {
         preset.userVideoBitrate = argv.videoBitrate
