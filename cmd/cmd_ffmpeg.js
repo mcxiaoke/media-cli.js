@@ -177,12 +177,11 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             type: "string",
             describe: "Set audio args in ffmpeg command",
         })
-        // 音频选项，指定码率
-        .option("audio-bitrate", {
-            alias: "ab",
-            type: "number",
-            default: 0,
-            describe: "Set audio bitrate in ffmpeg command",
+        // 直接复制音频流，不重新编码
+        .option("audio-copy", {
+            type: "boolean",
+            default: false,
+            describe: "Copy audio stream to ouput, no re-encoding",
         })
         // 音频选项，指定音频质量参数
         .option("audio-quality", {
@@ -426,6 +425,10 @@ async function cmdConvert(argv) {
     await log.flushFileLog()
     // 并发数视频1，音频4，或者参数指定
     const jobCount = argv.jobs || (preset.type === 'video' ? 1 : 4)
+    // 测试模式只取若干样本数据展示
+    if (testMode && tasks.length > 20) {
+        tasks = core.takeEveryNth(tasks, Math.floor(tasks.length / 10))
+    }
     const results = await pMap(tasks, runFFmpegCmd, { concurrency: jobCount })
     // const results = await core.asyncMapGroup(tasks, runFFmpegCmd, jobCount)
     testMode && log.showYellow(logTag, 'NO file processed in TEST MODE.')
@@ -974,6 +977,7 @@ function createFFmpegArgs(entry, forDisplay = false) {
         const aa = formatArgs(audioArgsFixed, ep)
         middleArgs = middleArgs.concat(aa.split(' '))
     }
+    // todo 如果源文件音频编码是AAC，且目标音频码率大于或等于原码率，使用 -c:a copy
     // 其它参数
     // metadata 参数放这里
     let metaArgs = []
@@ -1094,12 +1098,19 @@ function preparePreset(argv) {
     if (argv.videoQuality > 0) {
         preset.userVideoQuality = argv.videoQuality
     }
-    // 音频码率，用户指定，优先级最高
-    if (argv.audioBitrate > 0) {
-        preset.userAudioBitrate = argv.audioBitrate
-    }
-    if (argv.audioQuality > 0) {
-        preset.userAudioQuality = argv.audioQuality
+    // 音频流复制，用户指定，优先级最高
+    if (argv.audioCopy) {
+        preset.audioArgs = '-c:a copy'
+    } else {
+        // 如果不是复制音频流
+        // 音频码率，用户指定，优先级最高
+        if (argv.audioBitrate > 0) {
+            preset.userAudioBitrate = argv.audioBitrate
+        }
+        // 音频质量VBR，用户指定，优先级最高
+        if (argv.audioQuality > 0) {
+            preset.userAudioQuality = argv.audioQuality
+        }
     }
     // log.show('P2', preset)
     return preset
