@@ -13,16 +13,21 @@ import * as cliProgress from "cli-progress"
 import dayjs from "dayjs"
 import exif from 'exif-reader'
 import fs from 'fs-extra'
+import imageSizeOfSync from 'image-size'
 import inquirer from "inquirer"
 import { cpus } from "os"
 import pMap from 'p-map'
 import path from "path"
 import sharp from "sharp"
+import util from 'util'
 import * as core from '../lib/core.js'
 import * as log from '../lib/debug.js'
 import * as mf from '../lib/file.js'
 import * as helper from '../lib/helper.js'
+import tryfp from '../lib/tryfp.js'
 import { compressImage } from "./cmd_shared.js"
+
+//
 export { aliases, builder, command, describe, handler }
 
 const command = "compress <input> [output]"
@@ -58,6 +63,12 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             type: "boolean",
             default: false,
             description: "Just delete original image files only",
+        })
+        // 是否覆盖已存在的压缩后文件
+        .option("force", {
+            type: "boolean",
+            default: false,
+            description: "Force compress all files",
         })
         // 是否覆盖已存在的压缩后文件
         .option("override", {
@@ -125,8 +136,8 @@ async function cmdCompress(argv) {
     const purgeOnly = argv.purgeOnly || false
     const purgeSource = argv.purge || false
     log.show(`${logTag} input:`, root)
-
-    const RE_THUMB = /Z4K|P4K|M4K|feature|web|thumb$/i
+    // 如果有force标志，就不过滤文件名
+    const RE_THUMB = argv.force ? /@_@/ : /Z4K|P4K|M4K|feature|web|thumb$/i
     const walkOpts = {
         needStats: true,
         entryFilter: (f) =>
@@ -164,6 +175,7 @@ async function cmdCompress(argv) {
     const addArgsFunc = async (f, i) => {
         return {
             ...f,
+            force: argv.force || false,
             suffix: argv.suffix,
             output: argv.output,
             total: files.length,
@@ -296,17 +308,21 @@ async function preCompress(f) {
             skipReason: 'DST EXISTS',
         }
     }
-    try {
-        const st = await fs.stat(fileSrc)
-        const m = await sharp(fileSrc).metadata()
-        try {
+    let [err, im] = await core.tryRunAsync(async () => {
+        return await sharp(fileSrc).metadata()
+    })
+
+    if (err) {
+        [err, im] = await tryfp.tryCatchAsync(util.promisify(imageSizeOfSync))(fileSrc)
+    } else {
+        if (im?.exif) {
+            log.info(logTag, "force:", fileDst)
+            const md = exif(im.exif)?.Image
             // 跳过以前由mediac压缩过的图片，避免重复压缩
-            // 可能需要添加一个命令行参数控制
-            if (m?.exif) {
-                const md = exif(m.exif)?.Image
+            if (!f.force) {
                 if (md.Copyright?.includes("mediac")
                     || md.Software?.includes("mediac")
-                    || md.Artist?.includes("mediac")) {
+                    || md.Artist?.includes("mediac") && !f.force) {
                     log.info(logTag, "skip:", fileDst)
                     return {
                         ...f,
@@ -319,34 +335,34 @@ async function preCompress(f) {
                     }
                 }
             }
-        } catch (error) {
-            log.warn(logTag, "exif", error.message, fileSrc)
-            log.fileLog(`ExifErr: <${fileSrc}> ${error.message}`, logTag)
         }
+    }
 
-        const { dstWidth, dstHeight } = calculateImageScale(m.width, m.height, maxWidth)
-        if (f.total < 1000 || f.index > f.total - 1000) {
-            log.show(logTag, `${f.index}/${f.total}`,
-                helper.pathShort(fileSrc),
-                `${m.width}x${m.height}=>${dstWidth}x${dstHeight} ${helper.humanSize(st.size)}`
-            )
-            log.showGray(logTag, `${f.index}/${f.total} DST:`, fileDst)
-        }
-        log.fileLog(`Pre: ${f.index}/${f.total} <${fileSrc}> ` +
-            `${dstWidth}x${dstHeight}) ${m.format} ${helper.humanSize(st.size)}`, logTag)
-        return {
-            ...f,
-            srcWidth: m.width,
-            srcHeight: m.height,
-            width: dstWidth,
-            height: dstHeight,
-            src: fileSrc,
-            dst: fileDst,
-            tmpDst: fileDstTmp,
-        }
-    } catch (error) {
+    if (err) {
         log.warn(logTag, "sharp", error.message, fileSrc)
         log.fileLog(`SharpErr: ${f.index} <${fileSrc}> sharp:${error.message}`, logTag)
+        return
+    }
+
+    const { dstWidth, dstHeight } = calculateImageScale(im.width, im.height, maxWidth)
+    if (f.total < 1000 || f.index > f.total - 1000) {
+        log.show(logTag, `${f.index}/${f.total}`,
+            helper.pathShort(fileSrc),
+            `${im.width}x${im.height}=>${dstWidth}x${dstHeight} ${im.format || im.type} ${helper.humanSize(f.size)}`
+        )
+        log.showGray(logTag, `${f.index}/${f.total} DST:`, fileDst)
+    }
+    log.fileLog(`Pre: ${f.index}/${f.total} <${fileSrc}> ` +
+        `${dstWidth}x${dstHeight}) ${helper.humanSize(f.size)}`, logTag)
+    return {
+        ...f,
+        srcWidth: im.width,
+        srcHeight: im.height,
+        width: dstWidth,
+        height: dstHeight,
+        src: fileSrc,
+        dst: fileDst,
+        tmpDst: fileDstTmp,
     }
 }
 

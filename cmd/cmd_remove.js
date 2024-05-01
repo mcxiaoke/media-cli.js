@@ -24,6 +24,8 @@ import * as enc from '../lib/encoding.js'
 import { getMediaInfo } from '../lib/ffprobe.js'
 import * as mf from '../lib/file.js'
 import * as helper from '../lib/helper.js'
+import { addEntryProps, applyFileNameRules } from './cmd_shared.js'
+
 // a = all, f = files, d = directories
 const TYPE_LIST = ['a', 'f', 'd']
 
@@ -41,6 +43,32 @@ const builder = function addOptions(ya, helpOrVersionSet) {
         // 宽松模式，默认不开启，宽松模式条件或，默认严格模式条件与
         description: "If true, operation of conditions is OR, default AND",
     })
+        // 正则，包含文件名规则
+        .option("include", {
+            alias: "I",
+            type: "string",
+            description: "filename include pattern",
+        })
+        //字符串或正则，不包含文件名规则
+        // 如果是正则的话需要转义
+        .option("exclude", {
+            alias: "E",
+            type: "string",
+            description: "filename exclude pattern ",
+        })
+        // 默认启用正则模式，禁用则为字符串模式
+        .option("regex", {
+            alias: 're',
+            type: "boolean",
+            default: true,
+            description: "match filenames by regex pattern",
+        })
+        // 需要处理的扩展名列表，默认为常见视频文件
+        .option("extensions", {
+            alias: "e",
+            type: "string",
+            describe: "include files by extensions (eg. .wav|.flac)",
+        })
         .option("width", {
             type: "number",
             default: 0,
@@ -217,6 +245,8 @@ async function cmdRemove(argv) {
     }
     log.showGreen(logTag, `Walking files, please waiting ... (${type})`)
     let files = await mf.walk(root, walkOpts)
+    // 应用文件名过滤规则
+    files = await applyFileNameRules(files, argv)
     // 路径排序，路径深度=>路径长度=>自然语言
     files = files.sort(comparePathSmartBy('path'))
     log.show(logTag, `total ${files.length} files found (${type})`)
@@ -273,13 +303,25 @@ async function cmdRemove(argv) {
     }
     log.fileLog(`Conditions: list=${cNames.size},loose=${cLoose},corrupted=${cCorrupted},width=${cWidth},height=${cHeight},size=${cSize / 1024}k,pattern=${cPattern},not=${cNotMatch},type=${type}`, logTag)
     testMode && log.showYellow("++++++++++ TEST MODE (DRY RUN) ++++++++++")
+    // 计算文件总共大小
+    const totalSize = tasks.reduce((acc, file) => acc + file.size, 0)
+    // 计算每个目录的大小和文件数目
+    // const directoryStats = {}
+    // files.forEach(file => {
+    //     const directory = path.dirname(file.path)
+    //     if (!directoryStats[directory]) {
+    //         directoryStats[directory] = { size: 0, fileCount: 0 }
+    //     }
+    //     directoryStats[directory].size += file.size
+    //     directoryStats[directory].fileCount++
+    // })
     const answer = await inquirer.prompt([
         {
             type: "confirm",
             name: "yes",
             default: false,
             message: chalk.bold.red(
-                `Are you sure to remove ${tasks.length} files (total ${files.length}) using above conditions (type=${type})?`
+                `Are you sure to remove ${tasks.length} files (Size:${helper.humanSize(totalSize)}) using above conditions (type=${type})?`
             ),
         },
     ])
@@ -554,12 +596,12 @@ async function preRemoveArgs(f) {
         }
 
         if (shouldRemove) {
-            if (itemSize > mf.FILE_SIZE_1M * 50 || itemCount > 50) {
-                log.showYellow("PreRemove[Large]:", `${ipx} ${helper.pathShort(fileSrc)} ItemSize=${helper.humanSize(itemSize)},ItemCount=${itemCount}`)
+            if (itemSize > mf.FILE_SIZE_1M * 200 || (f.isDir && itemCount > 100)) {
+                log.showYellow("PreRemove[Large]:", `${ipx} ${helper.pathShort(fileSrc)} (${helper.humanSize(itemSize)},${itemCount})  ${flag}`)
             }
             log.show(
                 "PreRemove add:",
-                `${ipx} ${helper.pathShort(fileSrc)} [C=${itemDesc}] ${testCorrupted ? "Corrupted" : ""} ${flag} (${helper.humanSize(itemSize)},${itemCount})`)
+                `${ipx} ${helper.pathShort(fileSrc)} [C=${itemDesc}] ${testCorrupted ? "Corrupted" : ""} (${helper.humanSize(itemSize)},${itemCount}) ${flag}`)
             log.fileLog(`add: ${ipx} <${fileSrc}> ${itemDesc} ${flag} (${helper.humanSize(itemSize)},${itemCount})`, "PreRemove")
         } else {
             (testPattern || testSize || testMeasure) && log.info(

@@ -247,7 +247,7 @@ let nameDupCount = 0
 // 重复文件名Set，检测重复，防止覆盖
 const nameDuplicateSet = new Set()
 async function preRename(f) {
-    const isDir = f.stats?.isDirectory()
+    const isDir = f.isDir
     const flag = isDir ? "D" : "F"
     const logTag = `PreRename${flag}`
     const argv = f.argv
@@ -262,6 +262,8 @@ async function preRename(f) {
     // log.show([oldDir], [oldBase], [ext])
     let tmpNewDir = null
     let tmpNewBase = null
+
+    log.info(logTag, `Processing "${oldPath} [${flag}]"`)
 
     // 重新组合修复后的目录路径
     function combinePath(...parts) {

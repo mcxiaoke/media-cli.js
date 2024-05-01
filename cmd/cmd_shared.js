@@ -85,12 +85,12 @@ export async function renameFiles(files, parallel = false) {
 function fixEncoding(str = '') {
     return iconv.decode(Buffer.from(str, 'binary'), 'cp936')
 }
-
+// 需要使用外部程序压缩的格式
 const fixedOkStr = iconv.decode(Buffer.from('OK'), 'utf8')
 async function compressExternal(t, force = false) {
     const logTag = "Compress[EX]"
     log.info(logTag, "processing", t)
-    if (!helper.isHEVCImage(t.src) && !force) {
+    if (!helper.isExternalImage(t.src) && !force) {
         return
     }
     const exePath = await which("nconvert", { nothrow: true })
@@ -140,6 +140,7 @@ export async function compressImage(t) {
         if (await fs.pathExists(t.tmpDst)) {
             await fs.remove(t.tmpDst)
         }
+        // 某几种格式sharp不支持
         let r = await compressExternal(t)
         if (!r) {
             // 初始化一个sharp对象，用于图像处理  
@@ -199,7 +200,7 @@ async function checkCompressResult(t, r) {
         const tmpSt = await fs.stat(t.tmpDst)
         // 如果目标文件大小小于100KB，则可能文件损坏，删除该文件  
         // file may be corrupted, remove it  
-        if (tmpSt.size < 100 * 1024) {
+        if (tmpSt.size < 10 * 1024) {
             await helper.safeRemove(t.tmpDst)
             log.showYellow(logTag, `Delete: ${t.index}/${t.total}`, `<${helper.pathShort(t.dst)}>`, `${helper.humanSize(tmpSt.size)}`, chalk.yellow(`file corrupted`))
             log.fileLog(`Delete: ${t.index}/${t.total} <${helper.pathShort(t.dst)}> ${helper.humanSize(tmpSt.size)} file corrupted`, logTag)
