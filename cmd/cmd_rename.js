@@ -407,9 +407,8 @@ async function preRename(f) {
             let tplValues = isAudio ? info.audio : info.video
             tplValues = {
                 ...tplValues,
-                duration_s: Math.floor(duration),
-                duration_m: Math.floor(duration / 60),
-                bitrate_k: Math.floor(bitrate / 1000),
+                duration: `${helper.humanSeconds(duration)}`,
+                bitrate: `${Math.floor(bitrate / 1000)}K`,
             }
             // 替换模板字符串
             const base = tmpNewBase || oldBase

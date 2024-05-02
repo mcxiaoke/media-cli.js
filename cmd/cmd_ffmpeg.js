@@ -884,7 +884,7 @@ function calculateDstArgs(entry) {
     const dstPixels = dstWidth * dstHeight
     const dstVideoBitrateFixed = dstVideoBitrate
     if (dstPixels > 0) {
-        const scaleFactor = dstPixels / PIXELS_1080P
+        let scaleFactor = dstPixels / PIXELS_1080P
         // dstVideoBitrate针对目标是1080p的数据
         // 如果目标码率不是1080p，根据分辨率智能缩放
         // 示例 辨率1920*1080的目标码率是 1600k
