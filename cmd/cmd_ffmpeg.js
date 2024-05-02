@@ -563,26 +563,6 @@ async function prepareFFmpegCmd(entry) {
         // 如果没有指定输出目录，直接输出在原文件同目录
         fileDstDir = path.resolve(srcDir)
     }
-    if (isAudio || presets.isAudioExtract(preset)) {
-        // 不带后缀只改扩展名的m4a文件，如果存在也需要首先忽略
-        // 可能是其它压缩工具生成的文件，不需要重复压缩
-        // 检查输出目录
-        // const fileDstNoSuffix = path.join(fileDstDir, `${srcBase}${dstExt}`)
-        // if (await fs.pathExists(fileDstNoSuffix)) {
-        //     log.info(
-        //         logTag,
-        //         `${ipx} Skip[DstM4A]: ${helper.pathShort(entry.path)} (${helper.humanSize(entry.size)})`)
-        //     return false
-        // }
-        // 检查源文件同目录
-        // const fileDstSameDirNoSuffix = path.join(srcDir, `${srcBase}${dstExt}`)
-        // if (await fs.pathExists(fileDstSameDirNoSuffix)) {
-        //     log.info(
-        //         logTag,
-        //         `${ipx} Skip[DstSame]: ${helper.pathShort(entry.path)} (${helper.humanSize(entry.size)})`)
-        //     return false
-        // }
-    }
     try {
         // 使用ffprobe读取媒体信息，速度较慢
         // 注意flac和ape格式的stream里没有bit_rate字段 format里有
@@ -613,6 +593,16 @@ async function prepareFFmpegCmd(entry) {
                 log.fileLog(`${ipx} Skip[Invalid]: <${entry.path}> (${helper.humanSize(entry.size)})`, 'Prepare')
                 return false
             }
+        } else {
+            // H264 10Bit Nvidia和Intel都不支持硬解，直接跳过
+            if (entry.info?.video?.codec_name === 'h264'
+                && entry.info?.video.bit_depth === 10
+                && entry.info?.video.profile?.includes('10')) {
+                log.showYellow(logTag, `${ipx} Skip[H264_10Bit]: ${entry.path} ${entry.info?.video?.pix_fmt} (${helper.humanSize(entry.size)})`)
+                log.fileLog(`${ipx} Skip[H264_10Bit]: <${entry.path}> (${helper.humanSize(entry.size)})`, 'Prepare')
+                return false
+            }
+
         }
         // 获取原始音频码率，计算目标音频码率
         // vp9视频和opus音频无法获取码率
@@ -628,13 +618,13 @@ async function prepareFFmpegCmd(entry) {
         log.info(logTag, entry.path, dstArgs)
         // 如果转换目标是音频，但是源文件不含音频流，忽略
         if (entry.preset.type === 'audio' && !audioCodec) {
-            log.showYellow(logTag, `${ipx} Skip[NoAudio]: ${entry.path}`, getEntryShowInfo(newEntry))
+            log.showYellow(logTag, `${ipx} Skip[NoAudio]: ${entry.path} (${helper.humanSize(entry.size)})`)
             log.fileLog(`${ipx} Skip[NoAudio]: <${entry.path}> (${helper.humanSize(entry.size)})`, 'Prepare')
             return false
         }
         // 如果转换目标是视频，但是源文件不含视频流，忽略
         if (entry.preset.type === 'video' && !videoCodec) {
-            log.showYellow(logTag, `${ipx} Skip[NoVideo]: ${entry.path}`, getEntryShowInfo(newEntry))
+            log.showYellow(logTag, `${ipx} Skip[NoVideo]: ${entry.path} (${helper.humanSize(entry.size)})`)
             log.fileLog(`${ipx} Skip[NoVideo]: <${entry.path}> (${helper.humanSize(entry.size)})`, 'Prepare')
             return false
         }
