@@ -798,7 +798,8 @@ function minNoZero(...numbers) {
     return Math.min(...fNumbers)
 }
 
-// 计算视频和音频码率
+const PIXELS_1080P = 1920 * 1080
+// 计算视频和音频码率等各种目标文件数据
 function calculateDstArgs(entry) {
     const ep = entry.preset
     const iformat = entry.info?.format
@@ -810,6 +811,9 @@ function calculateDstArgs(entry) {
     let dstAudioBitrate = 0
     let srcVideoBitrate = 0
     let dstVideoBitrate = 0
+
+    const reqAudioBitrate = ep.userArgs.audioBitrate || ep.audioBitrate
+    const reqVideoBitrate = ep.userArgs.videoBitrate || ep.videoBitrate
     if (helper.isAudioFile(entry.path)) {
         // 音频文件
         // 文件信息中的码率值
@@ -833,7 +837,7 @@ function calculateDstArgs(entry) {
                 dstAudioBitrate = bitrateMap.find(br => srcAudioBitrate > br.threshold)?.value || 48 * 1000
             } else {
                 // 智能码率关闭，直接使用用户值或预设值
-                dstAudioBitrate = ep.userArgs.audioBitrate || ep.audioBitrate
+                dstAudioBitrate = reqAudioBitrate
             }
         } else {
             // 有的文件无法获取音频码率，如opus，此时srcAudioBitrate=0
@@ -854,10 +858,9 @@ function calculateDstArgs(entry) {
 
         // 音频和视频码率 用户指定>预设
         // 音频和视频码率都不能高于原码率
-        const reqAudioBitrate = ep.userArgs.audioBitrate || ep.audioBitrate
         dstAudioBitrate = minNoZero(srcAudioBitrate, reqAudioBitrate)
-        const reqVideoBitrate = ep.userArgs.videoBitrate || ep.videoBitrate
         dstVideoBitrate = minNoZero(srcVideoBitrate, reqVideoBitrate)
+
     }
 
     // 源文件时长
@@ -877,6 +880,23 @@ function calculateDstArgs(entry) {
 
     const dstDimension = ep.userArgs.dimension || ep.dimension
     const { dstWidth, dstHeight } = calculateScale(ivideo?.width || 0, ivideo?.height || 0, dstDimension)
+
+    const dstPixels = dstWidth * dstHeight
+    const dstVideoBitrateFixed = dstVideoBitrate
+    if (dstPixels > 0) {
+        const scaleFactor = dstPixels / PIXELS_1080P
+        // dstVideoBitrate针对目标是1080p的数据
+        // 如果目标码率不是1080p，根据分辨率智能缩放
+        // 示例 辨率1920*1080的目标码率是 1600k
+        // 1280*720码率 960k
+        // 3840*2160码率 2560k
+        if (scaleFactor > 1) {
+            scaleFactor *= 0.4
+        } else {
+            scaleFactor *= 1.6
+        }
+        dstVideoBitrate = Math.round(dstVideoBitrate * scaleFactor)
+    }
 
     const dstSpeed = ep.userArgs.speed || ep.speed
 
@@ -906,6 +926,9 @@ function calculateDstArgs(entry) {
         dstWidth,
         dstHeight,
         dstSpeed,
+        // 码率智能缩放
+        audioBitrateScaled: dstAudioBitrate !== reqAudioBitrate,
+        videoBitrateScaled: dstVideoBitrate !== dstVideoBitrateFixed,
         // 会覆盖preset的同名预设值
         // videoBitrate: dstVideoBitrate,
         videoBitrateK: `${Math.round(dstVideoBitrate / 1000)}K`,
