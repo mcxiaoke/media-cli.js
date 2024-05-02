@@ -273,7 +273,7 @@ async function cmdConvert(argv) {
     argv.ffargs = argparser.parseArgs(argv.ffargs)
     log.show(logTag, `ffargs:`, argv.ffargs)
     // 解析Preset，根据argv参数修改preset，返回对象
-    const preset = preparePreset(argv)
+    const preset = presets.createFromArgv(argv)
     if (!testMode) {
         log.fileLog(`Root: ${root}`, 'FFConv')
         log.fileLog(`Argv: ${JSON.stringify(argv)}`, 'FFConv')
@@ -341,8 +341,8 @@ async function cmdConvert(argv) {
     fileEntries = fileEntries.map((entry, index) => {
         return {
             ...entry,
-            argv,
-            preset,
+            argv: structuredClone(argv),
+            preset: structuredClone(preset),
             // startMs: startMs,
             // index: index,
             // total: fileEntries.length,
@@ -614,17 +614,14 @@ async function prepareFFmpegCmd(entry) {
         // 获取原始音频码率，计算目标音频码率
         // vp9视频和opus音频无法获取码率
         const dstArgs = calculateDstArgs(entry)
-        const dstValues = caculateDstValues(entry)
 
         // 计算后的视频和音频码率，关联文件
         // 与预设独立，优先级高于预设
         // srcXX单位为bytes dstXXX单位为kbytes
         let newEntry = {
             ...entry,
-            ...dstArgs,
-            dstValues,
+            dstArgs,
         }
-        log.showYellow('>>>>', entry.name, dstArgs, dstValues)
         log.info(logTag, entry.path, dstArgs)
         // 如果转换目标是音频，但是源文件不含音频流，忽略
         if (entry.preset.type === 'audio' && !audioCodec) {
@@ -709,8 +706,8 @@ function createDstBaseName(entry) {
         ...entry.preset,
         ...entry.dstValues,
         // 兼容字符串模板展示
-        audioBitrate: entry.audioBitrateK,
-        videoBitrate: entry.videoBitrateK,
+        audioBitrate: entry.audioBitrate,
+        videoBitrate: entry.videoBitrate,
     }
     // log.show(entry.preset)
     // 应用模板参数到前缀和后缀字符串模板
@@ -770,147 +767,113 @@ const bitrateMap = [
     { threshold: 0, value: 48 * 1000 } // 默认值
 ]
 
+function minNoZero(...numbers) {
+    const fNumbers = numbers.filter(n => n > 0)
+    return Math.min(...fNumbers)
+}
+
 // 计算视频和音频码率
 function calculateDstArgs(entry) {
+    const ep = entry.preset
+    const iformat = entry.info?.format
+    const ivideo = entry.info?.video
+    const iaudio = entry.info?.audio
     // eg. '-map a:0 -c:a libfdk_aac -b:a {bitrate}'
-    // 这个是文件整体码率，如果是是视频文件，等于是视频和音频的码率相加
-    const fileBitrate = entry.info?.format?.bit_rate || 0
     let srcAudioBitrate = 0
     let dstAudioBitrate = 0
     let srcVideoBitrate = 0
     let dstVideoBitrate = 0
     if (helper.isAudioFile(entry.path)) {
-        // 对于音频文件，音频格式转换
-        if (entry.format?.lossless || helper.isAudioLossless(entry.path)) {
-            // 无损音频，设置默认值
-            srcAudioBitrate = srcAudioBitrate > 320 * 1000 ? srcAudioBitrate : 999 * 1000
-        }
-        // audio file
-        srcAudioBitrate = entry.format?.bitrate
-            || entry.info?.audio?.bit_rate
-            || fileBitrate || 0
-        // 有的文件无法获取音频码率，如opus，此时srcAudioBitrate=0
-        // opus用于极低码率音频，此时 dstAudioBitrate=48 可以接受
-        dstAudioBitrate = bitrateMap.find(br => srcAudioBitrate > br.threshold)?.value || 48 * 1000
-        // 忽略计算结果，直接使用预设数值
-        if (!entry.preset.smartBitrate) {
-            dstAudioBitrate = entry.preset.audioBitrate
-        }
-    } else {
-        // 对于视频文件
-        // 计算码率原则
-        // 计算出的音频码率不高于源文件的音频码率
-        // 计算出的音频码率不高于预设指定的码率
-        srcAudioBitrate = entry.info?.audio?.bit_rate || 0
-        dstAudioBitrate = Math.min(srcAudioBitrate, entry.preset.audioBitrate)
+        // 音频文件
+        // 文件信息中的码率值
+        const fileBitrate = entry.format?.bitrate || iformat?.bit_rate || iaudio?.bit_rate || 0
+        if (fileBitrate > 0) {
+            srcAudioBitrate = fileBitrate
+        } else {
+            // 对于无法读取码率的音频文件
+            if (entry.format?.lossless || helper.isAudioLossless(entry.path)) {
+                // 无损音频，设置默认值
+                srcAudioBitrate = srcAudioBitrate > 320 * 1000 ? srcAudioBitrate : 999 * 1000
+            } else {
+                // 非无损音频，也无法读取码率的话，应该是文件损坏
 
+                srcAudioBitrate = 0
+            }
+        }
+        if (srcAudioBitrate > 0) {
+            // 如果启用了智能码率
+            if (ep.smartBitrate) {
+                dstAudioBitrate = bitrateMap.find(br => srcAudioBitrate > br.threshold)?.value || 48 * 1000
+            } else {
+                // 智能码率关闭，直接使用用户值或预设值
+                dstAudioBitrate = ep.userArgs.audioBitrate || ep.audioBitrate
+            }
+        } else {
+            // 有的文件无法获取音频码率，如opus，此时srcAudioBitrate=0
+            // opus用于极低码率音频，此时 dstAudioBitrate=48 可以接受
+            dstAudioBitrate = 48 * 1000
+        }
+        // 转换后的码率不能高于源文件码率
+        dstAudioBitrate = minNoZero(dstAudioBitrate, srcAudioBitrate)
+    } else {
+        // 视频文件
+        // 这个是文件整体码率，如果是是视频文件，等于是视频和音频的码率相加
+        const fileBitrate = iformat?.bit_rate || 0
+        srcAudioBitrate = iaudio?.bit_rate || 0
         // 计算出的视频码率不高于源文件的视频码率
         // 减去音频的码率，估算为48k
-        srcVideoBitrate = entry.info?.video?.bit_rate
+        srcVideoBitrate = ivideo?.bit_rate
             || fileBitrate - 48 * 1000 || 0
-        // 压缩后的视频比特率不能高于源文件比特率
-        dstVideoBitrate = Math.min(srcVideoBitrate, entry.preset.videoBitrate)
-        // 忽略计算结果，直接使用预设数值
-        if (!entry.preset.smartBitrate) {
-            dstAudioBitrate = entry.preset.audioBitrate
-            dstVideoBitrate = entry.preset.videoBitrate
-        }
+
+        // 音频和视频码率都不能高于原码率
+        dstAudioBitrate = minNoZero(srcAudioBitrate, ep.userArgs.audioBitrate, ep.audioBitrate)
+        dstVideoBitrate = minNoZero(srcVideoBitrate, ep.userArgs.videoBitrate, ep.videoBitrate)
     }
 
-    let srcFrameRate = entry.info.video?.r_frame_rate || entry.info.video?.avg_frame_rate || 0
-    let dstFrameRate = Math.min(entry.preset.userFrameRate, srcFrameRate)
+    // 如果目标帧率大于原帧率，就将目标帧率设置为0，即让ffmpeg自动处理，不添加帧率参数
+    // 源文件帧率
+    let srcFrameRate = ivideo?.framerate || 0
+    // 预设或用户帧率
+    const reqFrameRate = minNoZero(ep.userArgs.framerate, ep.framerate)
+    // 计算出的目标帧率
+    let dstFrameRate = reqFrameRate < srcFrameRate ? reqFrameRate : 0
 
-    return { srcAudioBitrate, dstAudioBitrate, srcVideoBitrate, dstVideoBitrate, srcFrameRate, dstFrameRate }
-}
+    const dstAudioQuality = ep.userArgs.audioQuality || ep.audioQuality
+    const dstVideoQuality = ep.userArgs.videoQuality || ep.videoQuality
 
-// 计算附加参数，包含原始参数
-function caculateDstValues(entry) {
-    // entry对象已经包含
-    // { srcAudioBitrate, dstAudioBitrate, srcVideoBitrate, 
-    // dstVideoBitrate, srcFrameRate, dstFrameRate }
     // 用于模板字符串的模板参数，针对当前文件
     // 额外模板参数
-    const bestVB = getBestVideoBitrate(entry)
-    const bestAB = getBestAudioBitrate(entry)
     // videoBitrateK audioBitrateK用于ffmpeg参数
-    const dstValues = {
-        // 这几个会覆盖preset的预设数值
-        videoBitrate: bestVB,
-        videoBitrateK: `${Math.round(bestVB / 1000)}K`,
-        videoQuality: getBestVideoQuality(entry),
-        audioBitrate: bestAB,
-        audioBitrateK: `${Math.round(bestAB / 1000)}K`,
-        audioQuality: getBestAudioQuality(entry),
-        framerate: getBestFrameRate(entry),
-        // 下面的是源文件参数
-        srcWidth: entry.info.video?.width || 0,
-        srcHeight: entry.info.video?.height || 0,
-        srcDuration: entry.info.format?.duration || 0,
-        srcSize: entry.info.format?.size || 0,
-        srcVideoCodec: entry.info.video?.codec_name,
-        srcAudioCodec: entry.info.audio?.codec_name,
-        srcFormat: entry.info.format?.format_name,
+    return {
+        // 源文件参数
+        srcAudioBitrate,
+        srcVideoBitrate,
+        srcFrameRate,
+        srcWidth: ivideo?.width || 0,
+        srcHeight: ivideo?.height || 0,
+        srcDuration: iformat?.duration || 0,
+        srcSize: iformat?.size || 0,
+        srcVideoCodec: ivideo?.codec_name,
+        srcAudioCodec: iaudio?.codec_name,
+        srcFormat: iformat?.format_name,
+        // 计算出来的参数
+        dstAudioBitrate,
+        dstVideoBitrate,
+        dstFrameRate,
+        dstAudioQuality,
+        dstVideoQuality,
+        // 覆盖preset的预设值
+        videoBitrate: dstVideoBitrate,
+        videoBitrateK: `${Math.round(dstVideoBitrate / 1000)}K`,
+        videoQuality: dstVideoQuality,
+        audioBitrate: entry.dstAudioBitrate,
+        audioBitrateK: `${Math.round(dstAudioBitrate / 1000)}K`,
+        audioQuality: dstAudioQuality,
+        framerate: dstFrameRate,
     }
-    return dstValues
+
 }
 
-// 选择最佳视频码率
-// 优先级
-// 用户指定参数 > 计算出的参数 > 预设里的参数
-// entry.preset.userVideoBitrate 用户指定，命令行参数，优先级最高
-// entry.dstVideoBitrate 计算出来的目标文件码率
-// entry.preset.videoBitrate 预设里指定的码率，优先级最低
-// 后面几种同上
-// 注意 任何情况下，都不能大于源文件码率
-// srcXXXBitrate 单位为bytes
-// dstXXXBitrate 单位为kbytes
-function getBestVideoBitrate(entry) {
-    const dstBitrate = entry.preset.userVideoBitrate
-        || entry.dstVideoBitrate
-        || entry.preset.videoBitrate
-    if (dstBitrate > entry.srcVideoBitrate) {
-        log.info(entry.name, entry.srcVideoBitrate, dstBitrate)
-    }
-    log.showGray('getBestVideoBitrate', entry.name, entry.preset.userVideoBitrate, entry.dstVideoBitrate, entry.preset.videoBitrate)
-    return Math.min(dstBitrate, entry.srcVideoBitrate)
-}
-// 选择最佳视频质量
-function getBestVideoQuality(entry) {
-    return entry.preset.userVideoQuality
-        || entry.dstVideoQuality
-        || entry.preset.videoQuality
-}
-
-// 选择最佳音频码率
-// 注意 任何情况下，都不能大于源文件码率
-function getBestAudioBitrate(entry) {
-    const dstBitrate = entry.preset.userAudioBitrate
-        || entry.dstAudioBitrate
-        || entry.preset.audioBitrate
-    if (dstBitrate > entry.srcAudioBitrate) {
-        log.info(entry.name, entry.srcVideoBitrate, dstBitrate)
-    }
-    log.showGray('getBestAudioBitrate', entry.name, entry.preset.userAudioBitrate, entry.dstAudioBitrate, entry.preset.audioBitrate)
-    return Math.min(dstBitrate, entry.srcAudioBitrate)
-}
-// 选择最佳音频质量
-function getBestAudioQuality(entry) {
-    return entry.preset.userAudioQuality
-        || entry.dstAudioQuality
-        || entry.preset.audioQuality
-}
-
-// 选择最佳视频帧率
-// 注意 任何情况下，都不能大于源文件帧率
-function getBestFrameRate(entry) {
-    const dstFPS = entry.preset.userFrameRate
-        || entry.dstFrameRate
-        || entry.preset.framerate
-    if (dstFPS > entry.srcFrameRate) {
-        log.info(entry.name, entry.srcFrameRate, dstFPS)
-    }
-    return Math.min(dstFPS, entry.srcFrameRate)
-}
 
 // 组合各种参数，替换模板参数，输出最终的ffmpeg命令行参数
 // 此函数仅读取参数，不修改preset对象
@@ -918,8 +881,10 @@ function createFFmpegArgs(entry, forDisplay = false) {
     // 不要使用 entry.perset，下面复制一份针对每个entry
     const ep = {
         ...entry.preset,
-        ...entry.dstValues,
+        ...entry.dstArgs,
     }
+
+    log.showYellow('createFFmpegArgs', entry.name, ep)
 
     // 输入参数
     let inputArgs = []
@@ -1035,12 +1000,12 @@ function createFFmpegArgs(entry, forDisplay = false) {
     const descArgs = []
     descArgs.push(`pt=${ep.name}`)
     descArgs.push(`ac=${ep.srcAudioCodec}`)
-    descArgs.push(`ab=${ep.audioBitrate}`)
+    descArgs.push(`ab=${ep.srcAudioBitrate}`)
     descArgs.push(`aq=${ep.audioQuality}`)
     descArgs.push(`vc=${ep.srcVideoCodec}`)
-    descArgs.push(`vb=${ep.videoBitrate}`)
+    descArgs.push(`vb=${ep.srcVideoBitrate}`)
     descArgs.push(`vq=${ep.videoQuality}`)
-    descArgs.push(`fps=${ep.framerate}`)
+    descArgs.push(`fps=${ep.srcFrameRate}`)
     descArgs.push(`sp=${ep.speed}`)
     const dateText = dayjs().format('YYYY-MM-DD hh:mm:ss.SSS Z')
     const descArgsText = descArgs.join('|')
@@ -1093,85 +1058,4 @@ function createFFmpegArgs(entry, forDisplay = false) {
     const outputArgs = [forDisplay ? "output.mp4" : `"${entry.fileDstTemp}"`]
     // 返回三种参数，方便后面组合保存ffmpeg参数到元数据
     return [inputArgs, middleArgs, outputArgs]
-}
-
-function preparePreset(argv) {
-    // 参数中指定的preset
-    let preset = presets.getPreset(argv.preset)
-
-    // log.show('ARGV', argv)
-    // log.show('P1', preset)
-    // 克隆对象，不修改Map中的内容
-    preset = structuredClone(preset)
-    // 保存argv方便调试
-    // preset.argv = JSON.stringify(argv)
-    // 前缀可以为空字符串
-    if (typeof argv.prefix === 'string') {
-        preset.prefix = argv.prefix
-    }
-    // 后缀可以为空字符串
-    if (typeof argv.suffix === 'string') {
-        preset.suffix = argv.suffix
-    }
-    if (argv.videoArgs?.length > 0) {
-        preset.videoArgs = argv.videoArgs
-    }
-    if (argv.audioArgs?.length > 0) {
-        preset.audioArgs = argv.audioArgs
-    }
-    if (argv.filters?.length > 0) {
-        preset.filters = argv.filters
-    }
-    if (argv.filterComplex?.length > 0) {
-        preset.complexFilter = argv.filterComplex
-    }
-    // 输出目录
-    if (argv.output?.length > 0) {
-        preset.output = path.resolve(argv.output)
-    }
-    // 视频尺寸
-    if (argv.dimension > 0) {
-        preset.dimension = String(argv.dimension)
-    }
-    // 视频速度
-    if (argv.speed > 0) {
-        preset.speed = argv.speed
-    }
-    // 视频帧率，用户指定，优先级最高
-    if (argv.framerate > 0) {
-        preset.userFrameRate = argv.framerate
-    }
-    // 视频码率，用户指定，优先级最高
-    // 注意 用户参数单位为K
-    if (argv.videoBitrate > 0) {
-        preset.userVideoBitrate = argv.videoBitrate * 1000
-    } else {
-        preset.userVideoBitrate = 0
-    }
-    if (argv.videoQuality > 0) {
-        preset.userVideoQuality = argv.videoQuality
-    } else {
-        preset.userVideoQuality = 0
-    }
-    // 音频流复制，用户指定，优先级最高
-    if (argv.audioCopy) {
-        preset.audioArgs = '-c:a copy'
-    } else {
-        // 注意 用户参数单位为K
-        // 如果不是复制音频流
-        // 音频码率，用户指定，优先级最高
-        if (argv.audioBitrate > 0) {
-            preset.userAudioBitrate = argv.audioBitrate * 1000
-        } else {
-            preset.userAudioBitrate = 0
-        }
-        // 音频质量VBR，用户指定，优先级最高
-        if (argv.audioQuality > 0) {
-            preset.userAudioQuality = argv.audioQuality
-        } else {
-            preset.userAudioQuality = 0
-        }
-    }
-    // log.show('P2', preset)
-    return preset
 }
