@@ -25,7 +25,7 @@ import * as log from '../lib/debug.js'
 import * as mf from '../lib/file.js'
 import * as helper from '../lib/helper.js'
 import tryfp from '../lib/tryfp.js'
-import { compressImage } from "./cmd_shared.js"
+import { calculateScale, compressImage } from "./cmd_shared.js"
 
 //
 export { aliases, builder, command, describe, handler }
@@ -405,18 +405,4 @@ async function purgeSrcFiles(results) {
     const deleted = await pMap(toDelete, deletecFunc, { concurrency: cpus().length * 8 })
     log.showCyan(logTag, `${deleted.filter(Boolean).length} files are safely removed`)
 
-}
-
-// 给定图片长宽，给定长边数值，计算缩放后的长宽，只缩小不放大
-function calculateImageScale(imgWidth, imgHeight, maxSide) {
-    // 不需要缩放的情况
-    if (imgWidth <= maxSide && imgHeight <= maxSide) {
-        return { dstWidth: imgWidth, dstHeight: imgHeight }
-    }
-    // 计算缩放比例
-    let scaleFactor = maxSide / Math.max(imgWidth, imgHeight)
-    // 计算新的长宽
-    let dstWidth = Math.round(imgWidth * scaleFactor)
-    let dstHeight = Math.round(imgHeight * scaleFactor)
-    return { dstWidth, dstHeight }
 }

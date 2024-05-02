@@ -373,3 +373,17 @@ export function addEntryProps(entries, extraProps = {}) {
     })
     return entries
 }
+
+// 给定长宽，给定长边数值，计算缩放后的长宽，只缩小不放大
+export function calculateScale(imgWidth, imgHeight, maxSide) {
+    // 不需要缩放的情况
+    if (imgWidth <= maxSide && imgHeight <= maxSide) {
+        return { dstWidth: imgWidth, dstHeight: imgHeight }
+    }
+    // 计算缩放比例
+    let scaleFactor = maxSide / Math.max(imgWidth, imgHeight)
+    // 计算新的长宽
+    let dstWidth = Math.round(imgWidth * scaleFactor)
+    let dstHeight = Math.round(imgHeight * scaleFactor)
+    return { dstWidth, dstHeight }
+}

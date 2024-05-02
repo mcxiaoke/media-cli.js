@@ -26,7 +26,7 @@ import { getMediaInfo } from '../lib/ffprobe.js'
 import * as mf from '../lib/file.js'
 import * as helper from '../lib/helper.js'
 import { FFMPEG_BINARY } from '../lib/shared.js'
-import { addEntryProps, applyFileNameRules } from './cmd_shared.js'
+import { addEntryProps, applyFileNameRules, calculateScale } from './cmd_shared.js'
 
 const LOG_TAG = "FFConv"
 // ===========================================
@@ -233,6 +233,12 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             default: false,
             description: "delete source file if destination is exists",
         })
+        // 启用调试参数
+        .option("debug", {
+            type: "boolean",
+            default: false,
+            description: "enable debug mode for ffmpeg convert",
+        })
         // 确认执行所有系统操作，非测试模式，如删除和重命名和移动操作
         .option("doit", {
             alias: "d",
@@ -399,10 +405,11 @@ async function cmdConvert(argv) {
         log.showYellow(logTag, 'All tasks are skipped, nothing to do.')
         return
     }
-    !testMode && log.fileLog(`ffmpegArgs:`, tasks.slice(-1)[0].ffmpegArgs.flat(), 'FFConv')
+    const lastTask = tasks.slice(-1)[0]
+    !testMode && log.fileLog(`ffmpegArgs:`, lastTask.ffmpegArgs.flat(), 'FFConv')
     log.show('-----------------------------------------------------------')
-    log.showYellow(logTag, 'PRESET:', core.pickTrueValues(preset))
-    log.showCyan(logTag, 'CMD: ffmpeg', tasks.slice(-1)[0].ffmpegArgs.flat().join(' '))
+    log.showYellow(logTag, 'PRESET:', core.pickTrueValues(lastTask.debugPreset))
+    log.showCyan(logTag, 'CMD: ffmpeg', lastTask.ffmpegArgs.flat().join(' '))
     const totalDuration = tasks.reduce((acc, t) => acc + t.info?.format.duration || 0, 0)
     log.show('-----------------------------------------------------------')
     testMode && log.showYellow('++++++++++ TEST MODE (DRY RUN) ++++++++++')
@@ -444,19 +451,15 @@ async function cmdConvert(argv) {
     !testMode && log.showGreen(logTag, `Total ${okResults.length} files processed in ${helper.humanTime(startMs)}`)
 }
 
-function fixEncoding(str = '') {
-    return iconv.decode(Buffer.from(str, 'binary'), 'cp936')
-}
-
 async function runFFmpegCmd(entry) {
     const ipx = `${entry.index + 1}/${entry.total}`
     const logTag = chalk.green('FFCMD')
-    log.show(logTag, `${ipx} Processing ${helper.pathShort(entry.path, 72)}`, helper.humanSize(entry.size), chalk.yellow(getDurationInfo(entry)), helper.humanTime(entry.startMs))
+    log.show(logTag, `${ipx} Processing ${helper.pathShort(entry.path, 72)}`, helper.humanSize(entry.size), chalk.green(helper.humanSeconds(entry.dstArgs.srcDuration)), chalk.yellow(entry.preset.name), helper.humanTime(entry.startMs))
 
     // 每10个输出一次ffmpeg详细信息，避免干扰
     // if (entry.index % 10 === 0) {
-    log.showGray(logTag, `${ipx}`, getEntryShowInfo(entry), chalk.yellow(entry.preset.name), helper.humanSize(entry.size))
-    log.showGray(logTag, `${ipx} ffmpeg`, entry.ffmpegArgs.flat().join(' '))
+    log.showGray(logTag, getEntryShowInfo(entry))
+    log.showGray(logTag, `ffmpeg`, entry.ffmpegArgs.flat().join(' '))
     // }
     const exePath = await which(FFMPEG_BINARY)
     if (entry.testMode) {
@@ -625,13 +628,13 @@ async function prepareFFmpegCmd(entry) {
         log.info(logTag, entry.path, dstArgs)
         // 如果转换目标是音频，但是源文件不含音频流，忽略
         if (entry.preset.type === 'audio' && !audioCodec) {
-            log.showYellow(logTag, `${ipx} Skip[NoAudio]: ${entry.path}`, getEntryShowInfo(newEntry), helper.humanSize(entry.size))
+            log.showYellow(logTag, `${ipx} Skip[NoAudio]: ${entry.path}`, getEntryShowInfo(newEntry))
             log.fileLog(`${ipx} Skip[NoAudio]: <${entry.path}> (${helper.humanSize(entry.size)})`, 'Prepare')
             return false
         }
         // 如果转换目标是视频，但是源文件不含视频流，忽略
         if (entry.preset.type === 'video' && !videoCodec) {
-            log.showYellow(logTag, `${ipx} Skip[NoVideo]: ${entry.path}`, getEntryShowInfo(newEntry), helper.humanSize(entry.size))
+            log.showYellow(logTag, `${ipx} Skip[NoVideo]: ${entry.path}`, getEntryShowInfo(newEntry))
             log.fileLog(`${ipx} Skip[NoVideo]: <${entry.path}> (${helper.humanSize(entry.size)})`, 'Prepare')
             return false
         }
@@ -676,10 +679,9 @@ async function prepareFFmpegCmd(entry) {
         } else {
             fileSubtitle = path.basename(fileSubtitle)
         }
-        log.show(logTag, `${ipx} FR: ${helper.pathShort(entry.path, 80)}`, helper.humanTime(entry.startMs))
+        log.show(logTag, `${ipx} FR: ${helper.pathShort(entry.path, 80)}`, chalk.yellow(entry.preset.name), helper.humanTime(entry.startMs))
         log.showGray(logTag, `${ipx} TO:`, fileDst)
-        log.showGray(logTag, `${ipx}`, getEntryShowInfo(newEntry), chalk.yellow(entry.preset.name), helper.humanSize(entry.size))
-        // log.show(logTag, `Entry(${ipx})`, entry)
+        log.showGray(logTag, getEntryShowInfo(newEntry))
         newEntry = {
             ...newEntry,
             fileDstDir,
@@ -717,22 +719,46 @@ function createDstBaseName(entry) {
     return [`${prefix}${srcBase}${suffix}`, prefix, suffix]
 }
 
-// 显示媒体编码和码率信息，调试用
-function getEntryShowInfo(entry) {
-    const ac = entry.info?.audio?.codec_name
-    const vc = entry.info?.video?.codec_name
-    const duration = entry?.info?.audio?.duration
-        || entry?.info?.video?.duration
-        || entry?.info?.format?.duration || 0
-    const fps = entry.info?.video?.r_frame_rate || 0
-    const showInfo = []
-    if (ac) showInfo.push(`${ac},dur:${helper.humanDuration(duration * 1000)},vbr:${entry.preset.audioQuality},b:${Math.round(entry.srcAudioBitrate / 1000)}K=>${entry.audioBitrateK}`)
-    if (vc) showInfo.push(`v:${vc},d:${helper.humanDuration(duration * 1000)},fps:${fps},${entry.info?.video?.width || 0}x${entry.info?.video?.height || 0},b:${Math.round(entry.srcVideoBitrate / 1000)}K=>${entry.videoBitrateK}`,)
-    return showInfo
+function kNum(value) {
+    return `${Math.round(value / 1000)}K`
 }
 
-function getDurationInfo(entry) {
-    return helper.humanDuration((entry?.info?.audio?.duration || entry?.info?.video?.duration || entry?.info?.format?.duration || 0) * 1000)
+// 显示媒体编码和码率信息，调试用
+function getEntryShowInfo(entry) {
+    const args = { ...entry, ...entry.dstArgs }
+    const ac = args.srcAudioCodec
+    const vc = args.srcVideoCodec
+    const showText = []
+    showText.push(`pt:${entry.preset.name}`)
+    showText.push(`sz:${helper.humanSize(args.size)}`)
+    showText.push(`ts:${helper.humanSeconds(args.srcDuration)}`)
+    showText.push(`v:${vc}`)
+    if (args.dstVideoBitrate !== args.srcVideoBitrate) {
+        showText.push(`vb:${kNum(args.srcVideoBitrate)}=>${kNum(args.dstVideoBitrate)}`)
+    } else {
+        showText.push(`vb:${kNum(args.srcVideoBitrate)}`)
+    }
+    showText.push(`a:${ac}`)
+    if (args.dstAudioBitrate !== args.srcAudioBitrate) {
+        showText.push(`ab:${kNum(args.srcAudioBitrate)}=>${kNum(args.dstAudioBitrate)}`)
+    } else {
+        showText.push(`ab:${kNum(args.srcAudioBitrate)}`)
+    }
+    if (args.dstAudioQuality > 0) {
+        showText.push(`aq:${args.dstAudioQuality}`)
+    }
+    if (args.srcWidth !== args.dstWidth || args.srcHeight !== args.dstHeight) {
+        showText.push(`dm:${args.srcWidth}x${args.srcHeight}=>${args.dstWidth}x${args.dstHeight}`)
+    }
+    if (args.dstFrameRate > 0 && args.dstFrameRate !== args.srcFrameRate) {
+        showText.push(`fps:${args.srcFrameRate}=>${args.dstFrameRate}`)
+    } else {
+        showText.push(`fps:${args.srcFrameRate}`)
+    }
+    if (args.speed > 0) {
+        showText.push(`sp:${args.speed}`)
+    }
+    return showText.join(',')
 }
 
 // 读取单个音频文件的元数据
@@ -778,6 +804,7 @@ function calculateDstArgs(entry) {
     const iformat = entry.info?.format
     const ivideo = entry.info?.video
     const iaudio = entry.info?.audio
+
     // eg. '-map a:0 -c:a libfdk_aac -b:a {bitrate}'
     let srcAudioBitrate = 0
     let dstAudioBitrate = 0
@@ -825,21 +852,33 @@ function calculateDstArgs(entry) {
         srcVideoBitrate = ivideo?.bit_rate
             || fileBitrate - 48 * 1000 || 0
 
+        // 音频和视频码率 用户指定>预设
         // 音频和视频码率都不能高于原码率
-        dstAudioBitrate = minNoZero(srcAudioBitrate, ep.userArgs.audioBitrate, ep.audioBitrate)
-        dstVideoBitrate = minNoZero(srcVideoBitrate, ep.userArgs.videoBitrate, ep.videoBitrate)
+        const reqAudioBitrate = ep.userArgs.audioBitrate || ep.audioBitrate
+        dstAudioBitrate = minNoZero(srcAudioBitrate, reqAudioBitrate)
+        const reqVideoBitrate = ep.userArgs.videoBitrate || ep.videoBitrate
+        dstVideoBitrate = minNoZero(srcVideoBitrate, reqVideoBitrate)
     }
 
+    // 源文件时长
+    const srcDuration = iformat?.duration
+        || ivideo?.duration
+        || iaudio?.duration || 0
     // 如果目标帧率大于原帧率，就将目标帧率设置为0，即让ffmpeg自动处理，不添加帧率参数
     // 源文件帧率
-    let srcFrameRate = ivideo?.framerate || 0
-    // 预设或用户帧率
-    const reqFrameRate = minNoZero(ep.userArgs.framerate, ep.framerate)
+    const srcFrameRate = ivideo?.framerate || 0
+    // 预设或用户帧率，用户指定>预设
+    const reqFrameRate = ep.userArgs.framerate || ep.framerate
     // 计算出的目标帧率
     let dstFrameRate = reqFrameRate < srcFrameRate ? reqFrameRate : 0
 
     const dstAudioQuality = ep.userArgs.audioQuality || ep.audioQuality
     const dstVideoQuality = ep.userArgs.videoQuality || ep.videoQuality
+
+    const dstDimension = ep.userArgs.dimension || ep.dimension
+    const { dstWidth, dstHeight } = calculateScale(ivideo?.width || 0, ivideo?.height || 0, dstDimension)
+
+    const dstSpeed = ep.userArgs.speed || ep.speed
 
     // 用于模板字符串的模板参数，针对当前文件
     // 额外模板参数
@@ -849,6 +888,7 @@ function calculateDstArgs(entry) {
         srcAudioBitrate,
         srcVideoBitrate,
         srcFrameRate,
+        srcDuration,
         srcWidth: ivideo?.width || 0,
         srcHeight: ivideo?.height || 0,
         srcDuration: iformat?.duration || 0,
@@ -859,17 +899,23 @@ function calculateDstArgs(entry) {
         // 计算出来的参数
         dstAudioBitrate,
         dstVideoBitrate,
-        dstFrameRate,
         dstAudioQuality,
         dstVideoQuality,
-        // 覆盖preset的预设值
-        videoBitrate: dstVideoBitrate,
+        dstFrameRate,
+        dstDimension,
+        dstWidth,
+        dstHeight,
+        dstSpeed,
+        // 会覆盖preset的同名预设值
+        // videoBitrate: dstVideoBitrate,
         videoBitrateK: `${Math.round(dstVideoBitrate / 1000)}K`,
         videoQuality: dstVideoQuality,
-        audioBitrate: entry.dstAudioBitrate,
+        // audioBitrate: dstAudioBitrate,
         audioBitrateK: `${Math.round(dstAudioBitrate / 1000)}K`,
         audioQuality: dstAudioQuality,
         framerate: dstFrameRate,
+        dimension: dstDimension,
+        speed: dstSpeed,
     }
 
 }
@@ -879,28 +925,21 @@ function calculateDstArgs(entry) {
 // 此函数仅读取参数，不修改preset对象
 function createFFmpegArgs(entry, forDisplay = false) {
     // 不要使用 entry.perset，下面复制一份针对每个entry
-    const ep = {
-        ...entry.preset,
-        ...entry.dstArgs,
-    }
-
-    log.showYellow('createFFmpegArgs', entry.name, ep)
+    const tempPreset = { ...entry.preset, ...entry.dstArgs, }
 
     // 输入参数
     let inputArgs = []
 
     // 是否需要添加fps filter
-    if (ep.framerate > 0) {
-        if (ep.filters?.length > 0) {
-            ep.filters += ',fps={framerate}'
+    if (tempPreset.framerate > 0) {
+        if (tempPreset.filters?.length > 0) {
+            tempPreset.filters += ',fps={framerate}'
         } else {
-            ep.filters = 'fps={framerate}'
+            tempPreset.filters = 'fps={framerate}'
         }
     }
 
-    if (!forDisplay) {
-        log.info('createFFmpegArgs', 'entryPreset', core.pickTrueValues(ep))
-    }
+    log.info('createFFmpegArgs', 'tempPreset', entry.name, core.pickTrueValues(tempPreset))
 
     // 几种ffmpeg参数设置的时间和功耗
     // ffmpeg -hide_banner -n -v error -stats -i 
@@ -921,15 +960,17 @@ function createFFmpegArgs(entry, forDisplay = false) {
     // 输入参数部分，在 -i input 前面
     //===============================================================
     //
-    inputArgs = "-hide_banner -n -v error".split(" ")
+    inputArgs.push("-hide_banner", "-n")
+    // 是否启用调试参数
+    inputArgs.push("-v", entry.argv.debug ? "repeat+level+info" : "error")
     // 输出视频时才需要cuda加速，音频用cpu就行
-    if (ep.type === 'video') {
+    if (tempPreset.type === 'video') {
         // -hwaccel cuda -hwaccel_output_format cuda
         inputArgs = inputArgs.concat(["-stats", "-hwaccel", "cuda", "-hwaccel_output_format", "cuda"])
     }
     // 输入参数在输入文件前面，顺序重要
-    if (ep.inputArgs?.length > 0) {
-        inputArgs = inputArgs.concat(ep.inputArgs.split(' '))
+    if (tempPreset.inputArgs?.length > 0) {
+        inputArgs = inputArgs.concat(tempPreset.inputArgs.split(' '))
     }
     inputArgs.push('-i')
     inputArgs.push(forDisplay ? "input.mkv" : `"${entry.path}"`)
@@ -956,40 +997,41 @@ function createFFmpegArgs(entry, forDisplay = false) {
 
     // 滤镜参数
     // complexFilter 和 filters 不能同时存在
-    if (ep.complexFilter?.length > 0) {
+    if (tempPreset.complexFilter?.length > 0) {
         middleArgs.push('-filter_complex')
-        middleArgs.push(`"${formatArgs(ep.complexFilter, ep)}"`)
-    } else if (ep.filters?.length > 0) {
+        middleArgs.push(`"${formatArgs(tempPreset.complexFilter, tempPreset)}"`)
+    } else if (tempPreset.filters?.length > 0) {
         middleArgs.push('-vf')
-        middleArgs.push(formatArgs(ep.filters, ep))
+        middleArgs.push(formatArgs(tempPreset.filters, tempPreset))
     }
     // 视频参数
-    if (ep.videoArgs?.length > 0) {
-        const va = formatArgs(ep.videoArgs, ep)
+    if (tempPreset.videoArgs?.length > 0) {
+        const va = formatArgs(tempPreset.videoArgs, tempPreset)
         middleArgs = middleArgs.concat(va.split(' '))
     }
     // 音频参数
-    if (ep.audioArgs?.length > 0) {
+    if (tempPreset.audioArgs?.length > 0) {
         // extract_audio模式下智能选择编码器
         // 直接复制音频流或者重新编码
         // audioArgsCopy: '-c:a copy',
         // audioArgsEncode: '-c:a libfdk_aac -b:a {audioBitrate}k',
-        let audioArgsFixed = ep.audioArgs
-        if (presets.isAudioExtract(ep)) {
-            if (entry.info?.audio?.codec_name === 'aac') {
-                audioArgsFixed = '-c:a copy'
+        let audioArgsPreset = tempPreset.audioArgs
+        if (presets.isAudioExtract(tempPreset)) {
+            if (entry.srcAudioCodec === 'aac') {
+                tempPreset.audioArgs = '-c:a copy'
             }
         } else {
             // 针对视频文件
             if (helper.isVideoFile(entry.path)) {
                 // 如果目标码率大于源文件码率，则不重新编码，考虑误差
-                const shouldEncode = ep.audioBitrate + 2000 < ep.srcAudioBitrate
-                if (!shouldEncode) {
-                    audioArgsFixed = '-c:a copy'
+                const shouldCopy = tempPreset.dstAudioBitrate + 2000 > tempPreset.srcAudioBitrate
+                // 如果用户指定不重新编码
+                if (shouldCopy || tempPreset.userArgs.audioCopy) {
+                    tempPreset.audioArgs = '-c:a copy'
                 }
             }
         }
-        const aa = formatArgs(audioArgsFixed, ep)
+        const aa = formatArgs(tempPreset.audioArgs, tempPreset)
         middleArgs = middleArgs.concat(aa.split(' '))
     }
     // 其它参数
@@ -998,19 +1040,11 @@ function createFFmpegArgs(entry, forDisplay = false) {
     // 添加自定义metadata字段
     //description, comment, copyright
     const descArgs = []
-    descArgs.push(`pt=${ep.name}`)
-    descArgs.push(`ac=${ep.srcAudioCodec}`)
-    descArgs.push(`ab=${ep.srcAudioBitrate}`)
-    descArgs.push(`aq=${ep.audioQuality}`)
-    descArgs.push(`vc=${ep.srcVideoCodec}`)
-    descArgs.push(`vb=${ep.srcVideoBitrate}`)
-    descArgs.push(`vq=${ep.videoQuality}`)
-    descArgs.push(`fps=${ep.srcFrameRate}`)
-    descArgs.push(`sp=${ep.speed}`)
+    descArgs.push(getEntryShowInfo(entry))
     const dateText = dayjs().format('YYYY-MM-DD hh:mm:ss.SSS Z')
     const descArgsText = descArgs.join('|')
     metaArgs.push(`-metadata`, `description="${descArgsText}"`)
-    metaArgs.push(`-metadata`, `copyright="mediac ffmpeg --preset ${ep.name} --date ${dateText}"`)
+    metaArgs.push(`-metadata`, `copyright="mediac ffmpeg --preset ${tempPreset.name} --date ${dateText}"`)
     // 音频文件才添加元数据
     // 检查源文件元数据
     if (helper.isAudioFile(entry.path) && entry.tags?.title) {
@@ -1032,30 +1066,36 @@ function createFFmpegArgs(entry, forDisplay = false) {
         }
         metaArgs = metaArgs.concat(...Object.entries(validTags)
             .map(([key, value]) => [`-metadata`, `${key}="${value}"`]))
-        // log.show(extraArgsArray)
     } else {
         metaArgs.push(`-metadata`, `title="${entry.name}"`)
     }
-    if (metaArgs.length > 0) {
-        middleArgs = middleArgs.concat(metaArgs)
+    // 显示console信息时，不需要这些
+    // 元数据放到 extraArgs 这里
+    if (!forDisplay) {
+        tempPreset.extraArgs = metaArgs.join(' ')
     }
     // 不要漏掉 extraArgs
-    if (ep.extraArgs?.length > 0) {
-        middleArgs = middleArgs.concat(ep.extraArgs.split(' '))
+    if (tempPreset.extraArgs?.length > 0) {
+        middleArgs = middleArgs.concat(tempPreset.extraArgs.split(' '))
     }
     // 流参数 streamArgs -map xxx 等
-    if (ep.streamArgs?.length > 0) {
-        middleArgs = middleArgs.concat(ep.streamArgs.split(' '))
+    if (tempPreset.streamArgs?.length > 0) {
+        middleArgs = middleArgs.concat(tempPreset.streamArgs.split(' '))
     }
     // 输出参数在最后，在输出文件前面，顺序重要
-    if (ep.outputArgs?.length > 0) {
-        middleArgs = middleArgs.concat(ep.outputArgs.split(' '))
+    if (tempPreset.outputArgs?.length > 0) {
+        middleArgs = middleArgs.concat(tempPreset.outputArgs.split(' '))
     }
     //===============================================================
     // 输出参数部分，只有一个输出文件路径
     //===============================================================
     // 显示数据时用最终路径，实际使用时用临时文件路径
     const outputArgs = [forDisplay ? "output.mp4" : `"${entry.fileDstTemp}"`]
+
+    // 仅用于展示
+    entry.debugPreset = core.formatObjectArgs(tempPreset, tempPreset)
+    entry.debugArgs = [...inputArgs, ...middleArgs, ...outputArgs]
+
     // 返回三种参数，方便后面组合保存ffmpeg参数到元数据
     return [inputArgs, middleArgs, outputArgs]
 }
