@@ -347,6 +347,8 @@ async function cmdRemove(argv) {
     if (testMode) {
         log.showYellow(logTag, `${tasks.length} files, NO file removed in TEST MODE.`)
     } else {
+        // 禁用永久删除
+        purge = false
         for (const task of tasks) {
             const flag = task.isDir ? "D" : "F"
             try {

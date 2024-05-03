@@ -78,7 +78,7 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             description: 'convert Chinese from TC to SC'
         })
         // 解压成功后删除原ZIP文件
-        .option('purge', {
+        .option('delete-zip-files', {
             alias: 'delete-zip',
             type: 'boolean',
             default: false,

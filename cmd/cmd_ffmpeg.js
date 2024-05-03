@@ -227,7 +227,7 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             type: "number",
         })
         // 如果目标文件已存在或转换成功，删除源文件
-        .option("purge-source-files", {
+        .option("delete-source-files", {
             type: "boolean",
             default: false,
             description: "delete source file if destination is exists",
@@ -375,7 +375,7 @@ async function cmdConvert(argv) {
     let tasks = await pMap(fileEntries, prepareFFmpegCmd, { concurrency: argv.jobs || (core.isUNCPath(root) ? 4 : cpus().length) })
 
     // 如果选择了清理源文件
-    if (argv.purgeSourceFiles) {
+    if (argv.deleteSourceFiles) {
         // 删除目标文件已存在的源文件
         let dstExitsTasks = tasks.filter(t => t && t.dstExists && !t.fileDst)
         if (dstExitsTasks.length > 0) {

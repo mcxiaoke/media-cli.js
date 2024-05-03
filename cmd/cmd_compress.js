@@ -40,11 +40,11 @@ const WIDTH_DEFAULT = 6000
 
 const builder = function addOptions(ya, helpOrVersionSet) {
     return ya
-        .option("purge", {
+        .option("delete-source-files", {
             alias: "p",
             type: "boolean",
             default: false,
-            description: "Purge original image files",
+            description: "Delete original image files after compress",
         })
         // 输出目录，默认输出文件与原文件同目录
         .option("output", {
@@ -59,10 +59,10 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             type: "string",
             default: "_Z4K",
         })
-        .option("purge-only", {
+        .option("delete-source-files-only", {
             type: "boolean",
             default: false,
-            description: "Just delete original image files only",
+            description: "Just delete original image files only, no compression",
         })
         // 是否覆盖已存在的压缩后文件
         .option("force", {
@@ -133,8 +133,8 @@ async function cmdCompress(argv) {
     const quality = argv.quality || QUALITY_DEFAULT
     const minFileSize = (argv.size || SIZE_DEFAULT) * 1024
     const maxWidth = argv.width || WIDTH_DEFAULT
-    const purgeOnly = argv.purgeOnly || false
-    const purgeSource = argv.purge || false
+    const purgeOnly = argv.deleteSourceFilesOnly || false
+    const purgeSource = argv.deleteSourceFiles || false
     log.show(`${logTag} input:`, root)
     // 如果有force标志，就不过滤文件名
     const RE_THUMB = argv.force ? /@_@/ : /Z4K|P4K|M4K|feature|web|thumb$/i
