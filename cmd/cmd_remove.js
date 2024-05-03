@@ -21,9 +21,9 @@ import { promisify } from 'util'
 import { comparePathSmartBy } from "../lib/core.js"
 import * as log from '../lib/debug.js'
 import * as enc from '../lib/encoding.js'
-import { getMediaInfo } from '../lib/ffprobe.js'
 import * as mf from '../lib/file.js'
 import * as helper from '../lib/helper.js'
+import { getMediaInfo } from '../lib/mediainfo.js'
 import { addEntryProps, applyFileNameRules } from './cmd_shared.js'
 
 // a = all, f = files, d = directories

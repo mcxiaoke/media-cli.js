@@ -16,9 +16,9 @@ import argparser from '../lib/argparser.js'
 import * as core from '../lib/core.js'
 import * as log from '../lib/debug.js'
 import * as enc from '../lib/encoding.js'
-import { getMediaInfo } from '../lib/ffprobe.js'
 import * as mf from '../lib/file.js'
 import * as helper from '../lib/helper.js'
+import { getMediaInfo } from '../lib/mediainfo.js'
 import { mergePath } from '../lib/path-merge.js'
 import { applyFileNameRules, cleanFileName, renameFiles } from "./cmd_shared.js"
 
