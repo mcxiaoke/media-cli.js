@@ -141,6 +141,12 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             type: "boolean",
             description: "reduce duplicate named directory hierarchy",
         })
+        // 并行操作限制，并发数，默认为 CPU 核心数
+        .option("jobs", {
+            alias: "j",
+            describe: "multi jobs running parallelly",
+            type: "number",
+        })
         // 确认执行所有系统操作，非测试模式，如删除和重命名和移动操作
         .option("doit", {
             alias: "d",
@@ -198,7 +204,7 @@ async function cmdRename(argv) {
         }
     })
     const fCount = entries.length
-    let tasks = await pMap(entries, preRename, { concurrency: cpus().length * 4 })
+    let tasks = await pMap(entries, preRename, { concurrency: argv.jobs || cpus().length * 4 })
     tasks = tasks.filter(f => f && (f.outPath || f.outName))
     log.show(logTag, argv)
     const tCount = tasks.length
@@ -263,6 +269,7 @@ async function preRename(f) {
     let tmpNewDir = null
     let tmpNewBase = null
 
+    const pathDepth = oldPath.split(path.sep).length
     log.info(logTag, `Processing "${oldPath} [${flag}]"`)
 
     // 重新组合修复后的目录路径
@@ -362,48 +369,49 @@ async function preRename(f) {
     }
 
     // 给视频文件添加后缀，支持模板参数
-    // video: {
-    //     codec_name: 'h264',
-    //     codec_long_name: 'H.264 / AVC',
-    //     profile: 'High',
-    //     codec_type: 'video',
-    //     codec_tag_string: 'avc1',
-    //     width: 1920,
-    //     height: 1080,
-    //     display_aspect_ratio: '16:9',
-    //     pix_fmt: 'yuv420p',
-    //     r_frame_rate: 25,
-    //     avg_frame_rate: 25,
-    //     time_base: '1/90000',
-    //     duration: 307.8,
-    //     bit_rate: 2054929
-    //   },
-    // audio: {
-    //     codec_name: 'aac',
-    //     codec_long_name: 'AAC (Advanced Audio Coding)',
-    //     profile: 'LC',
-    //     codec_type: 'audio',
-    //     codec_tag_string: 'mp4a',
-    //     sample_fmt: 'fltp',
-    //     sample_rate: 48000,
-    //     channels: 2,
-    //     bits_per_sample: 0,
-    //     r_frame_rate: 0,
-    //     avg_frame_rate: 0,
-    //     time_base: '1/48000',
-    //     duration: 4986.92,
-    //     bit_rate: 137
-    //   },
-
+    // MediaInfo {
+    //     provider: 'mediainfo',
+    //     format: 'matroska',
+    //     size: 404095670,
+    //     duration: 1801.19,
+    //     bitrate: 1794790,
+    //     createdAt: '2018-04-19 00:46:13 UTC',
+    //     audio: Audio {
+    //       type: 'audio',
+    //       format: 'aac',
+    //       codec: 'A_AAC-2',
+    //       size: 57077296,
+    //       duration: 1801.19,
+    //       bitrate: 253508,
+    //       sampleRate: 48000
+    //     },
+    //     video: Video {
+    //       type: 'video',
+    //       format: 'avc',
+    //       codec: 'V_MPEG4/ISO/AVC',
+    //       profile: 'High 10',
+    //       size: 346500882,
+    //       duration: 1801.13,
+    //       bitrate: 1539035,
+    //       framerate: 24000,
+    //       bitDepth: 10,
+    //       width: 960,
+    //       height: 720,
+    //       aspectRatio: 1.33,
+    //       pixelFormat: 'YUV4:2:0'
+    //     }
+    //   }
+    // 这里需要同步重命名伴随的字幕文件和封面文件
+    // 基本名相同的文件 ASS JPG PNG SRT NFO
     if (helper.isMediaFile(oldPath) && (argv.suffixMedia || argv.prefixMedia)) {
         const isAudio = helper.isAudioFile(oldPath)
         const info = await getMediaInfo(oldPath)
-        const duration = info?.format?.duration
+        const duration = info?.duration
             || info?.video?.duration
             || info?.audio?.duratio || 0
         // duration>0 表示有效的媒体文件
         if (duration > 0) {
-            const bitrate = info.format?.bit_rate || info?.audio?.bit_rate || info.video?.bit_rate || 0
+            const bitrate = info?.bitrate || info.video?.bitrate || info?.audio?.bitrate || 0
             let tplValues = isAudio ? info.audio : info.video
             tplValues = {
                 ...tplValues,
@@ -471,33 +479,31 @@ async function preRename(f) {
         } while (nameDuplicateSet.has(newPath))
         log.showGray(logTag, `NewPath[DUP]: ${ipx} ${helper.pathShort(newPath)}`)
     }
-    if (f.skipped) {
-        // log.fileLog(`Skip: ${ipx} ${oldPath}`, logTag);
-        // log.info(logTag, `Skip: ${ipx} ${oldPath}`);
-        return
-    }
-
     if (f.fixenc && enc.hasBadUnicode(newPath, true)) {
         // 如果修复乱码导致新文件名还是有乱码，就忽略后续操作
         log.showGray(logTag, `BadEncFR:${++badCount}`, oldPath)
         log.show(logTag, `BadEncTO:${++badCount}`, newPath)
         log.fileLog(`BadEncFR: ${ipx} <${oldPath}>`, logTag)
         log.fileLog(`BadEncTO: ${ipx} <${newPath}>`, logTag)
+        f.skipped = true
+        return
     }
-    else {
-        // 最后，保存重命名准备参数，返回结果
-        const pathDepth = oldPath.split(path.sep).length
-        f.skipped = false
-        // 新的完整路径，优先使用
-        f.outPath = newPath
-        // 没有outPath时使用
-        f.outName = newName
-        // 如果二者都没有，取消重命名
-        log.showGray(logTag, `SRC: ${ipx} ${oldPath} ${pathDepth}`)
-        log.show(logTag, `DST: ${ipx} ${newPath}`)
-        log.fileLog(`Add: ${ipx} <${oldPath}> [SRC]`, logTag)
-        log.fileLog(`Add: ${ipx} <${newPath}> [DST]`, logTag)
-        return f
+    if (f.skipped) {
+        // log.fileLog(`Skip: ${ipx} ${oldPath}`, logTag);
+        // log.info(logTag, `Skip: ${ipx} ${oldPath}`);
+        f.outName = null
+        f.outPath = null
+        return
     }
-
+    f.skipped = false
+    // 新的完整路径，优先使用
+    f.outPath = newPath
+    // 没有outPath时使用
+    f.outName = newName
+    // 如果二者都没有，取消重命名
+    log.showGray(logTag, `SRC: ${ipx} ${oldPath} ${pathDepth}`)
+    log.show(logTag, `DST: ${ipx} ${newPath}`)
+    log.fileLog(`Add: ${ipx} <${oldPath}> [SRC]`, logTag)
+    log.fileLog(`Add: ${ipx} <${newPath}> [DST]`, logTag)
+    return f
 }

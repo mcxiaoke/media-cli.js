@@ -60,7 +60,7 @@ const handler = async function cmdDecode(argv) {
     }
     const fromEnc = argv.fromEnc?.length > 0 ? [argv.fromEnc] : ENC_LIST
     const toEnc = argv.toEnc?.length > 0 ? [argv.toEnc] : ENC_LIST
-    const threhold = log.isVerbose() ? 1 : 50
+    const threhold = log.isVerbose() ? 0 : 50
     log.show(logTag, `Input:`, strArgs)
     log.show(logTag, `fromEnc:`, JSON.stringify(fromEnc))
     log.show(logTag, `toEnc:`, JSON.stringify(toEnc))
@@ -88,19 +88,19 @@ function showResults(r) {
     let cr = chardet.analyse(Buffer.from(str))
     cr = cr.filter(ct => ct.confidence >= 70)
     cr?.length > 0 && print('Encoding', cr)
-    print('String', Array.from(str))
-    print('Unicode', Array.from(str).map(c => c.codePointAt(0).toString(16)))
-    const badUnicode = enc.checkBadUnicode(str)
+    // print('String', Array.from(str))
+    // print('Unicode', Array.from(str).map(c => c.codePointAt(0).toString(16)))
+    const badUnicode = enc.checkBadUnicode(str, true)
     badUnicode?.length > 0 && log.show('badUnicode:', badUnicode)
-    log.info(`MESSY_UNICODE=${enc.REGEX_MESSY_UNICODE.test(str)}`,
-        `MESSY_CJK=${enc.REGEX_MESSY_CJK.test(str)}`)
-    log.info(`OnlyJapanese=${unicode.strOnlyJapanese(str)}`,
-        `OnlyJpHan=${unicode.strOnlyJapaneseHan(str)}`,
-        `HasHiraKana=${unicode.strHasHiraKana(str)}`
-    )
-    log.info(`HasHangul=${unicode.strHasHangul(str)}`,
-        `OnlyHangul=${unicode.strOnlyHangul(str)}`)
-    log.info(`HasChinese=${unicode.strHasChinese(str)}`,
-        `OnlyChinese=${unicode.strOnlyChinese(str)}`,
-        `OnlyChn3500=${enc.RE_CHARS_MOST_USED.test(str)}`)
+    // log.info(`MESSY_UNICODE=${enc.REGEX_MESSY_UNICODE.test(str)}`,
+    //     `MESSY_CJK=${enc.REGEX_MESSY_CJK.test(str)}`)
+    // log.info(`OnlyJapanese=${unicode.strOnlyJapanese(str)}`,
+    //     `OnlyJpHan=${unicode.strOnlyJapaneseHan(str)}`,
+    //     `HasHiraKana=${unicode.strHasHiraKana(str)}`
+    // )
+    // log.info(`HasHangul=${unicode.strHasHangul(str)}`,
+    //     `OnlyHangul=${unicode.strOnlyHangul(str)}`)
+    // log.info(`HasChinese=${unicode.strHasChinese(str)}`,
+    //     `OnlyChinese=${unicode.strOnlyChinese(str)}`,
+    //     `OnlyChn3500=${enc.RE_CHARS_MOST_USED.test(str)}`)
 }
