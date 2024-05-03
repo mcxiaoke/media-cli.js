@@ -356,8 +356,8 @@ async function cmdConvert(argv) {
             testMode: testMode
         }
     })
-    log.showYellow(logTag, 'ARGV:', core.pickTrueValues(argv))
-    log.showYellow(logTag, 'PRESET:', core.pickTrueValues(preset))
+    log.showYellow(logTag, 'ARGV:', argv)
+    log.showYellow(logTag, 'PRESET:', preset)
     const prepareAnswer = await inquirer.prompt([
         {
             type: 'confirm',
@@ -408,7 +408,7 @@ async function cmdConvert(argv) {
     const lastTask = tasks.slice(-1)[0]
     !testMode && log.fileLog(`ffmpegArgs:`, lastTask.ffmpegArgs.flat(), 'FFConv')
     log.show('-----------------------------------------------------------')
-    log.showYellow(logTag, 'PRESET:', core.pickTrueValues(lastTask.debugPreset))
+    log.showYellow(logTag, 'PRESET:', lastTask.debugPreset)
     log.showCyan(logTag, 'CMD: ffmpeg', lastTask.ffmpegArgs.flat().join(' '))
     const totalDuration = tasks.reduce((acc, t) => acc + t.info?.format.duration || 0, 0)
     log.show('-----------------------------------------------------------')
@@ -608,6 +608,9 @@ async function prepareFFmpegCmd(entry) {
         // vp9视频和opus音频无法获取码率
         const dstArgs = calculateDstArgs(entry)
 
+        log.info('>>>', entry.name)
+        log.info(dstArgs)
+
         // 计算后的视频和音频码率，关联文件
         // 与预设独立，优先级高于预设
         // srcXX单位为bytes dstXXX单位为kbytes
@@ -666,8 +669,6 @@ async function prepareFFmpegCmd(entry) {
         let fileSubtitle = path.join(srcDir, `${srcBase}.ass`)
         if (!(await fs.pathExists(fileSubtitle))) {
             fileSubtitle = null
-        } else {
-            fileSubtitle = path.basename(fileSubtitle)
         }
         log.show(logTag, `${ipx} FR: ${helper.pathShort(entry.path, 80)}`, chalk.yellow(entry.preset.name), helper.humanTime(entry.startMs))
         log.showGray(logTag, `${ipx} TO:`, fileDst)
@@ -851,6 +852,8 @@ function calculateDstArgs(entry) {
         dstAudioBitrate = minNoZero(srcAudioBitrate, reqAudioBitrate)
         dstVideoBitrate = minNoZero(srcVideoBitrate, reqVideoBitrate)
 
+        log.info(entry.name, "fileBitrate", fileBitrate, "srcVideoBitrate", srcVideoBitrate, "reqVideoBitrate", reqVideoBitrate, "dstVideoBitrate", dstVideoBitrate)
+
     }
 
     // 源文件时长
@@ -880,10 +883,13 @@ function calculateDstArgs(entry) {
         // 示例 辨率1920*1080的目标码率是 1600k
         // 1280*720码率 960k
         // 3840*2160码率 2560k
-        if (scaleFactor > 1) {
+        // 0.9~1.1 之间不缩放
+        if (scaleFactor > 1.1) {
             scaleFactor *= 0.4
-        } else {
+        } else if (scaleFactor < 0.9) {
             scaleFactor *= 1.6
+        } else {
+            scaleFactor = 1
         }
         dstVideoBitrate = Math.round(dstVideoBitrate * scaleFactor)
     }
@@ -940,6 +946,9 @@ function createFFmpegArgs(entry, forDisplay = false) {
     // 不要使用 entry.perset，下面复制一份针对每个entry
     const tempPreset = { ...entry.preset, ...entry.dstArgs, }
 
+    log.info('>>>>', entry.name)
+    log.info(tempPreset)
+
     // 输入参数
     let inputArgs = []
 
@@ -952,7 +961,7 @@ function createFFmpegArgs(entry, forDisplay = false) {
         }
     }
 
-    log.info('createFFmpegArgs', 'tempPreset', entry.name, core.pickTrueValues(tempPreset))
+    log.info('createFFmpegArgs', 'tempPreset', entry.name, tempPreset)
 
     // 几种ffmpeg参数设置的时间和功耗
     // ffmpeg -hide_banner -n -v error -stats -i 
