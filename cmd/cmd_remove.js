@@ -115,6 +115,15 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             // 文件名列表文本文件，或者一个目录，里面包含的文件作为文件名列表来源
             description: "File name list file, or dir contains files for file name",
         })
+        // 视频模式，按照视频文件的元数据删除
+        // duration,dimension(width,height),bitrate
+        // 参数格式 缩写 du=xx,w=xx,h=xx,dm=xx,bit=xx 
+        // duration=xx,width=xx,height=xx,bitrate=xx
+        .option("video", {
+            alias: "vdm",
+            type: "string",
+            description: "Remove files by video metadata",
+        })
         // 要处理的文件类型 文件或目录或所有，默认只处理文件
         .option("type", {
             type: "choices",
