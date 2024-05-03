@@ -25,7 +25,6 @@ import presets from '../lib/ffmpeg_presets.js'
 import * as mf from '../lib/file.js'
 import * as helper from '../lib/helper.js'
 import { getMediaInfo } from '../lib/mediainfo.js'
-import { FFMPEG_BINARY } from '../lib/shared.js'
 import { addEntryProps, applyFileNameRules, calculateScale } from './cmd_shared.js'
 
 const LOG_TAG = "FFConv"
@@ -157,7 +156,7 @@ const builder = function addOptions(ya, helpOrVersionSet) {
         })
         // 视频选项，指定码率
         .option("video-bitrate", {
-            alias: "vbk",
+            alias: "vb",
             type: "number",
             default: 0,
             describe: "Set video bitrate (in kbytes) in ffmpeg command",
@@ -179,7 +178,7 @@ const builder = function addOptions(ya, helpOrVersionSet) {
         })
         // 音频选项，指定码率
         .option("audio-bitrate", {
-            alias: "abk",
+            alias: "ab",
             type: "number",
             default: 0,
             describe: "Set audio bitrate (in kbytes) in ffmpeg command",
@@ -410,7 +409,7 @@ async function cmdConvert(argv) {
     log.show('-----------------------------------------------------------')
     log.showYellow(logTag, 'PRESET:', lastTask.debugPreset)
     log.showCyan(logTag, 'CMD: ffmpeg', lastTask.ffmpegArgs.flat().join(' '))
-    const totalDuration = tasks.reduce((acc, t) => acc + t.info?.format.duration || 0, 0)
+    const totalDuration = tasks.reduce((acc, t) => acc + t.info?.duration || 0, 0)
     log.show('-----------------------------------------------------------')
     testMode && log.showYellow('++++++++++ TEST MODE (DRY RUN) ++++++++++')
     log.showYellow(logTag, 'Please CHECK above details BEFORE continue!')
@@ -461,7 +460,7 @@ async function runFFmpegCmd(entry) {
     log.showGray(logTag, getEntryShowInfo(entry))
     log.showGray(logTag, `ffmpeg`, entry.ffmpegArgs.flat().join(' '))
     // }
-    const exePath = await which(FFMPEG_BINARY)
+    const exePath = await which('ffmpeg')
     if (entry.testMode) {
         // 测试模式跳过
         log.show(logTag, `${ipx} Skipped ${entry.path} (${helper.humanSize(entry.size)}) [TestMode]`)
@@ -565,17 +564,17 @@ async function prepareFFmpegCmd(entry) {
     }
     try {
         // 使用ffprobe读取媒体信息，速度较慢
-        // 注意flac和ape格式的stream里没有bit_rate字段 format里有
+        // 注意flac和ape格式的stream里没有bitrate字段 format里有
         entry.info = await getMediaInfo(entry.path, { audio: isAudio })
 
         // ffprobe无法读取时长和比特率，可以认为文件损坏，或不支持的格式，跳过
-        if (!(entry.info?.format?.duration && entry.info?.format?.bit_rate)) {
+        if (!(entry.info?.duration && entry.info?.bitrate)) {
             log.showYellow(logTag, `${ipx} Skip[BadFormat]: ${entry.path} (${helper.humanSize(entry.size)})`)
             log.fileLog(`${ipx} Skip[BadFormat]: <${entry.path}> (${helper.humanSize(entry.size)})`, 'Prepare')
             return false
         }
-        const audioCodec = entry.info?.audio?.codec_name
-        const videoCodec = entry.info?.video?.codec_name
+        const audioCodec = entry.info?.audio?.format
+        const videoCodec = entry.info?.video?.format
         if (isAudio) {
             // 检查音频文件
             // 放前面，因为 dstAudioBitrate 会用于前缀后缀参数
@@ -585,7 +584,7 @@ async function prepareFFmpegCmd(entry) {
             entry.tags = meta?.tags
             // 如果ffprobe或music-metadata获取的数据中有比特率数据
             log.info(entry.name, preset.name)
-            if (entry.format?.bitrate || entry.info?.audio.bit_rate || entry.info?.format?.bit_rate) {
+            if (entry.format?.bitrate || entry.info?.audio.bitrate || entry.info?.bitrate) {
                 // 可以读取码率，文件未损坏
             } else {
                 // 如果无法获取元数据，认为不是合法的音频或视频文件，忽略
@@ -595,10 +594,10 @@ async function prepareFFmpegCmd(entry) {
             }
         } else {
             // H264 10Bit Nvidia和Intel都不支持硬解，直接跳过
-            if (entry.info?.video?.codec_name === 'h264'
-                && entry.info?.video.bit_depth === 10
+            if (entry.info?.video?.format === 'h264'
+                && entry.info?.video.bitDepth === 10
                 && entry.info?.video.profile?.includes('10')) {
-                log.showYellow(logTag, `${ipx} Skip[H264_10Bit]: ${entry.path} ${entry.info?.video?.pix_fmt} (${helper.humanSize(entry.size)})`)
+                log.showYellow(logTag, `${ipx} Skip[H264_10Bit]: ${entry.path} ${entry.info?.video?.pixelFormat} (${helper.humanSize(entry.size)})`)
                 log.fileLog(`${ipx} Skip[H264_10Bit]: <${entry.path}> (${helper.humanSize(entry.size)})`, 'Prepare')
                 return false
             }
@@ -793,7 +792,7 @@ const PIXELS_1080P = 1920 * 1080
 // 计算视频和音频码率等各种目标文件数据
 function calculateDstArgs(entry) {
     const ep = entry.preset
-    const iformat = entry.info?.format
+    const info = entry.info
     const ivideo = entry.info?.video
     const iaudio = entry.info?.audio
 
@@ -808,7 +807,7 @@ function calculateDstArgs(entry) {
     if (helper.isAudioFile(entry.path)) {
         // 音频文件
         // 文件信息中的码率值
-        const fileBitrate = entry.format?.bitrate || iformat?.bit_rate || iaudio?.bit_rate || 0
+        const fileBitrate = entry.format?.bitrate || info?.bitrate || iaudio?.bitrate || 0
         if (fileBitrate > 0) {
             srcAudioBitrate = fileBitrate
         } else {
@@ -840,11 +839,11 @@ function calculateDstArgs(entry) {
     } else {
         // 视频文件
         // 这个是文件整体码率，如果是是视频文件，等于是视频和音频的码率相加
-        const fileBitrate = iformat?.bit_rate || 0
-        srcAudioBitrate = iaudio?.bit_rate || 0
+        const fileBitrate = info?.bitrate || 0
+        srcAudioBitrate = iaudio?.bitrate || 0
         // 计算出的视频码率不高于源文件的视频码率
         // 减去音频的码率，估算为48k
-        srcVideoBitrate = ivideo?.bit_rate
+        srcVideoBitrate = ivideo?.bitrate
             || fileBitrate - 48 * 1000 || 0
 
         // 音频和视频码率 用户指定>预设
@@ -857,7 +856,7 @@ function calculateDstArgs(entry) {
     }
 
     // 源文件时长
-    const srcDuration = iformat?.duration
+    const srcDuration = info?.duration
         || ivideo?.duration
         || iaudio?.duration || 0
     // 如果目标帧率大于原帧率，就将目标帧率设置为0，即让ffmpeg自动处理，不添加帧率参数
@@ -907,11 +906,11 @@ function calculateDstArgs(entry) {
         srcDuration,
         srcWidth: ivideo?.width || 0,
         srcHeight: ivideo?.height || 0,
-        srcDuration: iformat?.duration || 0,
-        srcSize: iformat?.size || 0,
-        srcVideoCodec: ivideo?.codec_name,
-        srcAudioCodec: iaudio?.codec_name,
-        srcFormat: iformat?.format_name,
+        srcDuration: info?.duration || 0,
+        srcSize: info?.size || 0,
+        srcVideoCodec: ivideo?.format,
+        srcAudioCodec: iaudio?.format,
+        srcFormat: info?.format,
         // 计算出来的参数
         dstAudioBitrate,
         dstVideoBitrate,

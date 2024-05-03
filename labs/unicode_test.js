@@ -81,7 +81,7 @@ function showStatus(str, title = '') {
 
 function fixEnc(str) {
     console.log(`Processing ${str}`)
-    const results = enc.fixCJKEncImpl(str, ENC_LIST, ENC_LIST)
+    const results = enc.fixCJKEnc(str, ENC_LIST, ENC_LIST)
     for (const r of results) {
         console.log(r[0], '\t', r.slice(1))
     }
