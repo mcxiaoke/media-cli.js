@@ -152,7 +152,7 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             // 移除文件名含乱码的文件
             description: "delete files with illegal or bad unicode chars",
         })
-        .option("purge", {
+        .option("delete-permanently", {
             type: "boolean",
             default: false,
             // 直接删除文件，不使用安全删除
@@ -208,7 +208,7 @@ async function cmdRemove(argv) {
             cHeight = y
         }
     }
-    const purge = argv.purge || false
+    const purge = argv.deletePermanently || false
     const cLoose = argv.loose || false
     const cCorrupted = argv.corrupted || false
     const cBadChars = argv.badchars || false
@@ -272,7 +272,7 @@ async function cmdRemove(argv) {
         notMatch: cNotMatch,
         names: cNames || new Set(),
         reverse: cReverse,
-        purge,
+        purge: purge,
         testMode,
     }
 
