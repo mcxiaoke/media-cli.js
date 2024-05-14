@@ -38,16 +38,14 @@ function findMediaFiles(directory, mediaFiles = []) {
 async function showMediaFilesInfo(input) {
     const st = await fs.stat(input)
     if (st.isFile()) {
-        const isAudio = helper.isAudioFile(input)
-        const info = await getMediaInfo(input, { audio: isAudio })
+        const info = await getMediaInfo(input)
         console.log(path.basename(input))
         info && console.log(info)
         return
     }
     let files = findMediaFiles(input)
     for (const filePath of files) {
-        const isAudio = helper.isAudioFile(filePath)
-        const info = await getSimpleInfo(filePath, { audio: isAudio })
+        const info = await getSimpleInfo(filePath)
         console.log(path.basename(filePath))
         info && console.log(info)
     }

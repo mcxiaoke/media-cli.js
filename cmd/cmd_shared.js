@@ -233,7 +233,7 @@ export const RE_VIDEO_EXTRA_CHARS = helper.combineRegexG(
     /\[.+?\]/,
 )
 // 图片文件名各种前后缀
-export const RE_IMAGE_EXTRA_CHARS = /更新|合集|画师|图片|视频|插画|视图|作品|订阅|限定|差分|拷贝|自购|付费|内容|高画質|高解像度|R18|PSD|PIXIV|PIC|ZIP|RAR/ugi
+export const RE_IMAGE_EXTRA_CHARS = /更新|合集|画师|图片|套图|全?高清|写真|视频|插画|视图|作品|订阅|限定|差分|拷贝|自购|付费|内容|高画質|高解像度|R18|PSD|PIXIV|PIC|ZIP|RAR/ugi
 // Unicode Symbols
 // https://en.wikipedia.org/wiki/Script_%28Unicode%29
 // https://www.regular-expressions.info/unicode.html
@@ -294,7 +294,7 @@ export function cleanFileName(nameString, options = {}) {
     }
     // 去掉 [100P5V 2.25GB] No.46 这种图片集说明
     nameStr = nameStr.replaceAll(/\[\d+P.*(\d+V)?.*?\]/ugi, "")
-    nameStr = nameStr.replaceAll(/No\.\d+|\d+\.?\d+GB?|\d+P|\d+V|NO\.(\d+)/ugi, "$1")
+    nameStr = nameStr.replaceAll(/No\.\d+|\d+MB|\d+\.?\d+GB?|\d+P|\d+V|NO\.(\d+)/ugi, "$1")
     // 去掉中文标点，全角符号
     nameStr = nameStr.replaceAll(/[\u3000-\u303F\uFE10-\uFE2F\uFF00-\uFF20]+/ugi, "")
     // () [] {} <> . - 改为下划线

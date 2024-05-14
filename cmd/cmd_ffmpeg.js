@@ -24,7 +24,7 @@ import * as enc from '../lib/encoding.js'
 import presets from '../lib/ffmpeg_presets.js'
 import * as mf from '../lib/file.js'
 import * as helper from '../lib/helper.js'
-import { getMediaInfo } from '../lib/mediainfo.js'
+import { getMediaInfo, getSimpleInfo } from '../lib/mediainfo.js'
 import { addEntryProps, applyFileNameRules, calculateScale } from './cmd_shared.js'
 
 const LOG_TAG = "FFConv"
@@ -232,6 +232,12 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             default: false,
             description: "delete source file if destination is exists",
         })
+        // 显示视频参数
+        .option("info", {
+            type: "boolean",
+            default: false,
+            description: "show info of media files",
+        })
         // 启用调试参数
         .option("debug", {
             type: "boolean",
@@ -369,6 +375,13 @@ async function cmdConvert(argv) {
     ])
     if (!prepareAnswer.yes) {
         log.showYellow("Will do nothing, aborted by user.")
+        return
+    }
+    // 仅显示视频文件参数，不进行转换操作
+    if (argv.info) {
+        for (const entry of fileEntries) {
+            log.show(logTag, `${entry.path}`, await getSimpleInfo(entry.path))
+        }
         return
     }
     log.showGreen(logTag, 'Now Preparing task files and ffmpeg cmd args...')
@@ -565,7 +578,7 @@ async function prepareFFmpegCmd(entry) {
     try {
         // 使用ffprobe读取媒体信息，速度较慢
         // 注意flac和ape格式的stream里没有bitrate字段 format里有
-        entry.info = await getMediaInfo(entry.path, { audio: isAudio })
+        entry.info = await getMediaInfo(entry.path)
 
         // ffprobe无法读取时长和比特率，可以认为文件损坏，或不支持的格式，跳过
         if (!(entry.info?.duration && entry.info?.bitrate)) {

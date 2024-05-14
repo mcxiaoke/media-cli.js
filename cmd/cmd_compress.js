@@ -340,8 +340,8 @@ async function preCompress(f) {
     }
 
     if (err) {
-        log.warn(logTag, "sharp", error.message, fileSrc)
-        log.fileLog(`SharpErr: ${f.index} <${fileSrc}> sharp:${error.message}`, logTag)
+        log.warn(logTag, "sharp", err.message, fileSrc)
+        log.fileLog(`SharpErr: ${f.index} <${fileSrc}> sharp:${err.message}`, logTag)
         return
     }
 

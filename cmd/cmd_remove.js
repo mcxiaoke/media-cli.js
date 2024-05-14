@@ -23,7 +23,7 @@ import * as log from '../lib/debug.js'
 import * as enc from '../lib/encoding.js'
 import * as mf from '../lib/file.js'
 import * as helper from '../lib/helper.js'
-import { getMediaInfo } from '../lib/mediainfo.js'
+import { getMediaInfo, getVideoInfo } from '../lib/mediainfo.js'
 import { addEntryProps, applyFileNameRules } from './cmd_shared.js'
 
 // a = all, f = files, d = directories
@@ -31,7 +31,7 @@ const TYPE_LIST = ['a', 'f', 'd']
 
 export { aliases, builder, command, describe, handler }
 
-const command = "remove <input> [output]"
+const command = "remove <input>"
 const aliases = ["rm", "rmf"]
 const describe = 'Remove files by given size/width-height/name-pattern/file-list'
 
@@ -348,12 +348,11 @@ async function cmdRemove(argv) {
         log.showYellow(logTag, `${tasks.length} files, NO file removed in TEST MODE.`)
     } else {
         // 禁用永久删除
-        purge = false
         for (const task of tasks) {
             const flag = task.isDir ? "D" : "F"
             try {
                 // 此选项为永久删除
-                if (purge) {
+                if (1 === 2) {
                     await fs.remove(task.src)
                     log.show(logTag, `Deleted ${++index}/${tasks.length} ${helper.pathShort(task.src)} ${flag}`)
                     log.fileLog(`Deleted: ${task.index} <${task.src}> ${flag}`, logTag)
@@ -453,16 +452,18 @@ async function preRemoveArgs(f) {
     let testMeasure = false
 
     const isImageExt = helper.isImageFile(fileSrc)
+    const isVideoExt = helper.isVideoFile(fileSrc)
     // 如果是目录，获取并显示目录内容大小
-    const itemSize = f.isDir ? await mf.getDirectorySizeR(fileSrc) : f.size
-    const itemCount = f.isDir ? await mf.getDirectoryFileCount(fileSrc) : 0
+    // const itemSize = f.isDir ? await mf.getDirectorySizeR(fileSrc) : f.size
+    // const itemCount = f.isDir ? await mf.getDirectoryFileCount(fileSrc) : 0
+    const itemSize = f.size
+    const itemCount = 1
 
     try {
         // 检查文件是否损坏
         if (hasCorrupted && f.isFile) {
             // only check video/audio/image type files
             const isAudioExt = helper.isAudioFile(fileName)
-            const isVideoExt = helper.isVideoFile(fileName)
             const isRawExt = helper.isRawFile(fileName)
             const isArchiveExt = helper.isArchiveFile(fileName)
             if (isAudioExt || isVideoExt) {
@@ -474,9 +475,9 @@ async function preRemoveArgs(f) {
                 } else {
                     // file-type库支持格式不全，不能用用于判断文件是否损坏
                     // 对于媒体文件，用ffprobe试试
-                    const info = await getMediaInfo(fileSrc, { audio: isAudioExt, video: isVideoExt })
+                    const info = await getMediaInfo(fileSrc)
                     // 正常的多媒体文件有这两个字段
-                    const validMediaFile = info?.format?.duration && info?.format?.bit_rate
+                    const validMediaFile = info?.duration && info?.bitrate
                     if (!validMediaFile) {
                         log.showGray("preRemove[CorruptedMedia]:", `${ipx} ${fileSrc}`, info?.format || "unknwon format")
                         itemDesc += " Corrupted"
@@ -547,20 +548,23 @@ async function preRemoveArgs(f) {
             }
         }
 
-        // 图片文件才检查宽高
+        // 图片和视频文件才检查宽高
         // 再次检查宽高是否满足条件
-        if (!testCorrupted && hasMeasure && isImageExt && f.isFile) {
+        if (!testCorrupted && hasMeasure && f.isFile) {
             try {
-                // const s = sharp(fileSrc)
-                // const m = await s.metadata()
-                // const fWidth = m.width || 0
-                // const fHeight = m.height || 0
-
-                const imageSizeOf = promisify(imageSizeOfSync)
-                const dimension = await imageSizeOf(fileSrc)
-                const fWidth = dimension.width || 0
-                const fHeight = dimension.height || 0
-
+                let fWidth, fHeight
+                if (isImageExt) {
+                    // 图片宽高
+                    const imageSizeOf = promisify(imageSizeOfSync)
+                    const dimension = await imageSizeOf(fileSrc)
+                    fWidth = dimension.width || 0
+                    fHeight = dimension.height || 0
+                } else if (isVideoExt) {
+                    // 视频宽高
+                    const vi = await getVideoInfo(fileSrc)
+                    fWidth = vi.width || 0
+                    fHeight = vi.height || 0
+                }
                 itemDesc += ` M=${fWidth}x${fHeight}`
                 if (cWidth > 0 && cHeight > 0) {
                     // 宽高都提供时，要求都满足才能删除

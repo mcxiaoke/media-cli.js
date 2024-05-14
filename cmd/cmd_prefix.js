@@ -18,7 +18,7 @@ import { asyncFilter } from '../lib/core.js'
 import * as log from '../lib/debug.js'
 import * as mf from '../lib/file.js'
 import * as helper from '../lib/helper.js'
-import { RE_MEDIA_DIR_NAME, RE_ONLY_ASCII, RE_ONLY_NUMBER, RE_UGLY_CHARS, RE_UGLY_CHARS_BORDER, cleanFileName, renameFiles } from "./cmd_shared.js"
+import { RE_MEDIA_DIR_NAME, RE_ONLY_NUMBER, RE_UGLY_CHARS, RE_UGLY_CHARS_BORDER, cleanFileName, renameFiles } from "./cmd_shared.js"
 
 const MODE_AUTO = "auto"
 const MODE_DIR = "dirname"
@@ -26,7 +26,7 @@ const MODE_PREFIX = "prefix"
 const MODE_MEDIA = "media"
 const MODE_CLEAN = 'clean'
 
-const NAME_LENGTH = 32
+const NAME_LENGTH = 48
 
 export { aliases, builder, command, describe, handler }
 
@@ -101,6 +101,12 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             alias: "a",
             type: "boolean",
             description: "force rename all files",
+        })
+        // 并行操作限制，并发数，默认为 CPU 核心数
+        .option("jobs", {
+            alias: "j",
+            describe: "multi jobs running parallelly",
+            type: "number",
         })
         // 确认执行所有系统操作，非测试模式，如删除和重命名和移动操作
         .option("doit", {
@@ -194,6 +200,12 @@ async function createNewNameByMode(f) {
                 if (prefix.match(RE_MEDIA_DIR_NAME)) {
                     prefix = dirParts[2]
                 }
+                if (prefix.match(RE_MEDIA_DIR_NAME)) {
+                    prefix = dirParts[1]
+                }
+                if (prefix.match(RE_MEDIA_DIR_NAME)) {
+                    prefix = dirParts[0]
+                }
             }
             break
         case MODE_AUTO:
@@ -252,7 +264,7 @@ async function createNewNameByMode(f) {
     else if (await fs.pathExists(newPath)) {
         // 目标文件已存在
         const stn = await fs.stat(newPath)
-        if (f.stats.size === stn.size) {
+        if (f.size === stn.size) {
             // 如果大小相等，认为是同一个文件
             log.info(logTag, `Exists: ${ipx} ${helper.pathShort(newPath)}`)
             f.skipped = true
@@ -340,8 +352,8 @@ const handler = async function cmdPrefix(argv) {
     })
     const fCount = files.length
     //const tasks = files.map(f => createNewNameByMode(f, argv)).filter(f => f?.outName)
-
-    let tasks = await pMap(files, createNewNameByMode, { concurrency: cpus().length * 4 })
+    const jobCount = argv.jobs || cpus().length * 4
+    let tasks = await pMap(files, createNewNameByMode, { concurrency: jobCount })
     tasks = tasks.filter(f => f?.outName)
 
     tasks = tasks.map((f, i) => {
