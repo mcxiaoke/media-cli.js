@@ -11,7 +11,7 @@ import fs from 'fs-extra'
 import inquirer from "inquirer"
 import path from "path"
 
-import { renameFiles } from "./cmd_shared.js"
+import { addEntryProps, renameFiles } from "./cmd_shared.js"
 
 import * as log from '../lib/debug.js'
 import * as exif from '../lib/exif.js'
@@ -136,6 +136,7 @@ const handler = async function cmdRename(argv) {
         log.showYellow(LOG_TAG, "Nothing to do, exit now.")
         return
     }
+    files = addEntryProps(files)
     log.show(
         LOG_TAG,
         `Total ${files.length} media files ready to rename by exif`,

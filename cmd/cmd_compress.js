@@ -25,7 +25,7 @@ import * as log from '../lib/debug.js'
 import * as mf from '../lib/file.js'
 import * as helper from '../lib/helper.js'
 import * as tryfp from '../lib/tryfp.js'
-import { compressImage } from "./cmd_shared.js"
+import { calculateScale, compressImage } from "./cmd_shared.js"
 
 //
 export { aliases, builder, command, describe, handler }
@@ -317,10 +317,11 @@ async function preCompress(f) {
     } else {
         if (im?.exif) {
             log.info(logTag, "force:", fileDst)
-            const md = exif(im.exif)?.Image
+            const [err, iexif] = tryfp.tryCatch(exif)(im.exif)
             // 跳过以前由mediac压缩过的图片，避免重复压缩
-            if (!f.force) {
-                if (md.Copyright?.includes("mediac")
+            if (!f.force && iexif?.Image) {
+                const md = iexif?.Image
+                if (md?.Copyright?.includes("mediac")
                     || md.Software?.includes("mediac")
                     || md.Artist?.includes("mediac") && !f.force) {
                     log.info(logTag, "skip:", fileDst)
@@ -344,7 +345,7 @@ async function preCompress(f) {
         return
     }
 
-    const { dstWidth, dstHeight } = calculateImageScale(im.width, im.height, maxWidth)
+    const { dstWidth, dstHeight } = calculateScale(im.width, im.height, maxWidth)
     if (f.total < 1000 || f.index > f.total - 1000) {
         log.show(logTag, `${f.index}/${f.total}`,
             helper.pathShort(fileSrc),
