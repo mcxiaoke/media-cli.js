@@ -17,6 +17,7 @@ import inquirer from "inquirer"
 import { cpus } from "os"
 import pMap from 'p-map'
 import path from "path"
+import { argv } from "process"
 import { promisify } from 'util'
 import { comparePathSmartBy } from "../lib/core.js"
 import * as log from '../lib/debug.js'
@@ -88,11 +89,19 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             // 图片文件的长宽字符串形式
             description: "File x*y dimension, width and height, eg: '123x456'",
         })
-        .option("size", {
-            alias: "s",
+        .option("sizel", {
+            alias: "sl",
             type: "number",
             default: 0,
-            // 图片文件的文件大小数值，最大，单位为k
+            // 图片文件的文件大小，最小值，大于，单位为k
+            description: "Files size bigger than value will be removed (unit:k)",
+        })
+        .option("sizer", {
+            alias: 'sr',
+            type: "number",
+            default: 0,
+            // size 的 别名
+            // 图片文件的文件大小，最大值，小于，单位为k
             description: "Files size smaller than value will be removed (unit:k)",
         })
         .option("pattern", {
@@ -208,14 +217,7 @@ async function cmdRemove(argv) {
             cHeight = y
         }
     }
-    const purge = argv.deletePermanently || false
-    const cLoose = argv.loose || false
-    const cCorrupted = argv.corrupted || false
-    const cBadChars = argv.badchars || false
-    const cSize = argv.size * 1024 || 0
-    const cPattern = argv.pattern || ""
-    const cNotMatch = argv.notMatch || false
-    const cReverse = argv.reverse || false
+
     const cList = argv.list || "-not-exists"
 
     let cNames = []
@@ -262,17 +264,18 @@ async function cmdRemove(argv) {
 
     const conditions = {
         total: files.length,
-        loose: cLoose,
-        corrupted: cCorrupted,
-        badchars: cBadChars,
+        loose: argv.loose,
+        corrupted: argv.corrupted,
+        badchars: argv.badchars,
         width: cWidth,
         height: cHeight,
-        size: cSize,
-        pattern: cPattern,
-        notMatch: cNotMatch,
+        sizeLeft: argv.sizel || 0,
+        sizeRight: argv.sizer || 0,
+        pattern: argv.pattern,
+        notMatch: argv.notMatch,
         names: cNames || new Set(),
-        reverse: cReverse,
-        purge: purge,
+        reverse: argv.reverse || false,
+        purge: argv.deletePermanently || false,
         testMode,
     }
 
@@ -310,7 +313,7 @@ async function cmdRemove(argv) {
         log.showYellow(logTag, `Attention: use file name list, ignore all other conditions`)
         log.showRed(logTag, `Attention: Will DELETE all files ${cReverse ? "NOT IN" : "IN"} the name list!`)
     }
-    log.fileLog(`Conditions: list=${cNames.size},loose=${cLoose},corrupted=${cCorrupted},width=${cWidth},height=${cHeight},size=${cSize / 1024}k,pattern=${cPattern},not=${cNotMatch},type=${type}`, logTag)
+    log.fileLog(`Conditions: ${JSON.stringify(conditions)}`, logTag)
     testMode && log.showYellow("++++++++++ TEST MODE (DRY RUN) ++++++++++")
     // 计算文件总共大小
     const totalSize = tasks.reduce((acc, file) => acc + file.size, 0)
@@ -347,24 +350,23 @@ async function cmdRemove(argv) {
     if (testMode) {
         log.showYellow(logTag, `${tasks.length} files, NO file removed in TEST MODE.`)
     } else {
-        // 禁用永久删除
         for (const task of tasks) {
             const flag = task.isDir ? "D" : "F"
             try {
                 // 此选项为永久删除
-                if (1 === 2) {
+                if (conditions.purge) {
                     await fs.remove(task.src)
-                    log.show(logTag, `Deleted ${++index}/${tasks.length} ${helper.pathShort(task.src)} ${flag}`)
-                    log.fileLog(`Deleted: ${task.index} <${task.src}> ${flag}`, logTag)
+                    log.show(logTag, `Deleted ${++index}/${tasks.length} ${helper.pathShort(task.src)} ${helper.humanSize(task.size)} ${flag}`)
+                    log.fileLog(`Deleted: ${task.index} <${task.src}> ${helper.humanSize(task.size)} ${flag}`, logTag)
                 } else {
                     // 此选项安全删除，仅移动到指定目录
                     await helper.safeRemove(task.src)
-                    log.show(logTag, `Moved ${++index}/${tasks.length} ${helper.pathShort(task.src)} ${flag}`)
-                    log.fileLog(`Moved: ${task.index} <${task.src}> ${flag}`, logTag)
+                    log.show(logTag, `Moved ${++index}/${tasks.length} ${helper.pathShort(task.src)} ${helper.humanSize(task.size)} ${flag}`)
+                    log.fileLog(`Moved: ${task.index} <${task.src}> ${helper.humanSize(task.size)} ${flag}`, logTag)
                 }
                 ++removedCount
             } catch (error) {
-                log.error(logTag, `failed to remove file ${task.src} ${flag}`, error)
+                log.error(logTag, `failed to remove file ${task.src} ${helper.humanSize(task.size)} ${flag}`, error)
             }
         }
     }
@@ -432,16 +434,18 @@ async function preRemoveArgs(f) {
     const cWidth = c.width || 0
     // 最大高度
     const cHeight = c.height || 0
-    // 最大文件大小，单位k
-    const cSize = c.size || 0
+    // // 交换长宽，长>宽
+    // if (cWidth < cHeight) {
+    //     [cWidth, cHeight] = [cHeight, cWidth]
+    // }
     // 文件名匹配文本
     const cPattern = (c.pattern || "").toLowerCase()
     // 启用反向匹配
     const cNotMatch = c.notMatch || false
 
-    const hasName = cPattern?.length > 0//1
-    const hasSize = cSize > 0//2
-    const hasMeasure = cWidth > 0 || cHeight > 0//3
+    const hasName = cPattern?.length > 0
+    const hasSize = c.sizeLeft > 0 || c.sizeRight > 0
+    const hasMeasure = cWidth > 0 || cHeight > 0
 
     //log.show("prepareRM", `${cWidth}x${cHeight} ${cSize} /${cPattern}/`);
 
@@ -538,14 +542,20 @@ async function preRemoveArgs(f) {
 
         // 其次检查文件大小是否满足条件
         if (!testCorrupted && hasSize && f.isFile) {
-            itemDesc += ` S=${helper.humanSize(f.size)}`
-            if (f.size > 0 && f.size <= cSize) {
-                log.info(
-                    "preRemove[Size]:",
-                    `${ipx} ${fileName} [${helper.humanSize(itemSize)}] [Size=${helper.humanSize(cSize)}]`
-                )
-                testSize = true
+            // 命令行参数单位为K，这里修正
+            const sizeLeft = c.sizeLeft * 1000
+            const sizeRight = c.sizeRight * 1000
+            itemDesc += ` S=${helper.humanSize(f.size)} (${c.sizeLeft}K,${c.sizeRight}K)`
+
+            if (c.sizeRight > 0) {
+                testSize = f.size > sizeLeft && f.size < sizeRight
+            } else {
+                testSize = f.size > sizeLeft
             }
+            log.info(
+                "preRemove[Size]:",
+                `${ipx} ${fileName} [${helper.humanSize(itemSize)}] Size=(${c.sizeLeft}K,${c.sizeRight}K)`
+            )
         }
 
         // 图片和视频文件才检查宽高
@@ -565,6 +575,10 @@ async function preRemoveArgs(f) {
                     fWidth = vi.width || 0
                     fHeight = vi.height || 0
                 }
+                // // 确保宽大于高
+                // if (fWidth < fHeight) {
+                //     [fWidth, fHeight] = [fHeight, fWidth]
+                // }
                 itemDesc += ` M=${fWidth}x${fHeight}`
                 if (cWidth > 0 && cHeight > 0) {
                     // 宽高都提供时，要求都满足才能删除
