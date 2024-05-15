@@ -78,7 +78,7 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             description: 'convert Chinese from TC to SC'
         })
         // 解压成功后删除原ZIP文件
-        .option('delete-zip-files', {
+        .option('purge', {
             alias: 'delete-zip',
             type: 'boolean',
             default: false,
@@ -131,7 +131,7 @@ async function cmdZipUnicode(argv) {
     })
     const showFiles = files.slice(-20)
     for (const f of showFiles) {
-        log.show(logTag, 'File:', helper.pathShort(f.path), helper.humanSize(f.stats.size))
+        log.show(logTag, 'File:', helper.pathShort(f.path), helper.humanSize(f.size))
     }
     if (showFiles.length < files.length) {
         log.show(logTag, `Above lines are last 20 files, total ${files.length} files.`)
@@ -204,7 +204,7 @@ async function UnzipOneFile(f) {
     const ipx = `${f.index + 1}/${f.total}`
     const logTag = 'ZipU'
     const zipFilePath = f.path
-    const zipFileSize = f.stats.size || 0
+    const zipFileSize = f.size || 0
     const parts = path.parse(zipFilePath)
     const zipDir = path.join(parts.dir, parts.name)
     // 只有adm-zip有问题, unzipper可以正确处理大文件

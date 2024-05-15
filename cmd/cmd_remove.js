@@ -19,7 +19,7 @@ import pMap from 'p-map'
 import path from "path"
 import { argv } from "process"
 import { promisify } from 'util'
-import { comparePathSmartBy } from "../lib/core.js"
+import { comparePathSmartBy, uniqueByFields } from "../lib/core.js"
 import * as log from '../lib/debug.js'
 import * as enc from '../lib/encoding.js'
 import * as mf from '../lib/file.js'
@@ -32,7 +32,7 @@ const TYPE_LIST = ['a', 'f', 'd']
 
 export { aliases, builder, command, describe, handler }
 
-const command = "remove <input>"
+const command = "remove [input] [directories...]"
 const aliases = ["rm", "rmf"]
 const describe = 'Remove files by given size/width-height/name-pattern/file-list'
 
@@ -182,11 +182,7 @@ async function cmdRemove(argv) {
     log.info(logTag, argv)
     const testMode = !argv.doit
     assert.strictEqual("string", typeof argv.input, "root must be string")
-    if (!argv.input || !(await fs.pathExists(argv.input))) {
-        log.error(logTag, `Invalid Input: '${argv.input}'`)
-        throw new Error(`Invalid Input: ${argv.input}`)
-    }
-    const root = path.resolve(argv.input)
+    const root = await helper.validateInput(argv.input)
     // 1200*1600 1200,1600 1200x1600 1200|1600
     const reMeasure = /^\d+[x*,\|]\d+$/
     // 如果没有提供任何一个参数，报错，显示帮助
@@ -255,15 +251,32 @@ async function cmdRemove(argv) {
         withIndex: true,
     }
     log.showGreen(logTag, `Walking files, please waiting ... (${type})`)
-    let files = await mf.walk(root, walkOpts)
+    let fileEntries = await mf.walk(root, walkOpts)
+    log.show(logTag, `total ${fileEntries.length} files found in ${root}`)
+    // 处理额外目录参数
+    if (argv.directories?.length > 0) {
+        const extraDirs = new Set(argv.directories.map(d => path.resolve(d)))
+        for (const dirPath of extraDirs) {
+            const st = await fs.stat(dirPath)
+            if (st.isDirectory()) {
+                const dirFiles = await mf.walk(dirPath, walkOpts)
+                if (dirFiles.length > 0) {
+                    log.show(logTag, `Add ${dirFiles.length} extra files from ${dirPath}`)
+                    fileEntries = fileEntries.concat(dirFiles)
+                }
+            }
+        }
+    }
+    // 根据完整路径去重
+    fileEntries = uniqueByFields(fileEntries, 'path')
     // 应用文件名过滤规则
-    files = await applyFileNameRules(files, argv)
+    fileEntries = await applyFileNameRules(fileEntries, argv)
     // 路径排序，路径深度=>路径长度=>自然语言
-    files = files.sort(comparePathSmartBy('path'))
-    log.show(logTag, `total ${files.length} files found (${type})`)
+    fileEntries = fileEntries.sort(comparePathSmartBy('path'))
+    log.show(logTag, `total ${fileEntries.length} files found (${type})`)
 
     const conditions = {
-        total: files.length,
+        total: fileEntries.length,
         loose: argv.loose,
         corrupted: argv.corrupted,
         badchars: argv.badchars,
@@ -279,16 +292,16 @@ async function cmdRemove(argv) {
         testMode,
     }
 
-    files = files.map((f, i) => {
+    fileEntries = fileEntries.map((f, i) => {
         return {
             ...f,
             index: i,
             argv: argv,
-            total: files.length,
+            total: fileEntries.length,
             conditions: conditions,
         }
     })
-    let tasks = await pMap(files, preRemoveArgs, { concurrency: cpus().length * 2 })
+    let tasks = await pMap(fileEntries, preRemoveArgs, { concurrency: cpus().length * 2 })
 
     conditions.names = Array.from(cNames).slice(-5)
     const total = tasks.length
@@ -391,6 +404,7 @@ function buildRemoveArgs(index, desc, shouldRemove, src, size) {
     }
 }
 
+let preparedCount = 0
 async function preRemoveArgs(f) {
     const fileSrc = path.resolve(f.path)
     const fileName = path.basename(fileSrc)
@@ -629,8 +643,8 @@ async function preRemoveArgs(f) {
                 log.showYellow("PreRemove[Large]:", `${ipx} ${helper.pathShort(fileSrc)} (${helper.humanSize(itemSize)},${itemCount})  ${flag}`)
             }
             log.show(
-                "PreRemove add:",
-                `${ipx} ${helper.pathShort(fileSrc)} [C=${itemDesc}] ${testCorrupted ? "Corrupted" : ""} (${helper.humanSize(itemSize)},${itemCount}) ${flag}`)
+                chalk.green("PreRemove"), chalk.yellow('ADD'), ++preparedCount,
+                `${helper.pathShort(fileSrc, 48)} ${itemDesc} ${testCorrupted ? "Corrupted" : ""} (${helper.humanSize(itemSize)})`, ipx)
             log.fileLog(`add: ${ipx} <${fileSrc}> ${itemDesc} ${flag} (${helper.humanSize(itemSize)},${itemCount})`, "PreRemove")
         } else {
             (testPattern || testSize || testMeasure) && log.info(

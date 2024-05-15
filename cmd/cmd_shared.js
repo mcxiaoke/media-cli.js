@@ -195,7 +195,7 @@ export async function compressImage(t) {
 } // 结束函数定义
 
 async function checkCompressResult(t, r) {
-    const logTag = "Compress"
+    const logTag = chalk.green("Compress")
     try {
         const tmpSt = await fs.stat(t.tmpDst)
         // 如果目标文件大小小于100KB，则可能文件损坏，删除该文件  
@@ -211,8 +211,8 @@ async function checkCompressResult(t, r) {
         if (!t.dstExists) {
             return
         }
-        log.showGreen(logTag, `Done: ${t.index}/${t.total}`, helper.pathShort(t.dst), `${r.width}x${r.height}`, `${helper.humanSize(tmpSt.size)} [${helper.humanTime(t.startMs)}]`)
-        log.fileLog(`Done: <${t.src}> => ${path.basename(t.dst)} ${helper.humanSize(tmpSt.size)}`, logTag)
+        log.show(logTag, chalk.green("Done"), `${t.index}/${t.total}`, helper.pathShort(t.dst), `${r.width}x${r.height}`, `${helper.humanSize(t.size)}=>${helper.humanSize(tmpSt.size)}`, chalk.yellow(helper.humanTime(t.startMs)))
+        log.fileLog(`<${t.src}> => ${path.basename(t.dst)} ${helper.humanSize(tmpSt.size)}`, logTag)
         t.done = true
         return t
     } catch (error) {

@@ -25,7 +25,7 @@ import * as log from '../lib/debug.js'
 import * as mf from '../lib/file.js'
 import * as helper from '../lib/helper.js'
 import * as tryfp from '../lib/tryfp.js'
-import { calculateScale, compressImage } from "./cmd_shared.js"
+import { applyFileNameRules, calculateScale, compressImage } from "./cmd_shared.js"
 
 //
 export { aliases, builder, command, describe, handler }
@@ -51,6 +51,32 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             alias: "o",
             describe: "Folder store ouput files",
             type: "string",
+        })
+        // 正则，包含文件名规则
+        .option("include", {
+            alias: "I",
+            type: "string",
+            description: "filename include pattern",
+        })
+        //字符串或正则，不包含文件名规则
+        // 如果是正则的话需要转义
+        .option("exclude", {
+            alias: "E",
+            type: "string",
+            description: "filename exclude pattern ",
+        })
+        // 默认启用正则模式，禁用则为字符串模式
+        .option("regex", {
+            alias: 're',
+            type: "boolean",
+            default: true,
+            description: "match filenames by regex pattern",
+        })
+        // 需要处理的扩展名列表，默认为常见视频文件
+        .option("extensions", {
+            alias: "e",
+            type: "string",
+            describe: "include files by extensions (eg. .wav|.flac)",
         })
         // 压缩后的文件后缀，默认为 _Z4K
         .option("suffix", {
@@ -118,12 +144,7 @@ const handler = cmdCompress
 async function cmdCompress(argv) {
     const testMode = !argv.doit
     const logTag = "cmdCompress"
-    const root = path.resolve(argv.input)
-    assert.strictEqual("string", typeof root, "root must be string")
-    if (!root || !(await fs.pathExists(root))) {
-        log.error(logTag, `Invalid Input: '${root}'`)
-        throw new Error(`Invalid Input: ${root}`)
-    }
+    const root = await helper.validateInput(argv.input)
     if (!testMode) {
         log.fileLog(`Root:${root}`, logTag)
         log.fileLog(`Argv:${JSON.stringify(argv)}`, logTag)
@@ -152,8 +173,10 @@ async function cmdCompress(argv) {
         log.showYellow(logTag, "no files found, abort.")
         return
     }
+    // 应用文件名过滤规则
+    files = await applyFileNameRules(files, argv)
     log.show(logTag, `total ${files.length} files found (all)`)
-    if (files.length === 0) {
+    if (!files || files.length === 0) {
         log.showYellow("Nothing to do, abort.")
         return
     }
