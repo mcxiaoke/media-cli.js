@@ -129,11 +129,18 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             type: "string",
             description: "add prefix to filename, support media template args",
         })
-        // 文件添加后缀
+        // 文件添加后缀 媒体元数据
         .option("suffix-media", {
             alias: 'sxm',
             type: "string",
             description: "add suffix to filename, support media template args",
+        })
+        //todo fixme add suffix-date
+        // 文件添加后缀日期时间
+        .option("suffix-date", {
+            alias: 'sxd',
+            type: "string",
+            description: "add suffix to filename, support date time template args",
         })
         // 合并多层重复目录，减少层级，不改动文件名
         .option("merge-dirs", {

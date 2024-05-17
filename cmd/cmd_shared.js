@@ -88,7 +88,7 @@ function fixEncoding(str = '') {
 // 需要使用外部程序压缩的格式
 const fixedOkStr = iconv.decode(Buffer.from('OK'), 'utf8')
 async function compressExternal(t, force = false) {
-    const logTag = "Compress[EX]"
+    const logTag = "Compress"
     log.info(logTag, "processing", t)
     if (!helper.isExternalImage(t.src) && !force) {
         return
@@ -110,7 +110,7 @@ async function compressExternal(t, force = false) {
         log.debug(logTag, "stderr", sr)
         // strange fix for encoding str compare
         if (sr.endsWith(fixedOkStr)) {
-            log.showYellow(logTag, `DoneEx: ${helper.pathShort(fileSrc)} => ${dstName}`)
+            log.show(chalk.yellow(logTag), chalk.yellow(`DoneEx`), `${t.index}/${t.total}`, `${helper.pathShort(fileSrc)}`, chalk.cyan('!use nconvert!'))
             log.fileLog(`DoneEx: <${fileSrc}> => ${dstName}`, logTag)
             return {
                 width: t.width,
@@ -211,7 +211,7 @@ async function checkCompressResult(t, r) {
         if (!t.dstExists) {
             return
         }
-        log.show(logTag, chalk.green("Done"), `${t.index}/${t.total}`, helper.pathShort(t.dst), `${r.width}x${r.height}`, `${helper.humanSize(t.size)}=>${helper.humanSize(tmpSt.size)}`, chalk.yellow(helper.humanTime(t.startMs)))
+        log.show(logTag, chalk.green("Done"), `${t.index}/${t.total}`, helper.pathShort(t.dst, 48), `${r.width}x${r.height}`, chalk.cyan(`${helper.humanSize(t.size)}=>${helper.humanSize(tmpSt.size)}`), helper.humanTime(t.startMs))
         log.fileLog(`<${t.src}> => ${path.basename(t.dst)} ${helper.humanSize(tmpSt.size)}`, logTag)
         t.done = true
         return t

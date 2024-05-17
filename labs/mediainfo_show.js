@@ -37,7 +37,7 @@ function findMediaFiles(directory, mediaFiles = []) {
 // 递归遍历目录，找到所有音视频文件，并获取其信息
 async function showMediaFilesInfo(input) {
     const st = await fs.stat(input)
-    if (st.isFile()) {
+    if (st.isFile() && helper.isMediaFile(input)) {
         const info = await getMediaInfo(input)
         console.log(path.basename(input))
         info && console.log(info)

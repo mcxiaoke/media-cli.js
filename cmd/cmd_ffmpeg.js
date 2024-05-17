@@ -380,7 +380,8 @@ async function cmdConvert(argv) {
     // 仅显示视频文件参数，不进行转换操作
     if (argv.info) {
         for (const entry of fileEntries) {
-            log.show(logTag, `${entry.path}`, await getSimpleInfo(entry.path))
+            log.show(logTag, `${entry.path}`)
+            log.showGreen(logTag, await getSimpleInfo(entry.path))
         }
         return
     }
@@ -566,7 +567,7 @@ async function prepareFFmpegCmd(entry) {
         // 默认true 保留目录结构，可以防止文件名冲突
         if (argv.outputTree) {
             // 如果要保持源文件目录结构
-            fileDstDir = helper.pathRewrite(root, srcDir, preset.output)
+            fileDstDir = helper.pathRewrite(entry.root, srcDir, preset.output)
         } else {
             // 不保留源文件目录结构，只保留源文件父目录
             fileDstDir = path.join(preset.output, path.basename(srcDir))
@@ -677,10 +678,18 @@ async function prepareFFmpegCmd(entry) {
                 }
             }
         }
-        // 字幕文件
-        let fileSubtitle = path.join(srcDir, `${srcBase}.ass`)
-        if (!(await fs.pathExists(fileSubtitle))) {
-            fileSubtitle = null
+        // 找到合适的字幕文件
+        let fileASS = path.join(srcDir, `${srcBase}.ass`)
+        let fileSSA = path.join(srcDir, `${srcBase}.ssa`)
+        let fileSRT = path.join(srcDir, `${srcBase}.srt`)
+        let fileSubtitle = null
+        if (await fs.pathExists(fileASS)) {
+            fileSubtitle = fileASS
+        } else if (await fs.pathExists(fileSSA)) {
+            fileSubtitle = fileSSA
+        }
+        else if (await fs.pathExists(fileSRT)) {
+            fileSubtitle = fileSRT
         }
         log.show(logTag, `${ipx} FR: ${helper.pathShort(entry.path, 80)}`, chalk.yellow(entry.preset.name), helper.humanTime(entry.startMs))
         log.showGray(logTag, `${ipx} TO:`, fileDst)

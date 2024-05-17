@@ -151,6 +151,7 @@ const handler = async function cmdMoveUp(argv) {
                     log.showYellow(logTag, "New Name:", fileDst)
                 }
             }
+            //todo check file size 
             if (await fs.pathExists(fileDst)) {
                 log.showYellow(logTag, "Exists:", fileDst)
                 continue
