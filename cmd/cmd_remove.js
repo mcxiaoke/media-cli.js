@@ -44,6 +44,19 @@ const builder = function addOptions(ya, helpOrVersionSet) {
         // 宽松模式，默认不开启，宽松模式条件或，默认严格模式条件与
         description: "If true, operation of conditions is OR, default AND",
     })
+        // 输出目录，如果存在，就是移动到这个目录，否则是删除
+        .option("output", {
+            alias: "o",
+            type: "string",
+            description: "move files to this folder, or just deleted",
+        })
+        // 保持源文件目录结构
+        .option("output-tree", {
+            alias: 'otree',
+            describe: "keep folder tree structure in output folder",
+            type: "boolean",
+            default: false,
+        })
         // 正则，包含文件名规则
         .option("include", {
             alias: "I",

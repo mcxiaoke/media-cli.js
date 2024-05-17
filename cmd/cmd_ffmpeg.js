@@ -161,6 +161,12 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             default: 0,
             describe: "Set video bitrate (in kbytes) in ffmpeg command",
         })
+        // 直接复制视频流，不重新编码
+        .option("video-copy", {
+            type: "boolean",
+            default: false,
+            describe: "Copy video stream to ouput, no re-encoding",
+        })
         // 视频选项，指定视频质量参数
         .option("video-quality", {
             alias: "vq",
@@ -331,6 +337,15 @@ async function cmdConvert(argv) {
         log.showYellow(logTag, 'No files left after rules, nothing to do.')
         return
     }
+    // 仅显示视频文件参数，不进行转换操作
+    if (argv.info) {
+        for (const entry of fileEntries) {
+            log.showGreen(logTag, `${entry.path}`)
+            const info = await getMediaInfo(entry.path)
+            log.show(logTag, JSON.stringify(info))
+        }
+        return
+    }
     if (fileEntries.length > 5000) {
         const continueAnswer = await inquirer.prompt([
             {
@@ -361,6 +376,7 @@ async function cmdConvert(argv) {
             testMode: testMode
         }
     })
+
     log.showYellow(logTag, 'ARGV:', argv)
     log.showYellow(logTag, 'PRESET:', preset)
     const prepareAnswer = await inquirer.prompt([
@@ -375,14 +391,6 @@ async function cmdConvert(argv) {
     ])
     if (!prepareAnswer.yes) {
         log.showYellow("Will do nothing, aborted by user.")
-        return
-    }
-    // 仅显示视频文件参数，不进行转换操作
-    if (argv.info) {
-        for (const entry of fileEntries) {
-            log.show(logTag, `${entry.path}`)
-            log.showGreen(logTag, await getSimpleInfo(entry.path))
-        }
         return
     }
     log.showGreen(logTag, 'Now Preparing task files and ffmpeg cmd args...')
@@ -607,13 +615,19 @@ async function prepareFFmpegCmd(entry) {
                 return false
             }
         } else {
+            // https://developer.nvidia.com/video-encode-and-decode-gpu-support-matrix-new
             // H264 10Bit Nvidia和Intel都不支持硬解，直接跳过
+            // H264 High-L5以上也不支持
             if (entry.info?.video?.format === 'h264'
-                && entry.info?.video.bitDepth === 10
-                && entry.info?.video.profile?.includes('10')) {
-                log.showYellow(logTag, `${ipx} Skip[H264_10Bit]: ${entry.path} ${entry.info?.video?.pixelFormat} (${helper.humanSize(entry.size)})`)
-                log.fileLog(`${ipx} Skip[H264_10Bit]: <${entry.path}> (${helper.humanSize(entry.size)})`, 'Prepare')
-                return false
+                && (entry.info?.video.bitDepth === 10
+                    || entry.info?.video.profile?.includes('High'))) {
+                log.warn(logTag, `${ipx} Skip[H264-10Bit]: ${entry.path} ${entry.info?.video?.pixelFormat}`, helper.humanSize(entry.size), chalk.white(JSON.stringify(entry.info.video)))
+                log.fileLog(`${ipx} Skip[H264-10Bit]: <${entry.path}> (${helper.humanSize(entry.size)})`, 'Prepare')
+                // 添加标志，使用软解，替换解码参数
+                // 在组装ffmpeg参数时判断和替换
+                // 解码和滤镜参数都需要修改
+                entry.info.useCPUDecode = true
+                // return false
             }
 
         }
@@ -1008,8 +1022,12 @@ function createFFmpegArgs(entry, forDisplay = false) {
     inputArgs.push("-v", entry.argv.debug ? "repeat+level+info" : "error")
     // 输出视频时才需要cuda加速，音频用cpu就行
     if (tempPreset.type === 'video') {
-        // -hwaccel cuda -hwaccel_output_format cuda
-        inputArgs = inputArgs.concat(["-stats", "-hwaccel", "cuda", "-hwaccel_output_format", "cuda"])
+        inputArgs.push("-stats")
+        // 使用cuda硬件解码
+        if (!entry.info.useCPUDecode) {
+            inputArgs.push("-hwaccel", "cuda", "-hwaccel_output_format", "cuda")
+        }
+        // 不支持硬解的格式，如H264-10bit，使用软解
     }
     // 输入参数在输入文件前面，顺序重要
     if (tempPreset.inputArgs?.length > 0) {
@@ -1023,6 +1041,8 @@ function createFFmpegArgs(entry, forDisplay = false) {
         inputArgs.push(`"${entry.fileSubtitle}"`)
         const subArgs = '-c:s mov_text -metadata:s:s:0 language=chi -disposition:s:0 default'
         inputArgs = inputArgs.concat(subArgs.split(' '))
+    } else {
+        inputArgs.push('-c:s mov_text')
     }
     //
     //===============================================================
@@ -1044,8 +1064,13 @@ function createFFmpegArgs(entry, forDisplay = false) {
         middleArgs.push('-filter_complex')
         middleArgs.push(`"${formatArgs(tempPreset.complexFilter, tempPreset)}"`)
     } else if (tempPreset.filters?.length > 0) {
+        let tempFilters = tempPreset.filters
+        // 使用软解时，需要传输数据道GPU
+        if (entry.info.useCPUDecode) {
+            tempFilters = 'hwupload_cuda,' + tempFilters
+        }
         middleArgs.push('-vf')
-        middleArgs.push(formatArgs(tempPreset.filters, tempPreset))
+        middleArgs.push(formatArgs(tempFilters, tempPreset))
     }
     // 视频参数
     if (tempPreset.videoArgs?.length > 0) {
@@ -1067,7 +1092,8 @@ function createFFmpegArgs(entry, forDisplay = false) {
             // 针对视频文件
             if (helper.isVideoFile(entry.path)) {
                 // 如果目标码率大于源文件码率，则不重新编码，考虑误差
-                const shouldCopy = tempPreset.dstAudioBitrate + 2000 > tempPreset.srcAudioBitrate
+                const shouldCopy = tempPreset.srcAudioBitrate > 0
+                    && tempPreset.dstAudioBitrate + 2000 > tempPreset.srcAudioBitrate
                 // 如果用户指定不重新编码
                 if (shouldCopy || tempPreset.userArgs.audioCopy) {
                     tempPreset.audioArgs = '-c:a copy'

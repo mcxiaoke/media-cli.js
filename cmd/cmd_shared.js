@@ -29,6 +29,7 @@ async function renameOneFile(f) {
     const flag = f.stats?.isDirectory() ? "D" : "F"
     const logTag = 'Rename' + flag + ipx
     // 生成输出文件的路径，优先 outPath  
+    const srcParts = path.parse(f.path)
     const outPath = f.outPath || path.join(path.dirname(f.path), f.outName)
     log.showGray(logTag, `Source: ${f.path} ${flag}`)
     // 如果输出文件名不存在或者输入文件路径等于输出文件路径，忽略该文件并打印警告信息  
@@ -52,9 +53,20 @@ async function renameOneFile(f) {
         // 使用 fs 模块的 rename 方法重命名文件，并等待操作完成  
         await fs.rename(f.path, outPath)
         // 打印重命名成功的日志信息，显示输出文件的路径  
-        log.show(logTag, `${chalk.green(`Renamed:`)} ${outPath} ${flag}`)
+        log.show(logTag, chalk.green(`OK:`), `${outPath} ${flag}`)
         log.fileLog(`SRC: <${f.path}>`, logTag)
         log.fileLog(`DST: <${f.outPath}>`, logTag)
+        // 附加文件如字幕和封面也需要重命名
+        if (f.extraExts?.length > 0) {
+            for (const ext of f.extraExts) {
+                const eSrc = path.join(srcParts.dir, srcParts.name + ext)
+                const eDst = path.join(outDir, f.outBase + ext)
+                if (await fs.pathExists(eSrc)) {
+                    await fs.rename(eSrc, eDst)
+                    log.show(logTag, chalk.yellow(`Extra:`), `${eDst}`)
+                }
+            }
+        }
         return f
     } catch (error) {
         // 捕获并打印重命名过程中出现的错误信息，显示错误原因和输入文件的路径  
@@ -69,7 +81,7 @@ export async function renameFiles(files, parallel = false) {
     log.show("Rename", `total ${files.length} files to rename. (parallel=${parallel})`)
     let results = []
     if (parallel) {
-        results = await pMap(files, renameOneFile, { concurrency: cpus().length * 4 })
+        results = await pMap(files, renameOneFile, { concurrency: cpus().length })
     } else {
         for (const file of files) {
             results.push(await renameOneFile(file))

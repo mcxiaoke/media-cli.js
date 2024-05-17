@@ -142,6 +142,12 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             type: "string",
             description: "add suffix to filename, support date time template args",
         })
+        // 按照视频分辨率移动文件到指定目录
+        .option("video-dimension", {
+            alias: 'vdn',
+            type: "string",
+            description: "move video files to dir according to dimension",
+        })
         // 合并多层重复目录，减少层级，不改动文件名
         .option("merge-dirs", {
             alias: "simplify-dirs",
@@ -247,7 +253,7 @@ async function cmdRename(argv) {
             log.showYellow(logTag, `${tasks.length} files, NO file renamed in TEST MODE. (type=${type})`)
         }
         else {
-            const results = await renameFiles(tasks, false)
+            const results = await renameFiles(tasks, true)
             log.showGreen(logTag, `All ${results.length} file were renamed. (type=${type})`)
         }
     } else {
@@ -255,16 +261,17 @@ async function cmdRename(argv) {
     }
 }
 
+
+const MEDIA_EXTRA_EXTS = ['.jpg', '.png', '.ass', '.srt', '.nfo', '.txt']
 let badCount = 0
-let nameDupCount = 0
 // 重复文件名Set，检测重复，防止覆盖
 const nameDuplicateSet = new Set()
 async function preRename(f) {
     const isDir = f.isDir
     const flag = isDir ? "D" : "F"
-    const logTag = `PreRename${flag}`
     const argv = f.argv
     const ipx = `${f.index}/${f.total}`
+    const logTag = `PreRename${flag} ${ipx}`
     const oldPath = path.resolve(f.path)
     const pathParts = path.parse(oldPath)
     // 这里由于文件名里有.等特殊字符
@@ -410,6 +417,7 @@ async function preRename(f) {
     //   }
     // 这里需要同步重命名伴随的字幕文件和封面文件
     // 基本名相同的文件 ASS JPG PNG SRT NFO
+    const extraExts = []
     if (helper.isMediaFile(oldPath) && (argv.suffixMedia || argv.prefixMedia)) {
         const isAudio = helper.isAudioFile(oldPath)
         const info = await getMediaInfo(oldPath)
@@ -422,6 +430,7 @@ async function preRename(f) {
             let tplValues = isAudio ? info.audio : info.video
             tplValues = {
                 ...tplValues,
+                // 覆盖原本的数值，增加可读性
                 duration: `${helper.humanSeconds(duration)}`,
                 bitrate: `${Math.floor(bitrate / 1000)}K`,
             }
@@ -432,6 +441,16 @@ async function preRename(f) {
             tmpNewBase = `${prefix}${base}${suffix}`
             log.info(logTag, `PrefixSuffix: ${base} => ${tmpNewBase}`)
         }
+        // 同步重命名附带的字幕和封面文件
+        // 扩展名 jpg png ass srt nfo txt 等
+        if (tmpNewBase !== oldBase) {
+            for (const ext of MEDIA_EXTRA_EXTS) {
+                const fp = path.join(oldDir, oldBase + ext)
+                if (await fs.pathExists(fp)) {
+                    extraExts.push(ext)
+                }
+            }
+        }
     }
 
     tmpNewDir = tmpNewDir || oldDir
@@ -439,7 +458,7 @@ async function preRename(f) {
 
     // 保险措施，防止误替换导致文件名丢失
     if (tmpNewBase.length === 0) {
-        log.showYellow(logTag, `Revert: ${ipx} ${helper.pathShort(oldPath)}`)
+        log.showYellow(logTag, `Revert: ${helper.pathShort(oldPath)}`)
         tmpNewBase = oldBase
     }
 
@@ -448,6 +467,7 @@ async function preRename(f) {
     // ==================================
     // 确保文件名不含有文件系统不允许的非法字符
     tmpNewBase = helper.filenameSafe(tmpNewBase)
+    let newBase = tmpNewBase
     let newDir = tmpNewDir || oldDir
     let newName = tmpNewBase + ext
     let newPath = path.resolve(path.join(newDir, newName))
@@ -466,7 +486,7 @@ async function preRename(f) {
     }
 
     if (newPath === oldPath) {
-        log.info(logTag, `Skip Same: ${ipx} ${helper.pathShort(oldPath)}`)
+        log.info(logTag, `Skip Same: ${helper.pathShort(oldPath)}`)
         f.skipped = true
     }
     // todo 这里已存在和重复名的判断需要优化或调整
@@ -476,7 +496,7 @@ async function preRename(f) {
             newName = tmpNewBase + `_${++dupCount}` + ext
             newPath = path.resolve(path.join(newDir, newName))
         } while (await fs.pathExists(newPath))
-        log.showGray(logTag, `NewPath[EXIST]: ${ipx} ${helper.pathShort(newPath)}`)
+        log.showGray(logTag, `NewPath[EXIST]: ${helper.pathShort(newPath)}`)
     }
     else if (nameDuplicateSet.has(newPath)) {
         let dupCount = 0
@@ -484,14 +504,14 @@ async function preRename(f) {
             newName = tmpNewBase + `_${++dupCount}` + ext
             newPath = path.resolve(path.join(newDir, newName))
         } while (nameDuplicateSet.has(newPath))
-        log.showGray(logTag, `NewPath[DUP]: ${ipx} ${helper.pathShort(newPath)}`)
+        log.showGray(logTag, `NewPath[DUP]: ${helper.pathShort(newPath)}`)
     }
     if (f.fixenc && enc.hasBadUnicode(newPath, true)) {
         // 如果修复乱码导致新文件名还是有乱码，就忽略后续操作
         log.showGray(logTag, `BadEncFR:${++badCount}`, oldPath)
         log.show(logTag, `BadEncTO:${++badCount}`, newPath)
-        log.fileLog(`BadEncFR: ${ipx} <${oldPath}>`, logTag)
-        log.fileLog(`BadEncTO: ${ipx} <${newPath}>`, logTag)
+        log.fileLog(`BadEncFR: <${oldPath}>`, logTag)
+        log.fileLog(`BadEncTO: <${newPath}>`, logTag)
         f.skipped = true
         return
     }
@@ -507,10 +527,14 @@ async function preRename(f) {
     f.outPath = newPath
     // 没有outPath时使用
     f.outName = newName
+    // 备用，用于附加文件
+    f.outBase = newBase
+    // 附加文件，如字幕和封面等
+    f.extraExts = extraExts
     // 如果二者都没有，取消重命名
-    log.showGray(logTag, `SRC: ${ipx} ${oldPath} ${pathDepth}`)
-    log.show(logTag, `DST: ${ipx} ${newPath}`)
-    log.fileLog(`Add: ${ipx} <${oldPath}> [SRC]`, logTag)
-    log.fileLog(`Add: ${ipx} <${newPath}> [DST]`, logTag)
+    log.showGray(logTag, `SRC: ${oldPath} ${pathDepth}`)
+    log.show(logTag, `DST: ${newPath}`, chalk.yellow(extraExts || ""))
+    log.fileLog(`Add: <${oldPath}> [SRC]`, logTag)
+    log.fileLog(`Add: <${newPath}> [DST]`, logTag)
     return f
 }
