@@ -614,22 +614,6 @@ async function prepareFFmpegCmd(entry) {
                 log.fileLog(`${ipx} Skip[Invalid]: <${entry.path}> (${helper.humanSize(entry.size)})`, 'Prepare')
                 return false
             }
-        } else {
-            // https://developer.nvidia.com/video-encode-and-decode-gpu-support-matrix-new
-            // H264 10Bit Nvidia和Intel都不支持硬解，直接跳过
-            // H264 High-L5以上也不支持
-            if (entry.info?.video?.format === 'h264'
-                && (entry.info?.video.bitDepth === 10
-                    || entry.info?.video.profile?.includes('High'))) {
-                log.warn(logTag, `${ipx} Skip[H264-10Bit]: ${entry.path} ${entry.info?.video?.pixelFormat}`, helper.humanSize(entry.size), chalk.white(JSON.stringify(entry.info.video)))
-                log.fileLog(`${ipx} Skip[H264-10Bit]: <${entry.path}> (${helper.humanSize(entry.size)})`, 'Prepare')
-                // 添加标志，使用软解，替换解码参数
-                // 在组装ffmpeg参数时判断和替换
-                // 解码和滤镜参数都需要修改
-                entry.info.useCPUDecode = true
-                // return false
-            }
-
         }
         // 获取原始音频码率，计算目标音频码率
         // vp9视频和opus音频无法获取码率
@@ -692,6 +676,25 @@ async function prepareFFmpegCmd(entry) {
                 }
             }
         }
+
+        if (!isAudio) {
+            // https://developer.nvidia.com/video-encode-and-decode-gpu-support-matrix-new
+            // H264 10Bit Nvidia和Intel都不支持硬解，直接跳过
+            // H264 High-L5以上也不支持
+            if (entry.info?.video?.format === 'h264'
+                && (entry.info?.video?.bitDepth === 10
+                    || entry.info?.video?.profile?.includes('10')
+                    || entry.info?.video?.level >= 50)) {
+                log.warn(logTag, `${ipx} useCPUDecode ${entry.path} ${entry.info?.video?.pixelFormat}`, helper.humanSize(entry.size), chalk.white(JSON.stringify(entry.info.video)))
+                log.fileLog(`${ipx} useCPUDecode <${entry.path}> (${helper.humanSize(entry.size)})`, 'Prepare')
+                // 添加标志，使用软解，替换解码参数
+                // 在组装ffmpeg参数时判断和替换
+                // 解码和滤镜参数都需要修改
+                entry.info.useCPUDecode = true
+                // return false
+            }
+        }
+
         // 找到合适的字幕文件
         let fileASS = path.join(srcDir, `${srcBase}.ass`)
         let fileSSA = path.join(srcDir, `${srcBase}.ssa`)
