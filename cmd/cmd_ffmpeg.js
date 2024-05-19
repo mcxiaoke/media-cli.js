@@ -58,11 +58,24 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             type: "string",
         })
         // 保持源文件目录结构
-        .option("output-tree", {
-            alias: 'otree',
-            describe: "keep folder tree structure in output folder",
-            type: "boolean",
-            default: true,
+        .option("output-mode", {
+            alias: 'om',
+            type: "choices",
+            choices: ['tree', 'dir', 'file'],
+            default: 'dir',
+            describe: "Output mode: keep folder tree/keep parent dir/ flatten files",
+        })
+        // 列表处理，起始索引
+        .option('start', {
+            type: 'number',
+            default: 0,
+            description: 'start index of file list to process'
+        })
+        // 列表处理，每次数目
+        .option('count', {
+            type: 'number',
+            default: 99999,
+            description: 'group size of file list to process'
         })
         // 正则，包含文件名规则
         .option("include", {
@@ -337,6 +350,11 @@ async function cmdConvert(argv) {
         log.showYellow(logTag, 'No files left after rules, nothing to do.')
         return
     }
+
+    // 如果指定了start和count，截取列表部分
+    fileEntries = fileEntries.slice(argv.start, argv.start + argv.count)
+    log.show(logTag, `Total ${fileEntries.length} files left in (${argv.start}-${argv.start + argv.count})`)
+
     // 仅显示视频文件参数，不进行转换操作
     if (argv.info) {
         for (const entry of fileEntries) {
@@ -474,7 +492,7 @@ async function cmdConvert(argv) {
 
 async function runFFmpegCmd(entry) {
     const ipx = `${entry.index + 1}/${entry.total}`
-    const logTag = chalk.green('FFCMD')
+    let logTag = chalk.green('FFCMD') + chalk.cyanBright(entry.useCPUDecode ? '[GPU]' : '[CPU]')
     log.show(logTag, `${ipx} Processing ${helper.pathShort(entry.path, 72)}`, helper.humanSize(entry.size), chalk.green(helper.humanSeconds(entry.dstArgs.srcDuration)), chalk.yellow(entry.preset.name), helper.humanTime(entry.startMs))
 
     // 每10个输出一次ffmpeg详细信息，避免干扰
@@ -572,13 +590,21 @@ async function prepareFFmpegCmd(entry) {
     let fileDstDir
     // 命令行参数指定输出目录
     if (argv.output) {
-        // 默认true 保留目录结构，可以防止文件名冲突
-        if (argv.outputTree) {
-            // 如果要保持源文件目录结构
-            fileDstDir = helper.pathRewrite(entry.root, srcDir, preset.output)
-        } else {
+        switch (argv.outputMode) {
+            case 'tree':
+                // 如果要保持源文件目录结构
+                fileDstDir = helper.pathRewrite(entry.root, srcDir, preset.output)
+                break
+            case 'file':
+                // 不保留目录结构，直接输出文件
+                fileDstDir = path.resolve(preset.output)
+                break
             // 不保留源文件目录结构，只保留源文件父目录
-            fileDstDir = path.join(preset.output, path.basename(srcDir))
+            case 'dir':
+                fileDstDir = path.join(preset.output, path.basename(srcDir))
+                break
+            default:
+                throw new Error(`Unknown output mode: ${argv.outputMode}`)
         }
     } else {
         // 如果没有指定输出目录，直接输出在原文件同目录
@@ -944,7 +970,7 @@ function calculateDstArgs(entry) {
             // 1280*720码率 960k
             // scaleFactor = Math.sqrt(scaleFactor)
             // 缩放码率，平滑系数
-            scaleFactor = core.smoothChange(scaleFactor, 1, 0.2)
+            scaleFactor = core.smoothChange(scaleFactor, 1, 0.3)
             // log.info('scaleFactor', scaleFactor)
             dstVideoBitrate = Math.round(dstVideoBitrate * scaleFactor)
             // 目标分辨率，不能大于源文件分辨率
