@@ -479,7 +479,7 @@ async function runFFmpegCmd(entry) {
 
     // 每10个输出一次ffmpeg详细信息，避免干扰
     // if (entry.index % 10 === 0) {
-    log.showGray(logTag, getEntryShowInfo(entry))
+    log.showCyan(logTag, getEntryShowInfo(entry))
     log.showGray(logTag, `ffmpeg`, entry.ffmpegArgs.flat().join(' '))
     // }
     const exePath = await which('ffmpeg')
@@ -614,6 +614,17 @@ async function prepareFFmpegCmd(entry) {
                 log.fileLog(`${ipx} Skip[Invalid]: <${entry.path}> (${helper.humanSize(entry.size)})`, 'Prepare')
                 return false
             }
+        } else {
+            // 检查目标宽高和原始文件宽高，不放大
+            const reqDimension = argv.dimension || preset.dimension
+            const sw = entry.info?.video?.width || 0
+            const sh = entry.info?.video?.height || 0
+            // if (sw < reqDimension && sh < reqDimension) {
+            //     // 忽略
+            //     log.showYellow(logTag, `${ipx} Skip[Dimension]: (${sw}x${sh},${reqDimension}) ${entry.path}`)
+            //     log.fileLog(`${ipx} Skip[Dimension]: (${sw}x${sh}) <${entry.path}>`, 'Prepare')
+            //     return false
+            // }
         }
         // 获取原始音频码率，计算目标音频码率
         // vp9视频和opus音频无法获取码率
@@ -683,8 +694,7 @@ async function prepareFFmpegCmd(entry) {
             // H264 High-L5以上也不支持
             if (entry.info?.video?.format === 'h264'
                 && (entry.info?.video?.bitDepth === 10
-                    || entry.info?.video?.profile?.includes('10')
-                    || entry.info?.video?.level >= 50)) {
+                    || (entry.info?.video?.profile?.includes('High') && entry.info?.video?.level >= 50))) {
                 log.warn(logTag, `${ipx} useCPUDecode ${entry.path} ${entry.info?.video?.pixelFormat}`, helper.humanSize(entry.size), chalk.white(JSON.stringify(entry.info.video)))
                 log.fileLog(`${ipx} useCPUDecode <${entry.path}> (${helper.humanSize(entry.size)})`, 'Prepare')
                 // 添加标志，使用软解，替换解码参数
@@ -695,18 +705,21 @@ async function prepareFFmpegCmd(entry) {
             }
         }
 
-        // 找到合适的字幕文件
-        let fileASS = path.join(srcDir, `${srcBase}.ass`)
-        let fileSSA = path.join(srcDir, `${srcBase}.ssa`)
-        let fileSRT = path.join(srcDir, `${srcBase}.srt`)
-        let fileSubtitle = null
-        if (await fs.pathExists(fileASS)) {
-            fileSubtitle = fileASS
-        } else if (await fs.pathExists(fileSSA)) {
-            fileSubtitle = fileSSA
+        // 找到并添加字幕文件，当前目录和subs子目录
+        const subExts = ['.ass', '.ssa', '.srt']
+        const subtitles = []
+        for (const ext of subExts) {
+            const sub1 = path.join(srcDir, `${srcBase}${ext}`)
+            const sub2 = path.join(srcDir, 'subs', `${srcBase}${ext}`)
+            if (await fs.pathExists(sub1)) {
+                subtitles.push(sub1)
+            }
+            if (await fs.pathExists(sub2)) {
+                subtitles.push(sub2)
+            }
         }
-        else if (await fs.pathExists(fileSRT)) {
-            fileSubtitle = fileSRT
+        if (subtitles.length > 0) {
+            log.showCyan(logTag, `${ipx} SubTitles:`, subtitles.join(' '))
         }
         log.show(logTag, `${ipx} FR: ${helper.pathShort(entry.path, 80)}`, chalk.yellow(entry.preset.name), helper.humanTime(entry.startMs))
         log.showGray(logTag, `${ipx} TO:`, fileDst)
@@ -717,7 +730,7 @@ async function prepareFFmpegCmd(entry) {
             fileDstBase,
             fileDst,
             fileDstTemp,
-            fileSubtitle,
+            subtitles,
         }
         newEntry.ffmpegArgs = createFFmpegArgs(newEntry)
         log.info(logTag, 'ffmpeg', newEntry.ffmpegArgs.flat().join(' '))
@@ -761,12 +774,7 @@ function getEntryShowInfo(entry) {
     showText.push(`pt:${entry.preset.name}`)
     showText.push(`sz:${helper.humanSize(args.size)}`)
     showText.push(`ts:${helper.humanSeconds(args.srcDuration)}`)
-    showText.push(`v:${vc}`)
-    if (args.dstVideoBitrate !== args.srcVideoBitrate) {
-        showText.push(`vb:${kNum(args.srcVideoBitrate)}=>${kNum(args.dstVideoBitrate)}`)
-    } else {
-        showText.push(`vb:${kNum(args.srcVideoBitrate)}`)
-    }
+
     showText.push(`a:${ac}`)
     if (args.dstAudioBitrate !== args.srcAudioBitrate) {
         showText.push(`ab:${kNum(args.srcAudioBitrate)}=>${kNum(args.dstAudioBitrate)}`)
@@ -776,8 +784,12 @@ function getEntryShowInfo(entry) {
     if (args.dstAudioQuality > 0) {
         showText.push(`aq:${args.dstAudioQuality}`)
     }
-    if (args.srcWidth !== args.dstWidth || args.srcHeight !== args.dstHeight) {
-        showText.push(`dm:${args.srcWidth}x${args.srcHeight}=>${args.dstWidth}x${args.dstHeight}`)
+
+    showText.push(`v:${vc}`)
+    if (args.dstVideoBitrate !== args.srcVideoBitrate) {
+        showText.push(`vb:${kNum(args.srcVideoBitrate)}=>${kNum(args.dstVideoBitrate)}`)
+    } else {
+        showText.push(`vb:${kNum(args.srcVideoBitrate)}`)
     }
     if (args.dstFrameRate > 0 && args.dstFrameRate !== args.srcFrameRate) {
         showText.push(`fps:${args.srcFrameRate}=>${args.dstFrameRate}`)
@@ -786,6 +798,11 @@ function getEntryShowInfo(entry) {
     }
     if (args.speed > 0) {
         showText.push(`sp:${args.speed}`)
+    }
+    if (args.srcWidth !== args.dstWidth || args.srcHeight !== args.dstHeight) {
+        showText.push(`${args.srcWidth}x${args.srcHeight}=>${args.dstWidth}x${args.dstHeight}`)
+    } else {
+        showText.push(`${args.srcWidth}x${args.srcHeight}`)
     }
     return showText.join(',')
 }
@@ -841,8 +858,28 @@ function calculateDstArgs(entry) {
     let srcVideoBitrate = 0
     let dstVideoBitrate = 0
 
+    let srcFrameRate = 0
+    let dstFrameRate = 0
+    let dstWidth = 0
+    let dstHeight = 0
+
+    // 源文件时长
+    const srcDuration = info?.duration
+        || ivideo?.duration
+        || iaudio?.duration || 0
+
+    const srcWidth = ivideo?.width || 0
+    const srcHeight = ivideo?.height || 0
+
     const reqAudioBitrate = ep.userArgs.audioBitrate || ep.audioBitrate
     const reqVideoBitrate = ep.userArgs.videoBitrate || ep.videoBitrate
+
+    const dstAudioQuality = ep.userArgs.audioQuality || ep.audioQuality
+    const dstVideoQuality = ep.userArgs.videoQuality || ep.videoQuality
+
+    const dstSpeed = ep.userArgs.speed || ep.speed
+    const dstDimension = ep.userArgs.dimension || ep.dimension
+
     if (helper.isAudioFile(entry.path)) {
         // 音频文件
         // 文件信息中的码率值
@@ -877,6 +914,11 @@ function calculateDstArgs(entry) {
         dstAudioBitrate = minNoZero(dstAudioBitrate, srcAudioBitrate)
     } else {
         // 视频文件
+        const dstWH = calculateScale(srcWidth, srcHeight, dstDimension)
+        dstWidth = dstWH.dstWidth
+        dstHeight = dstWH.dstHeight
+        const srcPixels = srcWidth * srcHeight
+        const dstPixels = dstWidth * dstHeight
         // 这个是文件整体码率，如果是是视频文件，等于是视频和音频的码率相加
         const fileBitrate = info?.bitrate || 0
         srcAudioBitrate = iaudio?.bitrate || 0
@@ -888,51 +930,37 @@ function calculateDstArgs(entry) {
         // 音频和视频码率 用户指定>预设
         // 音频和视频码率都不能高于原码率
         dstAudioBitrate = minNoZero(srcAudioBitrate, reqAudioBitrate)
-        dstVideoBitrate = minNoZero(srcVideoBitrate, reqVideoBitrate)
+        // 如果源文件不是1080p，这里码率需要考虑分辨率
+        const pixelsScale = PIXELS_1080P / srcPixels
+        dstVideoBitrate = minNoZero(srcVideoBitrate * pixelsScale, reqVideoBitrate)
 
-        log.info(entry.name, "fileBitrate", fileBitrate, "srcVideoBitrate", srcVideoBitrate, "reqVideoBitrate", reqVideoBitrate, "dstVideoBitrate", dstVideoBitrate)
-
+        log.info(entry.name, "fileBitrate", fileBitrate, "srcVideoBitrate", srcVideoBitrate, "reqVideoBitrate", reqVideoBitrate, "dstVideoBitrate", dstVideoBitrate, "pixelsScale", pixelsScale)
+        // 小于1080p分辨率，码率也需要缩放
+        if (dstPixels > 0 && dstPixels < PIXELS_1080P) {
+            let scaleFactor = dstPixels / PIXELS_1080P
+            // 如果目标码率是4K，暂时吧不考虑
+            // 如果目标码率不是1080p，根据分辨率智能缩放
+            // 示例 辨率1920*1080的目标码率是 1600k
+            // 1280*720码率 960k
+            // scaleFactor = Math.sqrt(scaleFactor)
+            // 缩放码率，平滑系数
+            scaleFactor = core.smoothChange(scaleFactor, 1, 0.2)
+            // log.info('scaleFactor', scaleFactor)
+            dstVideoBitrate = Math.round(dstVideoBitrate * scaleFactor)
+            // 目标分辨率，不能大于源文件分辨率
+            dstVideoBitrate = minNoZero(dstVideoBitrate, srcVideoBitrate)
+            // 取整
+            // dstVideoBitrate = Math.floor(dstVideoBitrate / 1000) * 1000
+        }
     }
 
-    // 源文件时长
-    const srcDuration = info?.duration
-        || ivideo?.duration
-        || iaudio?.duration || 0
     // 如果目标帧率大于原帧率，就将目标帧率设置为0，即让ffmpeg自动处理，不添加帧率参数
     // 源文件帧率
-    const srcFrameRate = ivideo?.framerate || 0
+    srcFrameRate = ivideo?.framerate || 0
     // 预设或用户帧率，用户指定>预设
     const reqFrameRate = ep.userArgs.framerate || ep.framerate
     // 计算出的目标帧率
-    let dstFrameRate = reqFrameRate < srcFrameRate ? reqFrameRate : 0
-
-    const dstAudioQuality = ep.userArgs.audioQuality || ep.audioQuality
-    const dstVideoQuality = ep.userArgs.videoQuality || ep.videoQuality
-
-    const dstDimension = ep.userArgs.dimension || ep.dimension
-    const { dstWidth, dstHeight } = calculateScale(ivideo?.width || 0, ivideo?.height || 0, dstDimension)
-
-    const dstPixels = dstWidth * dstHeight
-    const dstVideoBitrateFixed = dstVideoBitrate
-    if (dstPixels > 0) {
-        let scaleFactor = dstPixels / PIXELS_1080P
-        // dstVideoBitrate针对目标是1080p的数据
-        // 如果目标码率不是1080p，根据分辨率智能缩放
-        // 示例 辨率1920*1080的目标码率是 1600k
-        // 1280*720码率 960k
-        // 3840*2160码率 2560k
-        // 0.9~1.1 之间不缩放
-        if (scaleFactor > 1.1) {
-            scaleFactor *= 0.4
-        } else if (scaleFactor < 0.9) {
-            scaleFactor *= 1.6
-        } else {
-            scaleFactor = 1
-        }
-        dstVideoBitrate = Math.round(dstVideoBitrate * scaleFactor)
-    }
-
-    const dstSpeed = ep.userArgs.speed || ep.speed
+    dstFrameRate = reqFrameRate < srcFrameRate ? reqFrameRate : 0
 
     // 用于模板字符串的模板参数，针对当前文件
     // 额外模板参数
@@ -943,9 +971,9 @@ function calculateDstArgs(entry) {
         srcVideoBitrate,
         srcFrameRate,
         srcDuration,
-        srcWidth: ivideo?.width || 0,
-        srcHeight: ivideo?.height || 0,
-        srcDuration: info?.duration || 0,
+        srcWidth: srcWidth,
+        srcHeight: srcHeight,
+        srcDuration: srcDuration,
         srcSize: info?.size || 0,
         srcVideoCodec: ivideo?.format,
         srcAudioCodec: iaudio?.format,
@@ -956,13 +984,12 @@ function calculateDstArgs(entry) {
         dstAudioQuality,
         dstVideoQuality,
         dstFrameRate,
-        dstDimension,
         dstWidth,
         dstHeight,
         dstSpeed,
         // 码率智能缩放
-        audioBitrateScaled: dstAudioBitrate !== reqAudioBitrate,
-        videoBitrateScaled: dstVideoBitrate !== dstVideoBitrateFixed,
+        audioBitScale: core.roundNum(dstAudioBitrate / srcAudioBitrate),
+        videoBitScale: core.roundNum(dstVideoBitrate / srcVideoBitrate),
         // 会覆盖preset的同名预设值
         // videoBitrate: dstVideoBitrate,
         videoBitrateK: `${Math.round(dstVideoBitrate / 1000)}K`,
@@ -1038,10 +1065,14 @@ function createFFmpegArgs(entry, forDisplay = false) {
     }
     inputArgs.push('-i')
     inputArgs.push(forDisplay ? "input.mkv" : `"${entry.path}"`)
-    // 添加MP4内嵌字幕文件
-    if (entry.fileSubtitle) {
-        inputArgs.push('-i')
-        inputArgs.push(`"${entry.fileSubtitle}"`)
+    // 添加MP4内嵌字幕文件，支持多个字幕文件
+    if (entry.subtitles?.length > 0) {
+        // 用于显示和调试
+        tempPreset.subtitles = entry.subtitles.map(item => path.basename(item))
+        entry.subtitles.forEach(item => {
+            inputArgs.push('-i')
+            inputArgs.push(`"${item}"`)
+        })
         const subArgs = '-c:s mov_text -metadata:s:s:0 language=chi -disposition:s:0 default'
         inputArgs = inputArgs.concat(subArgs.split(' '))
     } else {
