@@ -447,8 +447,8 @@ async function cmdConvert(argv) {
     const lastTask = tasks.slice(-1)[0]
     !testMode && log.fileLog(`ffmpegArgs:`, lastTask.ffmpegArgs.flat(), 'FFConv')
     log.show('-----------------------------------------------------------')
-    log.showYellow(logTag, 'PRESET:', lastTask.debugPreset)
-    log.showCyan(logTag, 'CMD: ffmpeg', lastTask.ffmpegArgs.flat().join(' '))
+    log.show(logTag, chalk.cyan('PRESET:'), lastTask.debugPreset)
+    log.show(logTag, chalk.cyan('CMD:'), 'ffmpeg', lastTask.ffmpegArgs.flat().join(' '))
     const totalDuration = tasks.reduce((acc, t) => acc + t.info?.duration || 0, 0)
     log.show('-----------------------------------------------------------')
     testMode && log.showYellow('++++++++++ TEST MODE (DRY RUN) ++++++++++')
@@ -492,12 +492,12 @@ async function cmdConvert(argv) {
 
 async function runFFmpegCmd(entry) {
     const ipx = `${entry.index + 1}/${entry.total}`
-    let logTag = chalk.green('FFCMD') + chalk.cyanBright(entry.useCPUDecode ? '[GPU]' : '[CPU]')
+    let logTag = chalk.green('FFCMD') + chalk.cyanBright(entry.info.useCPUDecode ? '[MIX]' : '[GPU]')
     log.show(logTag, `${ipx} Processing ${helper.pathShort(entry.path, 72)}`, helper.humanSize(entry.size), chalk.green(helper.humanSeconds(entry.dstArgs.srcDuration)), chalk.yellow(entry.preset.name), helper.humanTime(entry.startMs))
 
     // 每10个输出一次ffmpeg详细信息，避免干扰
     // if (entry.index % 10 === 0) {
-    log.showCyan(logTag, getEntryShowInfo(entry))
+    log.showCyan(logTag, ipx, getEntryShowInfo(entry))
     log.showGray(logTag, `ffmpeg`, entry.ffmpegArgs.flat().join(' '))
     // }
     const exePath = await which('ffmpeg')
@@ -545,8 +545,9 @@ async function runFFmpegCmd(entry) {
         log.showYellow(logTag, `${ipx} Failed ${entry.path}`, entry.preset.name, helper.humanSize(dstSize))
         log.fileLog(`${ipx} Failed <${entry.path}> [${entry.dstAudioBitrate || entry.preset.name}]`, 'FFCMD')
     } catch (error) {
-        const errMsg = (error.stderr || error.message || '[Unknown]').substring(0, 360)
-        log.showRed(logTag, `Error(${ipx}) ${errMsg}`)
+        const errMsg = (error.stderr || error.message || '[Unknown]').substring(0, 160)
+        log.showRed(logTag, `Error(${ipx}) <${entry.path}>`, errMsg)
+        log.showYellow(logTag, `Media(${ipx})`, JSON.stringify(entry.info?.video))
         log.fileLog(`Error(${ipx}) <${entry.path}> [${entry.preset.name}] ${errMsg}`, 'FFCMD')
         await writeErrorFile(entry, error)
     } finally {
@@ -583,6 +584,7 @@ async function prepareFFmpegCmd(entry) {
     const ipx = `${entry.index + 1}/${entry.total}`
     log.info(logTag, `Processing(${ipx}) file: ${entry.path}`)
     const isAudio = helper.isAudioFile(entry.path)
+    const isVideo = helper.isVideoFile(entry.path)
     const [srcDir, srcBase, srcExt] = helper.pathSplit(entry.path)
     const preset = entry.preset
     const argv = entry.argv
@@ -714,15 +716,14 @@ async function prepareFFmpegCmd(entry) {
             }
         }
 
-        if (!isAudio) {
+        const ivideo = entry.info?.video
+        if (isVideo) {
             // https://developer.nvidia.com/video-encode-and-decode-gpu-support-matrix-new
             // H264 10Bit Nvidia和Intel都不支持硬解，直接跳过
             // H264 High-L5以上也不支持
-            if (entry.info?.video?.format === 'h264'
-                && (entry.info?.video?.bitDepth === 10
-                    || (entry.info?.video?.profile?.includes('High') && entry.info?.video?.level >= 50))) {
-                log.warn(logTag, `${ipx} useCPUDecode ${entry.path} ${entry.info?.video?.pixelFormat}`, helper.humanSize(entry.size), chalk.white(JSON.stringify(entry.info.video)))
-                log.fileLog(`${ipx} useCPUDecode <${entry.path}> (${helper.humanSize(entry.size)})`, 'Prepare')
+            const isHigh50 = ivideo?.level > 4.2
+            if (ivideo?.format === 'h264'
+                && (ivideo?.bitDepth === 10 || isHigh50)) {
                 // 添加标志，使用软解，替换解码参数
                 // 在组装ffmpeg参数时判断和替换
                 // 解码和滤镜参数都需要修改
@@ -744,12 +745,18 @@ async function prepareFFmpegCmd(entry) {
                 subtitles.push(sub2)
             }
         }
+
+        log.show(logTag, chalk.cyan(`${ipx} SRC:`), `${helper.pathShort(entry.path, 80)}`, chalk.yellow(entry.preset.name), helper.humanTime(entry.startMs))
         if (subtitles.length > 0) {
-            log.showCyan(logTag, `${ipx} SubTitles:`, subtitles.join(' '))
+            log.showGray(logTag, chalk.cyan(`${ipx} SUB:`), subtitles.join(' '))
         }
-        log.show(logTag, `${ipx} FR: ${helper.pathShort(entry.path, 80)}`, chalk.yellow(entry.preset.name), helper.humanTime(entry.startMs))
-        log.showGray(logTag, `${ipx} TO:`, fileDst)
-        log.showGray(logTag, getEntryShowInfo(newEntry))
+        log.showGray(logTag, `${ipx} DST:`, fileDst)
+
+        log.showGray(logTag, `${ipx}`, getEntryShowInfo(newEntry))
+        if (entry.info.useCPUDecode) {
+            log.showYellow(logTag, `${ipx} useCPUDecode ${entry.name} ${ivideo.format}|${ivideo.profile}@${ivideo.level}|${ivideo.bitDepth}|${ivideo?.pixelFormat}`, helper.humanSize(entry.size), chalk.white(JSON.stringify(ivideo)))
+            log.fileLog(`${ipx} useCPUDecode <${entry.path}> (${helper.humanSize(entry.size)})`, 'Prepare')
+        }
         newEntry = {
             ...newEntry,
             fileDstDir,
@@ -793,6 +800,8 @@ function kNum(value) {
 
 // 显示媒体编码和码率信息，调试用
 function getEntryShowInfo(entry) {
+    const ia = entry.info?.audio
+    const iv = entry.info?.video
     const args = { ...entry, ...entry.dstArgs }
     const ac = args.srcAudioCodec
     const vc = args.srcVideoCodec
@@ -800,35 +809,37 @@ function getEntryShowInfo(entry) {
     showText.push(`pt:${entry.preset.name}`)
     showText.push(`sz:${helper.humanSize(args.size)}`)
     showText.push(`ts:${helper.humanSeconds(args.srcDuration)}`)
-
-    showText.push(`a:${ac}`)
-    if (args.dstAudioBitrate !== args.srcAudioBitrate) {
-        showText.push(`ab:${kNum(args.srcAudioBitrate)}=>${kNum(args.dstAudioBitrate)}`)
-    } else {
-        showText.push(`ab:${kNum(args.srcAudioBitrate)}`)
+    if (ia?.duration) {
+        showText.push(`a:${ac}`)
+        if (args.dstAudioBitrate !== args.srcAudioBitrate) {
+            showText.push(`ab:${kNum(args.srcAudioBitrate)}=>${kNum(args.dstAudioBitrate)}`)
+        } else {
+            showText.push(`ab:${kNum(args.srcAudioBitrate)}`)
+        }
+        if (args.dstAudioQuality > 0) {
+            showText.push(`aq:${args.dstAudioQuality}`)
+        }
     }
-    if (args.dstAudioQuality > 0) {
-        showText.push(`aq:${args.dstAudioQuality}`)
-    }
-
-    showText.push(`v:${vc}`)
-    if (args.dstVideoBitrate !== args.srcVideoBitrate) {
-        showText.push(`vb:${kNum(args.srcVideoBitrate)}=>${kNum(args.dstVideoBitrate)}`)
-    } else {
-        showText.push(`vb:${kNum(args.srcVideoBitrate)}`)
-    }
-    if (args.dstFrameRate > 0 && args.dstFrameRate !== args.srcFrameRate) {
-        showText.push(`fps:${args.srcFrameRate}=>${args.dstFrameRate}`)
-    } else {
-        showText.push(`fps:${args.srcFrameRate}`)
-    }
-    if (args.speed > 0) {
-        showText.push(`sp:${args.speed}`)
-    }
-    if (args.srcWidth !== args.dstWidth || args.srcHeight !== args.dstHeight) {
-        showText.push(`${args.srcWidth}x${args.srcHeight}=>${args.dstWidth}x${args.dstHeight}`)
-    } else {
-        showText.push(`${args.srcWidth}x${args.srcHeight}`)
+    if (iv?.duration) {
+        showText.push(`v:${vc}-${iv.profile}@${iv.level}`)
+        if (args.dstVideoBitrate !== args.srcVideoBitrate) {
+            showText.push(`vb:${kNum(args.srcVideoBitrate)}=>${kNum(args.dstVideoBitrate)}`)
+        } else {
+            showText.push(`vb:${kNum(args.srcVideoBitrate)}`)
+        }
+        if (args.dstFrameRate > 0 && args.dstFrameRate !== args.srcFrameRate) {
+            showText.push(`fps:${args.srcFrameRate}=>${args.dstFrameRate}`)
+        } else {
+            showText.push(`fps:${args.srcFrameRate}`)
+        }
+        if (args.speed > 0) {
+            showText.push(`sp:${args.speed}`)
+        }
+        if (args.srcWidth !== args.dstWidth || args.srcHeight !== args.dstHeight) {
+            showText.push(`${args.srcWidth}x${args.srcHeight}=>${args.dstWidth}x${args.dstHeight}`)
+        } else {
+            showText.push(`${args.srcWidth}x${args.srcHeight}`)
+        }
     }
     return showText.join(',')
 }
