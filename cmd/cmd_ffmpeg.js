@@ -239,6 +239,13 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             describe: "hardware acceleration for video decode and encode",
             type: "string",
         })
+        // 仅使用硬件解码
+        .option("decode-mode", {
+            type: "choices",
+            choices: ['auto', 'gpu', 'cpu'],
+            default: 'auto',
+            describe: "video decode mode: auto/gpu/cpu",
+        })
         // 并行操作限制，并发数，默认为 CPU 核心数
         .option("jobs", {
             alias: "j",
@@ -360,7 +367,7 @@ async function cmdConvert(argv) {
         for (const entry of fileEntries) {
             log.showGreen(logTag, `${entry.path}`)
             const info = await getMediaInfo(entry.path)
-            log.show(logTag, JSON.stringify(info))
+            log.show(logTag, info)
         }
         return
     }
@@ -484,21 +491,54 @@ async function cmdConvert(argv) {
         tasks = core.takeEveryNth(tasks, Math.floor(tasks.length / 10))
     }
     const results = await pMap(tasks, runFFmpegCmd, { concurrency: jobCount })
+    let failedTasks = results.filter(r => r && r.ffmpegFailed && !r.retryOnFailed)
+    let rOKCount = 0
+    if (failedTasks.length > 0) {
+        const answer = await inquirer.prompt([
+            {
+                type: 'confirm',
+                name: 'yes',
+                default: false,
+                message: chalk.bold.red(
+                    `${failedTasks.length} tasks failed, do you want to retry these tasks?`
+                )
+            }
+        ])
+        if (answer.yes) {
+            for (const ft of failedTasks) {
+                log.showYellow(logTag, `Retrying task: ${ft.path}`
+                )
+                let newFT = core.omit(ft, 'ffmpegArgs', 'info')
+                // 强制使用CPU解码f
+                newFT.argv.decodeMode = 'cpu'
+                newFT.retryOnFailed = true
+                const task = await prepareFFmpegCmd(newFT)
+                const rt = await runFFmpegCmd(task)
+                if (rt && rt.ok) {
+                    rOKCount++
+                }
+            }
+        }
+    }
+
     // const results = await core.asyncMapGroup(tasks, runFFmpegCmd, jobCount)
     testMode && log.showYellow(logTag, 'NO file processed in TEST MODE.')
     const okResults = results.filter(r => r && r.ok)
-    !testMode && log.showGreen(logTag, `Total ${okResults.length} files processed in ${helper.humanTime(startMs)}`)
+    !testMode && log.showGreen(logTag, `Total ${okResults.length + rOKCount} files processed in ${helper.humanTime(startMs)}`)
 }
 
 async function runFFmpegCmd(entry) {
     const ipx = `${entry.index + 1}/${entry.total}`
-    let logTag = chalk.green('FFCMD') + chalk.cyanBright(entry.info.useCPUDecode ? '[MIX]' : '[GPU]')
-    log.show(logTag, `${ipx} Processing ${helper.pathShort(entry.path, 72)}`, helper.humanSize(entry.size), chalk.green(helper.humanSeconds(entry.dstArgs.srcDuration)), chalk.yellow(entry.preset.name), helper.humanTime(entry.startMs))
+    let logTag = chalk.green('FFCMD') + chalk.cyanBright(entry.useCPUDecode ? '[SW]' : '[HW]')
+    if (entry.retryOnFailed) {
+        logTag += chalk.red('(R)')
+    }
+    log.show(logTag, chalk.yellow(ipx), chalk.cyan(`Processing`), `${helper.pathShort(entry.path, 72)}`, helper.humanSize(entry.size), chalk.yellow(helper.humanSeconds(entry.dstArgs.srcDuration)), entry.preset.name, helper.humanTime(entry.startMs))
 
     // 每10个输出一次ffmpeg详细信息，避免干扰
     // if (entry.index % 10 === 0) {
-    log.showCyan(logTag, ipx, getEntryShowInfo(entry))
-    log.showGray(logTag, `ffmpeg`, entry.ffmpegArgs.flat().join(' '))
+    log.showGray(logTag, ipx, getEntryShowInfo(entry))
+    log.showGray(logTag, ipx, `ffmpeg`, entry.ffmpegArgs.flat().join(' '))
     // }
     const exePath = await which('ffmpeg')
     if (entry.testMode) {
@@ -526,7 +566,7 @@ async function runFFmpegCmd(entry) {
         // const stdoutFixed = fixEncoding(stdout || "")
         // const stderrFixed = fixEncoding(stderr || "")
         if (await fs.pathExists(entry.fileDst)) {
-            log.showYellow(logTag, `${ipx} DstExists ${entry.fileDst}`, helper.humanSize(entry.size), chalk.yellow(entry.preset.name), helper.humanTime(ffmpegStartMs))
+            log.showYellow(logTag, `${ipx} DstExists ${entry.fileDst}`, helper.humanSize(entry.size), entry.preset.name, helper.humanTime(ffmpegStartMs))
             await fs.remove(entry.fileDstTemp)
             return
         }
@@ -534,7 +574,7 @@ async function runFFmpegCmd(entry) {
             const dstSize = (await fs.stat(entry.fileDstTemp))?.size || 0
             if (dstSize > 20 * mf.FILE_SIZE_1K) {
                 await fs.move(entry.fileDstTemp, entry.fileDst)
-                log.showGreen(logTag, `${ipx} Done ${entry.fileDst}`, chalk.cyan(`${helper.humanSize(entry.size)}=>${helper.humanSize(dstSize)}`), chalk.yellow(entry.preset.name), helper.humanTime(ffmpegStartMs))
+                log.show(logTag, chalk.yellow(ipx), chalk.green('Done'), `${entry.fileDst}`, chalk.cyan(`${helper.humanSize(entry.size)}=>${helper.humanSize(dstSize)}`), entry.preset.name, helper.humanTime(ffmpegStartMs))
                 log.fileLog(`${ipx} Done <${entry.fileDst}> [${entry.preset.name}] (${helper.humanSize(dstSize)})`, 'FFCMD')
                 entry.ok = true
                 return entry
@@ -550,6 +590,10 @@ async function runFFmpegCmd(entry) {
         log.showYellow(logTag, `Media(${ipx})`, JSON.stringify(entry.info?.video))
         log.fileLog(`Error(${ipx}) <${entry.path}> [${entry.preset.name}] ${errMsg}`, 'FFCMD')
         await writeErrorFile(entry, error)
+        // 转换失败需要重试，使用CPUDecode
+        entry.ffmpegFailed = true
+        entry.ffmpegError = errMsg
+        return entry
     } finally {
         await fs.remove(entry.fileDstTemp)
     }
@@ -580,14 +624,17 @@ async function writeErrorFile(entry, error) {
 }
 
 async function prepareFFmpegCmd(entry) {
-    const logTag = chalk.green('Prepare')
+    const preset = entry.preset
+    const argv = entry.argv
+    let logTag = chalk.green(`Prepare[${entry.argv.decodeMode.toUpperCase()}]`)
+    if (entry.retryOnFailed) {
+        logTag += chalk.red('(R)')
+    }
     const ipx = `${entry.index + 1}/${entry.total}`
     log.info(logTag, `Processing(${ipx}) file: ${entry.path}`)
     const isAudio = helper.isAudioFile(entry.path)
     const isVideo = helper.isVideoFile(entry.path)
     const [srcDir, srcBase, srcExt] = helper.pathSplit(entry.path)
-    const preset = entry.preset
-    const argv = entry.argv
     const dstExt = preset.format || srcExt
     let fileDstDir
     // 命令行参数指定输出目录
@@ -716,19 +763,32 @@ async function prepareFFmpegCmd(entry) {
             }
         }
 
-        const ivideo = entry.info?.video
+        const ivideo = newEntry.info?.video
         if (isVideo) {
-            // https://developer.nvidia.com/video-encode-and-decode-gpu-support-matrix-new
-            // H264 10Bit Nvidia和Intel都不支持硬解，直接跳过
-            // H264 High-L5以上也不支持
-            const isHigh50 = ivideo?.level > 4.2
-            if (ivideo?.format === 'h264'
-                && (ivideo?.bitDepth === 10 || isHigh50)) {
-                // 添加标志，使用软解，替换解码参数
-                // 在组装ffmpeg参数时判断和替换
-                // 解码和滤镜参数都需要修改
-                entry.info.useCPUDecode = true
-                // return false
+            switch (argv.decodeMode) {
+                case 'cpu':
+                    newEntry.useCPUDecode = true
+                    break
+                case 'gpu':
+                    newEntry.useCPUDecode = false
+                    break
+                case 'auto':
+                default:
+                    {
+                        // https://developer.nvidia.com/video-encode-and-decode-gpu-support-matrix-new
+                        // H264 10Bit Nvidia和Intel都不支持硬解，直接跳过
+                        // H264 High L5以上可能也不支持
+                        const isH264 = ivideo?.format === 'h264' || ivideo?.format === 'avc'
+                        const isHigh50 = ivideo?.profile?.includes('High') && ivideo?.level > 4.2
+                        if (isH264 && (ivideo?.bitDepth === 10 || isHigh50)) {
+                            // 添加标志，使用软解，替换解码参数
+                            // 在组装ffmpeg参数时判断和替换
+                            // 解码和滤镜参数都需要修改
+                            // 尝试使用CPU解码
+                            newEntry.useCPUDecode = true
+                        }
+                    }
+                    break
             }
         }
 
@@ -745,18 +805,10 @@ async function prepareFFmpegCmd(entry) {
                 subtitles.push(sub2)
             }
         }
-
-        log.show(logTag, chalk.cyan(`${ipx} SRC:`), `${helper.pathShort(entry.path, 80)}`, chalk.yellow(entry.preset.name), helper.humanTime(entry.startMs))
-        if (subtitles.length > 0) {
-            log.showGray(logTag, chalk.cyan(`${ipx} SUB:`), subtitles.join(' '))
-        }
-        log.showGray(logTag, `${ipx} DST:`, fileDst)
-
+        const codecInfo = `${ivideo?.format}(${ivideo?.profile}@${ivideo?.level},${ivideo?.bitDepth})`
+        log.show(logTag, chalk.cyan(`${ipx} SRC`), chalk.yellow(newEntry.useCPUDecode ? `SW` : `HW`), `"${helper.pathShort(entry.path, 80)}"`, subtitles.length > 0 ? "(SUBS)" : "", codecInfo, helper.humanSize(entry.size), chalk.yellow(entry.preset.name), helper.humanTime(entry.startMs))
+        log.showGray(logTag, `${ipx} DST`, fileDst)
         log.showGray(logTag, `${ipx}`, getEntryShowInfo(newEntry))
-        if (entry.info.useCPUDecode) {
-            log.showYellow(logTag, `${ipx} useCPUDecode ${entry.name} ${ivideo.format}|${ivideo.profile}@${ivideo.level}|${ivideo.bitDepth}|${ivideo?.pixelFormat}`, helper.humanSize(entry.size), chalk.white(JSON.stringify(ivideo)))
-            log.fileLog(`${ipx} useCPUDecode <${entry.path}> (${helper.humanSize(entry.size)})`, 'Prepare')
-        }
         newEntry = {
             ...newEntry,
             fileDstDir,
@@ -802,11 +854,12 @@ function kNum(value) {
 function getEntryShowInfo(entry) {
     const ia = entry.info?.audio
     const iv = entry.info?.video
+    const is = entry.info?.subtitles
     const args = { ...entry, ...entry.dstArgs }
     const ac = args.srcAudioCodec
     const vc = args.srcVideoCodec
     const showText = []
-    showText.push(`pt:${entry.preset.name}`)
+    // showText.push(`pt:${entry.preset.name}`)
     showText.push(`sz:${helper.humanSize(args.size)}`)
     showText.push(`ts:${helper.humanSeconds(args.srcDuration)}`)
     if (ia?.duration) {
@@ -821,7 +874,7 @@ function getEntryShowInfo(entry) {
         }
     }
     if (iv?.duration) {
-        showText.push(`v:${vc}-${iv.profile}@${iv.level}`)
+        showText.push(`v:${vc}(${iv.profile}@${iv.level})`)
         if (args.dstVideoBitrate !== args.srcVideoBitrate) {
             showText.push(`vb:${kNum(args.srcVideoBitrate)}=>${kNum(args.dstVideoBitrate)}`)
         } else {
@@ -840,6 +893,9 @@ function getEntryShowInfo(entry) {
         } else {
             showText.push(`${args.srcWidth}x${args.srcHeight}`)
         }
+    }
+    if (is?.length > 0) {
+        showText.push(is.map(s => `${s.format}-${s.language}`).join('|'))
     }
     return showText.join(',')
 }
@@ -1091,7 +1147,7 @@ function createFFmpegArgs(entry, forDisplay = false) {
     if (tempPreset.type === 'video') {
         inputArgs.push("-stats")
         // 使用cuda硬件解码
-        if (!entry.info.useCPUDecode) {
+        if (!entry.useCPUDecode) {
             inputArgs.push("-hwaccel", "cuda", "-hwaccel_output_format", "cuda")
         }
         // 不支持硬解的格式，如H264-10bit，使用软解
@@ -1112,8 +1168,20 @@ function createFFmpegArgs(entry, forDisplay = false) {
         })
         const subArgs = '-c:s mov_text -metadata:s:s:0 language=chi -disposition:s:0 default'
         inputArgs = inputArgs.concat(subArgs.split(' '))
+        // 使用提供的字幕，忽略MKV内置字幕文件
+        inputArgs = inputArgs.concat('-map 0:v -map 0:a -map 1'.split(' '))
     } else {
-        inputArgs.push('-c:s mov_text')
+        // MP4格式仅支持tx3g格式字幕
+        const subs = entry.info?.subtitles
+        if (subs?.length > 0) {
+            const isAllTextSubs = subs?.every(e => e.codec === 'tx3g')
+            if (isAllTextSubs) {
+                inputArgs = inputArgs.concat('-c:s mov_text'.split(' '))
+            } else {
+                // 不支持的字幕直接忽略
+                inputArgs.push('-sn')
+            }
+        }
     }
     //
     //===============================================================
@@ -1137,7 +1205,7 @@ function createFFmpegArgs(entry, forDisplay = false) {
     } else if (tempPreset.filters?.length > 0) {
         let tempFilters = tempPreset.filters
         // 使用软解时，需要传输数据道GPU
-        if (entry.info.useCPUDecode) {
+        if (entry.useCPUDecode) {
             tempFilters = 'hwupload_cuda,' + tempFilters
         }
         middleArgs.push('-vf')
