@@ -125,6 +125,8 @@ async function compressExternal(t, force = false) {
             log.show(chalk.yellow(logTag), chalk.yellow(`DoneEx`), `${t.index}/${t.total}`, `${helper.pathShort(fileSrc)}`, chalk.cyan('!use nconvert!'))
             log.fileLog(`DoneEx: <${fileSrc}> => ${dstName}`, logTag)
             return {
+                srcWidth: t.srcWidth,
+                srcHeight: t.srcHeight,
                 width: t.width,
                 height: t.height,
                 format: 'jpeg'
@@ -223,7 +225,11 @@ async function checkCompressResult(t, r) {
         if (!t.dstExists) {
             return
         }
-        log.show(logTag, chalk.green("Done"), `${t.index}/${t.total}`, helper.pathShort(t.dst, 48), `${r.width}x${r.height}`, chalk.cyan(`${helper.humanSize(t.size)}=>${helper.humanSize(tmpSt.size)}`), helper.humanTime(t.startMs))
+        let dimensionStr = `${r.width}x${r.height}`
+        if (r.width !== t.srcWidth || r.height !== t.srcHeight) {
+            dimensionStr = `${t.srcWidth}x${t.srcHeight}` + `=>` + dimensionStr
+        }
+        log.show(logTag, chalk.green("Done"), `${t.index}/${t.total}`, helper.pathShort(t.dst, 40), chalk.yellow(dimensionStr), chalk.cyan(`${helper.humanSize(t.size)}=>${helper.humanSize(tmpSt.size)}`), helper.humanTime(t.startMs))
         log.fileLog(`<${t.src}> => ${path.basename(t.dst)} ${helper.humanSize(tmpSt.size)}`, logTag)
         t.done = true
         return t
