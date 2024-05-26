@@ -38,26 +38,28 @@ function countFilesInDirectories(filePaths) {
 
 async function rmFiles() {
     const root = process.argv[2]
+    const threhold = process.argv?.[3] || 10000
+    const divide = process.argv?.[4] || 0
     const walkOpts = {
         needStats: false,
         entryFilter: (f) => helper.isImageFile(f.path)
     }
-    log.showGreen('rmFiles', `Walking files ...`)
+    log.showGreen('rmFiles', `Walking files ... threhold=${threhold},divide=${divide}`)
     let entries = await mf.walk(root, walkOpts)
     let filePaths = entries.map(e => e.path)
     let map = countFilesInDirectories(filePaths)
     for (const [key, value] of map) {
         log.show(`Found [${value.length}] files in ${key}`)
-        if (value.length > 800) {
+        if (value.length > threhold && divide > 0) {
             let i = 0
             for (const f of value) {
                 // 删除1/4文件
-                if (++i % 4 === 0) {
+                if (++i % divide === 0) {
                     await helper.safeRemove(f)
                 }
             }
             if (i > 0) {
-                log.showGreen(`Deleted [${Math.floor(i / 4)}/${value.length}] files in ${key}`)
+                log.showGreen(`Deleted [${Math.floor(i / divide)}/${value.length}] files in ${key}`)
             }
         }
     }
