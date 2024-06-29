@@ -219,11 +219,11 @@ async function cmdCompress(argv) {
     needBar && bar1.stop()
     log.info(logTag, "before filter: ", tasks.length)
     const total = tasks.length
-    tasks = tasks.filter((t) => t?.dst)
+    tasks = tasks.filter((t) => t?.dst && t.tmpDst && !t?.shouldSkip)
     const skipped = total - tasks.length
     log.info(logTag, "after filter: ", tasks.length)
     if (skipped > 0) {
-        log.showYellow(logTag, `${skipped} thumbs skipped`)
+        log.showYellow(logTag, `${skipped} image files skipped`)
     }
     if (tasks.length === 0) {
         log.showYellow("Nothing to do, abort.")
@@ -303,7 +303,7 @@ async function preCompress(f) {
 
     let fileDstDir = f.output ? helper.pathRewrite(f.root, dir, f.output, false) : dir
     const tempSuffix = `_tmp@${helper.textHash(fileSrc)}@tmp_`
-    const fileDstTmp = path.join(fileDstDir, `${base}${suffix}${tempSuffix}.jpg`)
+    const fileDstTmp = path.resolve(path.join(fileDstDir, `${base}${suffix}${tempSuffix}.jpg`))
     // 构建目标文件路径，添加压缩后的文件名后缀 
     let fileDst = path.join(fileDstDir, `${base}${suffix}.jpg`)
 
@@ -325,7 +325,6 @@ async function preCompress(f) {
             height: 0,
             src: fileSrc,
             dst: fileDst,
-            tmpDst: fileDstTmp,
             dstExists: true,
             shouldSkip: true,
             skipReason: 'DST EXISTS',
