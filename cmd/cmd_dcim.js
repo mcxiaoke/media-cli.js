@@ -86,7 +86,10 @@ const handler = async function cmdRename(argv) {
     let files = await exif.listMedia(root)
     const fileCount = files.length
     log.show(LOG_TAG, `Total ${files.length} media files found`)
-
+    if (files.length === 0) {
+        log.showYellow(LOG_TAG, "No files found, exit now.")
+        return
+    }
     const confirmFiles = await inquirer.prompt([
         {
             type: "confirm",

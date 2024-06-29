@@ -365,13 +365,16 @@ async function preRename(f) {
     // 文件名特殊字符清理
     // ==================================
     if (argv.clean) {
-        // 执行净化文件名操作
-        tmpNewBase = cleanFileName(tmpNewBase || oldBase, {
-            separator: argv.separator,
-            keepDateStr: true,
-            zhcn: false
-        })
-        tmpNewDir = tmpNewDir || oldDir
+        // 忽略压缩过的视频文件
+        if (!oldBase.toLowerCase().includes('shana')) {
+            // 执行净化文件名操作
+            tmpNewBase = cleanFileName(tmpNewBase || oldBase, {
+                separator: argv.separator,
+                keepDateStr: true,
+                zhcn: false
+            })
+            tmpNewDir = tmpNewDir || oldDir
+        }
     }
     // ==================================
     // 文件名繁体转简体

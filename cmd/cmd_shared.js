@@ -145,6 +145,7 @@ export async function compressImage(t) {
     if (t.shouldSkip) {
         log.show(logTag, `Skip: ${t.index}/${t.total}`, helper.pathShort(t.dst), chalk.yellow(t.skipReason))
         log.fileLog(`Skip: ${t.index}/${t.total} <${t.src}> => ${path.basename(t.dst)} ${t.skipReason}`, logTag)
+        t.dstSize = t.size
         return t
     }
     // 试图确保目标文件目录存在，如果不存在则创建  
@@ -209,7 +210,7 @@ export async function compressImage(t) {
 } // 结束函数定义
 
 async function checkCompressResult(t, r) {
-    const logTag = chalk.green("Compress")
+    const logTag = chalk.green("Compressed")
     try {
         const tmpSt = await fs.stat(t.tmpDst)
         // 如果目标文件大小小于100KB，则可能文件损坏，删除该文件  
@@ -229,8 +230,9 @@ async function checkCompressResult(t, r) {
         if (r.width !== t.srcWidth || r.height !== t.srcHeight) {
             dimensionStr = `${t.srcWidth}x${t.srcHeight}` + `=>` + dimensionStr
         }
-        log.show(logTag, chalk.green("Done"), `${t.index}/${t.total}`, helper.pathShort(t.dst, 40), chalk.yellow(dimensionStr), chalk.cyan(`${helper.humanSize(t.size)}=>${helper.humanSize(tmpSt.size)}`), helper.humanTime(t.startMs))
+        log.show(logTag, `${t.index}/${t.total}`, helper.pathShort(t.dst, 45), chalk.yellow(dimensionStr), chalk.cyan(`${helper.humanSize(t.size)}=>${helper.humanSize(tmpSt.size)}`), helper.humanTime(t.startMs))
         log.fileLog(`<${t.src}> => ${path.basename(t.dst)} ${helper.humanSize(tmpSt.size)}`, logTag)
+        t.dstSize = tmpSt.size || 0
         t.done = true
         return t
     } catch (error) {
@@ -243,7 +245,7 @@ export const RE_ONLY_ASCII = /^[A-Za-z0-9 ._-]+$/i
 // 视频文件名各种前后缀
 export const RE_VIDEO_EXTRA_CHARS = helper.combineRegexG(
     /HD1080P|2160p|1080p|720p|BDRip/,
-    /H264|H265|X265|HEVC|AVC|8BIT|10bit/,
+    /H264|H265|X265|8BIT|10bit/,
     /WEB-DL|SMURF|Web|AAC5\.1|Atmos/,
     /H\.264|DD5\.1|DDP5\.1|AAC/,
     /DJWEB|Play|VINEnc|DSNP|END/,
@@ -251,7 +253,7 @@ export const RE_VIDEO_EXTRA_CHARS = helper.combineRegexG(
     /\[.+?\]/,
 )
 // 图片文件名各种前后缀
-export const RE_IMAGE_EXTRA_CHARS = /更新|合集|画师|图片|套图|全?高清|写真|视频|插画|视图|作品|订阅|限定|差分|拷贝|自购|付费|内容|高画質|高解像度|R18|PSD|PIXIV|PIC|ZIP|RAR/ugi
+export const RE_IMAGE_EXTRA_CHARS = /更新|合集|画师|图片|套图|全?高清|写真|视频|插画|视图|作品|订阅|限定|差分|拷贝|自购|内购|无水印|付费|内容|高画質|高解像度|R18|PSD|PIXIV|PIC|ZIP|RAR/ugi
 // Unicode Symbols
 // https://en.wikipedia.org/wiki/Script_%28Unicode%29
 // https://www.regular-expressions.info/unicode.html
