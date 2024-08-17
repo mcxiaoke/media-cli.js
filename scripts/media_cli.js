@@ -179,39 +179,36 @@ async function cmdOrganize(argv) {
   log.show(`Organize: input:`, root)
   log.show(`Organize: output:`, output)
   let files = await exif.listMedia(root)
+  files = await exif.parseFiles(files)
   log.show("Organize", `Total ${files.length} media files found`)
   const pics = {}
   files.forEach((f, i) => {
-    log.debug(`Processing(${i}):`, path.basename(f.path), f.stats.mtime)
-    if ([".png", ".gif"].includes(helper.pathExt(f.path, true))) {
-      if (!pics["pngs"]) {
-        pics["pngs"] = []
-      }
-      pics["pngs"].push(f)
-      log.debug("PNG Item:", f.path)
-    } else if (
-      f.stats.size < 1000 * 1024 &&
-      helper.pathExt(f.path, true) === ".jpg"
-    ) {
-      if (!pics["pngs"]) {
-        pics["pngs"] = []
-      }
-      pics["pngs"].push(f)
-      log.debug("Other Item:", f.path, helper.humanSize(f.stats.size))
-    } else {
-      let dirName
-      const dateStr = dayjs(f.stats.mtime).format("YYYYMM");;
-      if (helper.isVideoFile(f.path)) {
-        dirName = path.join("vids", dateStr)
+    log.debug(`Processing(${i}):`, path.basename(f.path))
+    if (f.size > 0) {
+      if ([".png", ".gif"].includes(helper.pathExt(f.path, true))) {
+        if (!pics["pngs"]) {
+          pics["pngs"] = []
+        }
+        pics["pngs"].push(f)
+        log.debug("PNG Item:", f.path)
       } else {
-        dirName = dateStr
+        let dirName
+        const dateStr = dayjs(f.date).format("YYYYMM");;
+        if (helper.isVideoFile(f.path)) {
+          dirName = path.join("vids", dateStr)
+        } else {
+          dirName = dateStr
+        }
+        if (!pics[dirName]) {
+          pics[dirName] = []
+        }
+        pics[dirName].push(f)
+        log.show("Image Item:", f.path, dirName)
       }
-      if (!pics[dirName]) {
-        pics[dirName] = []
-      }
-      pics[dirName].push(f)
-      log.debug("Image Item:", f.path, dirName)
+    } else {
+      log.show("Not Stats:", i, f.path, f.date)
     }
+
   })
   for (const [k, v] of Object.entries(pics)) {
     if (v.length > 0) {
