@@ -806,7 +806,7 @@ async function prepareFFmpegCmd(entry) {
                 subtitles.push(sub2)
             }
         }
-        const codecInfo = isAudio ? `${iaudio?.format}(${iaudio?.codec},${iaudio?.bitrate},${iaudio.duration})` : `${ivideo?.format}(${ivideo?.profile}@${ivideo?.level},${ivideo?.bitDepth})`
+        const codecInfo = isAudio ? `${iaudio?.format}(${iaudio?.sampleRate},${iaudio?.bitrate},${iaudio.duration})` : `${ivideo?.format}(${ivideo?.profile}@${ivideo?.level},${ivideo?.bitDepth})`
         log.show(logTag, chalk.cyan(`${ipx} SRC`), chalk.yellow(newEntry.useCPUDecode ? `SW` : `HW`), `"${helper.pathShort(entry.path, 80)}"`, subtitles.length > 0 ? "(SUBS)" : "", codecInfo, helper.humanSize(entry.size), chalk.yellow(entry.preset.name), helper.humanTime(entry.startMs))
         log.showGray(logTag, `${ipx} DST`, fileDst)
         log.showGray(logTag, `${ipx}`, getEntryShowInfo(newEntry))
