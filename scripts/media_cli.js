@@ -86,12 +86,12 @@ async function main() {
       ["organize <input> [output]", "oz"],
       "Organize pictures by file modified date",
       (ya) => {
-        // yargs.option("output", {
-        //   alias: "o",
-        //   type: "string",
-        //   normalize: true,
-        //   description: "Output folder",
-        // });
+        ya.option("day", {
+          // 按天创建文件夹
+          alias: "d",
+          type: "boolean",
+          description: "organize files by day, default by month",
+        })
       },
       (argv) => {
         cmdOrganize(argv)
@@ -167,6 +167,7 @@ async function main() {
 async function cmdOrganize(argv) {
   log.show('cmdOrganize', argv)
   const root = path.resolve(argv.input)
+  const byDay = argv.day || false
   if (!root || !(await fs.pathExists(root))) {
     yargs.showHelp()
     log.error("Organize", `Invalid Input: '${root}'`)
@@ -180,7 +181,7 @@ async function cmdOrganize(argv) {
   log.show(`Organize: output:`, output)
   let files = await exif.listMedia(root)
   files = await exif.parseFiles(files)
-  log.show("Organize", `Total ${files.length} media files found`)
+  log.show("Organize", `Total ${files.length} media files found.` + byDay ? "DAY MODE" : "MONTH MODE")
   const pics = {}
   files.forEach((f, i) => {
     log.debug(`Processing(${i}):`, path.basename(f.path))
@@ -193,9 +194,11 @@ async function cmdOrganize(argv) {
         log.debug("PNG Item:", f.path)
       } else {
         let dirName
-        const dateStr = dayjs(f.date).format("YYYYMM");;
+        const monthStr = dayjs(f.date).format("YYYYMM")
+        const dayStr = dayjs(f.date).format("YYYYMMDD")
+        const dateStr = byDay ? dayStr : monthStr
         if (helper.isVideoFile(f.path)) {
-          dirName = path.join("vids", dateStr)
+          dirName = path.join("VID", dateStr)
         } else {
           dirName = dateStr
         }
@@ -210,6 +213,7 @@ async function cmdOrganize(argv) {
     }
 
   })
+  log.show(byDay ? "DAY MODE" : "MONTH MODE")
   for (const [k, v] of Object.entries(pics)) {
     if (v.length > 0) {
       log.show(
