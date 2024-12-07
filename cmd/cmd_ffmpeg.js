@@ -560,8 +560,10 @@ async function runFFmpegCmd(entry) {
         // https://2ality.com/2022/07/nodejs-child-process.html
         // Windows下 { shell: true } 必须，否则报错
         const ffmpegProcess = execa(exePath, ffmpegArgs, { shell: true, encoding: 'binary' })
-        ffmpegProcess.pipeStdout(process.stdout)
-        ffmpegProcess.pipeStderr(process.stderr)
+        if (ffmpegProcess?.hasOwnProperty('pipeStdout')) {
+            ffmpegProcess.pipeStdout(process.stdout)
+            ffmpegProcess.pipeStderr(process.stderr)
+        }
         const { stdout, stderr } = await ffmpegProcess
         // const stdoutFixed = fixEncoding(stdout || "")
         // const stderrFixed = fixEncoding(stderr || "")
@@ -587,7 +589,7 @@ async function runFFmpegCmd(entry) {
     } catch (error) {
         const errMsg = (error.stderr || error.message || '[Unknown]').substring(0, 160)
         log.showRed(logTag, `Error(${ipx}) <${entry.path}>`, errMsg)
-        log.showYellow(logTag, `Media(${ipx})`, JSON.stringify(entry.info?.video))
+        log.showYellow(logTag, `Media(${ipx}) <${entry.path}>`, JSON.stringify(entry.info?.video || entry.info?.audio))
         log.fileLog(`Error(${ipx}) <${entry.path}> [${entry.preset.name}] ${errMsg}`, 'FFCMD')
         await writeErrorFile(entry, error)
         // 转换失败需要重试，使用CPUDecode
