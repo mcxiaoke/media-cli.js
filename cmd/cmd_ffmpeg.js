@@ -285,7 +285,8 @@ async function cmdConvert(argv) {
     // 显示预设列表
     if (argv.showPresets) {
         for (const [key, value] of presets.getAllPresets()) {
-            log.show(core.pick(value, 'name', 'type', 'format'))
+            const data = core.pick(value, 'name', 'type', 'format', 'videoBitrate', 'dimension')
+            log.show(JSON.stringify(data))
         }
         return
     }
