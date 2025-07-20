@@ -1014,6 +1014,7 @@ function calculateDstArgs(entry) {
         const dstWH = calculateScale(srcWidth, srcHeight, dstDimension)
         dstWidth = dstWH.dstWidth
         dstHeight = dstWH.dstHeight
+        const bigSide = Math.max(dstWidth, dstHeight)
         const srcPixels = srcWidth * srcHeight
         const dstPixels = dstWidth * dstHeight
         // 这个是文件整体码率，如果是是视频文件，等于是视频和音频的码率相加
@@ -1028,14 +1029,20 @@ function calculateDstArgs(entry) {
         // 音频和视频码率都不能高于原码率
         dstAudioBitrate = minNoZero(srcAudioBitrate, reqAudioBitrate)
         // 如果源文件不是1080p，这里码率需要考虑分辨率
-        const pixelsScale = PIXELS_1080P / srcPixels
-        dstVideoBitrate = minNoZero(srcVideoBitrate * pixelsScale, reqVideoBitrate)
+        let pixelsScale = 1
+        if (dstDimension > bigSide) {
+            // 如果使用4KPreset压缩1080P视频，需要缩放码率
+            pixelsScale = bigSide / (dstDimension * 1.2)
+        } else {
+            pixelsScale = PIXELS_1080P / srcPixels
+        }
+        dstVideoBitrate = srcVideoBitrate * pixelsScale
 
         log.info(entry.name, "fileBitrate", fileBitrate, "srcVideoBitrate", srcVideoBitrate, "reqVideoBitrate", reqVideoBitrate, "dstVideoBitrate", dstVideoBitrate, "pixelsScale", pixelsScale)
         // 小于1080p分辨率，码率也需要缩放
-        if (dstPixels > 0 && dstPixels < PIXELS_1080P) {
+        if (bigSide > 0 && bigSide < 1920) {
             let scaleFactor = dstPixels / PIXELS_1080P
-            // 如果目标码率是4K，暂时吧不考虑
+            // 如果目标码率是4K，暂时不考虑
             // 如果目标码率不是1080p，根据分辨率智能缩放
             // 示例 辨率1920*1080的目标码率是 1600k
             // 1280*720码率 960k
@@ -1044,11 +1051,12 @@ function calculateDstArgs(entry) {
             scaleFactor = core.smoothChange(scaleFactor, 1, 0.3)
             // log.info('scaleFactor', scaleFactor)
             dstVideoBitrate = Math.round(dstVideoBitrate * scaleFactor)
-            // 目标分辨率，不能大于源文件分辨率
-            dstVideoBitrate = minNoZero(dstVideoBitrate, srcVideoBitrate)
-            // 取整
-            // dstVideoBitrate = Math.floor(dstVideoBitrate / 1000) * 1000
+
         }
+        // 目标分辨率，不能大于源文件分辨率
+        dstVideoBitrate = minNoZero(dstVideoBitrate, srcVideoBitrate)
+        // 取整
+        // dstVideoBitrate = Math.floor(dstVideoBitrate / 1000) * 1000
     }
 
     // 如果目标帧率大于原帧率，就将目标帧率设置为0，即让ffmpeg自动处理，不添加帧率参数
