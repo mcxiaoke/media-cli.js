@@ -1036,9 +1036,9 @@ function calculateDstArgs(entry) {
         } else {
             pixelsScale = PIXELS_1080P / srcPixels
         }
-        dstVideoBitrate = srcVideoBitrate * pixelsScale
+        dstVideoBitrate = reqVideoBitrate * pixelsScale
 
-        log.info(entry.name, "fileBitrate", fileBitrate, "srcVideoBitrate", srcVideoBitrate, "reqVideoBitrate", reqVideoBitrate, "dstVideoBitrate", dstVideoBitrate, "pixelsScale", pixelsScale)
+        log.showYellow(entry.name, "fileBitrate", fileBitrate, "srcVideoBitrate", srcVideoBitrate, "reqVideoBitrate", reqVideoBitrate, "dstVideoBitrate", dstVideoBitrate, "pixelsScale", pixelsScale, "bigSide", bigSide)
         // 小于1080p分辨率，码率也需要缩放
         if (bigSide > 0 && bigSide < 1920) {
             let scaleFactor = dstPixels / PIXELS_1080P
