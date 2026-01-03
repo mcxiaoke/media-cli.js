@@ -11,7 +11,7 @@ import { execa } from 'execa'
 import fs from 'fs-extra'
 import iconv from "iconv-lite"
 import inquirer from "inquirer"
-import mm from 'music-metadata'
+import { parseFile } from 'music-metadata'
 import { cpus } from "os"
 import pMap from 'p-map'
 import path from "path"
@@ -907,7 +907,7 @@ function getEntryShowInfo(entry) {
 // 读取单个音频文件的元数据
 async function readMusicMeta(entry) {
     try {
-        const mt = await mm.parseFile(entry.path, { skipCovers: true })
+        const mt = await parseFile(entry.path, { skipCovers: true })
         if (mt?.format && mt.common) {
             // log.show('format', mt.format)
             // log.show('common', mt.common)
@@ -1038,7 +1038,7 @@ function calculateDstArgs(entry) {
         }
         dstVideoBitrate = reqVideoBitrate * pixelsScale
 
-        log.showYellow(entry.name, "fileBitrate", fileBitrate, "srcVideoBitrate", srcVideoBitrate, "reqVideoBitrate", reqVideoBitrate, "dstVideoBitrate", dstVideoBitrate, "pixelsScale", pixelsScale, "bigSide", bigSide)
+        // log.showYellow(entry.name, "fileBitrate", fileBitrate, "srcVideoBitrate", srcVideoBitrate, "reqVideoBitrate", reqVideoBitrate, "dstVideoBitrate", dstVideoBitrate, "pixelsScale", pixelsScale, "bigSide", bigSide)
         // 小于1080p分辨率，码率也需要缩放
         if (bigSide > 0 && bigSide < 1920) {
             let scaleFactor = dstPixels / PIXELS_1080P
