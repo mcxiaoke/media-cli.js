@@ -420,7 +420,7 @@ async function cmdConvert(argv) {
         return
     }
     log.showGreen(logTag, 'Now Preparing task files and ffmpeg cmd args...')
-    let tasks = await pMap(fileEntries, prepareFFmpegCmd, { concurrency: argv.jobs || (core.isUNCPath(root) ? 4 : cpus().length) })
+    let tasks = await pMap(fileEntries, prepareFFmpegCmd, { concurrency: argv.jobs || (core.isUNCPath(root) ? 4 : cpus().length - 2) })
 
     // 如果选择了清理源文件
     if (argv.deleteSourceFiles) {
@@ -1033,14 +1033,16 @@ function calculateDstArgs(entry) {
         if (dstDimension > bigSide) {
             // 如果使用4KPreset压缩1080P视频，需要缩放码率
             pixelsScale = bigSide / (dstDimension * 1.2)
-        } else {
+        } else if (dstDimension < bigSide) {
             pixelsScale = PIXELS_1080P / srcPixels
+        } else {
+            pixelsScale = 1
         }
         dstVideoBitrate = reqVideoBitrate * pixelsScale
 
-        log.showYellow(entry.name, "fileBitrate", fileBitrate, "srcVideoBitrate", srcVideoBitrate, "reqVideoBitrate", reqVideoBitrate, "dstVideoBitrate", dstVideoBitrate, "pixelsScale", pixelsScale, "bigSide", bigSide)
+        log.info("calculateDstArgs", entry.name, "fileBitrate", fileBitrate, "srcVideoBitrate", srcVideoBitrate, "reqVideoBitrate", reqVideoBitrate, "dstVideoBitrate", dstVideoBitrate, "pixelsScale", pixelsScale, "bigSide", bigSide, "dstDimension", dstDimension)
         // 小于1080p分辨率，码率也需要缩放
-        if (bigSide > 0 && bigSide < 1920) {
+        if (bigSide < 1920) {
             let scaleFactor = dstPixels / PIXELS_1080P
             // 如果目标码率是4K，暂时不考虑
             // 如果目标码率不是1080p，根据分辨率智能缩放
