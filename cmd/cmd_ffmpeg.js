@@ -743,7 +743,7 @@ async function prepareFFmpegCmd(entry) {
         const fileDstSameDir = path.join(srcDir, `${fileDstName}`)
 
         if (await fs.pathExists(fileDst)) {
-            log.info(
+            log.showYellow(
                 logTag,
                 `${ipx} Skip[Dst1]: ${entry.path} (${helper.humanSize(entry.size)})`)
             return {
@@ -756,7 +756,7 @@ async function prepareFFmpegCmd(entry) {
         if (prefix || suffix) {
             // if (fileDstName !== entry.name) {
             if (await fs.pathExists(fileDstSameDir)) {
-                log.info(
+                log.showYellow(
                     logTag,
                     `${ipx} Skip[Dst2]: ${entry.path} (${helper.humanSize(entry.size)})`)
                 return {
