@@ -18,6 +18,7 @@ import path from "path"
 import * as log from '../lib/debug.js'
 import * as mf from '../lib/file.js'
 import * as helper from '../lib/helper.js'
+import { isSameFileCached } from '../lib/tools.js'
 import { applyFileNameRules } from "./cmd_shared.js"
 
 dayjs.extend(utc)
@@ -205,16 +206,26 @@ async function checkMove(entry) {
     // console.log(entry.name, entry.output, entry.monthStr)
     const destDir = path.join(entry.output, entry.monthStr)
     const fileSrc = path.resolve(entry.path)
-    const fileDst = path.resolve(destDir, entry.name)
+    let fileDst = path.resolve(destDir, entry.name)
     if (fileSrc === fileDst) {
-        log.info(logTag, "Duplicate File Found, Skip:", fileDst)
+        log.info(logTag, "Duplicate File, Skip:", fileDst)
         entry.status = CheckStatus.EXISTS
         return entry
     }
     if (await fs.pathExists(fileDst)) {
-        log.info(logTag, "File In Destination:", fileDst)
-        entry.status = CheckStatus.DUP
-        return entry
+        log.info(logTag, "In Destination:", fileDst)
+        // 检查是否为同一文件
+        if (isSameFileCached(fileSrc, fileDst)) {
+            log.info(logTag, "Same File, Skip:", fileDst)
+            entry.status = CheckStatus.DUP
+            return entry
+        } else {
+            // 同名的不同文件，重命名
+            log.info(logTag, "Different File, Need Rename:", fileDst)
+            const fn = helper.pathParts(entry.name)
+            const newName = `${fn.name}_${date.time}${fn.ext}`
+            fileDst = path.resolve(destDir, newName)
+        }
     }
     entry.fileSrc = fileSrc
     entry.fileDst = fileDst
