@@ -11,7 +11,7 @@ import { execa } from 'execa'
 import fs from 'fs-extra'
 import iconv from "iconv-lite"
 import inquirer from "inquirer"
-import { parseFile } from 'music-metadata'
+import mm from 'music-metadata'
 import { cpus } from "os"
 import pMap from 'p-map'
 import path from "path"
@@ -321,7 +321,7 @@ async function cmdConvert(argv) {
     const walkOpts = {
         withFiles: true,
         needStats: true,
-        entryFilter: (e) => e.isFile && helper.isMediaFile(e.name)
+        entryFilter: (e) => e.isFile && helper.isVideoFile(e.name)
     }
     let fileEntries = await mf.walk(root, walkOpts)
     // 处理额外目录参数
@@ -420,7 +420,7 @@ async function cmdConvert(argv) {
         return
     }
     log.showGreen(logTag, 'Now Preparing task files and ffmpeg cmd args...')
-    let tasks = await pMap(fileEntries, prepareFFmpegCmd, { concurrency: argv.jobs || (core.isUNCPath(root) ? 4 : cpus().length) })
+    let tasks = await pMap(fileEntries, prepareFFmpegCmd, { concurrency: argv.jobs || (core.isUNCPath(root) ? 4 : cpus().length - 2) })
 
     // 如果选择了清理源文件
     if (argv.deleteSourceFiles) {
@@ -743,7 +743,7 @@ async function prepareFFmpegCmd(entry) {
         const fileDstSameDir = path.join(srcDir, `${fileDstName}`)
 
         if (await fs.pathExists(fileDst)) {
-            log.info(
+            log.showYellow(
                 logTag,
                 `${ipx} Skip[Dst1]: ${entry.path} (${helper.humanSize(entry.size)})`)
             return {
@@ -756,7 +756,7 @@ async function prepareFFmpegCmd(entry) {
         if (prefix || suffix) {
             // if (fileDstName !== entry.name) {
             if (await fs.pathExists(fileDstSameDir)) {
-                log.info(
+                log.showYellow(
                     logTag,
                     `${ipx} Skip[Dst2]: ${entry.path} (${helper.humanSize(entry.size)})`)
                 return {
@@ -764,6 +764,15 @@ async function prepareFFmpegCmd(entry) {
                     dstExists: true,
                 }
             }
+        }
+
+        const duration = newEntry.info?.duration || ivideo?.duration || iaudio?.duration || 0
+        // 跳过过短的文件
+        if (duration < 5) {
+            log.showYellow(
+                logTag,
+                `$${ipx} Skip[Short]: ${entry.path} (${helper.humanSize(entry.size)}) Duration=($ {duration}s)`)
+            return false
         }
 
         const ivideo = newEntry.info?.video
@@ -907,7 +916,7 @@ function getEntryShowInfo(entry) {
 // 读取单个音频文件的元数据
 async function readMusicMeta(entry) {
     try {
-        const mt = await parseFile(entry.path, { skipCovers: true })
+        const mt = await mm.parseFile(entry.path, { skipCovers: true })
         if (mt?.format && mt.common) {
             // log.show('format', mt.format)
             // log.show('common', mt.common)
@@ -1033,14 +1042,16 @@ function calculateDstArgs(entry) {
         if (dstDimension > bigSide) {
             // 如果使用4KPreset压缩1080P视频，需要缩放码率
             pixelsScale = bigSide / (dstDimension * 1.2)
-        } else {
+        } else if (dstDimension < bigSide) {
             pixelsScale = PIXELS_1080P / srcPixels
+        } else {
+            pixelsScale = 1
         }
         dstVideoBitrate = reqVideoBitrate * pixelsScale
 
-        // log.showYellow(entry.name, "fileBitrate", fileBitrate, "srcVideoBitrate", srcVideoBitrate, "reqVideoBitrate", reqVideoBitrate, "dstVideoBitrate", dstVideoBitrate, "pixelsScale", pixelsScale, "bigSide", bigSide)
+        log.info("calculateDstArgs", entry.name, "fileBitrate", fileBitrate, "srcVideoBitrate", srcVideoBitrate, "reqVideoBitrate", reqVideoBitrate, "dstVideoBitrate", dstVideoBitrate, "pixelsScale", pixelsScale, "bigSide", bigSide, "dstDimension", dstDimension)
         // 小于1080p分辨率，码率也需要缩放
-        if (bigSide > 0 && bigSide < 1920) {
+        if (bigSide < 1920) {
             let scaleFactor = dstPixels / PIXELS_1080P
             // 如果目标码率是4K，暂时不考虑
             // 如果目标码率不是1080p，根据分辨率智能缩放
