@@ -15,6 +15,7 @@ import inquirer from "inquirer"
 import { cpus } from "os"
 import pMap from 'p-map'
 import path from "path"
+import * as core from '../lib/core.js'
 import * as log from '../lib/debug.js'
 import * as mf from '../lib/file.js'
 import * as helper from '../lib/helper.js'
@@ -323,7 +324,11 @@ const handler = async function cmdMove(argv) {
     }
 
     for (const { monthStr, entries, count } of taskGroups) {
-        log.show(logTag, `${count} files ==>> ${path.join(output, monthStr)}`)
+        const destDir = path.join(output, monthStr)
+        log.show(logTag, `${destDir} <<== ${count} files | Sample files:`)
+        for (const e of core.pickRandom(entries, 3)) {
+            log.showGray(logTag, `--${e.fileSrc}`)
+        }
     }
 
     if (testMode) {
