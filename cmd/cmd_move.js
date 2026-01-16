@@ -24,28 +24,37 @@ dayjs.extend(utc)
 dayjs.extend(timezone)
 
 // 按照文件名日期时间格式移动到对应目录，视频和图片分开，暂不支持其它格式
-const filename_samples = [
-    "VID_20241231_144423_C",
-    "VID_20241231_144423",
-    "ABC_20250115_103000_extra",
-    "MP4_20250123_222540.mp4",
-    "VID_20250401_091235_C.mp4",
-    "VID_20250605_121258.mp4",
-    "IMG_20231001_095313.HEIC",
-    "IMG_20231001_095313_462.jpg",
-    "MVIMG_20240508_203143.jpg",
-    "PANO_20240507_132949.jpg",
-    "CYMERA_20250225_075209.jpg",
-    "ABC_20240101_100000.txt",
-    "SHORT_20230101_123456.gif",
-    "VID-20250401-091235.mp4",
-    "[SHANA] VID_20250101_000620_4K.mp4",
-    "[SHANA] VID_20250101_000620_img_02.png"
-]
-
+// const filename_samples = [
+//     "VID_20241231_144423_C",
+//     "VID_20241231_144423",
+//     "ABC_20250115_103000_extra",
+//     "MP4_20250123_222540.mp4",
+//     "VID_20250401_091235_C.mp4",
+//     "VID_20250605_121258.mp4",
+//     "IMG_20231001_095313.HEIC",
+//     "IMG_20231001_095313_462.jpg",
+//     "MVIMG_20240508_203143.jpg",
+//     "PANO_20240507_132949.jpg",
+//     "CYMERA_20250225_075209.jpg",
+//     "ABC_20240101_100000.txt",
+//     "SHORT_20230101_123456.gif",
+//     "VID-20250401-091235.mp4",
+//     "[SHANA] VID_20250101_000620_4K.mp4",
+//     "[SHANA] VID_20250101_000620_img_02.png"
+// ]
 
 /**
- * 从文件名中提取日期时间（Asia/Shanghai）
+ * 从文件名中提取日期时间（带合法性校验，Asia/Shanghai）
+ * @param {string} filename
+ * @returns {null|{
+ *   date: string,        // YYYYMMDD
+ *   time: string,        // HHMMSS
+ *   monthStr: string,    // YYYY-MM
+ *   iso: string,         // YYYY-MM-DDTHH:mm:ss
+ *   tz: string,          // Asia/Shanghai
+ *   jsDate: Date,
+ *   dayjs: dayjs.Dayjs
+ * }}
  */
 export function extractDate(filename) {
     const base = filename.split(/[\\/]/).pop()
@@ -56,33 +65,34 @@ export function extractDate(filename) {
     const m = base.match(regex)
     if (!m) return null
 
-    const [, year, month, day, hh, mm, ss] = m
+    const [, yearStr, monthStr, dayStr, hh, mm, ss] = m
 
+    const year = Number(yearStr)
+    const month = Number(monthStr)
+    const day = Number(dayStr)
+
+    // 年份限制 2000-2050
+    if (year < 2000 || year > 2050) return null
+    if (month < 1 || month > 12) return null
+
+    // 使用 dayjs 校验日是否合法（自动判断每月天数 + 闰年）
+    const dateCheck = dayjs(`${year}-${month}-${day}`, "YYYY-M-D", true) // 严格模式
+    if (!dateCheck.isValid()) return null
+
+    // 时间部分不校验越界（默认 00-23, 00-59, 00-59）
     const d = dayjs.tz(
-        `${year}-${month}-${day} ${hh}:${mm}:${ss}`,
+        `${year}-${monthStr}-${dayStr} ${hh}:${mm}:${ss}`,
         "Asia/Shanghai"
     )
 
     return {
-        date: `${year}${month}${day}`,
+        date: `${yearStr}${monthStr}${dayStr}`,
         time: `${hh}${mm}${ss}`,
-        monthStr: `${year}${month}`,
+        monthStr: `${yearStr}${monthStr}`,
         iso: d.format("YYYY-MM-DDTHH:mm:ss"),
         tz: "Asia/Shanghai",
         jsDate: d.toDate(),
         dayjs: d
-    }
-}
-
-/**
- * 附加 monthStr 属性
- */
-function attachDate(entry) {
-    const date = extractDate(entry.name)
-    return {
-        ...entry,
-        date: date,
-        monthStr: date?.monthStr
     }
 }
 
@@ -160,6 +170,83 @@ const builder = function addOptions(ya, helpOrVersionSet) {
         })
 }
 
+
+const CheckStatus = Object.freeze({
+    READY: "READY",
+    NO_DATE: "NO_DATE",
+    EXISTS: "EXISTS",
+    DUP: "DUP",
+    NULL: "NULL",
+})
+
+/**
+ * 统计各种状态的数目
+ * @param {*} entries 
+ * @param {*} fallback 
+ * @returns 
+ */
+function countByStatus(entries, fallback = CheckStatus.NULL) {
+    return entries.reduce((acc, entry) => {
+        const status = entry.status || fallback
+        acc[status] = (acc[status] || 0) + 1
+        return acc
+    }, {})
+}
+
+async function checkMove(entry) {
+    const logTag = chalk.green("Move")
+    const date = extractDate(entry.name)
+    if (!date || !date.monthStr) {
+        log.info(logTag, "No Date, Skip:", entry.path)
+        entry.status = CheckStatus.NO_DATE
+        return entry
+    }
+    entry.monthStr = date.monthStr
+    // console.log(entry.name, entry.output, entry.monthStr)
+    const destDir = path.join(entry.output, entry.monthStr)
+    const fileSrc = path.resolve(entry.path)
+    const fileDst = path.resolve(destDir, entry.name)
+    if (fileSrc === fileDst) {
+        log.info(logTag, "Duplicate File Found, Skip:", fileDst)
+        entry.status = CheckStatus.EXISTS
+        return entry
+    }
+    if (await fs.pathExists(fileDst)) {
+        log.info(logTag, "File In Destination:", fileDst)
+        entry.status = CheckStatus.DUP
+        return entry
+    }
+    entry.fileSrc = fileSrc
+    entry.fileDst = fileDst
+    entry.status = CheckStatus.READY
+    return entry
+}
+
+async function prepareMove(entries, argv) {
+    const output = path.resolve(argv.output || argv.input)
+    let tasks = entries.map((f, i) => {
+        return {
+            ...f,
+            index: i,
+            // argv: argv,
+            output: output,
+            total: entries.length,
+        }
+    })
+    // 纯字符串操作，解析日期，支持高并发
+    // tasks = await pMap(tasks, attachDate, { concurrency: argv.jobs || cpus().length * 4 })
+    // tasks.filter(e => e && (e.monthStr))
+    // 检查文件路径，是否存在冲突
+    tasks = await pMap(tasks, checkMove, { concurrency: argv.jobs || cpus().length })
+
+    for (const [status, count] of Object.entries(countByStatus(tasks))) {
+        log.show(chalk.green("Move[Check]"), `Status: ${status} => ${count} files`)
+    }
+
+    // 无法提取日期的文件将被跳过
+    return tasks.filter(e => e && (e.fileDst))
+}
+
 const handler = async function cmdMove(argv) {
 
     log.info(argv)
@@ -197,26 +284,31 @@ const handler = async function cmdMove(argv) {
     }
     log.show(logTag, `Total ${entries.length} entries left after rules.`)
 
-    entries = entries.map((f, i) => {
-        return {
-            ...f,
-            index: i,
-            argv: argv,
-            total: entries.length,
-        }
-    })
-    const fCount = entries.length
-    // 纯字符串操作，支持高并发
-    let tasks = await pMap(entries, attachDate, { concurrency: argv.jobs || cpus().length * 4 })
-    for (const entry of tasks.slice(-20)) {
-        log.debug(
-            logTag,
-            `[${entry.index + 1}/${entry.total}] ${entry.name} => ${entry.date}`
-        )
-    }
+    // entries = entries.map((f, i) => {
+    //     return {
+    //         ...f,
+    //         index: i,
+    //         argv: argv,
+    //         total: entries.length,
+    //     }
+    // })
+    // const fCount = entries.length
+    // // 纯字符串操作，支持高并发
+    // let tasks = await pMap(entries, attachDate, { concurrency: argv.jobs || cpus().length * 4 })
+    // for (const entry of tasks.slice(-20)) {
+    //     log.debug(
+    //         logTag,
+    //         `[${entry.index + 1}/${entry.total}] ${entry.name} => ${entry.date}`
+    //     )
+    // }
+
     // 无法提取日期的文件将被跳过
-    tasks = tasks.filter(e => e && (e.monthStr))
+    // tasks = tasks.filter(e => e && (e.monthStr))
+
+    const tasks = await prepareMove(entries, argv)
+
     const taskGroups = groupByMonth(tasks)
+    const fCount = entries.length
     const tCount = tasks.length
     log.showYellow(
         logTag, `Total ${fCount - tCount} files are skipped.`
@@ -243,7 +335,7 @@ const handler = async function cmdMove(argv) {
             name: "yes",
             default: false,
             message: chalk.bold.red(
-                `Are you sure to move files to these folders?`
+                `Are you sure to move ${tCount} files?`
             ),
         },
     ])
@@ -254,23 +346,23 @@ const handler = async function cmdMove(argv) {
 
     for (const { monthStr, entries, count } of taskGroups) {
         const destDir = path.join(output, monthStr)
-        const toMove = entries.map(entry => {
-            const fileSrc = entry.path
-            const fileDst = path.join(destDir, entry.name)
-            return { fileSrc, fileDst }
-        })
+        // const toMove = entries.map(entry => {
+        //     const fileSrc = entry.path
+        //     const fileDst = path.join(destDir, entry.name)
+        //     return { fileSrc, fileDst }
+        // })
         await fs.ensureDir(destDir)
         let movedCount = 0
         try {
-            for (const { fileSrc, fileDst } of toMove) {
-                if (await fs.pathExists(fileDst)) {
-                    log.info(logTag, "File Exists:", fileDst)
-                    continue
-                }
-                if (fileSrc === fileDst) {
-                    log.info(logTag, "Same File, Skip:", fileDst)
-                    continue
-                }
+            for (const { fileSrc, fileDst } of entries) {
+                // if (await fs.pathExists(fileDst)) {
+                //     log.info(logTag, "File Exists:", fileDst)
+                //     continue
+                // }
+                // if (fileSrc === fileDst) {
+                //     log.info(logTag, "Same File, Skip:", fileDst)
+                //     continue
+                // }
                 !testMode && await fs.move(fileSrc, fileDst)
                 movedCount++
                 log.info(logTag, "Moved:", fileSrc, "to", fileDst)
@@ -279,7 +371,7 @@ const handler = async function cmdMove(argv) {
         } catch (error) {
             log.error(logTag, "Failed:", error, "to", destDir)
         }
-        const skippedCount = toMove.length - movedCount
+        const skippedCount = entries.length - movedCount
         if (skippedCount > 0) {
             log.show(logTag, `${skippedCount} files are skipped in ${destDir}.`)
         }
