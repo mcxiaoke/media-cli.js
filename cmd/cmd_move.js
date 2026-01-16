@@ -162,6 +162,13 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             type: "string",
             describe: "include files by extensions (eg. .wav|.flac)",
         })
+        // 遍历目录层次深度限制，默认1
+        .option("max-depth", {
+            alias: 'depth',
+            type: "number",
+            default: 1,
+            description: "max depth when walk directories and files",
+        })
         // 确认执行所有系统操作，非测试模式，如删除和重命名和移动操作
         .option("doit", {
             alias: "d",
@@ -275,7 +282,7 @@ const handler = async function cmdMove(argv) {
         needStats: true,
         withDirs: false,
         withFiles: true,
-        maxDepth: 2,
+        maxDepth: argv.maxDepth || 1,
         entryFilter: (f) =>
             f.isFile
             && helper.isMediaFile(f.path)
@@ -295,26 +302,9 @@ const handler = async function cmdMove(argv) {
     }
     log.show(logTag, `Total ${entries.length} entries left after rules.`)
 
-    // entries = entries.map((f, i) => {
-    //     return {
-    //         ...f,
-    //         index: i,
-    //         argv: argv,
-    //         total: entries.length,
-    //     }
-    // })
-    // const fCount = entries.length
-    // // 纯字符串操作，支持高并发
-    // let tasks = await pMap(entries, attachDate, { concurrency: argv.jobs || cpus().length * 4 })
-    // for (const entry of tasks.slice(-20)) {
-    //     log.debug(
-    //         logTag,
-    //         `[${entry.index + 1}/${entry.total}] ${entry.name} => ${entry.date}`
-    //     )
-    // }
-
-    // 无法提取日期的文件将被跳过
-    // tasks = tasks.filter(e => e && (e.monthStr))
+    for (const e of entries) {
+        log.info(logTag, `Found: ${e.path}`)
+    }
 
     const tasks = await prepareMove(entries, argv)
 
@@ -338,7 +328,6 @@ const handler = async function cmdMove(argv) {
 
     if (testMode) {
         log.showYellow(logTag, `TEST MODE (DRY RUN), no files will be moved.`)
-        // return
     }
     const answer = await inquirer.prompt([
         {
@@ -357,23 +346,10 @@ const handler = async function cmdMove(argv) {
 
     for (const { monthStr, entries, count } of taskGroups) {
         const destDir = path.join(output, monthStr)
-        // const toMove = entries.map(entry => {
-        //     const fileSrc = entry.path
-        //     const fileDst = path.join(destDir, entry.name)
-        //     return { fileSrc, fileDst }
-        // })
         await fs.ensureDir(destDir)
         let movedCount = 0
         try {
             for (const { fileSrc, fileDst } of entries) {
-                // if (await fs.pathExists(fileDst)) {
-                //     log.info(logTag, "File Exists:", fileDst)
-                //     continue
-                // }
-                // if (fileSrc === fileDst) {
-                //     log.info(logTag, "Same File, Skip:", fileDst)
-                //     continue
-                // }
                 !testMode && await fs.move(fileSrc, fileDst)
                 movedCount++
                 log.info(logTag, "Moved:", fileSrc, "to", fileDst)
