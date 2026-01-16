@@ -7,18 +7,14 @@
  */
 
 
-import assert from "assert"
 import chalk from 'chalk'
 import dayjs from "dayjs"
 import EventEmitter from 'events'
 import fs from 'fs-extra'
 import inquirer from "inquirer"
 import { cpus } from "os"
-import pMap from 'p-map'
 import path from "path"
-import sharp from "sharp"
 import yargs from "yargs"
-import { compressImage } from '../cmd/cmd_shared.js'
 import * as log from '../lib/debug.js'
 import * as exif from '../lib/exif.js'
 import * as mf from '../lib/file.js'
@@ -125,6 +121,9 @@ async function main() {
     // 命令 向上移动文件
     // 把多层嵌套目录下的文件移动到顶层目录，按图片和视频分类
     .command(await import("../cmd/cmd_moveup.js"))
+    // 命令 按文件名日期时间移动文件
+    // 按文件名的日期时间，移动到按年月的子目录中
+    .command(await import("../cmd/cmd_move.js"))
     // 命令 重命名文件 添加前缀
     .command(await import("../cmd/cmd_prefix.js"))
     // 命令 文件名替换 乱码修复 文件名净化等

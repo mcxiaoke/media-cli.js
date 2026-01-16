@@ -19,7 +19,7 @@ import * as helper from '../lib/helper.js'
 export { aliases, builder, command, describe, handler }
 
 const command = "moveup <input> [output]"
-const aliases = ["mu"]
+const aliases = ["mp"]
 const describe = "Move files to sub top folder or top folder"
 
 const builder = function addOptions(ya, helpOrVersionSet) {
@@ -30,6 +30,14 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             type: "string",
             normalize: true,
             description: "Output sub folder name",
+        })
+        // 指定MODE，三种：自动，目录名，指定前缀
+        .option("mode", {
+            alias: "m",
+            type: "string",
+            default: MODE_AUTO,
+            description: "filename prefix mode for output ",
+            choices: [MODE_AUTO, MODE_DIR, MODE_PREFIX, MODE_MEDIA, MODE_CLEAN],
         })
         // 移动所有文件到根目录的指定目录
         .option("topmost", {

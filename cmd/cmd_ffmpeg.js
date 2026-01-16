@@ -321,7 +321,7 @@ async function cmdConvert(argv) {
     const walkOpts = {
         withFiles: true,
         needStats: true,
-        entryFilter: (e) => e.isFile && helper.isMediaFile(e.name)
+        entryFilter: (e) => e.isFile && helper.isVideoFile(e.name)
     }
     let fileEntries = await mf.walk(root, walkOpts)
     // 处理额外目录参数
@@ -768,6 +768,14 @@ async function prepareFFmpegCmd(entry) {
 
         const ivideo = newEntry.info?.video
         const iaudio = newEntry.info?.audio
+        const duration = newEntry.info?.duration || ivideo?.duration || iaudio?.duration || 0
+        // 跳过过短的文件
+        if (duration < 5) {
+            log.showYellow(
+                logTag,
+                `$${ipx} Skip[Short]: ${entry.path} (${helper.humanSize(entry.size)}) Duration=($ {duration}s)`)
+            return false
+        }
         if (isVideo) {
             switch (argv.decodeMode) {
                 case 'cpu':
@@ -800,8 +808,8 @@ async function prepareFFmpegCmd(entry) {
         const subExts = ['.ass', '.ssa', '.srt']
         const subtitles = []
         for (const ext of subExts) {
-            const sub1 = path.join(srcDir, `${srcBase}${ext}`)
-            const sub2 = path.join(srcDir, 'subs', `${srcBase}${ext}`)
+            const sub1 = path.join(srcDir, `${srcBase}${ext} `)
+            const sub2 = path.join(srcDir, 'subs', `${srcBase}${ext} `)
             if (await fs.pathExists(sub1)) {
                 subtitles.push(sub1)
             }
@@ -809,10 +817,10 @@ async function prepareFFmpegCmd(entry) {
                 subtitles.push(sub2)
             }
         }
-        const codecInfo = isAudio ? `${iaudio?.format}(${iaudio?.sampleRate},${iaudio?.bitrate},${iaudio.duration})` : `${ivideo?.format}(${ivideo?.profile}@${ivideo?.level},${ivideo?.bitDepth})`
+        const codecInfo = isAudio ? `${iaudio?.format} (${iaudio?.sampleRate},${iaudio?.bitrate},${iaudio.duration})` : `${ivideo?.format} (${ivideo?.profile} @${ivideo?.level},${ivideo?.bitDepth})`
         log.show(logTag, chalk.cyan(`${ipx} SRC`), chalk.yellow(newEntry.useCPUDecode ? `SW` : `HW`), `"${helper.pathShort(entry.path, 80)}"`, subtitles.length > 0 ? "(SUBS)" : "", codecInfo, helper.humanSize(entry.size), chalk.yellow(entry.preset.name), helper.humanTime(entry.startMs))
         log.showGray(logTag, `${ipx} DST`, fileDst)
-        log.showGray(logTag, `${ipx}`, getEntryShowInfo(newEntry))
+        log.showGray(logTag, `${ipx} `, getEntryShowInfo(newEntry))
         newEntry = {
             ...newEntry,
             fileDstDir,
@@ -825,7 +833,7 @@ async function prepareFFmpegCmd(entry) {
         log.info(logTag, 'ffmpeg', newEntry.ffmpegArgs.flat().join(' '))
         return newEntry
     } catch (error) {
-        log.error(logTag, `${ipx} Skip[Error]: ${entry.path}`, error)
+        log.error(logTag, `${ipx} Skip[Error]: ${entry.path} `, error)
         throw error
     }
 }
@@ -847,11 +855,11 @@ function createDstBaseName(entry) {
     const prefix = helper.filenameSafe(formatArgs(entry.preset.prefix || "", replaceArgs))
     const suffix = helper.filenameSafe(formatArgs(entry.preset.suffix || "", replaceArgs))
     // return { prefix, suffix }
-    return [`${prefix}${srcBase}${suffix}`, prefix, suffix]
+    return [`${prefix}${srcBase}${suffix} `, prefix, suffix]
 }
 
 function kNum(value) {
-    return `${Math.round(value / 1000)}K`
+    return `${Math.round(value / 1000)} K`
 }
 
 // 显示媒体编码和码率信息，调试用
@@ -863,43 +871,43 @@ function getEntryShowInfo(entry) {
     const ac = args.srcAudioCodec
     const vc = args.srcVideoCodec
     const showText = []
-    // showText.push(`pt:${entry.preset.name}`)
-    showText.push(`sz:${helper.humanSize(args.size)}`)
-    showText.push(`ts:${helper.humanSeconds(args.srcDuration)}`)
+    // showText.push(`pt:${ entry.preset.name } `)
+    showText.push(`sz:${helper.humanSize(args.size)} `)
+    showText.push(`ts:${helper.humanSeconds(args.srcDuration)} `)
     if (ia?.duration) {
-        showText.push(`a:${ac}`)
+        showText.push(`a:${ac} `)
         if (args.dstAudioBitrate !== args.srcAudioBitrate) {
-            showText.push(`ab:${kNum(args.srcAudioBitrate)}=>${kNum(args.dstAudioBitrate)}`)
+            showText.push(`ab:${kNum(args.srcAudioBitrate)}=>${kNum(args.dstAudioBitrate)} `)
         } else {
-            showText.push(`ab:${kNum(args.srcAudioBitrate)}`)
+            showText.push(`ab:${kNum(args.srcAudioBitrate)} `)
         }
         if (args.dstAudioQuality > 0) {
-            showText.push(`aq:${args.dstAudioQuality}`)
+            showText.push(`aq:${args.dstAudioQuality} `)
         }
     }
     if (iv?.duration) {
-        showText.push(`v:${vc}(${iv.profile}@${iv.level})`)
+        showText.push(`v:${vc} (${iv.profile} @${iv.level})`)
         if (args.dstVideoBitrate !== args.srcVideoBitrate) {
-            showText.push(`vb:${kNum(args.srcVideoBitrate)}=>${kNum(args.dstVideoBitrate)}`)
+            showText.push(`vb:${kNum(args.srcVideoBitrate)}=>${kNum(args.dstVideoBitrate)} `)
         } else {
-            showText.push(`vb:${kNum(args.srcVideoBitrate)}`)
+            showText.push(`vb:${kNum(args.srcVideoBitrate)} `)
         }
         if (args.dstFrameRate > 0 && args.dstFrameRate !== args.srcFrameRate) {
-            showText.push(`fps:${args.srcFrameRate}=>${args.dstFrameRate}`)
+            showText.push(`fps:${args.srcFrameRate}=>${args.dstFrameRate} `)
         } else {
-            showText.push(`fps:${args.srcFrameRate}`)
+            showText.push(`fps:${args.srcFrameRate} `)
         }
         if (args.speed > 0) {
-            showText.push(`sp:${args.speed}`)
+            showText.push(`sp:${args.speed} `)
         }
         if (args.srcWidth !== args.dstWidth || args.srcHeight !== args.dstHeight) {
-            showText.push(`${args.srcWidth}x${args.srcHeight}=>${args.dstWidth}x${args.dstHeight}`)
+            showText.push(`${args.srcWidth}x${args.srcHeight}=>${args.dstWidth}x${args.dstHeight} `)
         } else {
-            showText.push(`${args.srcWidth}x${args.srcHeight}`)
+            showText.push(`${args.srcWidth}x${args.srcHeight} `)
         }
     }
     if (is?.length > 0) {
-        showText.push(is.map(s => `${s.format}-${s.language}`).join('|'))
+        showText.push(is.map(s => `${s.format} -${s.language} `).join('|'))
     }
     return showText.join(',')
 }
@@ -911,7 +919,7 @@ async function readMusicMeta(entry) {
         if (mt?.format && mt.common) {
             // log.show('format', mt.format)
             // log.show('common', mt.common)
-            log.info("Metadata", `Read(${entry.index}) ${entry.name} [${mt.format.codec}|${mt.format.duration}|${mt.format.bitrate}|${mt.format.lossless}, ${mt.common.artist},${mt.common.title},${mt.common.album}]`)
+            log.info("Metadata", `Read(${entry.index}) ${entry.name} [${mt.format.codec} | ${mt.format.duration} | ${mt.format.bitrate} | ${mt.format.lossless}, ${mt.common.artist}, ${mt.common.title}, ${mt.common.album}]`)
             return {
                 format: mt.format,
                 tags: mt.common
@@ -1099,10 +1107,10 @@ function calculateDstArgs(entry) {
         videoBitScale: core.roundNum(dstVideoBitrate / srcVideoBitrate),
         // 会覆盖preset的同名预设值
         // videoBitrate: dstVideoBitrate,
-        videoBitrateK: `${Math.round(dstVideoBitrate / 1000)}K`,
+        videoBitrateK: `${Math.round(dstVideoBitrate / 1000)} K`,
         videoQuality: dstVideoQuality,
         // audioBitrate: dstAudioBitrate,
-        audioBitrateK: `${Math.round(dstAudioBitrate / 1000)}K`,
+        audioBitrateK: `${Math.round(dstAudioBitrate / 1000)} K`,
         audioQuality: dstAudioQuality,
         framerate: dstFrameRate,
         dimension: dstDimension,
@@ -1208,7 +1216,7 @@ function createFFmpegArgs(entry, forDisplay = false) {
 
     // 添加MP4硬字幕
     // if (entry.fileSubtitle) {
-    //     entryPreset.filters = `-subtitles="${entry.fileSubtitle}"`
+    //     entryPreset.filters = `- subtitles="${entry.fileSubtitle}"`
     // }
 
     // 滤镜参数
@@ -1265,8 +1273,8 @@ function createFFmpegArgs(entry, forDisplay = false) {
     descArgs.push(getEntryShowInfo(entry))
     const dateText = dayjs().format('YYYY-MM-DD hh:mm:ss.SSS Z')
     const descArgsText = descArgs.join('|')
-    metaArgs.push(`-metadata`, `description="${descArgsText}"`)
-    metaArgs.push(`-metadata`, `copyright="mediac ffmpeg --preset ${tempPreset.name} --date ${dateText}"`)
+    metaArgs.push(`- metadata`, `description = "${descArgsText}"`)
+    metaArgs.push(`- metadata`, `copyright = "mediac ffmpeg --preset ${tempPreset.name} --date ${dateText}"`)
     // 音频文件才添加元数据
     // 检查源文件元数据
     if (helper.isAudioFile(entry.path) && entry.tags?.title) {
@@ -1287,9 +1295,9 @@ function createFFmpegArgs(entry, forDisplay = false) {
             }
         }
         metaArgs = metaArgs.concat(...Object.entries(validTags)
-            .map(([key, value]) => [`-metadata`, `${key}="${value}"`]))
+            .map(([key, value]) => [`- metadata`, `${key}="${value}"`]))
     } else {
-        metaArgs.push(`-metadata`, `title="${entry.name}"`)
+        metaArgs.push(`- metadata`, `title = "${entry.name}"`)
     }
     // 显示console信息时，不需要这些
     // 元数据放到 extraArgs 这里

@@ -145,7 +145,11 @@ const handler = async function cmdRename(argv) {
         `Total ${files.length} media files ready to rename by exif`,
         fastMode ? "(FastMode)" : ""
     )
-    log.show(LOG_TAG, `task sample:`, files.slice(-2))
+
+    log.show(LOG_TAG, `task sample list:`)
+    for (const f of files.slice(-20)) {
+        log.show(path.basename(f.path), f.outName, f.date)
+    }
     log.info(LOG_TAG, argv)
     testMode && log.showYellow("++++++++++ TEST MODE (DRY RUN) ++++++++++")
     const answer = await inquirer.prompt([
