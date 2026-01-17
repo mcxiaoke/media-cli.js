@@ -5,11 +5,9 @@
  * Author: mcxiaoke (github@mcxiaoke.com)
  * License: Apache License 2.0
  */
-import fs from 'fs/promises'
-import inquirer from 'inquirer'
-import path from 'path'
-
-
+import fs from "fs/promises"
+import inquirer from "inquirer"
+import path from "path"
 
 // 异步函数：遍历目录并合并具有相同名称的多层目录
 async function mergeDuplicateDirs(rootDir) {
@@ -43,8 +41,8 @@ async function mergeDuplicateDirs(rootDir) {
 
     // 异步函数：显示改动的路径对比，并提示用户确认
     async function displayChangesAndConfirm() {
-        console.log('Changes to be made:')
-        changes.forEach(change => {
+        console.log("Changes to be made:")
+        changes.forEach((change) => {
             console.log(`SRC ${change.src}`)
             console.log(`DST ${change.dst}`)
         })
@@ -57,10 +55,10 @@ async function mergeDuplicateDirs(rootDir) {
     async function confirmAction() {
         const answer = await inquirer.prompt([
             {
-                type: 'confirm',
-                name: 'confirm',
-                message: 'Confirm?'
-            }
+                type: "confirm",
+                name: "confirm",
+                message: "Confirm?",
+            },
         ])
         return answer.confirm
     }
@@ -99,7 +97,7 @@ async function mergeDuplicateDirs(rootDir) {
     if (confirmed) {
         await executeChanges()
     } else {
-        console.log('Operation canceled.')
+        console.log("Operation canceled.")
     }
 }
 

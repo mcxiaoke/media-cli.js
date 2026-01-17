@@ -6,15 +6,14 @@
  * License: Apache License 2.0
  */
 
-import chalk from 'chalk'
-import fs from 'fs-extra'
+import chalk from "chalk"
+import fs from "fs-extra"
 import inquirer from "inquirer"
 import path from "path"
 
-import * as log from '../lib/debug.js'
-import * as mf from '../lib/file.js'
-import * as helper from '../lib/helper.js'
-
+import * as log from "../lib/debug.js"
+import * as mf from "../lib/file.js"
+import * as helper from "../lib/helper.js"
 
 export { aliases, builder, command, describe, handler }
 
@@ -23,35 +22,37 @@ const aliases = ["mp"]
 const describe = "Move files to sub top folder or top folder"
 
 const builder = function addOptions(ya, helpOrVersionSet) {
-    return ya
-        // 输出文件名名称
-        .option("output", {
-            alias: "o",
-            type: "string",
-            normalize: true,
-            description: "Output sub folder name",
-        })
-        // 指定MODE，三种：自动，目录名，指定前缀
-        .option("mode", {
-            alias: "m",
-            type: "string",
-            default: MODE_AUTO,
-            description: "filename prefix mode for output ",
-            choices: [MODE_AUTO, MODE_DIR, MODE_PREFIX, MODE_MEDIA, MODE_CLEAN],
-        })
-        // 移动所有文件到根目录的指定目录
-        .option("topmost", {
-            alias: "r",
-            type: "boolean",
-            description: "move files to sub dirs in root dir",
-        })
-        // 确认执行所有系统操作，非测试模式，如删除和重命名和移动操作
-        .option("doit", {
-            alias: "d",
-            type: "boolean",
-            default: false,
-            description: "execute os operations in real mode, not dry run",
-        })
+    return (
+        ya
+            // 输出文件名名称
+            .option("output", {
+                alias: "o",
+                type: "string",
+                normalize: true,
+                description: "Output sub folder name",
+            })
+            // 指定MODE，三种：自动，目录名，指定前缀
+            .option("mode", {
+                alias: "m",
+                type: "string",
+                default: MODE_AUTO,
+                description: "filename prefix mode for output ",
+                choices: [MODE_AUTO, MODE_DIR, MODE_PREFIX, MODE_MEDIA, MODE_CLEAN],
+            })
+            // 移动所有文件到根目录的指定目录
+            .option("topmost", {
+                alias: "r",
+                type: "boolean",
+                description: "move files to sub dirs in root dir",
+            })
+            // 确认执行所有系统操作，非测试模式，如删除和重命名和移动操作
+            .option("doit", {
+                alias: "d",
+                type: "boolean",
+                default: false,
+                description: "execute os operations in real mode, not dry run",
+            })
+    )
 }
 
 const handler = async function cmdMoveUp(argv) {
@@ -76,10 +77,17 @@ const handler = async function cmdMoveUp(argv) {
     const audioDirName = "音乐"
     const bookDirName = "电子书"
     const otherDirName = "其它"
-    const outDirNames = [defaultDirName, picDirName, videoDirName, audioDirName, bookDirName, otherDirName]
+    const outDirNames = [
+        defaultDirName,
+        picDirName,
+        videoDirName,
+        audioDirName,
+        bookDirName,
+        otherDirName,
+    ]
     const subDirs = (await fs.readdir(root, { withFileTypes: true }))
-        .filter(d => d.isDirectory() && !outDirNames.includes(d.name))
-        .map(d => d.name)
+        .filter((d) => d.isDirectory() && !outDirNames.includes(d.name))
+        .map((d) => d.name)
     log.show(logTag, "found sub dirs:", subDirs)
     testMode && log.showYellow("++++++++++ TEST MODE (DRY RUN) ++++++++++")
     const answer = await inquirer.prompt([
@@ -87,9 +95,7 @@ const handler = async function cmdMoveUp(argv) {
             type: "confirm",
             name: "yes",
             default: false,
-            message: chalk.bold.red(
-                `Are you sure to move all files to top sub folder?`
-            ),
+            message: chalk.bold.red(`Are you sure to move all files to top sub folder?`),
         },
     ])
     if (!answer.yes) {
@@ -112,7 +118,7 @@ const handler = async function cmdMoveUp(argv) {
         })
         totalCount += files.length
         log.show(logTag, `Total ${files.length} media files found in ${subDirPath}`)
-        const outDirPaths = outDirNames.map(x => path.join(curDir, x))
+        const outDirPaths = outDirNames.map((x) => path.join(curDir, x))
         keepDirList.add(curDir)
         for (const odp of outDirPaths) {
             keepDirList.add(odp)
@@ -159,7 +165,7 @@ const handler = async function cmdMoveUp(argv) {
                     log.showYellow(logTag, "New Name:", fileDst)
                 }
             }
-            //todo check file size 
+            //todo check file size
             if (await fs.pathExists(fileDst)) {
                 log.showYellow(logTag, "Exists:", fileDst)
                 continue
@@ -175,14 +181,21 @@ const handler = async function cmdMoveUp(argv) {
                     log.info(logTag, "Moved:", fileSrc, "to", fileDst)
                     log.fileLog(`Moved: <${fileSrc}> => <${fileDst}>`, logTag)
                 }
-
             } catch (error) {
                 log.error(logTag, "Failed:", error, fileSrc, "to", fileDst)
             }
         }
-        log.showGreen(logTag, `${files.length} files in ${helper.pathShort(subDirPath)} are moved.`, testMode ? "[DRY RUN]" : "")
+        log.showGreen(
+            logTag,
+            `${files.length} files in ${helper.pathShort(subDirPath)} are moved.`,
+            testMode ? "[DRY RUN]" : "",
+        )
     }
-    log.showGreen(logTag, `Total ${movedCount}/${totalCount} files moved.`, testMode ? "[DRY RUN]" : "")
+    log.showGreen(
+        logTag,
+        `Total ${movedCount}/${totalCount} files moved.`,
+        testMode ? "[DRY RUN]" : "",
+    )
     log.showYellow(logTag, "There are some unused folders left after moving up operations.")
 
     const cleanupAnswer = await inquirer.prompt([
@@ -190,23 +203,25 @@ const handler = async function cmdMoveUp(argv) {
             type: "confirm",
             name: "yes",
             default: false,
-            message: chalk.bold.red(
-                `Do you want to cleanup these unused sub folders?`),
+            message: chalk.bold.red(`Do you want to cleanup these unused sub folders?`),
         },
     ])
     if (!cleanupAnswer.yes) {
         return
     }
 
-    keepDirList = new Set([...keepDirList].map(x => path.resolve(x)))
+    keepDirList = new Set([...keepDirList].map((x) => path.resolve(x)))
     let subDirEntries = await mf.walk(root, { withDirs: true, withFiles: false })
-    let subDirList = subDirEntries.map(x => x.path)
-    subDirList = new Set([...subDirList].map(x => path.resolve(x)))
+    let subDirList = subDirEntries.map((x) => x.path)
+    subDirList = new Set([...subDirList].map((x) => path.resolve(x)))
     const toRemoveDirList = setDifference(subDirList, keepDirList)
 
     log.show(logTag, `There are ${keepDirList.size} output dirs ${chalk.red("DO NOTHING")}`)
     log.show(keepDirList)
-    log.showYellow(logTag, `There are ${toRemoveDirList.size} unused dirs to ${chalk.red("DELETE")}, samples:`)
+    log.showYellow(
+        logTag,
+        `There are ${toRemoveDirList.size} unused dirs to ${chalk.red("DELETE")}, samples:`,
+    )
     log.show([...toRemoveDirList].slice(-10))
     testMode && log.showYellow("++++++++++ TEST MODE (DRY RUN) ++++++++++")
     const removeUnusedAnswer = await inquirer.prompt([
@@ -214,8 +229,7 @@ const handler = async function cmdMoveUp(argv) {
             type: "confirm",
             name: "yes",
             default: false,
-            message: chalk.bold.red(
-                `Are you sure to DELETE these unused folders?`),
+            message: chalk.bold.red(`Are you sure to DELETE these unused folders?`),
         },
     ])
     if (!removeUnusedAnswer.yes) {

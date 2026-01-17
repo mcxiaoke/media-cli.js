@@ -6,9 +6,9 @@
  * License: Apache License 2.0
  */
 
-import fs from 'fs/promises'
-import inquirer from 'inquirer'
-import path from 'path'
+import fs from "fs/promises"
+import inquirer from "inquirer"
+import path from "path"
 
 function processPath(inputPath) {
     const parts = inputPath.split(path.sep)
@@ -23,8 +23,8 @@ function processPath(inputPath) {
     }
 
     // 对于 UNC 路径，将前两个斜杠加回去
-    if (inputPath.startsWith('\\\\')) {
-        newPathParts = ['\\', ...newPathParts.slice(1)]
+    if (inputPath.startsWith("\\\\")) {
+        newPathParts = ["\\", ...newPathParts.slice(1)]
     }
 
     const newPath = newPathParts.join(path.sep)
@@ -49,15 +49,14 @@ function processPath2(inputPath) {
     }
 
     // 对于 UNC 路径，将前两个斜杠加回去
-    if (absoluteDirname.startsWith('\\\\')) {
-        newPathParts = ['\\', ...newPathParts.slice(1)]
+    if (absoluteDirname.startsWith("\\\\")) {
+        newPathParts = ["\\", ...newPathParts.slice(1)]
     }
 
     const newDirPath = newPathParts.join(path.sep)
     const newPath = path.join(newDirPath, basename) // 将处理后的目录部分和原始文件名拼接成新路径
     return newPath
 }
-
 
 async function processDirectory(directoryPath) {
     try {
@@ -95,11 +94,10 @@ async function processDirectory(directoryPath) {
     }
 }
 
-
-(async () => {
+;(async () => {
     const processedPaths = await processDirectory(process.argv[2])
 
-    console.log('Changes in the directory:')
+    console.log("Changes in the directory:")
     for (const { src, dst } of processedPaths) {
         console.log(`SRC: ${src}`)
         console.log(`DST: ${dst}`)

@@ -6,8 +6,8 @@
  * License: Apache License 2.0
  */
 
-import { readdir, stat } from 'fs/promises'
-import path from 'path'
+import { readdir, stat } from "fs/promises"
+import path from "path"
 
 /**
  * 遍历指定目录下的所有文件和目录
@@ -31,7 +31,7 @@ async function listFilesAndDirs(dirPath, options = {}, currentDepth = 0) {
         withStats = false,
         ignoreErrors = false,
         depth = Infinity,
-        concurrency = 10
+        concurrency = 10,
     } = options
 
     let items = []
@@ -39,21 +39,29 @@ async function listFilesAndDirs(dirPath, options = {}, currentDepth = 0) {
     try {
         const dirItems = await readdir(dirPath)
 
-        const promises = dirItems.map(async item => {
+        const promises = dirItems.map(async (item) => {
             const itemPath = path.join(dirPath, item)
             const itemStats = await stat(itemPath)
 
             if (itemStats.isDirectory() && includeDirs && currentDepth < depth) {
                 if (!filterFn || filterFn(itemPath, itemStats)) {
-                    items.push(withStats ? { name: item, path: itemPath, stats: itemStats } : itemPath)
+                    items.push(
+                        withStats ? { name: item, path: itemPath, stats: itemStats } : itemPath,
+                    )
                     if (!withStats && includeFiles) {
-                        const subItems = await listFilesAndDirs(itemPath, { ...options, includeDirs: false, depth, concurrency }, currentDepth + 1)
+                        const subItems = await listFilesAndDirs(
+                            itemPath,
+                            { ...options, includeDirs: false, depth, concurrency },
+                            currentDepth + 1,
+                        )
                         items = items.concat(subItems)
                     }
                 }
             } else if (itemStats.isFile() && includeFiles) {
                 if (!filterFn || filterFn(itemPath, itemStats)) {
-                    items.push(withStats ? { name: item, path: itemPath, stats: itemStats } : itemPath)
+                    items.push(
+                        withStats ? { name: item, path: itemPath, stats: itemStats } : itemPath,
+                    )
                 }
             }
         })
@@ -69,24 +77,24 @@ async function listFilesAndDirs(dirPath, options = {}, currentDepth = 0) {
 }
 
 // 示例用法：
-const directoryPath = process.argv[2];
+const directoryPath = process.argv[2]
 
-(async () => {
+;(async () => {
     try {
         const fileList = await listFilesAndDirs(directoryPath, {
             includeFiles: true,
             includeDirs: true,
             filterFn: (itemPath, stats) => {
                 // 过滤掉以 . 开头的隐藏文件/目录
-                return !path.basename(itemPath).startsWith('.')
+                return !path.basename(itemPath).startsWith(".")
             },
             withStats: true,
             ignoreErrors: true,
-            concurrency: 5 // 设置并发操作数量为 5
+            concurrency: 5, // 设置并发操作数量为 5
         })
 
-        fileList.forEach(item => console.log(item.path))
+        fileList.forEach((item) => console.log(item.path))
     } catch (error) {
-        console.error('Error:', error)
+        console.error("Error:", error)
     }
 })()

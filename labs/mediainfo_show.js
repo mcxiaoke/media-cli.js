@@ -6,17 +6,17 @@
  * License: Apache License 2.0
  */
 
-import { execa } from 'execa'
-import fs from 'fs-extra'
-import path from 'path'
-import * as helper from '../lib/helper.js'
-import { getMediaInfo, getSimpleInfo } from '../lib/mediainfo.js' // 导入您之前定义的解析器函数
+import { execa } from "execa"
+import fs from "fs-extra"
+import path from "path"
+import * as helper from "../lib/helper.js"
+import { getMediaInfo, getSimpleInfo } from "../lib/mediainfo.js" // 导入您之前定义的解析器函数
 
 // 递归遍历目录，找到所有音视频文件
 function findMediaFiles(directory, mediaFiles = []) {
     const files = fs.readdirSync(directory)
 
-    files.forEach(file => {
+    files.forEach((file) => {
         const filePath = path.join(directory, file)
         const stat = fs.statSync(filePath)
 

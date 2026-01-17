@@ -6,41 +6,41 @@
  * License: Apache License 2.0
  */
 
-import fs from 'fs-extra'
-import os from 'os'
-import path from 'path'
-import * as enc from '../lib/encoding.js'
-import * as unicode from '../lib/unicode.js'
+import fs from "fs-extra"
+import os from "os"
+import path from "path"
+import * as enc from "../lib/encoding.js"
+import * as unicode from "../lib/unicode.js"
 
-import { fileURLToPath } from 'url'
+import { fileURLToPath } from "url"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
-import { HANZI_COMMON_3500, HANZI_COMMON_7000, HANZI_COMMON_JAPANESE } from '../lib/unicode.js'
+import { HANZI_COMMON_3500, HANZI_COMMON_7000, HANZI_COMMON_JAPANESE } from "../lib/unicode.js"
 // log.setVerbose(1);
 
 // https://github.com/bnoordhuis/node-iconv/
 const ENC_LIST = [
-    'ISO-8859-1',
-    'UTF8',
-    'UTF-16',
-    'GBK',
+    "ISO-8859-1",
+    "UTF8",
+    "UTF-16",
+    "GBK",
     // 'BIG5',
-    'SHIFT_JIS',
-    'EUC-JP',
+    "SHIFT_JIS",
+    "EUC-JP",
     // 'CP949',
     // 'EUC-KR',
 ]
 
-function normalizeChars(filename = 'messy_hanzi.txt') {
+function normalizeChars(filename = "messy_hanzi.txt") {
     const c7000 = HANZI_COMMON_7000
     const c3500 = HANZI_COMMON_3500
     const jpHanzi = HANZI_COMMON_JAPANESE
-    const dataDir = path.join(path.dirname(__dirname), 'data')
-    const libDir = path.join(path.dirname(__dirname), 'lib')
+    const dataDir = path.join(path.dirname(__dirname), "data")
+    const libDir = path.join(path.dirname(__dirname), "lib")
     // const fileChars = fs.readFileSync(path.join(dataDir, 'messy_sample.txt'), 'utf8')
-    const chars = enc.REGEX_MESSY_CJK + '堄拲儗儞亃僱僄僊儖'
+    const chars = enc.REGEX_MESSY_CJK + "堄拲儗儞亃僱僄僊儖"
     const valid = []
     // 排除1 汉字属于中国常用汉字7000字的范围
     // x排除2 汉字属于日本常用汉字2100字的范围 !jpHanzi.includes(c)
@@ -51,51 +51,53 @@ function normalizeChars(filename = 'messy_hanzi.txt') {
         }
     }
     // 只保留汉字
-    let charsChanged = valid.join('').replaceAll(/[\s]|[^\p{sc=Han}]/ugi, '')
+    let charsChanged = valid.join("").replaceAll(/[\s]|[^\p{sc=Han}]/giu, "")
     charsChanged = charUnique(charsChanged)
     if (chars !== charsChanged) {
-        console.log('messy chars changed:', charsChanged.length)
+        console.log("messy chars changed:", charsChanged.length)
         fs.writeFileSync(path.join(os.tmpdir(), filename), charsChanged)
 
         fs.writeFileSync(path.join(libDir, filename), charsChanged)
     }
-
 }
 
 normalizeChars()
 
 function charUnique(str) {
-    return (String.prototype.concat.call(...new Set(str)))
-        .split('').sort((a, b) => a.localeCompare(b)).join('')
+    return String.prototype.concat
+        .call(...new Set(str))
+        .split("")
+        .sort((a, b) => a.localeCompare(b))
+        .join("")
 }
 
-function showStatus(str, title = '') {
+function showStatus(str, title = "") {
     console.log(`================ ${title} ================`)
     console.log(str)
-    console.log('REGEX_MESSY_CJK', enc.REGEX_MESSY_CJK.test(str))
-    console.log('REGEX_MESSY_UNICODE', enc.REGEX_MESSY_UNICODE.test(str))
-    console.log('hasBadUnicode', enc.hasBadUnicode(str))
-    console.log('strOnlyChinese', unicode.strOnlyChinese(str))
-    console.log('strOnlyJapanese', unicode.strOnlyJapanese(str))
+    console.log("REGEX_MESSY_CJK", enc.REGEX_MESSY_CJK.test(str))
+    console.log("REGEX_MESSY_UNICODE", enc.REGEX_MESSY_UNICODE.test(str))
+    console.log("hasBadUnicode", enc.hasBadUnicode(str))
+    console.log("strOnlyChinese", unicode.strOnlyChinese(str))
+    console.log("strOnlyJapanese", unicode.strOnlyJapanese(str))
 }
 
 function fixEnc(str) {
     console.log(`Processing ${str}`)
     const results = enc.fixCJKEnc(str, ENC_LIST, ENC_LIST)
     for (const r of results) {
-        console.log(r[0], '\t', r.slice(1))
+        console.log(r[0], "\t", r.slice(1))
     }
-    console.log('INPUT:', [str])
-    console.log('OUPUT:', results[0])
+    console.log("INPUT:", [str])
+    console.log("OUPUT:", results[0])
     return enc.fixCJKEnc(str)[0]
 }
 
-let fromStr = ''
+let fromStr = ""
 // 这个特殊，解码出来有emoji JS转换会乱码
-// 2024-01-10 06-00大鳳背面座位 
+// 2024-01-10 06-00大鳳背面座位
 // 2024-01-10 06-00螟ｧ魑ｳ閭碁擇蠎ｧ菴郊生
 // messyStr = '2024-01-10 06-00螟ｧ魑ｳ閭碁擇蠎ｧ菴郊生'
-fromStr = '│  │      DOT_像度画像です（PNG ×PX）-_49_Z4K'
+fromStr = "│  │      DOT_像度画像です（PNG ×PX）-_49_Z4K"
 const toStr = process.argv.length > 2 ? fixEnc(process.argv[2]) : fixEnc(fromStr)
-showStatus(fromStr, 'BEFORE FIX')
-showStatus(toStr, 'AFTER FIX')
+showStatus(fromStr, "BEFORE FIX")
+showStatus(toStr, "AFTER FIX")

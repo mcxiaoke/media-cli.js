@@ -6,25 +6,31 @@
  * License: Apache License 2.0
  */
 
-
-import chalk from 'chalk'
-import { sify } from 'chinese-conv'
-import fs from 'fs-extra'
+import chalk from "chalk"
+import { sify } from "chinese-conv"
+import fs from "fs-extra"
 import inquirer from "inquirer"
 import { cpus } from "os"
-import pMap from 'p-map'
+import pMap from "p-map"
 import path from "path"
-import { asyncFilter } from '../lib/core.js'
-import * as log from '../lib/debug.js'
-import * as mf from '../lib/file.js'
-import * as helper from '../lib/helper.js'
-import { RE_MEDIA_DIR_NAME, RE_ONLY_NUMBER, RE_UGLY_CHARS, RE_UGLY_CHARS_BORDER, cleanFileName, renameFiles } from "./cmd_shared.js"
+import { asyncFilter } from "../lib/core.js"
+import * as log from "../lib/debug.js"
+import * as mf from "../lib/file.js"
+import * as helper from "../lib/helper.js"
+import {
+    RE_MEDIA_DIR_NAME,
+    RE_ONLY_NUMBER,
+    RE_UGLY_CHARS,
+    RE_UGLY_CHARS_BORDER,
+    cleanFileName,
+    renameFiles,
+} from "./cmd_shared.js"
 
 const MODE_AUTO = "auto"
 const MODE_DIR = "dirname"
 const MODE_PREFIX = "prefix"
 const MODE_MEDIA = "media"
-const MODE_CLEAN = 'clean'
+const MODE_CLEAN = "clean"
 
 const NAME_LENGTH = 48
 
@@ -32,97 +38,98 @@ export { aliases, builder, command, describe, handler }
 
 const command = "prefix <input> [output]"
 const aliases = ["pf", "px"]
-const describe = 'Rename files by append dir name or string'
+const describe = "Rename files by append dir name or string"
 const builder = function addOptions(ya, helpOrVersionSet) {
-    return ya.option("length", {
-        alias: "l",
-        type: "number",
-        default: NAME_LENGTH,
-        description: "max length of prefix string",
-    })
-        // 仅处理符合指定条件的文件，包含文件名规则
-        .option("include", {
-            alias: "I",
-            type: "string",
-            description: "include filename patterns ",
-        })
-        // 仅处理不符合指定条件的文件，例外文件名规则
-        .option("exclude", {
-            alias: "E",
-            type: "string",
-            description: "exclude filename patterns ",
-        })
-        // 仅用于PREFIX模式，文件名添加指定前缀字符串
-        .option("prefix", {
-            alias: "p",
-            type: "string",
-            description: "filename prefix str for output ",
-        })
-        // 指定MODE，三种：自动，目录名，指定前缀
-        .option("mode", {
-            alias: "m",
-            type: "string",
-            default: MODE_AUTO,
-            description: "filename prefix mode for output ",
-            choices: [MODE_AUTO, MODE_DIR, MODE_PREFIX, MODE_MEDIA, MODE_CLEAN],
-        })
-        .option("auto", {
-            type: "boolean",
-            description: "mode auto",
-        })
-        .option("dirname", {
-            alias: 'D',
-            type: "boolean",
-            description: "mode dirname",
-        })
-        .option("prefix", {
-            alias: 'P',
-            type: "boolean",
-            description: "mode prefix",
-        })
-        .option("media", {
-            alias: 'M',
-            type: "boolean",
-            description: "mode media",
-        })
-        .option("clean-only", {
-            alias: 'C',
-            type: "boolean",
-            description: "mode clean only",
-        })
-        // 清理文件名中的特殊字符和非法字符
-        .option("clean", {
-            alias: "c",
-            type: "boolean",
-            description: "remove special chars in filename",
-        })
-        // 全选模式，强制处理所有文件
-        .option("all", {
-            alias: "a",
-            type: "boolean",
-            description: "force rename all files",
-        })
-        // 并行操作限制，并发数，默认为 CPU 核心数
-        .option("jobs", {
-            alias: "j",
-            describe: "multi jobs running parallelly",
-            type: "number",
-        })
-        // 确认执行所有系统操作，非测试模式，如删除和重命名和移动操作
-        .option("doit", {
-            alias: "d",
-            type: "boolean",
-            default: false,
-            description: "execute os operations in real mode, not dry run",
-        })
+    return (
+        ya
+            .option("length", {
+                alias: "l",
+                type: "number",
+                default: NAME_LENGTH,
+                description: "max length of prefix string",
+            })
+            // 仅处理符合指定条件的文件，包含文件名规则
+            .option("include", {
+                alias: "I",
+                type: "string",
+                description: "include filename patterns ",
+            })
+            // 仅处理不符合指定条件的文件，例外文件名规则
+            .option("exclude", {
+                alias: "E",
+                type: "string",
+                description: "exclude filename patterns ",
+            })
+            // 仅用于PREFIX模式，文件名添加指定前缀字符串
+            .option("prefix", {
+                alias: "p",
+                type: "string",
+                description: "filename prefix str for output ",
+            })
+            // 指定MODE，三种：自动，目录名，指定前缀
+            .option("mode", {
+                alias: "m",
+                type: "string",
+                default: MODE_AUTO,
+                description: "filename prefix mode for output ",
+                choices: [MODE_AUTO, MODE_DIR, MODE_PREFIX, MODE_MEDIA, MODE_CLEAN],
+            })
+            .option("auto", {
+                type: "boolean",
+                description: "mode auto",
+            })
+            .option("dirname", {
+                alias: "D",
+                type: "boolean",
+                description: "mode dirname",
+            })
+            .option("prefix", {
+                alias: "P",
+                type: "boolean",
+                description: "mode prefix",
+            })
+            .option("media", {
+                alias: "M",
+                type: "boolean",
+                description: "mode media",
+            })
+            .option("clean-only", {
+                alias: "C",
+                type: "boolean",
+                description: "mode clean only",
+            })
+            // 清理文件名中的特殊字符和非法字符
+            .option("clean", {
+                alias: "c",
+                type: "boolean",
+                description: "remove special chars in filename",
+            })
+            // 全选模式，强制处理所有文件
+            .option("all", {
+                alias: "a",
+                type: "boolean",
+                description: "force rename all files",
+            })
+            // 并行操作限制，并发数，默认为 CPU 核心数
+            .option("jobs", {
+                alias: "j",
+                describe: "multi jobs running parallelly",
+                type: "number",
+            })
+            // 确认执行所有系统操作，非测试模式，如删除和重命名和移动操作
+            .option("doit", {
+                alias: "d",
+                type: "boolean",
+                default: false,
+                description: "execute os operations in real mode, not dry run",
+            })
+    )
 }
-
-
 
 function getAutoModePrefix(dir, sep) {
     // 从左到右的目录层次
     const [d1, d2, d3] = dir.split(path.sep).slice(-3)
-    log.debug([d1, d2, d3].join(','))
+    log.debug([d1, d2, d3].join(","))
     if (d3.includes(d1) && d2.includes(d1)) {
         return d3
     }
@@ -137,10 +144,18 @@ function getAutoModePrefix(dir, sep) {
 
 function parseNameMode(argv) {
     let mode = argv.auto ? MODE_AUTO : argv.mode || MODE_AUTO
-    if (argv.mprefix) { mode = MODE_PREFIX }
-    if (argv.dirname) { mode = MODE_DIR }
-    if (argv.media) { mode = MODE_MEDIA }
-    if (argv.cleanOnly) { mode = MODE_CLEAN }
+    if (argv.mprefix) {
+        mode = MODE_PREFIX
+    }
+    if (argv.dirname) {
+        mode = MODE_DIR
+    }
+    if (argv.media) {
+        mode = MODE_MEDIA
+    }
+    if (argv.cleanOnly) {
+        mode = MODE_CLEAN
+    }
     return mode
 }
 
@@ -150,9 +165,7 @@ let nameDupIndex = 0
 async function createNewNameByMode(f) {
     const argv = f.argv
     const mode = parseNameMode(argv)
-    const nameLength = (mode === MODE_MEDIA
-        || mode === MODE_CLEAN) ?
-        200 : argv.length || NAME_LENGTH
+    const nameLength = mode === MODE_MEDIA || mode === MODE_CLEAN ? 200 : argv.length || NAME_LENGTH
     const nameSlice = nameLength * -1
     const [dir, base, ext] = helper.pathSplit(f.path)
     const oldName = path.basename(f.path)
@@ -244,7 +257,7 @@ async function createNewNameByMode(f) {
     }
     // 确保文件名不含有文件系统不允许的非法字符
     oldBase = helper.filenameSafe(oldBase)
-    let fullBase = prefix.length > 0 ? (prefix + sep + oldBase) : oldBase
+    let fullBase = prefix.length > 0 ? prefix + sep + oldBase : oldBase
     // 去除首位空白和特殊字符
     fullBase = fullBase.replaceAll(RE_UGLY_CHARS_BORDER, "")
     // 多余空白和字符替换为一个字符 _或.
@@ -260,8 +273,7 @@ async function createNewNameByMode(f) {
     if (newPath === f.path) {
         log.info(logTag, `Same: ${ipx} ${helper.pathShort(newPath)}`)
         f.skipped = true
-    }
-    else if (await fs.pathExists(newPath)) {
+    } else if (await fs.pathExists(newPath)) {
         // 目标文件已存在
         const stn = await fs.stat(newPath)
         if (f.size === stn.size) {
@@ -277,8 +289,7 @@ async function createNewNameByMode(f) {
             } while (nameDupSet.has(newPath))
             log.info(logTag, `NewName: ${ipx} ${helper.pathShort(newPath)}`)
         }
-    }
-    else if (nameDupSet.has(newPath)) {
+    } else if (nameDupSet.has(newPath)) {
         log.info(logTag, `Duplicate: ${ipx} ${helper.pathShort(newPath)}`)
         f.skipped = true
     }
@@ -320,22 +331,20 @@ const handler = async function cmdPrefix(argv) {
 
     let files = await mf.walk(root, {
         needStats: true,
-        entryFilter: (entry) =>
-            entry.isFile &&
-            entry.size > 1024
+        entryFilter: (entry) => entry.isFile && entry.size > 1024,
     })
     log.show(logTag, `Total ${files.length} files found in ${helper.humanTime(startMs)}`)
     if (argv.include?.length >= 3) {
         // 处理include规则
         const pattern = new RegExp(argv.include, "gi")
 
-        files = await asyncFilter(files, x => x.path.match(pattern))
+        files = await asyncFilter(files, (x) => x.path.match(pattern))
         log.show(logTag, `Total ${files.length} files left after include rules`)
     } else if (argv.exclude?.length >= 3) {
         // 处理exclude规则
         const pattern = new RegExp(argv.exclude, "gi")
         log.showRed(pattern)
-        files = await asyncFilter(files, x => !x.path.match(pattern))
+        files = await asyncFilter(files, (x) => !x.path.match(pattern))
         log.show(logTag, `Total ${files.length} files left after exclude rules`)
     }
     if (files.length == 0) {
@@ -354,7 +363,7 @@ const handler = async function cmdPrefix(argv) {
     //const tasks = files.map(f => createNewNameByMode(f, argv)).filter(f => f?.outName)
     const jobCount = argv.jobs || cpus().length * 4
     let tasks = await pMap(files, createNewNameByMode, { concurrency: jobCount })
-    tasks = tasks.filter(f => f?.outName)
+    tasks = tasks.filter((f) => f?.outName)
 
     tasks = tasks.map((f, i) => {
         return {
@@ -366,18 +375,11 @@ const handler = async function cmdPrefix(argv) {
     })
 
     const tCount = tasks.length
-    log.showYellow(
-        logTag, `Total ${fCount - tCount} files are skipped.`
-    )
+    log.showYellow(logTag, `Total ${fCount - tCount} files are skipped.`)
     if (tasks.length > 0) {
-        log.showGreen(
-            logTag,
-            `Total ${tasks.length} media files ready to rename`
-        )
+        log.showGreen(logTag, `Total ${tasks.length} media files ready to rename`)
     } else {
-        log.showYellow(
-            logTag,
-            `Nothing to do, abort.`)
+        log.showYellow(logTag, `Nothing to do, abort.`)
         return
     }
     log.show(logTag, argv)
@@ -387,16 +389,13 @@ const handler = async function cmdPrefix(argv) {
             type: "confirm",
             name: "yes",
             default: false,
-            message: chalk.bold.red(
-                `Are you sure to rename these ${tasks.length} files?`
-            ),
+            message: chalk.bold.red(`Are you sure to rename these ${tasks.length} files?`),
         },
     ])
     if (answer.yes) {
         if (testMode) {
             log.showYellow(logTag, `${tasks.length} files, NO file renamed in TEST MODE.`)
-        }
-        else {
+        } else {
             const results = await renameFiles(tasks, false)
             log.showGreen(logTag, `All ${results.length} file were renamed.`)
         }

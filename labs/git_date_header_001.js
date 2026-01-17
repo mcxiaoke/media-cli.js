@@ -6,13 +6,13 @@
  * License: Apache License 2.0
  */
 
-import { exec } from 'child_process'
-import dayjs from 'dayjs'
-import { readFile, readdir, stat, writeFile } from 'fs/promises'
-import { extname, join, relative } from 'path'
+import { exec } from "child_process"
+import dayjs from "dayjs"
+import { readFile, readdir, stat, writeFile } from "fs/promises"
+import { extname, join, relative } from "path"
 
 async function getGitAddedDate(directory) {
-    const supportedExtensions = ['.js', '.ts', '.css', '.html', '.json', '.md']
+    const supportedExtensions = [".js", ".ts", ".css", ".html", ".json", ".md"]
 
     try {
         // 获取当前目录下的所有文件
@@ -21,17 +21,25 @@ async function getGitAddedDate(directory) {
         // 获取每个文件的第一次添加时间，并修改文件头部注释
         for (const file of files) {
             try {
-                const gitLog = await execCommand(`git log --pretty=format:%aD --date=iso --diff-filter=A -- "${file}"`, directory)
+                const gitLog = await execCommand(
+                    `git log --pretty=format:%aD --date=iso --diff-filter=A -- "${file}"`,
+                    directory,
+                )
                 if (gitLog) {
-                    const addedIsoDate = gitLog.split('\n')[0]
-                    const addedFormattedDate = dayjs(addedIsoDate).format('YYYY-MM-DD HH:mm:ss ZZ')
+                    const addedIsoDate = gitLog.split("\n")[0]
+                    const addedFormattedDate = dayjs(addedIsoDate).format("YYYY-MM-DD HH:mm:ss ZZ")
 
                     const modifiedStats = await stat(file)
                     const modifiedDate = modifiedStats.mtime.toISOString()
-                    const modifiedFormattedDate = dayjs(modifiedDate).format('YYYY-MM-DD HH:mm:ss ZZ')
+                    const modifiedFormattedDate =
+                        dayjs(modifiedDate).format("YYYY-MM-DD HH:mm:ss ZZ")
 
                     console.log(`Processing file: ${relative(directory, file)}`)
-                    const updated = await updateFileComment(file, addedFormattedDate, modifiedFormattedDate)
+                    const updated = await updateFileComment(
+                        file,
+                        addedFormattedDate,
+                        modifiedFormattedDate,
+                    )
                     if (updated) {
                         console.log(`File updated: ${relative(directory, file)}`)
                     } else {
@@ -44,7 +52,7 @@ async function getGitAddedDate(directory) {
             }
         }
     } catch (error) {
-        console.error('Error retrieving files:')
+        console.error("Error retrieving files:")
         console.error(error)
     }
 }
@@ -56,7 +64,7 @@ async function getFiles(dir, supportedExtensions) {
     for (const item of dirContent) {
         const itemPath = join(dir, item)
         const stats = await stat(itemPath)
-        if (stats.isDirectory() && !item.startsWith('.') && item !== 'node_modules') {
+        if (stats.isDirectory() && !item.startsWith(".") && item !== "node_modules") {
             files = files.concat(await getFiles(itemPath, supportedExtensions))
         } else {
             const ext = extname(itemPath)
@@ -88,24 +96,24 @@ function execCommand(command, directory) {
 // 更新文件头部注释
 async function updateFileComment(file, addedDateStr, modifiedDateStr) {
     try {
-        const content = await readFile(file, 'utf8')
-        const lines = content.split('\n')
-        let updatedContent = ''
+        const content = await readFile(file, "utf8")
+        const lines = content.split("\n")
+        let updatedContent = ""
         let blockCommentStarted = false
         for (const line of lines) {
-            if (line.trim().startsWith('/*')) {
+            if (line.trim().startsWith("/*")) {
                 blockCommentStarted = true
             }
-            if (blockCommentStarted && (line.includes('Created:') || line.includes('Modified:'))) {
-                if (line.includes('Created:')) {
+            if (blockCommentStarted && (line.includes("Created:") || line.includes("Modified:"))) {
+                if (line.includes("Created:")) {
                     updatedContent += ` * Created: ${addedDateStr}\n`
-                } else if (line.includes('Modified:')) {
+                } else if (line.includes("Modified:")) {
                     updatedContent += ` * Modified: ${modifiedDateStr}\n`
                 }
             } else {
-                updatedContent += line + '\n'
+                updatedContent += line + "\n"
             }
-            if (line.trim().endsWith('*/')) {
+            if (line.trim().endsWith("*/")) {
                 blockCommentStarted = false
             }
         }
@@ -118,7 +126,7 @@ async function updateFileComment(file, addedDateStr, modifiedDateStr) {
 
 // 检查命令行参数
 if (process.argv.length < 3) {
-    console.error('Usage: node script.js /path/to/your/directory')
+    console.error("Usage: node script.js /path/to/your/directory")
     process.exit(1)
 }
 

@@ -6,98 +6,100 @@
  * License: Apache License 2.0
  */
 
-import AdmZip from 'adm-zip'
-import { writeFile as writeFileAtomic } from 'atomically'
-import chalk from 'chalk'
-import chardet from 'chardet'
-import fs from 'fs-extra'
-import iconv from 'iconv-lite'
-import inquirer from 'inquirer'
-import path from 'path'
-import { asyncMap, compareSmartBy, countAndSort } from '../lib/core.js'
-import * as log from '../lib/debug.js'
-import * as mf from '../lib/file.js'
-import * as helper from '../lib/helper.js'
+import AdmZip from "adm-zip"
+import { writeFile as writeFileAtomic } from "atomically"
+import chalk from "chalk"
+import chardet from "chardet"
+import fs from "fs-extra"
+import iconv from "iconv-lite"
+import inquirer from "inquirer"
+import path from "path"
+import { asyncMap, compareSmartBy, countAndSort } from "../lib/core.js"
+import * as log from "../lib/debug.js"
+import * as mf from "../lib/file.js"
+import * as helper from "../lib/helper.js"
 
-import * as enc from '../lib/encoding.js'
+import * as enc from "../lib/encoding.js"
 
-import * as unzipper from 'unzipper'
+import * as unzipper from "unzipper"
 
-import { finished } from 'stream/promises'
+import { finished } from "stream/promises"
 
-import os from 'os'
+import os from "os"
 
-const FALLBACK_ENCODING = 'GBK'
-const INOGRE_ENCODING = ['Big5', 'windows-1251', 'ISO-8859-1']
+const FALLBACK_ENCODING = "GBK"
+const INOGRE_ENCODING = ["Big5", "windows-1251", "ISO-8859-1"]
 const TRY_ENCODING = [
-    'GBK',
-    'SHIFT_JIS',
-    'UTF8',
+    "GBK",
+    "SHIFT_JIS",
+    "UTF8",
     // 'BIG5',
     // 'CP949',
     // 'EUC-KR'
 ]
 
 export { aliases, builder, command, describe, handler }
-const command = 'zipu <input> [output]'
-const aliases = ['zipunicode']
-const describe = 'Smart unzip command (auto detect encoding)'
+const command = "zipu <input> [output]"
+const aliases = ["zipunicode"]
+const describe = "Smart unzip command (auto detect encoding)"
 
 const builder = function addOptions(ya, helpOrVersionSet) {
-    return ya// 仅处理符合指定条件的文件，包含文件名规则
-        // 修复文件名乱码
-        .option('encoding', {
-            alias: 'e',
-            type: 'string',
-            description: 'use this encoding foe zip filenames'
-        })
-        // 强制解压，覆盖之前的文件
-        .option('override', {
-            alias: 'o',
-            type: 'boolean',
-            default: false,
-            description: 'force unzip, override existting files'
-        })
-        // 列表处理，起始索引
-        .option('start', {
-            type: 'number',
-            default: 0,
-            description: 'start index of file list to process'
-        })
-        // 列表处理，每次数目
-        .option('count', {
-            type: 'number',
-            default: 99999,
-            description: 'group size of file list to process'
-        })
-        // 繁体转简体
-        .option('tcsc', {
-            alias: 't',
-            type: 'boolean',
-            default: false,
-            description: 'convert Chinese from TC to SC'
-        })
-        // 解压成功后删除原ZIP文件
-        .option('purge', {
-            alias: 'delete-zip',
-            type: 'boolean',
-            default: false,
-            description: 'delete zip file after unzipped ok'
-        })
-        // 确认执行所有系统操作，非测试模式，如删除和重命名和移动操作
-        .option('doit', {
-            alias: 'd',
-            type: 'boolean',
-            default: false,
-            description: 'execute os operations in real mode, not dry run'
-        })
+    return (
+        ya // 仅处理符合指定条件的文件，包含文件名规则
+            // 修复文件名乱码
+            .option("encoding", {
+                alias: "e",
+                type: "string",
+                description: "use this encoding foe zip filenames",
+            })
+            // 强制解压，覆盖之前的文件
+            .option("override", {
+                alias: "o",
+                type: "boolean",
+                default: false,
+                description: "force unzip, override existting files",
+            })
+            // 列表处理，起始索引
+            .option("start", {
+                type: "number",
+                default: 0,
+                description: "start index of file list to process",
+            })
+            // 列表处理，每次数目
+            .option("count", {
+                type: "number",
+                default: 99999,
+                description: "group size of file list to process",
+            })
+            // 繁体转简体
+            .option("tcsc", {
+                alias: "t",
+                type: "boolean",
+                default: false,
+                description: "convert Chinese from TC to SC",
+            })
+            // 解压成功后删除原ZIP文件
+            .option("purge", {
+                alias: "delete-zip",
+                type: "boolean",
+                default: false,
+                description: "delete zip file after unzipped ok",
+            })
+            // 确认执行所有系统操作，非测试模式，如删除和重命名和移动操作
+            .option("doit", {
+                alias: "d",
+                type: "boolean",
+                default: false,
+                description: "execute os operations in real mode, not dry run",
+            })
+    )
 }
 
 const handler = cmdZipUnicode
 
 async function cmdZipUnicode(argv) {
     const testMode = !argv.doit
-    const logTag = 'ZipU'
+    const logTag = "ZipU"
     log.info(logTag, argv)
     const root = path.resolve(argv.input)
     if (!root || !(await fs.pathExists(root))) {
@@ -113,11 +115,9 @@ async function cmdZipUnicode(argv) {
     // 只包含ZIP文件
     let files = await mf.walk(root, {
         needStats: true,
-        entryFilter: (entry) =>
-            entry.isFile &&
-            helper.pathExt(entry.name) === '.zip'
+        entryFilter: (entry) => entry.isFile && helper.pathExt(entry.name) === ".zip",
     })
-    files = files.sort(compareSmartBy('path'))
+    files = files.sort(compareSmartBy("path"))
     files = files.map((f, i) => {
         return {
             ...f,
@@ -126,12 +126,12 @@ async function cmdZipUnicode(argv) {
             total: files.length,
             encoding: argv.encoding,
             override: argv.override || false,
-            testMode: testMode
+            testMode: testMode,
         }
     })
     const showFiles = files.slice(-20)
     for (const f of showFiles) {
-        log.show(logTag, 'File:', helper.pathShort(f.path), helper.humanSize(f.size))
+        log.show(logTag, "File:", helper.pathShort(f.path), helper.humanSize(f.size))
     }
     if (showFiles.length < files.length) {
         log.show(logTag, `Above lines are last 20 files, total ${files.length} files.`)
@@ -140,52 +140,61 @@ async function cmdZipUnicode(argv) {
     log.show(logTag, argv)
 
     if (files.length === 0) {
-        log.showYellow(logTag, 'Nothing to do, abrot.')
+        log.showYellow(logTag, "Nothing to do, abrot.")
         return
     }
 
     files = files.slice(argv.start, argv.start + argv.count)
 
-    testMode && log.showYellow('++++++++++ TEST MODE (DRY RUN) ++++++++++')
+    testMode && log.showYellow("++++++++++ TEST MODE (DRY RUN) ++++++++++")
     const answer = await inquirer.prompt([
         {
-            type: 'confirm',
-            name: 'yes',
+            type: "confirm",
+            name: "yes",
             default: false,
-            message: chalk.bold.red(
-                `Are you sure to unzip these ${files.length} files?`
-            )
-        }
+            message: chalk.bold.red(`Are you sure to unzip these ${files.length} files?`),
+        },
     ])
     if (answer.yes) {
         log.showGreen(logTag, `Now unzipping ${files.length} files...}`)
         const startMs = Date.now()
-        files.forEach(f => f.startMs = startMs)
+        files.forEach((f) => (f.startMs = startMs))
         let results = await asyncMap(files, UnzipOneFile)
         const okResults = results.filter((r) => r && r.done)
         const skippedResults = results.filter((r) => r && r?.skipped)
         const failedResult = results.filter((r) => !r || !(r.skipped || r.done))
-        testMode && log.showYellow(logTag, 'NO file unzipped in TEST MODE.')
+        testMode && log.showYellow(logTag, "NO file unzipped in TEST MODE.")
 
         if (!testMode) {
-            okResults?.length > 0 && log.showGreen(logTag, `There were ${okResults.length} files unzipped. (${helper.humanTime(startMs)})`)
-            skippedResults?.length > 0 && log.show(logTag, `There were ${skippedResults.length} files skipped. (${helper.humanTime(startMs)})`)
-            failedResult?.length > 0 && log.showYellow(logTag, `There were ${failedResult.length} files failed. (${helper.humanTime(startMs)})`)
-
+            okResults?.length > 0 &&
+                log.showGreen(
+                    logTag,
+                    `There were ${okResults.length} files unzipped. (${helper.humanTime(startMs)})`,
+                )
+            skippedResults?.length > 0 &&
+                log.show(
+                    logTag,
+                    `There were ${skippedResults.length} files skipped. (${helper.humanTime(startMs)})`,
+                )
+            failedResult?.length > 0 &&
+                log.showYellow(
+                    logTag,
+                    `There were ${failedResult.length} files failed. (${helper.humanTime(startMs)})`,
+                )
         }
 
-        const purgeResults = results.filter(r => r && (r.done || r.skipped))
+        const purgeResults = results.filter((r) => r && (r.done || r.skipped))
         if (argv.purge && purgeResults?.length > 0) {
             // 是否要删除原ZIP文件，谨慎操作
             const purgeConfirm = await inquirer.prompt([
                 {
-                    type: 'confirm',
-                    name: 'yes',
+                    type: "confirm",
+                    name: "yes",
                     default: false,
                     message: chalk.bold.red(
-                        `Are you sure to DELETE ${okResults?.length + skippedResults.length}  zip files after unzipped?`
-                    )
-                }
+                        `Are you sure to DELETE ${okResults?.length + skippedResults.length}  zip files after unzipped?`,
+                    ),
+                },
             ])
             if (purgeConfirm.yes) {
                 for (const pr of purgeResults) {
@@ -195,14 +204,14 @@ async function cmdZipUnicode(argv) {
             }
         }
     } else {
-        log.showYellow(logTag, 'Will do nothing, aborted by user.')
+        log.showYellow(logTag, "Will do nothing, aborted by user.")
     }
 }
 
 async function UnzipOneFile(f) {
     const testMode = f.testMode
     const ipx = `${f.index + 1}/${f.total}`
-    const logTag = 'ZipU'
+    const logTag = "ZipU"
     const zipFilePath = f.path
     const zipFileSize = f.size || 0
     const parts = path.parse(zipFilePath)
@@ -222,7 +231,7 @@ async function UnzipOneFile(f) {
         // 强制覆盖，删除旧目录
         if (f.override) {
             log.showYellow(logTag, `OverrideExists: <${zipDir}>`)
-            !testMode && await fs.remove(zipDir)
+            !testMode && (await fs.remove(zipDir))
         } else {
             // 注释掉，直接解压途中跳过已存在的文件更快
             // const zipDirSize = await mf.getDirectorySizeR(zipDir)
@@ -236,14 +245,17 @@ async function UnzipOneFile(f) {
         }
     }
 
-    log.info(logTag, `Processing: ${ipx} <${zipFilePath}> (${helper.humanSize(zipFileSize)}) (${helper.humanTime(f.startMs)})`)
+    log.info(
+        logTag,
+        `Processing: ${ipx} <${zipFilePath}> (${helper.humanSize(zipFileSize)}) (${helper.humanTime(f.startMs)})`,
+    )
 
     // 无法猜测出文件名的正确编码，不解压
     const useEncoding = await guessEncodingUseUnzipper(f)
     if (!useEncoding) {
         log.showYellow(logTag, `Skip[BadName]: ${ipx} <${zipFilePath}> Reason:Bad Name.`)
         log.fileLog(`Skip ${ipx} <${zipFilePath}> Reason:Bad Name`, logTag)
-        f.error = 'File name is not valid.'
+        f.error = "File name is not valid."
         return
     }
 
@@ -263,7 +275,7 @@ async function unzipFileUseAdmZip(f, useEncoding) {
         throw new Error(logTag, `Not enough memory to unzip ${zipFilePath}`)
     }
 
-    const logTag = 'ZipU'
+    const logTag = "ZipU"
     const ipx = `${f.index + 1}/${f.total}`
     const zipFilePath = f.path
     const parts = path.parse(zipFilePath)
@@ -288,7 +300,7 @@ async function unzipFileUseAdmZip(f, useEncoding) {
             const fileNameParts = path.parse(fileName)
             const dstDir = path.join(zipDir, fileNameParts.dir)
             const dstFile = path.join(dstDir, fileNameParts.base)
-            if (!await fs.pathExists(dstDir)) {
+            if (!(await fs.pathExists(dstDir))) {
                 await fs.mkdir(dstDir, { recursive: true })
             }
             if (await fs.pathExists(dstFile)) {
@@ -305,7 +317,10 @@ async function unzipFileUseAdmZip(f, useEncoding) {
             const data = entry.getData()
             await writeFileAtomic(dstFile, data)
             unzippedFiles.push(dstFile)
-            log.info(logTag, `Entry: ${epx} <${helper.pathShort(dstFile)}> [${useEncoding}] ${helper.humanSize(entry.header.size)}`)
+            log.info(
+                logTag,
+                `Entry: ${epx} <${helper.pathShort(dstFile)}> [${useEncoding}] ${helper.humanSize(entry.header.size)}`,
+            )
         }
         if (unzippedCount === unzippedFiles.length) {
             f.done = true
@@ -319,7 +334,7 @@ async function unzipFileUseAdmZip(f, useEncoding) {
             await helper.safeRemove(zipDir)
             log.showRed(logTag, `Failed ${ipx} <${helper.pathShort(zipFilePath)}> ${useEncoding}`)
             log.fileLog(`Failed ${ipx} <${zipFilePath}> ${useEncoding}`, logTag)
-            f.error = 'Some entries unzip failed.'
+            f.error = "Some entries unzip failed."
             return f
         }
     } catch (error) {
@@ -329,13 +344,15 @@ async function unzipFileUseAdmZip(f, useEncoding) {
 }
 
 function getTempFileName() {
-    const randomness = Math.floor(Math.random() * 16777215).toString(16).slice(-6)
+    const randomness = Math.floor(Math.random() * 16777215)
+        .toString(16)
+        .slice(-6)
     const timestamp = Date.now().toString().slice(-10)
     return `_${timestamp}${randomness}.tmp`
 }
 
 async function unzipFileUseUnzipper(f, useEncoding) {
-    const logTag = 'ZipU'
+    const logTag = "ZipU"
     const ipx = `${f.index + 1}/${f.total}`
     const zipFilePath = f.path
     const parts = path.parse(zipFilePath)
@@ -352,7 +369,10 @@ async function unzipFileUseUnzipper(f, useEncoding) {
 
             // 乱码文件名二次确认，再次解码测试
             if (hasBadChars(entryName, true)) {
-                const { fileName, encoding, badName } = decodeNameSmart(entry.props.pathBuffer, entryEnc)
+                const { fileName, encoding, badName } = decodeNameSmart(
+                    entry.props.pathBuffer,
+                    entryEnc,
+                )
                 entryName = fileName
                 // log.showCyan(fileName, encoding, badName)
                 // 如果二次解码还是乱码，报错
@@ -369,7 +389,7 @@ async function unzipFileUseUnzipper(f, useEncoding) {
             const dstFile = path.join(dstDir, fileNameParts.base)
             const tmpDstFile = path.join(dstDir, `${getTempFileName()}${fileNameParts.ext}`)
 
-            if (entry.type === 'Directory') {
+            if (entry.type === "Directory") {
                 log.info(logTag, `SkipDir1: <${dstFile}> ${entry.type}`)
                 // log.show(logTag, 'MkDir', dstDir)
                 await fs.mkdir(dstDir, { recursive: true })
@@ -381,9 +401,10 @@ async function unzipFileUseUnzipper(f, useEncoding) {
             // 如果没有扩展名且大小为0，假定为目录
             // 文件名中间有. 会导致扩展名识别错误，需要处理
             // eg .mp4, .flac, .001, .accurip
-            const hasExtensions = fileNameParts.ext
-                && fileNameParts.ext.length <= 10
-                && /^\.[A-Za-z0-9]+$/.test(fileNameParts.ext)
+            const hasExtensions =
+                fileNameParts.ext &&
+                fileNameParts.ext.length <= 10 &&
+                /^\.[A-Za-z0-9]+$/.test(fileNameParts.ext)
             if (!hasExtensions && entry.vars.uncompressedSize === 0) {
                 log.info(logTag, `SkipDir2: <${dstFile}> ${entry.type}`)
                 // 文件大小为0，移除
@@ -406,8 +427,8 @@ async function unzipFileUseUnzipper(f, useEncoding) {
             log.info(logTag, `ProcessEntry: ${epx} <${dstFile}> ${entry.type}`)
             log.debug(logTag, `DstDir: ${epx} <${dstDir}>`)
             log.debug(logTag, `DstFile: ${epx} <${dstFile}>`)
-            if (!await fs.pathExists(dstDir)) {
-                log.info(logTag, 'MkDir', dstDir)
+            if (!(await fs.pathExists(dstDir))) {
+                log.info(logTag, "MkDir", dstDir)
                 await fs.mkdir(dstDir, { recursive: true })
             }
             const tmpDstStream = fs.createWriteStream(tmpDstFile)
@@ -418,32 +439,39 @@ async function unzipFileUseUnzipper(f, useEncoding) {
             await finished(tmpDstStream)
             // await new Promise(resolve => tmpDstStream.on("close", resolve))
             await fs.rename(tmpDstFile, dstFile)
-            log.show(logTag, `NewEntry: ${epx} <${helper.pathShort(dstFile)}> [${entryEnc}] ${helper.humanSize(entry.vars.uncompressedSize)}`)
+            log.show(
+                logTag,
+                `NewEntry: ${epx} <${helper.pathShort(dstFile)}> [${entryEnc}] ${helper.humanSize(entry.vars.uncompressedSize)}`,
+            )
         }
 
         if (unzippedCount == 0) {
             f.skipped = true
-            log.showYellow(logTag, `Skipped ${ipx} <${helper.pathShort(zipDir)}> ${useEncoding} ${helper.humanTime(f.startMs)}`)
+            log.showYellow(
+                logTag,
+                `Skipped ${ipx} <${helper.pathShort(zipDir)}> ${useEncoding} ${helper.humanTime(f.startMs)}`,
+            )
             return f
         } else {
             f.done = true
             log.info(logTag, `Done ${ipx} <${zipFilePath}> ${useEncoding}`)
-            log.showGreen(logTag, `Done ${ipx} <${helper.pathShort(zipDir)}> ${useEncoding} ${unzippedCount} ${helper.humanTime(f.startMs)}`)
+            log.showGreen(
+                logTag,
+                `Done ${ipx} <${helper.pathShort(zipDir)}> ${useEncoding} ${unzippedCount} ${helper.humanTime(f.startMs)}`,
+            )
             // log.fileLog(`Unzipped ${ipx} <${zipFilePath}> ${useEncoding}`, logTag)
             return f
         }
-
     } catch (error) {
         f.skipped = false
         f.done = false
         log.showRed(logTag, error.message)
         log.fileLog(`Error ${error.message}`, logTag)
     }
-
 }
 
 function guessEncodingUseAdmZip(f) {
-    const logTag = 'guessEncoding'
+    const logTag = "guessEncoding"
     const zipFilePath = f.path
     const zipFileName = path.basename(zipFilePath)
     const decodedNameMap = new Map()
@@ -468,7 +496,7 @@ function guessEncodingUseAdmZip(f) {
             }
         }
 
-        let [useEncoding, allEncodings] = countAndSort(tryEncodings, ['ASCII'])
+        let [useEncoding, allEncodings] = countAndSort(tryEncodings, ["ASCII"])
         let encoding = useEncoding || FALLBACK_ENCODING
         log.info(logTag, `Try Encoding:`, allEncodings)
         log.showGray(logTag, `Use ${encoding} for ${helper.pathShort(zipFileName)}`)
@@ -479,7 +507,7 @@ function guessEncodingUseAdmZip(f) {
 }
 
 async function guessEncodingUseUnzipper(f) {
-    const logTag = 'guessEncoding2'
+    const logTag = "guessEncoding2"
     const zipFilePath = f.path
     const zipFileName = path.basename(zipFilePath)
     const decodedNameMap = new Map()
@@ -489,7 +517,7 @@ async function guessEncodingUseUnzipper(f) {
         const zipEntries = stream.pipe(unzipper.Parse({ forceStream: true }))
         for await (const entry of zipEntries) {
             // if some legacy zip tool follow ZIP spec then this flag will be set
-            if (entry.type === 'Directory') {
+            if (entry.type === "Directory") {
                 entry.autodrain()
                 continue
             }
@@ -502,7 +530,10 @@ async function guessEncodingUseUnzipper(f) {
             // log.show(logTag, `${type}: ${fileName} ${size}`)
 
             // 解码后的文件名，确保无乱码
-            const { fileName, encoding, badName } = decodeNameSmart(entry.props.pathBuffer, f.encoding)
+            const { fileName, encoding, badName } = decodeNameSmart(
+                entry.props.pathBuffer,
+                f.encoding,
+            )
             entry.autodrain()
             if (badName) {
                 log.info(logTag, `BadName: <${zipFileName}> <${fileName}> [${encoding}]`)
@@ -513,7 +544,7 @@ async function guessEncodingUseUnzipper(f) {
             }
         }
 
-        let [useEncoding, allEncodings] = countAndSort(tryEncodings, ['ASCII'])
+        let [useEncoding, allEncodings] = countAndSort(tryEncodings, ["ASCII"])
         let encoding = useEncoding || FALLBACK_ENCODING
         log.info(logTag, `Try Encoding:`, allEncodings)
         log.info(logTag, `Use ${encoding} for ${helper.pathShort(zipFileName)}`)
@@ -524,64 +555,70 @@ async function guessEncodingUseUnzipper(f) {
     }
 }
 
-
 // 添加一个缓存，避免重复解析
 // const decodedNameCache = new Map()
 // 智能解析文件， 如果发现乱码，就按编码列表逐个尝试，找到无乱码的文件名
 function decodeNameSmart(fileNameRaw, userEncoding = null) {
     // const cachedResult = decodedNameCache.get(fileNameRaw)
     // if (cachedResult) { return cachedResult }
-    const buf = Buffer.from(fileNameRaw, 'binary')
+    const buf = Buffer.from(fileNameRaw, "binary")
     const ca = chardet.analyse(buf)
-    const cr = ca.filter(item => item.confidence >= 85 && !INOGRE_ENCODING.includes(item.name))
+    const cr = ca.filter((item) => item.confidence >= 85 && !INOGRE_ENCODING.includes(item.name))
     let encoding = (cr && cr.length > 0 ? cr[0].name : userEncoding) || FALLBACK_ENCODING
-    log.debug('ZipU', encoding, userEncoding, ca)
+    log.debug("ZipU", encoding, userEncoding, ca)
     let fileName = iconv.decode(buf, encoding)
     let badName = hasBadChars(fileName, false)
     let betterNameFound = false
     if (badName) {
-        log.debug('ZipU', 'badName:'.padEnd(10, ' '), fileName, encoding, buf.length, fileName?.length ?? -1)
+        log.debug(
+            "ZipU",
+            "badName:".padEnd(10, " "),
+            fileName,
+            encoding,
+            buf.length,
+            fileName?.length ?? -1,
+        )
         for (const charEncoding of TRY_ENCODING) {
             const tryName = iconv.decode(buf, charEncoding)
             const invalidName = hasBadChars(tryName, true)
             const invalidName2 = hasBadChars(tryName, false)
-            log.info('ZipU', 'tryName:', tryName, charEncoding, invalidName, invalidName2)
+            log.info("ZipU", "tryName:", tryName, charEncoding, invalidName, invalidName2)
             if (!invalidName2) {
                 if (!betterNameFound) {
                     betterNameFound = true
                     fileName = tryName
                     encoding = charEncoding
                     badName = false
-                    log.info('ZipU', 'bestName:'.padEnd(10, ' '), fileName, encoding, badName)
+                    log.info("ZipU", "bestName:".padEnd(10, " "), fileName, encoding, badName)
                     break
                 }
-            }
-            else if (!invalidName) {
+            } else if (!invalidName) {
                 if (!betterNameFound) {
                     betterNameFound = true
                     fileName = tryName
                     encoding = charEncoding
                     badName = false
-                    log.info('ZipU', 'goodName:'.padEnd(10, ' '), fileName, encoding, badName)
+                    log.info("ZipU", "goodName:".padEnd(10, " "), fileName, encoding, badName)
                     continue
                 }
             }
         }
     } else {
-        log.info('ZipU', 'bestName2:'.padEnd(10, ' '), fileName, encoding, badName)
+        log.info("ZipU", "bestName2:".padEnd(10, " "), fileName, encoding, badName)
     }
-    log.info('ZipU', 'Name:'.padEnd(10, ' '), fileName, encoding, badName)
+    log.info("ZipU", "Name:".padEnd(10, " "), fileName, encoding, badName)
     // decodedNameCache.set(fileNameRaw, { fileName, encoding, badName })
     return { fileName, encoding, badName }
 }
 
 function hasBadChars(str, strict = false) {
-
-    if (enc.hasBadCJKChar(str)) { return true }
+    if (enc.hasBadCJKChar(str)) {
+        return true
+    }
 
     const results = []
     if (!strict) {
-        if (str.includes('?')) {
+        if (str.includes("?")) {
             // 乱码标志 问号
             results.push([true, 0, `问号`])
         }
@@ -602,7 +639,7 @@ function hasBadChars(str, strict = false) {
             results.push([true, 6, `半角假名`])
         }
     }
-    if (str.includes('\ufffd')) {
+    if (str.includes("\ufffd")) {
         // 乱码标志 黑问号
         results.push([true, 0, `非法字符`])
     }
@@ -633,4 +670,3 @@ function hasBadChars(str, strict = false) {
 
     return results?.length > 0
 }
-

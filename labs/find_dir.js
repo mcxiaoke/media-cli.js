@@ -6,8 +6,8 @@
  * License: Apache License 2.0
  */
 
-import { promises as fsPromises } from 'fs'
-import path from 'path'
+import { promises as fsPromises } from "fs"
+import path from "path"
 
 async function removeRedundantDirectories(filePath) {
     try {
@@ -32,5 +32,5 @@ async function removeRedundantDirectories(filePath) {
 
 // 调用函数
 removeRedundantDirectories(process.argv[2] || examplePath)
-    .then(resultPath => console.log(resultPath))
-    .catch(error => console.error(error))
+    .then((resultPath) => console.log(resultPath))
+    .catch((error) => console.error(error))

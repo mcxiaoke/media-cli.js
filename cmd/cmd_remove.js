@@ -6,192 +6,194 @@
  * License: Apache License 2.0
  */
 
-
 import assert from "assert"
-import chalk from 'chalk'
+import chalk from "chalk"
 import dayjs from "dayjs"
-import { fileTypeFromFile } from 'file-type'
-import fs from 'fs-extra'
-import imageSizeOfSync from 'image-size'
+import { fileTypeFromFile } from "file-type"
+import fs from "fs-extra"
+import imageSizeOfSync from "image-size"
 import inquirer from "inquirer"
 import { cpus } from "os"
-import pMap from 'p-map'
+import pMap from "p-map"
 import path from "path"
 import { argv } from "process"
-import { promisify } from 'util'
+import { promisify } from "util"
 import { comparePathSmartBy, uniqueByFields } from "../lib/core.js"
-import * as log from '../lib/debug.js'
-import * as enc from '../lib/encoding.js'
-import * as mf from '../lib/file.js'
-import * as helper from '../lib/helper.js'
-import { getMediaInfo, getVideoInfo } from '../lib/mediainfo.js'
-import { addEntryProps, applyFileNameRules } from './cmd_shared.js'
+import * as log from "../lib/debug.js"
+import * as enc from "../lib/encoding.js"
+import * as mf from "../lib/file.js"
+import * as helper from "../lib/helper.js"
+import { getMediaInfo, getVideoInfo } from "../lib/mediainfo.js"
+import { addEntryProps, applyFileNameRules } from "./cmd_shared.js"
 
 // a = all, f = files, d = directories
-const TYPE_LIST = ['a', 'f', 'd']
+const TYPE_LIST = ["a", "f", "d"]
 
 export { aliases, builder, command, describe, handler }
 
 const command = "remove [input] [directories...]"
 const aliases = ["rm", "rmf"]
-const describe = 'Remove files by given size/width-height/name-pattern/file-list'
+const describe = "Remove files by given size/width-height/name-pattern/file-list"
 
 const builder = function addOptions(ya, helpOrVersionSet) {
-    return ya.option("loose", {
-        alias: "l",
-        type: "boolean",
-        default: false,
-        // 宽松模式，默认不开启，宽松模式条件或，默认严格模式条件与
-        description: "If true, operation of conditions is OR, default AND",
-    })
-        // 输出目录，如果存在，就是移动到这个目录，否则是删除
-        .option("output", {
-            alias: "o",
-            type: "string",
-            description: "move files to this folder, or just deleted",
-        })
-        // 保持源文件目录结构
-        .option("output-tree", {
-            alias: 'otree',
-            describe: "keep folder tree structure in output folder",
-            type: "boolean",
-            default: false,
-        })
-        // 正则，包含文件名规则
-        .option("include", {
-            alias: "I",
-            type: "string",
-            description: "filename include pattern",
-        })
-        //字符串或正则，不包含文件名规则
-        // 如果是正则的话需要转义
-        .option("exclude", {
-            alias: "E",
-            type: "string",
-            description: "filename exclude pattern ",
-        })
-        // 默认启用正则模式，禁用则为字符串模式
-        .option("regex", {
-            alias: 're',
-            type: "boolean",
-            default: true,
-            description: "match filenames by regex pattern",
-        })
-        // 需要处理的扩展名列表，默认为常见视频文件
-        .option("extensions", {
-            alias: "e",
-            type: "string",
-            describe: "include files by extensions (eg. .wav|.flac)",
-        })
-        .option("width", {
-            type: "number",
-            default: 0,
-            // 图片文件的最大宽度
-            description: "Files width smaller than value will be removed",
-        })
-        .option("height", {
-            type: "number",
-            default: 0,
-            // 图片文件的最大高度
-            description: "Files height smaller than value will be removed",
-        })
-        .option("measure", {
-            alias: "m",
-            type: "string",
-            default: "",
-            // 图片文件的长宽字符串形式
-            description: "File x*y dimension, width and height, eg: '123x456'",
-        })
-        .option("sizel", {
-            alias: "sl",
-            type: "number",
-            default: 0,
-            // 图片文件的文件大小，最小值，大于，单位为k
-            description: "Files size bigger than value will be removed (unit:k)",
-        })
-        .option("sizer", {
-            alias: 'sr',
-            type: "number",
-            default: 0,
-            // size 的 别名
-            // 图片文件的文件大小，最大值，小于，单位为k
-            description: "Files size smaller than value will be removed (unit:k)",
-        })
-        .option("pattern", {
-            alias: "p",
-            type: "string",
-            default: "",
-            // 文件名匹配，字符串或正则表达式
-            description: "Files name pattern matched value will be removed",
-        })
-        // 启用反转匹配模式
-        .option("not-match", {
-            alias: "n",
-            type: "boolean",
-            default: false,
-            description: "Files name pattern not matched value will be removed",
-        })
-        .option("list", {
-            type: "string",
-            default: null,
-            // 文件名列表文本文件，或者一个目录，里面包含的文件作为文件名列表来源
-            description: "File name list file, or dir contains files for file name",
-        })
-        // 视频模式，按照视频文件的元数据删除
-        // duration,dimension(width,height),bitrate
-        // 参数格式 缩写 du=xx,w=xx,h=xx,dm=xx,bit=xx 
-        // duration=xx,width=xx,height=xx,bitrate=xx
-        .option("video", {
-            alias: "vdm",
-            type: "string",
-            description: "Remove files by video metadata",
-        })
-        // 要处理的文件类型 文件或目录或所有，默认只处理文件
-        .option("type", {
-            type: "choices",
-            choices: TYPE_LIST,
-            default: 'f',
-            description: "applied to file type (a=all,f=file,d=dir)",
-        })
-        .option("reverse", {
-            alias: "r",
-            type: "boolean",
-            default: false,
-            // 文件名列表反转，默认为否，即删除列表中的文件，反转则删除不在列表中的文件
-            description: "delete files in list, if true delete files not in the list",
-        })
-        .option("corrupted", {
-            alias: "c",
-            type: "boolean",
-            default: false,
-            // 移除损坏的文件
-            description: "delete corrupted files",
-        })
-        .option("badchars", {
-            alias: "b",
-            type: "boolean",
-            default: false,
-            // 移除文件名含乱码的文件
-            description: "delete files with illegal or bad unicode chars",
-        })
-        .option("delete-permanently", {
-            type: "boolean",
-            default: false,
-            // 直接删除文件，不使用安全删除
-            description: "delete file permanently, not just move it",
-        })
-        // 确认执行所有系统操作，非测试模式，如删除和重命名和移动操作
-        .option("doit", {
-            alias: "d",
-            type: "boolean",
-            default: false,
-            description: "execute os operations in real mode, not dry run",
-        })
+    return (
+        ya
+            .option("loose", {
+                alias: "l",
+                type: "boolean",
+                default: false,
+                // 宽松模式，默认不开启，宽松模式条件或，默认严格模式条件与
+                description: "If true, operation of conditions is OR, default AND",
+            })
+            // 输出目录，如果存在，就是移动到这个目录，否则是删除
+            .option("output", {
+                alias: "o",
+                type: "string",
+                description: "move files to this folder, or just deleted",
+            })
+            // 保持源文件目录结构
+            .option("output-tree", {
+                alias: "otree",
+                describe: "keep folder tree structure in output folder",
+                type: "boolean",
+                default: false,
+            })
+            // 正则，包含文件名规则
+            .option("include", {
+                alias: "I",
+                type: "string",
+                description: "filename include pattern",
+            })
+            //字符串或正则，不包含文件名规则
+            // 如果是正则的话需要转义
+            .option("exclude", {
+                alias: "E",
+                type: "string",
+                description: "filename exclude pattern ",
+            })
+            // 默认启用正则模式，禁用则为字符串模式
+            .option("regex", {
+                alias: "re",
+                type: "boolean",
+                default: true,
+                description: "match filenames by regex pattern",
+            })
+            // 需要处理的扩展名列表，默认为常见视频文件
+            .option("extensions", {
+                alias: "e",
+                type: "string",
+                describe: "include files by extensions (eg. .wav|.flac)",
+            })
+            .option("width", {
+                type: "number",
+                default: 0,
+                // 图片文件的最大宽度
+                description: "Files width smaller than value will be removed",
+            })
+            .option("height", {
+                type: "number",
+                default: 0,
+                // 图片文件的最大高度
+                description: "Files height smaller than value will be removed",
+            })
+            .option("measure", {
+                alias: "m",
+                type: "string",
+                default: "",
+                // 图片文件的长宽字符串形式
+                description: "File x*y dimension, width and height, eg: '123x456'",
+            })
+            .option("sizel", {
+                alias: "sl",
+                type: "number",
+                default: 0,
+                // 图片文件的文件大小，最小值，大于，单位为k
+                description: "Files size bigger than value will be removed (unit:k)",
+            })
+            .option("sizer", {
+                alias: "sr",
+                type: "number",
+                default: 0,
+                // size 的 别名
+                // 图片文件的文件大小，最大值，小于，单位为k
+                description: "Files size smaller than value will be removed (unit:k)",
+            })
+            .option("pattern", {
+                alias: "p",
+                type: "string",
+                default: "",
+                // 文件名匹配，字符串或正则表达式
+                description: "Files name pattern matched value will be removed",
+            })
+            // 启用反转匹配模式
+            .option("not-match", {
+                alias: "n",
+                type: "boolean",
+                default: false,
+                description: "Files name pattern not matched value will be removed",
+            })
+            .option("list", {
+                type: "string",
+                default: null,
+                // 文件名列表文本文件，或者一个目录，里面包含的文件作为文件名列表来源
+                description: "File name list file, or dir contains files for file name",
+            })
+            // 视频模式，按照视频文件的元数据删除
+            // duration,dimension(width,height),bitrate
+            // 参数格式 缩写 du=xx,w=xx,h=xx,dm=xx,bit=xx
+            // duration=xx,width=xx,height=xx,bitrate=xx
+            .option("video", {
+                alias: "vdm",
+                type: "string",
+                description: "Remove files by video metadata",
+            })
+            // 要处理的文件类型 文件或目录或所有，默认只处理文件
+            .option("type", {
+                type: "choices",
+                choices: TYPE_LIST,
+                default: "f",
+                description: "applied to file type (a=all,f=file,d=dir)",
+            })
+            .option("reverse", {
+                alias: "r",
+                type: "boolean",
+                default: false,
+                // 文件名列表反转，默认为否，即删除列表中的文件，反转则删除不在列表中的文件
+                description: "delete files in list, if true delete files not in the list",
+            })
+            .option("corrupted", {
+                alias: "c",
+                type: "boolean",
+                default: false,
+                // 移除损坏的文件
+                description: "delete corrupted files",
+            })
+            .option("badchars", {
+                alias: "b",
+                type: "boolean",
+                default: false,
+                // 移除文件名含乱码的文件
+                description: "delete files with illegal or bad unicode chars",
+            })
+            .option("delete-permanently", {
+                type: "boolean",
+                default: false,
+                // 直接删除文件，不使用安全删除
+                description: "delete file permanently, not just move it",
+            })
+            // 确认执行所有系统操作，非测试模式，如删除和重命名和移动操作
+            .option("doit", {
+                alias: "d",
+                type: "boolean",
+                default: false,
+                description: "execute os operations in real mode, not dry run",
+            })
+    )
 }
 
 const handler = cmdRemove
 async function cmdRemove(argv) {
-    const logTag = 'cmdRemove'
+    const logTag = "cmdRemove"
     log.info(logTag, argv)
     const testMode = !argv.doit
     assert.strictEqual("string", typeof argv.input, "root must be string")
@@ -199,15 +201,22 @@ async function cmdRemove(argv) {
     // 1200*1600 1200,1600 1200x1600 1200|1600
     const reMeasure = /^\d+[x*,\|]\d+$/
     // 如果没有提供任何一个参数，报错，显示帮助
-    if (argv.width == 0 && argv.height == 0 && argv.size == 0
-        && !(argv.measure && reMeasure.test(argv.measure))
-        && !argv.pattern && !argv.list && !argv.corrupted && !argv.badchars) {
+    if (
+        argv.width == 0 &&
+        argv.height == 0 &&
+        argv.size == 0 &&
+        !(argv.measure && reMeasure.test(argv.measure)) &&
+        !argv.pattern &&
+        !argv.list &&
+        !argv.corrupted &&
+        !argv.badchars
+    ) {
         log.show(logTag, argv)
         log.error(logTag, `required remove condition args not supplied`)
         throw new Error("required remove condition args not supplied")
     }
 
-    const type = (argv.type || 'f').toLowerCase()
+    const type = (argv.type || "f").toLowerCase()
     if (!TYPE_LIST.includes(type)) {
         throw new Error(`Error: type must be one of ${TYPE_LIST}`)
     }
@@ -238,7 +247,7 @@ async function cmdRemove(argv) {
                 cNames = (await readNameList(list)) || new Set()
             } else if (listStat.isDirectory()) {
                 const dirFiles = (await fs.readdir(list)) || []
-                cNames = new Set(dirFiles.map(x => path.parse(x).name.trim()))
+                cNames = new Set(dirFiles.map((x) => path.parse(x).name.trim()))
             } else {
                 log.error(logTag, `invalid arguments: list file invalid 1`)
                 return
@@ -259,8 +268,8 @@ async function cmdRemove(argv) {
 
     const walkOpts = {
         needStats: true,
-        withDirs: type === 'd',
-        withFiles: type === 'a' || type === 'f',
+        withDirs: type === "d",
+        withFiles: type === "a" || type === "f",
         withIndex: true,
     }
     log.showGreen(logTag, `Walking files, please waiting ... (${type})`)
@@ -268,7 +277,7 @@ async function cmdRemove(argv) {
     log.show(logTag, `total ${fileEntries.length} files found in ${root}`)
     // 处理额外目录参数
     if (argv.directories?.length > 0) {
-        const extraDirs = new Set(argv.directories.map(d => path.resolve(d)))
+        const extraDirs = new Set(argv.directories.map((d) => path.resolve(d)))
         for (const dirPath of extraDirs) {
             const st = await fs.stat(dirPath)
             if (st.isDirectory()) {
@@ -281,11 +290,11 @@ async function cmdRemove(argv) {
         }
     }
     // 根据完整路径去重
-    fileEntries = uniqueByFields(fileEntries, 'path')
+    fileEntries = uniqueByFields(fileEntries, "path")
     // 应用文件名过滤规则
     fileEntries = await applyFileNameRules(fileEntries, argv)
     // 路径排序，路径深度=>路径长度=>自然语言
-    fileEntries = fileEntries.sort(comparePathSmartBy('path'))
+    fileEntries = fileEntries.sort(comparePathSmartBy("path"))
     log.show(logTag, `total ${fileEntries.length} files found (${type})`)
 
     const conditions = {
@@ -337,7 +346,10 @@ async function cmdRemove(argv) {
     if (cNames && cNames.size > 0) {
         // 默认仅删除列表中的文件，反转则仅保留列表中的文件，其它的全部删除，谨慎操作
         log.showYellow(logTag, `Attention: use file name list, ignore all other conditions`)
-        log.showRed(logTag, `Attention: Will DELETE all files ${cReverse ? "NOT IN" : "IN"} the name list!`)
+        log.showRed(
+            logTag,
+            `Attention: Will DELETE all files ${cReverse ? "NOT IN" : "IN"} the name list!`,
+        )
     }
     log.fileLog(`Conditions: ${JSON.stringify(conditions)}`, logTag)
     testMode && log.showYellow("++++++++++ TEST MODE (DRY RUN) ++++++++++")
@@ -359,7 +371,7 @@ async function cmdRemove(argv) {
             name: "yes",
             default: false,
             message: chalk.bold.red(
-                `Are you sure to remove ${tasks.length} files (Size:${helper.humanSize(totalSize)}) using above conditions (type=${type})?`
+                `Are you sure to remove ${tasks.length} files (Size:${helper.humanSize(totalSize)}) using above conditions (type=${type})?`,
             ),
         },
     ])
@@ -370,7 +382,7 @@ async function cmdRemove(argv) {
     }
 
     const startMs = Date.now()
-    log.showGreen(logTag, 'task startAt', dayjs().format())
+    log.showGreen(logTag, "task startAt", dayjs().format())
     let removedCount = 0
     let index = 0
     if (testMode) {
@@ -382,28 +394,47 @@ async function cmdRemove(argv) {
                 // 此选项为永久删除
                 if (conditions.purge) {
                     await fs.remove(task.src)
-                    log.show(logTag, `Deleted ${++index}/${tasks.length} ${helper.pathShort(task.src)} ${helper.humanSize(task.size)} ${flag}`)
-                    log.fileLog(`Deleted: ${task.index} <${task.src}> ${helper.humanSize(task.size)} ${flag}`, logTag)
+                    log.show(
+                        logTag,
+                        `Deleted ${++index}/${tasks.length} ${helper.pathShort(task.src)} ${helper.humanSize(task.size)} ${flag}`,
+                    )
+                    log.fileLog(
+                        `Deleted: ${task.index} <${task.src}> ${helper.humanSize(task.size)} ${flag}`,
+                        logTag,
+                    )
                 } else {
                     // 此选项安全删除，仅移动到指定目录
                     await helper.safeRemove(task.src)
-                    log.show(logTag, `Moved ${++index}/${tasks.length} ${helper.pathShort(task.src)} ${helper.humanSize(task.size)} ${flag}`)
-                    log.fileLog(`Moved: ${task.index} <${task.src}> ${helper.humanSize(task.size)} ${flag}`, logTag)
+                    log.show(
+                        logTag,
+                        `Moved ${++index}/${tasks.length} ${helper.pathShort(task.src)} ${helper.humanSize(task.size)} ${flag}`,
+                    )
+                    log.fileLog(
+                        `Moved: ${task.index} <${task.src}> ${helper.humanSize(task.size)} ${flag}`,
+                        logTag,
+                    )
                 }
                 ++removedCount
             } catch (error) {
-                log.error(logTag, `failed to remove file ${task.src} ${helper.humanSize(task.size)} ${flag}`, error)
+                log.error(
+                    logTag,
+                    `failed to remove file ${task.src} ${helper.humanSize(task.size)} ${flag}`,
+                    error,
+                )
             }
         }
     }
 
-    log.showGreen(logTag, 'task endAt', dayjs().format())
+    log.showGreen(logTag, "task endAt", dayjs().format())
     log.showGreen(logTag, `${removedCount} files removed in ${helper.humanTime(startMs)} (${type})`)
 }
 
 async function readNameList(list) {
-    const listContent = await fs.readFile(list, 'utf-8') || ""
-    const nameList = listContent.split(/\r?\n/).map(x => path.parse(x).name.trim()).filter(Boolean)
+    const listContent = (await fs.readFile(list, "utf-8")) || ""
+    const nameList = listContent
+        .split(/\r?\n/)
+        .map((x) => path.parse(x).name.trim())
+        .filter(Boolean)
     return new Set(nameList)
 }
 
@@ -439,9 +470,7 @@ async function preRemoveArgs(f) {
         const nameInList = cNames.has(base.trim())
         shouldRemove = cReverse ? !nameInList : nameInList
         itemDesc = `IN=${nameInList} R=${cReverse}`
-        log.show(
-            `preRemove[List] add:${ipx}`,
-            `${helper.pathShort(fileSrc)} ${itemDesc} ${flag}`)
+        log.show(`preRemove[List] add:${ipx}`, `${helper.pathShort(fileSrc)} ${itemDesc} ${flag}`)
         return buildRemoveArgs(f.index, itemDesc, shouldRemove, fileSrc, f.size)
     }
     // 文件名列表是单独规则，优先级最高，如果存在，直接返回，忽略其它条件
@@ -510,7 +539,11 @@ async function preRemoveArgs(f) {
                     // 正常的多媒体文件有这两个字段
                     const validMediaFile = info?.duration && info?.bitrate
                     if (!validMediaFile) {
-                        log.showGray("preRemove[CorruptedMedia]:", `${ipx} ${fileSrc}`, info?.format || "unknwon format")
+                        log.showGray(
+                            "preRemove[CorruptedMedia]:",
+                            `${ipx} ${fileSrc}`,
+                            info?.format || "unknwon format",
+                        )
                         itemDesc += " Corrupted"
                         testCorrupted = true
                     }
@@ -541,7 +574,10 @@ async function preRemoveArgs(f) {
         if (hasBadChars) {
             // 可能为文件或目录
             if (enc.hasBadCJKChar(fileName) || enc.hasBadUnicode(fileName, true)) {
-                log.showGray("preRemove[BadChars]:", `${ipx} ${fileSrc} (${helper.humanSize(itemSize)},${itemCount})`)
+                log.showGray(
+                    "preRemove[BadChars]:",
+                    `${ipx} ${fileSrc} (${helper.humanSize(itemSize)},${itemCount})`,
+                )
                 itemDesc += " BadChars"
                 testBadChars = true
             }
@@ -553,17 +589,17 @@ async function preRemoveArgs(f) {
             const rp = new RegExp(cPattern, "ui")
             itemDesc += ` P=${cPattern}`
             // 开头匹配，或末尾匹配，或正则匹配
-            const pMatched = fName.startsWith(cPattern) || fName.endsWith(cPattern) || rp.test(fName)
+            const pMatched =
+                fName.startsWith(cPattern) || fName.endsWith(cPattern) || rp.test(fName)
             // 条件反转判断
             testPattern = cNotMatch ? !pMatched : pMatched
             if (testPattern) {
                 log.info(
-                    "preRemove[Name]:", `${ipx} ${helper.pathShort(fileSrc)} [P=${rp}] (${helper.humanSize(itemSize)},${itemCount})`
+                    "preRemove[Name]:",
+                    `${ipx} ${helper.pathShort(fileSrc)} [P=${rp}] (${helper.humanSize(itemSize)},${itemCount})`,
                 )
             } else {
-                log.debug(
-                    "preRemove[Name]:", `${ipx} ${fileName} [P=${rp}]`
-                )
+                log.debug("preRemove[Name]:", `${ipx} ${fileName} [P=${rp}]`)
             }
         }
 
@@ -581,7 +617,7 @@ async function preRemoveArgs(f) {
             }
             log.info(
                 "preRemove[Size]:",
-                `${ipx} ${fileName} [${helper.humanSize(itemSize)}] Size=(${c.sizeLeft}K,${c.sizeRight}K)`
+                `${ipx} ${fileName} [${helper.humanSize(itemSize)}] Size=(${c.sizeLeft}K,${c.sizeRight}K)`,
             )
         }
 
@@ -612,23 +648,22 @@ async function preRemoveArgs(f) {
                     if (fWidth <= cWidth && fHeight <= cHeight) {
                         log.info(
                             "preRemove[M]:",
-                            `${ipx} ${fileName} ${fWidth}x${fHeight} [${cWidth}x${cHeight}]`
+                            `${ipx} ${fileName} ${fWidth}x${fHeight} [${cWidth}x${cHeight}]`,
                         )
                         testMeasure = true
                     }
-                }
-                else if (cWidth > 0 && fWidth <= cWidth) {
+                } else if (cWidth > 0 && fWidth <= cWidth) {
                     // 只提供宽要求
                     log.info(
                         "preRemove[M]:",
-                        `${ipx} ${fileName} ${fWidth}x${fHeight} [W=${cWidth}]`
+                        `${ipx} ${fileName} ${fWidth}x${fHeight} [W=${cWidth}]`,
                     )
                     testMeasure = true
                 } else if (cHeight > 0 && fHeight <= cHeight) {
                     // 只提供高要求
                     log.info(
                         "preRemove[M]:",
-                        `${ipx} ${fileName} ${fWidth}x${fHeight} [H=${cHeight}]`
+                        `${ipx} ${fileName} ${fWidth}x${fHeight} [H=${cHeight}]`,
                     )
                     testMeasure = true
                 }
@@ -636,7 +671,6 @@ async function preRemoveArgs(f) {
                 log.info("preRemove[M]:", `${ipx} InvalidImage: ${fileName} ${error.message}`)
             }
         }
-
 
         let shouldRemove = false
 
@@ -646,27 +680,41 @@ async function preRemoveArgs(f) {
             if (hasLoose) {
                 shouldRemove = testPattern || testSize || testMeasure
             } else {
-                log.debug("PreRemove ", `${ipx} ${helper.pathShort(fileSrc)} hasName=${hasName}-${testPattern} hasSize=${hasSize}-${testSize} hasMeasure=${hasMeasure}-${testMeasure} testCorrupted=${testCorrupted},testBadChars=${testBadChars},flag=${flag}`)
+                log.debug(
+                    "PreRemove ",
+                    `${ipx} ${helper.pathShort(fileSrc)} hasName=${hasName}-${testPattern} hasSize=${hasSize}-${testSize} hasMeasure=${hasMeasure}-${testMeasure} testCorrupted=${testCorrupted},testBadChars=${testBadChars},flag=${flag}`,
+                )
                 shouldRemove = checkConditions()
             }
         }
 
         if (shouldRemove) {
             if (itemSize > mf.FILE_SIZE_1M * 200 || (f.isDir && itemCount > 100)) {
-                log.showYellow("PreRemove[Large]:", `${ipx} ${helper.pathShort(fileSrc)} (${helper.humanSize(itemSize)},${itemCount})  ${flag}`)
+                log.showYellow(
+                    "PreRemove[Large]:",
+                    `${ipx} ${helper.pathShort(fileSrc)} (${helper.humanSize(itemSize)},${itemCount})  ${flag}`,
+                )
             }
             log.show(
-                chalk.green("PreRemove"), chalk.yellow('ADD'), ++preparedCount,
-                `${helper.pathShort(fileSrc, 48)} ${itemDesc} ${testCorrupted ? "Corrupted" : ""} (${helper.humanSize(itemSize)})`, ipx)
-            log.fileLog(`add: ${ipx} <${fileSrc}> ${itemDesc} ${flag} (${helper.humanSize(itemSize)},${itemCount})`, "PreRemove")
+                chalk.green("PreRemove"),
+                chalk.yellow("ADD"),
+                ++preparedCount,
+                `${helper.pathShort(fileSrc, 48)} ${itemDesc} ${testCorrupted ? "Corrupted" : ""} (${helper.humanSize(itemSize)})`,
+                ipx,
+            )
+            log.fileLog(
+                `add: ${ipx} <${fileSrc}> ${itemDesc} ${flag} (${helper.humanSize(itemSize)},${itemCount})`,
+                "PreRemove",
+            )
         } else {
-            (testPattern || testSize || testMeasure) && log.info(
-                "PreRemove ignore:",
-                `${ipx} ${helper.pathShort(fileSrc)} [${itemDesc}] (${testPattern} ${testSize} ${testMeasure}) ${flag}`)
+            ;(testPattern || testSize || testMeasure) &&
+                log.info(
+                    "PreRemove ignore:",
+                    `${ipx} ${helper.pathShort(fileSrc)} [${itemDesc}] (${testPattern} ${testSize} ${testMeasure}) ${flag}`,
+                )
         }
 
         return buildRemoveArgs(f.index, itemDesc, shouldRemove, fileSrc, itemSize)
-
     } catch (error) {
         log.error(`PreRemove ${ipx} error:`, error, fileSrc, flag)
         log.fileLog(`Error: ${f.index} <${fileSrc}> ${flag}`, "PreRemove")
@@ -690,7 +738,7 @@ async function preRemoveArgs(f) {
         else if (hasName && !hasSize && hasMeasure) {
             return testPattern && testMeasure
         }
-        // 其他情况下，三个hasXXX条件只有一个为真， 
+        // 其他情况下，三个hasXXX条件只有一个为真，
         // hasXXX为false时 testXXX一定为false
         // 所以可以简化测试方法
         else {

@@ -5,10 +5,10 @@
  * Author: mcxiaoke (github@mcxiaoke.com)
  * License: Apache License 2.0
  */
-import path from 'path'
-import * as log from '../lib/debug.js'
-import * as mf from '../lib/file.js'
-import * as helper from '../lib/helper.js'
+import path from "path"
+import * as log from "../lib/debug.js"
+import * as mf from "../lib/file.js"
+import * as helper from "../lib/helper.js"
 
 /**
  * 计算每个目录下的文件路径列表
@@ -18,11 +18,11 @@ import * as helper from '../lib/helper.js'
 function countFilesInDirectories(filePaths) {
     const fileListMap = new Map()
 
-    filePaths.forEach(filePath => {
+    filePaths.forEach((filePath) => {
         const dirname = path.dirname(filePath)
         const basename = path.basename(filePath)
         // 判断是否有扩展名
-        const isFile = path.extname(basename) !== ''
+        const isFile = path.extname(basename) !== ""
         if (isFile) {
             // 更新文件列表Map
             if (fileListMap.has(dirname)) {
@@ -42,11 +42,11 @@ async function rmFiles() {
     const divide = process.argv?.[4] || 0
     const walkOpts = {
         needStats: false,
-        entryFilter: (f) => helper.isImageFile(f.path)
+        entryFilter: (f) => helper.isImageFile(f.path),
     }
-    log.showGreen('rmFiles', `Walking files ... threhold=${threhold},divide=${divide}`)
+    log.showGreen("rmFiles", `Walking files ... threhold=${threhold},divide=${divide}`)
     let entries = await mf.walk(root, walkOpts)
-    let filePaths = entries.map(e => e.path)
+    let filePaths = entries.map((e) => e.path)
     let map = countFilesInDirectories(filePaths)
     for (const [key, value] of map) {
         log.show(`Found [${value.length}] files in ${key}`)
@@ -63,7 +63,6 @@ async function rmFiles() {
             }
         }
     }
-
 }
 
 await rmFiles()
