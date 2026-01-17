@@ -111,6 +111,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.12.7",
+    "prettier": "^3.8.0",
     "standard": "^17.1.0"
   }
 }
