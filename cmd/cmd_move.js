@@ -355,6 +355,10 @@ const handler = async function cmdMove(argv) {
         let movedCount = 0
         try {
             for (const { fileSrc, fileDst } of entries) {
+                if (await fs.pathExists(fileDst)) {
+                    log.showYellow(logTag, "Skipped:", fileDst)
+                    continue
+                }
                 !testMode && await fs.move(fileSrc, fileDst)
                 movedCount++
                 log.info(logTag, "Moved:", fileSrc, "to", fileDst)

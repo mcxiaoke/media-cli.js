@@ -109,6 +109,13 @@ const handler = async function cmdRename(argv) {
         `Total ${files.length} media files parsed`,
         fastMode ? "(FastMode)" : ""
     )
+    files = files.map((f) => {
+        // add naming options
+        f.namePrefix = argv.prefix
+        f.nameSuffix = argv.suffix
+        f.nameTemplate = argv.template
+        return f
+    })
     files = exif.buildNames(files)
     const [validFiles, skippedBySize, skippedByDate] = exif.checkFiles(files)
     files = validFiles
@@ -147,7 +154,7 @@ const handler = async function cmdRename(argv) {
     )
 
     log.show(LOG_TAG, `task sample list:`)
-    for (const f of files.slice(-20)) {
+    for (const f of files.slice(-10)) {
         log.show(path.basename(f.path), f.outName, f.date)
     }
     log.info(LOG_TAG, argv)
