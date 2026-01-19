@@ -310,7 +310,7 @@ async function cmdConvert(argv) {
     // dm = dimension
     // fps = framerate
     argv.ffargs = argparser.parseArgs(argv.ffargs)
-    log.show(logTag, `ffargs:`, argv.ffargs)
+    log.info(logTag, `ffargs:`, argv.ffargs)
     // 解析Preset，根据argv参数修改preset，返回对象
     const preset = presets.createFromArgv(argv)
     if (!testMode) {
@@ -382,7 +382,7 @@ async function cmdConvert(argv) {
         }
         return
     }
-    if (fileEntries.length > 5000) {
+    if (fileEntries.length > 1000) {
         const continueAnswer = await inquirer.prompt([
             {
                 type: "confirm",
@@ -413,8 +413,8 @@ async function cmdConvert(argv) {
         }
     })
 
-    log.showYellow(logTag, "ARGV:", argv)
-    log.showYellow(logTag, "PRESET:", preset)
+    log.show(logTag, "ARGV:", argv)
+    log.show(logTag, "PRESET:", preset)
     const prepareAnswer = await inquirer.prompt([
         {
             type: "confirm",
@@ -473,11 +473,11 @@ async function cmdConvert(argv) {
     }
     const lastTask = tasks.slice(-1)[0]
     !testMode && log.fileLog(`ffmpegArgs:`, lastTask.ffmpegArgs.flat(), "FFConv")
-    log.show("-----------------------------------------------------------")
-    log.show(logTag, chalk.cyan("PRESET:"), lastTask.debugPreset)
-    log.show(logTag, chalk.cyan("CMD:"), "ffmpeg", lastTask.ffmpegArgs.flat().join(" "))
+    log.info("-----------------------------------------------------------")
+    log.info(logTag, chalk.cyan("PRESET:"), lastTask.debugPreset)
+    log.info(logTag, chalk.cyan("CMD:"), "ffmpeg", lastTask.ffmpegArgs.flat().join(" "))
     const totalDuration = tasks.reduce((acc, t) => acc + t.info?.duration || 0, 0)
-    log.show("-----------------------------------------------------------")
+    log.info("-----------------------------------------------------------")
     testMode && log.showYellow("++++++++++ TEST MODE (DRY RUN) ++++++++++")
     log.showYellow(logTag, "Please CHECK above details BEFORE continue!")
     const answer = await inquirer.prompt([
@@ -1137,7 +1137,8 @@ function calculateDstArgs(entry) {
         const dstWH = calculateScale(srcWidth, srcHeight, dstDimension)
         dstWidth = dstWH.dstWidth
         dstHeight = dstWH.dstHeight
-        const bigSide = Math.max(dstWidth, dstHeight)
+        const bigSideDst = Math.max(dstWidth, dstHeight)
+        const bigSideSrc = Math.max(srcWidth, srcHeight)
         const srcPixels = srcWidth * srcHeight
         const dstPixels = dstWidth * dstHeight
         // 这个是文件整体码率，如果是是视频文件，等于是视频和音频的码率相加
@@ -1152,11 +1153,13 @@ function calculateDstArgs(entry) {
         dstAudioBitrate = minNoZero(srcAudioBitrate, reqAudioBitrate)
         // 如果源文件不是1080p，这里码率需要考虑分辨率
         let pixelsScale = 1
-        if (dstDimension > bigSide) {
+        if (dstDimension > bigSideDst) {
             // 如果使用4KPreset压缩1080P视频，需要缩放码率
-            pixelsScale = bigSide / (dstDimension * 1.2)
-        } else if (dstDimension < bigSide) {
-            pixelsScale = PIXELS_1080P / srcPixels
+            // 4K60 ~= 1080P60 * (1.5,2)
+            pixelsScale = (bigSideDst / dstDimension) * 1.1
+        } else if (dstDimension < bigSideDst) {
+            // 其它情况按长边比例就差不多
+            pixelsScale = bigSideDst / bigSideSrc
         } else {
             pixelsScale = 1
         }
@@ -1176,12 +1179,12 @@ function calculateDstArgs(entry) {
             "pixelsScale",
             pixelsScale,
             "bigSide",
-            bigSide,
+            bigSideDst,
             "dstDimension",
             dstDimension,
         )
         // 小于1080p分辨率，码率也需要缩放
-        if (bigSide < 1920) {
+        if (bigSideDst < 1920) {
             let scaleFactor = dstPixels / PIXELS_1080P
             // 如果目标码率是4K，暂时不考虑
             // 如果目标码率不是1080p，根据分辨率智能缩放
