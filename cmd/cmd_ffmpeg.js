@@ -861,10 +861,10 @@ async function prepareFFmpegCmd(entry) {
 
         const duration = newEntry.info?.duration || ivideo?.duration || iaudio?.duration || 0
         // 跳过过短的文件
-        if (duration < 5) {
+        if (duration < 4) {
             log.showYellow(
                 logTag,
-                `$${ipx} Skip[Short]: ${entry.path} (${helper.humanSize(entry.size)}) Duration=($ {duration}s)`,
+                `${ipx} Skip[Short]: ${entry.path} (${helper.humanSize(entry.size)}) Duration=${duration}s)`,
             )
             return false
         }
