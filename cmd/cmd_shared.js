@@ -443,12 +443,12 @@ export function addEntryProps(entries, extraProps = {}) {
 export function calculateScale(imgWidth, imgHeight, maxSide) {
     // 不需要缩放的情况
     if (imgWidth <= maxSide && imgHeight <= maxSide) {
-        return { dstWidth: imgWidth, dstHeight: imgHeight }
+        return { dstWidth: imgWidth, dstHeight: imgHeight, scaled: false }
     }
     // 计算缩放比例
     let scaleFactor = maxSide / Math.max(imgWidth, imgHeight)
     // 计算新的长宽
     let dstWidth = Math.round(imgWidth * scaleFactor)
     let dstHeight = Math.round(imgHeight * scaleFactor)
-    return { dstWidth, dstHeight }
+    return { dstWidth, dstHeight, scaled: true }
 }

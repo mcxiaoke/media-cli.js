@@ -21,6 +21,12 @@ const command = "moveup <input> [output]"
 const aliases = ["mp"]
 const describe = "Move files to sub top folder or top folder"
 
+const MODE_AUTO = "auto"
+const MODE_DIR = "dirname"
+const MODE_PREFIX = "prefix"
+const MODE_MEDIA = "media"
+const MODE_CLEAN = "clean"
+
 const builder = function addOptions(ya, helpOrVersionSet) {
     return (
         ya

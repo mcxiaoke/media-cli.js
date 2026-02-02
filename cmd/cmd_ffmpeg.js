@@ -472,10 +472,11 @@ async function cmdConvert(argv) {
         return
     }
     const lastTask = tasks.slice(-1)[0]
-    !testMode && log.fileLog(`ffmpegArgs:`, lastTask.ffmpegArgs.flat(), "FFConv")
+    const lastFFArgs = createFFmpegArgs(lastTask, true, false)
+    !testMode && log.fileLog(`ffmpegArgs:`, lastFFArgs?.flat(), "FFConv")
     log.info("-----------------------------------------------------------")
     log.info(logTag, chalk.cyan("PRESET:"), lastTask.debugPreset)
-    log.info(logTag, chalk.cyan("CMD:"), "ffmpeg", lastTask.ffmpegArgs.flat().join(" "))
+    log.info(logTag, chalk.cyan("CMD:"), "ffmpeg", lastFFArgs?.flat().join(" "))
     const totalDuration = tasks.reduce((acc, t) => acc + t.info?.duration || 0, 0)
     log.info("-----------------------------------------------------------")
     testMode && log.showYellow("++++++++++ TEST MODE (DRY RUN) ++++++++++")
@@ -552,7 +553,13 @@ async function cmdConvert(argv) {
 
 async function runFFmpegCmd(entry) {
     const ipx = `${entry.index + 1}/${entry.total}`
-    let logTag = chalk.green("FFCMD") + chalk.cyanBright(entry.useCPUDecode ? "[SW]" : "[HW]")
+
+    // 检测CUDA解码器，可能耗时1秒左右
+    const useCUDA = await canUseCUDADecoder(entry.path)
+    entry.useCUDA = useCUDA
+    entry.ffmpegArgs = createFFmpegArgs(entry, useCUDA, false)
+
+    let logTag = chalk.green("FFCMD") + chalk.cyanBright(useCUDA ? "[HW]" : "[SW]")
     if (entry.retryOnFailed) {
         logTag += chalk.red("(R)")
     }
@@ -592,16 +599,8 @@ async function runFFmpegCmd(entry) {
     const ffmpegArgs = [...inputArgs, ...middleArgs, ...metaComment, ...outputArgs]
 
     try {
-        // https://2ality.com/2022/07/nodejs-child-process.html
-        // Windows下 { shell: true } 必须，否则报错
-        const ffmpegProcess = execa(exePath, ffmpegArgs, { shell: true, encoding: "latin1" })
-        if (ffmpegProcess?.hasOwnProperty("pipeStdout")) {
-            ffmpegProcess.pipeStdout(process.stdout)
-            ffmpegProcess.pipeStderr(process.stderr)
-        }
-        const { stdout, stderr } = await ffmpegProcess
-        // const stdoutFixed = fixEncoding(stdout || "")
-        // const stderrFixed = fixEncoding(stderr || "")
+        await executeFFmpeg(ffmpegArgs)
+
         if (await fs.pathExists(entry.fileDst)) {
             log.showYellow(
                 logTag,
@@ -667,7 +666,10 @@ async function runFFmpegCmd(entry) {
 
 function getCommentArgs(entry) {
     // 将所有ffmpeg参数放到comment
-    const ffmpegArgsText = createFFmpegArgs(entry, true).flat().join(" ").replaceAll(/['"]/gi, " ")
+    const ffmpegArgsText = createFFmpegArgs(entry, entry.useCUDA, true)
+        .flat()
+        .join(" ")
+        .replaceAll(/['"]/gi, " ")
     return ["-metadata", `comment="${ffmpegArgsText}"`]
 }
 
@@ -787,9 +789,6 @@ async function prepareFFmpegCmd(entry) {
         // vp9视频和opus音频无法获取码率
         const dstArgs = calculateDstArgs(entry)
 
-        log.info(">>>", entry.name)
-        log.info(dstArgs)
-
         // 计算后的视频和音频码率，关联文件
         // 与预设独立，优先级高于预设
         // srcXX单位为bytes dstXXX单位为kbytes
@@ -887,7 +886,7 @@ async function prepareFFmpegCmd(entry) {
                         // H264 High L5以上可能也不支持
                         const isH264 = ivideo?.format === "h264" || ivideo?.format === "avc"
                         const isHigh50 = ivideo?.profile?.includes("High") && ivideo?.level > 4.2
-                        if (isH264 && (ivideo?.bitDepth === 10 || isHigh50)) {
+                        if (isH264 && ivideo?.bitDepth === 10) {
                             // 添加标志，使用软解，替换解码参数
                             // 在组装ffmpeg参数时判断和替换
                             // 解码和滤镜参数都需要修改
@@ -936,8 +935,8 @@ async function prepareFFmpegCmd(entry) {
             fileDstTemp,
             subtitles,
         }
-        newEntry.ffmpegArgs = createFFmpegArgs(newEntry)
-        log.info(logTag, "ffmpeg", newEntry.ffmpegArgs.flat().join(" "))
+        // newEntry.ffmpegArgs = createFFmpegArgs(newEntry)
+        // log.info(logTag, "ffmpeg", newEntry.ffmpegArgs.flat().join(" "))
         return newEntry
     } catch (error) {
         log.error(logTag, `${ipx} Skip[Error]: ${entry.path}`, error)
@@ -1099,6 +1098,10 @@ function calculateDstArgs(entry) {
     const dstSpeed = ep.userArgs.speed || ep.speed
     const dstDimension = ep.userArgs.dimension || ep.dimension
 
+    // 只有目标长边小于原视频长边时才需要缩放，才需要加sclae filter
+    // 避免加不必要的ffmpeg参数拖累性能
+    const dstScaleNeeded = srcWidth > dstDimension || srcHeight > dstDimension
+
     if (helper.isAudioFile(entry.path)) {
         // 音频文件
         // 文件信息中的码率值
@@ -1182,6 +1185,8 @@ function calculateDstArgs(entry) {
             bigSideDst,
             "dstDimension",
             dstDimension,
+            "scaled",
+            dstScaleNeeded,
         )
         // 小于1080p分辨率，码率也需要缩放
         if (bigSideDst < 1920) {
@@ -1248,12 +1253,14 @@ function calculateDstArgs(entry) {
         framerate: dstFrameRate,
         dimension: dstDimension,
         speed: dstSpeed,
+        // needs scale
+        scaled: dstScaleNeeded,
     }
 }
 
 // 组合各种参数，替换模板参数，输出最终的ffmpeg命令行参数
 // 此函数仅读取参数，不修改preset对象
-function createFFmpegArgs(entry, forDisplay = false) {
+function createFFmpegArgs(entry, useCUDA = false, forDisplay = false) {
     // 不要使用 entry.perset，下面复制一份针对每个entry
     const tempPreset = { ...entry.preset, ...entry.dstArgs }
 
@@ -1299,9 +1306,13 @@ function createFFmpegArgs(entry, forDisplay = false) {
     // 输出视频时才需要cuda加速，音频用cpu就行
     if (tempPreset.type === "video") {
         inputArgs.push("-stats")
-        // 使用cuda硬件解码
-        if (!entry.useCPUDecode) {
+        // 只能使用cuda缩放
+        if (useCUDA) {
+            // 使用cuda硬件解码
             inputArgs.push("-hwaccel", "cuda", "-hwaccel_output_format", "cuda")
+        } else {
+            // 系统自动选择
+            inputArgs.push("-hwaccel", "auto")
         }
         // 不支持硬解的格式，如H264-10bit，使用软解
     }
@@ -1356,13 +1367,16 @@ function createFFmpegArgs(entry, forDisplay = false) {
         middleArgs.push("-filter_complex")
         middleArgs.push(`"${formatArgs(tempPreset.complexFilter, tempPreset)}"`)
     } else if (tempPreset.filters?.length > 0) {
-        let tempFilters = tempPreset.filters
-        // 使用软解时，需要传输数据道GPU
-        if (entry.useCPUDecode) {
-            tempFilters = "hwupload_cuda," + tempFilters
+        // 只有需要缩放时才加 scale filter
+        if (entry.dstArgs.scaled) {
+            let tempFilters = tempPreset.filters
+            // 使用软解时，需要传输数据道GPU
+            if (!useCUDA) {
+                tempFilters = "hwupload_cuda," + tempFilters
+            }
+            middleArgs.push("-vf")
+            middleArgs.push(formatArgs(tempFilters, tempPreset))
         }
-        middleArgs.push("-vf")
-        middleArgs.push(formatArgs(tempFilters, tempPreset))
     }
     // 视频参数
     if (tempPreset.videoArgs?.length > 0) {
@@ -1465,4 +1479,63 @@ function createFFmpegArgs(entry, forDisplay = false) {
 
     // 返回三种参数，方便后面组合保存ffmpeg参数到元数据
     return [inputArgs, middleArgs, outputArgs]
+}
+
+async function executeFFmpeg(args) {
+    // 1. 创建控制器
+    const controller = new AbortController()
+    const { signal } = controller
+    // 2. 启动子进程
+    return await execa("ffmpeg", args, {
+        stdin: "pipe",
+        stdout: "inherit",
+        stderr: "inherit",
+        shell: true,
+        encoding: "latin1",
+        cancelSignal: signal,
+        forceKillAfterDelay: 1000,
+        cleanup: true,
+    })
+}
+
+// 检测CUDA解码器支持情况
+async function canUseCUDADecoder(inputPath) {
+    try {
+        // 探测命令
+        const { stderr } = await execa(
+            "ffmpeg",
+            [
+                "-v",
+                "error",
+                "-hwaccel",
+                "cuda",
+                "-hwaccel_output_format",
+                "cuda",
+                "-i",
+                inputPath,
+                "-frames:v",
+                "1",
+                "-f",
+                "null",
+                "-",
+            ],
+            {
+                // shell: true,
+                // encoding: "latin1",
+                cleanup: true,
+            },
+        )
+        // console.error("stderr", stderr)
+        if (!stderr) {
+            return true
+        }
+        // 只要 stderr 包含这些关键字，就判定为硬件解码无法处理
+        return !(
+            stderr.includes("CUDA_ERROR_INVALID_VALUE") ||
+            stderr.includes("Failed setup for format cuda")
+        )
+    } catch (error) {
+        // console.error("catch error", error)
+        return false
+    }
 }
