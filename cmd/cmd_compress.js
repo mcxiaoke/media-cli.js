@@ -214,7 +214,7 @@ async function cmdCompress(argv) {
         t.needBar = needBar
     })
     needBar && bar1.start(files.length, 0)
-    let tasks = await pMap(files, preCompress, { concurrency: argv.jobs || cpus().length * 4 })
+    let tasks = await pMap(files, preCompress, { concurrency: argv.jobs || cpus().length })
     needBar && bar1.update(files.length)
     needBar && bar1.stop()
     log.info(logTag, "before filter: ", tasks.length)

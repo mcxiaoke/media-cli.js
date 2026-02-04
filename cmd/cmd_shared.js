@@ -116,7 +116,7 @@ async function compressExternal(t, force = false) {
     const dstName = path.resolve(t.tmpDst)
     try {
         const { stdout, stderr } = await $({
-            encoding: "binary",
+            encoding: "latin1",
         })`${exePath} -overwrite -opthuff -no_auto_ext -out jpeg -o ${dstName} -q ${t.quality} -resize longest ${t.width} ${fileSrc}`
         const so = fixEncoding(stdout || "NULL")
         const sr = fixEncoding(stderr || "NULL")
