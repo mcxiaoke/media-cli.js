@@ -70,6 +70,8 @@ async function main() {
                 ya.showHelp()
             },
         )
+        // 运行一些简单的测试任务
+        .command(await import("../cmd/cmd_run.js"))
         // 命令：DCIM重命名
         // 默认按照EXIF拍摄日期重命名，可提供自定义模板
         .command(await import("../cmd/cmd_dcim.js"))
