@@ -19,6 +19,7 @@ import * as core from "../lib/core.js"
 import * as log from "../lib/debug.js"
 import * as mf from "../lib/file.js"
 import * as helper from "../lib/helper.js"
+import { parseImageParams } from "../lib/query_parser.mjs"
 import { applyFileNameRules, calculateScale, compressImage } from "./cmd_shared.js"
 
 //
@@ -31,6 +32,7 @@ const describe = "Compress input images to target size"
 const QUALITY_DEFAULT = 86
 const SIZE_DEFAULT = 2048 // in kbytes
 const WIDTH_DEFAULT = 6000
+const SUFFIX_DEFAULT = "_Z4K"
 
 const builder = function addOptions(ya, helpOrVersionSet) {
     return (
@@ -78,7 +80,7 @@ const builder = function addOptions(ya, helpOrVersionSet) {
                 alias: "S",
                 describe: "filename suffix for compressed files",
                 type: "string",
-                default: "_Z4K",
+                // default: "_Z4K",
             })
             .option("delete-source-files-only", {
                 type: "boolean",
@@ -101,22 +103,30 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             .option("quality", {
                 alias: "q",
                 type: "number",
-                default: QUALITY_DEFAULT,
+                // default: QUALITY_DEFAULT,
                 description: "Target image file compress quality",
             })
             // 需要处理的最小文件大小
             .option("size", {
                 alias: "s",
                 type: "number",
-                default: SIZE_DEFAULT,
+                // default: SIZE_DEFAULT,
                 description: "Processing file bigger than this size (unit:k)",
             })
             // 需要处理的图片最小尺寸
             .option("width", {
                 alias: "w",
                 type: "number",
-                default: WIDTH_DEFAULT,
+                // default: WIDTH_DEFAULT,
                 description: "Max width of long side of image thumb",
+            })
+            // 优先级低于单独的各种参数
+            // 图片处理参数，示例 q=85,w=6000,s=2048,suffix=_Z4K
+            .option("config", {
+                alias: "c",
+                type: "string",
+                description:
+                    "compress config in one query string, such as: q=85,w=6000,s=2048,suffix=_Z4K",
             })
             // 并行操作限制，并发数，默认为 CPU 核心数
             .option("jobs", {
@@ -145,10 +155,12 @@ async function cmdCompress(argv) {
         log.fileLog(`Argv:${JSON.stringify(argv)}`, logTag)
     }
     log.show(logTag, argv)
+    const config = parseImageParams(argv.config)
     const override = argv.override || false
-    const quality = argv.quality || QUALITY_DEFAULT
-    const minFileSize = (argv.size || SIZE_DEFAULT) * 1024
-    const maxWidth = argv.width || WIDTH_DEFAULT
+    const quality = argv.quality || config.quality || QUALITY_DEFAULT
+    const minFileSize = (argv.size || config.size || SIZE_DEFAULT) * 1024
+    const maxWidth = argv.width || config.width || WIDTH_DEFAULT
+    const suffix = argv.suffix || config.suffix || SUFFIX_DEFAULT
     const purgeOnly = argv.deleteSourceFilesOnly || false
     const purgeSource = argv.deleteSourceFiles || false
     log.show(`${logTag} input:`, root)
@@ -194,10 +206,10 @@ async function cmdCompress(argv) {
         return {
             ...f,
             force: argv.force || false,
-            suffix: argv.suffix,
             output: argv.output,
             total: files.length,
             index: i,
+            suffix,
             quality,
             override,
             maxWidth,
