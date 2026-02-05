@@ -6,24 +6,19 @@
  * License: Apache License 2.0
  */
 
-import assert from "assert"
 import chalk from "chalk"
 import * as cliProgress from "cli-progress"
 import dayjs from "dayjs"
-import exif from "exif-reader"
 import fs from "fs-extra"
-import imageSizeOfSync from "image-size"
 import inquirer from "inquirer"
 import { cpus } from "os"
 import pMap from "p-map"
 import path from "path"
 import sharp from "sharp"
-import util from "util"
 import * as core from "../lib/core.js"
 import * as log from "../lib/debug.js"
 import * as mf from "../lib/file.js"
 import * as helper from "../lib/helper.js"
-import * as tryfp from "../lib/tryfp.js"
 import { applyFileNameRules, calculateScale, compressImage } from "./cmd_shared.js"
 
 //
@@ -335,35 +330,6 @@ async function preCompress(f) {
     let [err, im] = await core.tryRunAsync(async () => {
         return await sharp(fileSrc).metadata()
     })
-
-    if (err) {
-        ;[err, im] = await tryfp.tryCatchAsync(util.promisify(imageSizeOfSync))(fileSrc)
-    } else {
-        if (im?.exif) {
-            log.info(logTag, "force:", fileDst)
-            const [err, iexif] = tryfp.tryCatch(exif)(im.exif)
-            // 跳过以前由mediac压缩过的图片，避免重复压缩
-            if (!f.force && iexif?.Image) {
-                const md = iexif?.Image
-                if (
-                    md?.Copyright?.includes("mediac") ||
-                    md.Software?.includes("mediac") ||
-                    (md.Artist?.includes("mediac") && !f.force)
-                ) {
-                    log.info(logTag, "skip:", fileDst)
-                    return {
-                        ...f,
-                        width: 0,
-                        height: 0,
-                        src: fileSrc,
-                        dst: fileDst,
-                        shouldSkip: true,
-                        skipReason: "MEDIAC MAKE",
-                    }
-                }
-            }
-        }
-    }
 
     if (err) {
         log.warn(logTag, "sharp", err.message, fileSrc)
