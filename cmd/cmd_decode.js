@@ -11,19 +11,20 @@ import chardet from "chardet"
 import * as log from "../lib/debug.js"
 import * as enc from "../lib/encoding.js"
 import * as unicode from "../lib/unicode.js"
+import { t } from "../lib/i18n.js"
 
 const ENC_LIST = ["ISO-8859-1", "UTF8", "UTF-16", "GBK", "BIG5", "SHIFT_JIS", "EUC-JP", "EUC-KR"]
 
 export { aliases, builder, command, describe, handler }
 const command = "decode <strings...>"
 const aliases = ["dc"]
-const describe = "Decode text with messy or invalid chars"
+const describe = t("decode.description")
 
 const builder = function addOptions(ya, helpOrVersionSet) {
     return (
         ya
             .positional("strings", {
-                describe: "string list to decode",
+                describe: t("option.decode.strings"),
                 type: "string",
             })
             // 修复文件名乱码
@@ -31,13 +32,13 @@ const builder = function addOptions(ya, helpOrVersionSet) {
                 alias: "f",
                 type: "choices",
                 choices: ["utf8", "gbk", "shift_jis", "big5", "euc-kr"],
-                description: "from encoding name eg. utf8|gbk|shift_jis",
+                description: t("option.decode.from.enc"),
             })
             .option("to-enc", {
                 alias: "t",
                 type: "choices",
                 choices: ["utf8", "gbk", "shift_jis", "big5", "euc-kr"],
-                description: "to encoding name tg. utf8|gbk|shift_jis",
+                description: t("option.decode.to.enc"),
             }).po
     )
 }
@@ -47,7 +48,7 @@ const handler = async function cmdDecode(argv) {
     log.info(logTag, "Args:", argv)
     const strArgs = argv.strings
     if (strArgs?.length === 0) {
-        throw new Error(`text input required`)
+        throw new Error(t("decode.text.input.required"))
     }
     const fromEnc = argv.fromEnc?.length > 0 ? [argv.fromEnc] : ENC_LIST
     const toEnc = argv.toEnc?.length > 0 ? [argv.toEnc] : ENC_LIST

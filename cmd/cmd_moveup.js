@@ -14,12 +14,13 @@ import path from "path"
 import * as log from "../lib/debug.js"
 import * as mf from "../lib/file.js"
 import * as helper from "../lib/helper.js"
+import { t } from "../lib/i18n.js"
 
 export { aliases, builder, command, describe, handler }
 
 const command = "moveup <input> [output]"
 const aliases = ["mp"]
-const describe = "Move files to sub top folder or top folder"
+const describe = t("moveup.description")
 
 const MODE_AUTO = "auto"
 const MODE_DIR = "dirname"
@@ -35,28 +36,28 @@ const builder = function addOptions(ya, helpOrVersionSet) {
                 alias: "o",
                 type: "string",
                 normalize: true,
-                description: "Output sub folder name",
+                description: t("option.moveup.output"),
             })
             // 指定MODE，三种：自动，目录名，指定前缀
             .option("mode", {
                 alias: "m",
                 type: "string",
                 default: MODE_AUTO,
-                description: "filename prefix mode for output ",
+                description: t("option.moveup.mode"),
                 choices: [MODE_AUTO, MODE_DIR, MODE_PREFIX, MODE_MEDIA, MODE_CLEAN],
             })
             // 移动所有文件到根目录的指定目录
             .option("topmost", {
                 alias: "r",
                 type: "boolean",
-                description: "move files to sub dirs in root dir",
+                description: t("option.moveup.topmost"),
             })
             // 确认执行所有系统操作，非测试模式，如删除和重命名和移动操作
             .option("doit", {
                 alias: "d",
                 type: "boolean",
                 default: false,
-                description: "execute os operations in real mode, not dry run",
+                description: t("option.moveup.doit"),
             })
     )
 }

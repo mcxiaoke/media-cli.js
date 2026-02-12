@@ -18,6 +18,7 @@ import { asyncMap, compareSmartBy, countAndSort } from "../lib/core.js"
 import * as log from "../lib/debug.js"
 import * as mf from "../lib/file.js"
 import * as helper from "../lib/helper.js"
+import { t } from "../lib/i18n.js"
 
 import * as enc from "../lib/encoding.js"
 
@@ -41,7 +42,7 @@ const TRY_ENCODING = [
 export { aliases, builder, command, describe, handler }
 const command = "zipu <input> [output]"
 const aliases = ["zipunicode"]
-const describe = "Smart unzip command (auto detect encoding)"
+const describe = t("zipu.description")
 
 const builder = function addOptions(ya, helpOrVersionSet) {
     return (
@@ -50,47 +51,47 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             .option("encoding", {
                 alias: "e",
                 type: "string",
-                description: "use this encoding foe zip filenames",
+                description: t("option.zipu.encoding"),
             })
             // 强制解压，覆盖之前的文件
             .option("override", {
                 alias: "o",
                 type: "boolean",
                 default: false,
-                description: "force unzip, override existting files",
+                description: t("option.zipu.override"),
             })
             // 列表处理，起始索引
             .option("start", {
                 type: "number",
                 default: 0,
-                description: "start index of file list to process",
+                description: t("option.zipu.start"),
             })
             // 列表处理，每次数目
             .option("count", {
                 type: "number",
                 default: 99999,
-                description: "group size of file list to process",
+                description: t("option.zipu.count"),
             })
             // 繁体转简体
             .option("tcsc", {
                 alias: "t",
                 type: "boolean",
                 default: false,
-                description: "convert Chinese from TC to SC",
+                description: t("option.zipu.tcsc"),
             })
             // 解压成功后删除原ZIP文件
             .option("purge", {
                 alias: "delete-zip",
                 type: "boolean",
                 default: false,
-                description: "delete zip file after unzipped ok",
+                description: t("option.zipu.purge"),
             })
             // 确认执行所有系统操作，非测试模式，如删除和重命名和移动操作
             .option("doit", {
                 alias: "d",
                 type: "boolean",
                 default: false,
-                description: "execute os operations in real mode, not dry run",
+                description: t("option.zipu.doit"),
             })
     )
 }

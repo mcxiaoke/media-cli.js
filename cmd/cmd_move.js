@@ -21,6 +21,7 @@ import * as mf from "../lib/file.js"
 import * as helper from "../lib/helper.js"
 import { isSameFileCached } from "../lib/tools.js"
 import { applyFileNameRules } from "./cmd_shared.js"
+import { t } from "../lib/i18n.js"
 
 dayjs.extend(utc)
 dayjs.extend(timezone)
@@ -125,53 +126,53 @@ export { aliases, builder, command, describe, handler }
 
 const command = "move <input> [output]"
 const aliases = ["md"]
-const describe = "Move files to folders by filename date patterns"
+const describe = t("move.description")
 
 const builder = function addOptions(ya, helpOrVersionSet) {
     return (
         ya // 仅处理符合指定条件的文件，包含文件名规则
             .positional("input", {
-                describe: "input directory",
+                describe: t("option.move.input"),
                 type: "string",
             })
             // 输出目录，默认输出文件与原文件同目录
             .option("output", {
                 alias: "o",
-                describe: "Folder store ouput files",
+                describe: t("option.move.output"),
                 type: "string",
             })
             // 正则，包含文件名规则
             .option("include", {
                 alias: "I",
                 type: "string",
-                description: "filename include pattern",
+                description: t("option.move.include"),
             })
             //字符串或正则，不包含文件名规则
             // 如果是正则的话需要转义
             .option("exclude", {
                 alias: "E",
                 type: "string",
-                description: "filename exclude pattern ",
+                description: t("option.move.exclude"),
             })
             // 需要处理的扩展名列表，默认为视频和图片格式
             .option("extensions", {
                 alias: "e",
                 type: "string",
-                describe: "include files by extensions (eg. .wav|.flac)",
+                describe: t("option.move.extensions"),
             })
             // 遍历目录层次深度限制，默认1
             .option("max-depth", {
                 alias: "depth",
                 type: "number",
                 default: 1,
-                description: "max depth when walk directories and files",
+                description: t("option.move.max.depth"),
             })
             // 确认执行所有系统操作，非测试模式，如删除和重命名和移动操作
             .option("doit", {
                 alias: "d",
                 type: "boolean",
                 default: false,
-                description: "execute os operations in real mode, not dry run",
+                description: t("option.move.doit"),
             })
     )
 }
@@ -199,10 +200,10 @@ function countByStatus(entries, fallback = CheckStatus.NULL) {
 }
 
 async function checkMove(entry) {
-    const logTag = chalk.green("Move")
+    const logTag = chalk.green(t("operation.move"))
     const date = extractDate(entry.name)
     if (!date || !date.monthStr) {
-        log.info(logTag, "No Date, Skip:", entry.path)
+        log.info(logTag, t("move.no.date.skip"), entry.path)
         entry.status = CheckStatus.NO_DATE
         return entry
     }
@@ -212,20 +213,20 @@ async function checkMove(entry) {
     const fileSrc = path.resolve(entry.path)
     let fileDst = path.resolve(destDir, entry.name)
     if (fileSrc === fileDst) {
-        log.info(logTag, "Duplicate File, Skip:", fileDst)
+        log.info(logTag, t("move.duplicate.file.skip"), fileDst)
         entry.status = CheckStatus.EXISTS
         return entry
     }
     if (await fs.pathExists(fileDst)) {
-        log.info(logTag, "In Destination:", fileDst)
+        log.info(logTag, t("move.in.destination"), fileDst)
         // 检查是否为同一文件
         if (isSameFileCached(fileSrc, fileDst)) {
-            log.info(logTag, "Same File, Skip:", fileDst)
+            log.info(logTag, t("move.same.file.skip"), fileDst)
             entry.status = CheckStatus.DUP
             return entry
         } else {
             // 同名的不同文件，重命名
-            log.info(logTag, "Different File, Need Rename:", fileDst)
+            log.info(logTag, t("move.different.file.need.rename"), fileDst)
             const fn = helper.pathParts(entry.name)
             const newName = `${fn.name}_${date.time}${fn.ext}`
             fileDst = path.resolve(destDir, newName)
@@ -255,7 +256,7 @@ async function prepareMove(entries, argv) {
     tasks = await pMap(tasks, checkMove, { concurrency: argv.jobs || cpus().length })
 
     for (const [status, count] of Object.entries(countByStatus(tasks))) {
-        log.show(chalk.green("Move[Check]"), `Status: ${status} => ${count} files`)
+        log.show(chalk.green(t("operation.move") + "[Check]"), `${t("status")}: ${status} => ${count} ${t("files")}`)
     }
 
     // 无法提取日期的文件将被跳过
@@ -265,11 +266,11 @@ async function prepareMove(entries, argv) {
 const handler = async function cmdMove(argv) {
     log.info(argv)
     const testMode = !argv.doit
-    const logTag = testMode ? chalk.yellow("Move[DryRun]") : chalk.green("Move")
+    const logTag = testMode ? chalk.yellow(t("operation.move") + "[DryRun]") : chalk.green(t("operation.move"))
     const root = path.resolve(argv.input)
     if (!root || !(await fs.pathExists(root))) {
-        log.error(logTag, `Invalid Input: '${root}'`)
-        throw new Error(`Invalid Input: ${argv.input}`)
+        log.error(logTag, `${t("input.invalid")}: '${root}'`)
+        throw new Error(`${t("input.invalid")}: ${argv.input}`)
     }
 
     const output = path.resolve(argv.output || root)
@@ -283,21 +284,21 @@ const handler = async function cmdMove(argv) {
     }
     let entries = await mf.walk(root, options)
     if (entries.length === 0) {
-        log.showYellow(logTag, `No files found, abort.`)
+        log.showYellow(logTag, t("move.no.files.found"))
         return
     }
     log.show(logTag, argv)
-    log.show(logTag, `Total ${entries.length} entries found`)
+    log.show(logTag, `${t("move.total.entries.found")} ${entries.length} ${t("files")}`)
     // 应用文件名过滤规则
     entries = await applyFileNameRules(entries, argv)
     if (entries.length === 0) {
-        log.showYellow(logTag, "No files left after rules, nothing to do.")
+        log.showYellow(logTag, t("move.no.files.left.after.rules"))
         return
     }
-    log.show(logTag, `Total ${entries.length} entries left after rules.`)
+    log.show(logTag, `${t("move.total.entries.left.after.rules")} ${entries.length} ${t("files")}`)
 
     for (const e of entries) {
-        log.info(logTag, `Found: ${e.path}`)
+        log.info(logTag, `${t("move.found")}: ${e.path}`)
     }
 
     const tasks = await prepareMove(entries, argv)
@@ -305,35 +306,35 @@ const handler = async function cmdMove(argv) {
     const taskGroups = groupByMonth(tasks)
     const fCount = entries.length
     const tCount = tasks.length
-    log.showYellow(logTag, `Total ${fCount - tCount} files are skipped.`)
+    log.showYellow(logTag, `${t("move.total.files.skipped")} ${fCount - tCount} ${t("files")}`)
     if (tasks.length > 0) {
-        log.showGreen(logTag, `Total ${tasks.length} files ready to move.`)
+        log.showGreen(logTag, `${t("move.total.files.ready.to.move")} ${tasks.length} ${t("files")}`)
     } else {
-        log.showYellow(logTag, `Nothing to do, abort.`)
+        log.showYellow(logTag, t("move.nothing.to.do"))
         return
     }
 
     for (const { monthStr, entries, count } of taskGroups) {
         const destDir = path.join(output, monthStr)
-        log.show(logTag, `${destDir} <<== ${count} files | Sample files:`)
+        log.show(logTag, `${destDir} <<== ${count} ${t("files")} | ${t("move.sample.files")}:`)
         for (const e of core.pickRandom(entries, 3)) {
             log.showGray(logTag, `--${e.fileSrc}`)
         }
     }
 
     if (testMode) {
-        log.showYellow(logTag, `TEST MODE (DRY RUN), no files will be moved.`)
+        log.showYellow(logTag, `${t("mode.test")} (${t("mode.dryrun")}), ${t("move.no.files.will.be.moved")}`)
     }
     const answer = await inquirer.prompt([
         {
             type: "confirm",
             name: "yes",
             default: false,
-            message: chalk.bold.red(`Are you sure to move ${tCount} files?`),
+            message: chalk.bold.red(t("move.confirm.move", { count: tCount })),
         },
     ])
     if (!answer.yes) {
-        log.showYellow(logTag, "Will do nothing, aborted by user.")
+        log.showYellow(logTag, t("operation.cancelled"))
         return
     }
 
@@ -344,22 +345,22 @@ const handler = async function cmdMove(argv) {
         try {
             for (const { fileSrc, fileDst } of entries) {
                 if (await fs.pathExists(fileDst)) {
-                    log.showYellow(logTag, "Skipped:", fileDst)
+                    log.showYellow(logTag, `${t("status.skipped")}:`, fileDst)
                     continue
                 }
                 !testMode && (await fs.move(fileSrc, fileDst))
                 movedCount++
-                log.info(logTag, "Moved:", fileSrc, "to", fileDst)
+                log.info(logTag, `${t("file.moved")}:`, fileSrc, "to", fileDst)
             }
         } catch (error) {
-            log.error(logTag, "Failed:", error, "to", destDir)
+            log.error(logTag, `${t("file.failed")}:`, error, "to", destDir)
         }
         const skippedCount = entries.length - movedCount
         if (skippedCount > 0) {
-            log.show(logTag, `${skippedCount} files are skipped in ${destDir}.`)
+            log.show(logTag, `${t("move.files.skipped.in.dir", { count: skippedCount, dir: destDir })}`)
         }
         if (movedCount > 0) {
-            log.show(logTag, `${movedCount} files are moved to ${destDir}`)
+            log.show(logTag, `${t("move.files.moved.to.dir", { count: movedCount, dir: destDir })}`)
         }
     }
 }

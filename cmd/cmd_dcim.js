@@ -16,6 +16,7 @@ import { addEntryProps, renameFiles } from "./cmd_shared.js"
 import * as log from "../lib/debug.js"
 import * as exif from "../lib/exif.js"
 import * as helper from "../lib/helper.js"
+import { t } from "../lib/i18n.js"
 
 const LOG_TAG = "DcimR"
 
@@ -23,52 +24,45 @@ export { aliases, builder, command, describe, handler }
 
 const command = "dcimr <input> [options]"
 const aliases = ["dm", "dcim"]
-const describe = "Rename media files by exif metadata eg. date"
+const describe = t("dcim.description")
 
 const builder = function addOptions(ya, helpOrVersionSet) {
     return (
         ya
             .option("backup", {
-                // 备份原石文件
                 alias: "b",
                 type: "boolean",
                 default: false,
-                description: "backup original file before rename",
+                description: t("option.dcim.backup"),
             })
             .option("fast", {
-                // 快速模式，使用文件修改时间，不解析EXIF
                 alias: "f",
                 type: "boolean",
-                description: "fast mode (use file modified time, no exif parse)",
+                description: t("option.dcim.fast"),
             })
             .option("prefix", {
-                // 重命名后的文件前缀
                 alias: "p",
                 type: "string",
                 default: "IMG_/DSC_/VID_",
-                description: "custom filename prefix for raw/image/video files'",
+                description: t("option.dcim.prefix"),
             })
             .option("suffix", {
-                // 重命名后的后缀
                 alias: "s",
                 type: "string",
                 default: "",
-                description: "custom filename suffix",
+                description: t("option.dcim.suffix"),
             })
             .option("template", {
-                // 文件名模板，使用dayjs日期格式
                 alias: "t",
                 type: "string",
                 default: "YYYYMMDD_HHmmss",
-                description:
-                    "filename date format template, see https://day.js.org/docs/en/display/format",
+                description: t("option.dcim.template"),
             })
-            // 确认执行所有系统操作，非测试模式，如删除和重命名和移动操作
             .option("doit", {
                 alias: "d",
                 type: "boolean",
                 default: false,
-                description: "execute os operations in real mode, not dry run",
+                description: t("option.dcim.doit"),
             })
     )
 }
@@ -84,12 +78,12 @@ const handler = async function cmdRename(argv) {
     const fastMode = argv.fast || false
     // action: rename media file by exif date
     const startMs = Date.now()
-    log.show(LOG_TAG, `Input: ${root}`)
+    log.show(LOG_TAG, `${t('path.input')}: ${root}`)
     let files = await exif.listMedia(root)
     const fileCount = files.length
-    log.show(LOG_TAG, `Total ${files.length} media files found`)
+    log.show(LOG_TAG, t("dcim.total.files.found", { count: files.length }))
     if (files.length === 0) {
-        log.showYellow(LOG_TAG, "No files found, exit now.")
+        log.showYellow(LOG_TAG, t("dcim.no.files.found"))
         return
     }
     const confirmFiles = await inquirer.prompt([
@@ -97,16 +91,16 @@ const handler = async function cmdRename(argv) {
             type: "confirm",
             name: "yes",
             default: false,
-            message: chalk.bold.green(`Press y to continue processing...`),
+            message: chalk.bold.green(t("dcim.continue.processing")),
         },
     ])
     if (!confirmFiles.yes) {
-        log.showYellow("Will do nothing, aborted by user.")
+        log.showYellow(t("dcim.aborted.by.user"))
         return
     }
-    log.show(LOG_TAG, `Processing files, reading EXIF data...`)
+    log.show(LOG_TAG, t("dcim.processing.exif"))
     files = await exif.parseFiles(files, { fastMode })
-    log.show(LOG_TAG, `Total ${files.length} media files parsed`, fastMode ? "(FastMode)" : "")
+    log.show(LOG_TAG, t("dcim.files.parsed", { count: files.length }), fastMode ? "(" + t("mode.fast") + ")" : "")
     files = files.map((f) => {
         // add naming options
         f.namePrefix = argv.prefix
@@ -118,54 +112,54 @@ const handler = async function cmdRename(argv) {
     const [validFiles, skippedBySize, skippedByDate] = exif.checkFiles(files)
     files = validFiles
     if (fileCount - files.length > 0) {
-        log.warn(LOG_TAG, `Total ${fileCount - files.length} media files skipped`)
+        log.warn(LOG_TAG, t("dcim.files.skipped", { count: fileCount - files.length }))
     }
     log.show(
         LOG_TAG,
-        `Total ${fileCount} files processed in ${helper.humanTime(startMs)}`,
-        fastMode ? "(FastMode)" : "",
+        t("dcim.files.processed", { count: fileCount, time: helper.humanTime(startMs) }),
+        fastMode ? "(" + t("mode.fast") + ")" : "",
     )
     if (skippedBySize.length > 0) {
-        log.showYellow(LOG_TAG, `Total ${skippedBySize.length} media files are skipped by size`)
+        log.showYellow(LOG_TAG, t("dcim.files.skipped.by.size", { count: skippedBySize.length }))
     }
     if (skippedByDate.length > 0) {
-        log.showYellow(LOG_TAG, `Total ${skippedByDate.length} media files are skipped by date`)
+        log.showYellow(LOG_TAG, t("dcim.files.skipped.by.date", { count: skippedByDate.length }))
     }
     if (files.length === 0) {
-        log.showYellow(LOG_TAG, "Nothing to do, exit now.")
+        log.showYellow(LOG_TAG, t("dcim.nothing.to.do"))
         return
     }
     files = addEntryProps(files)
     log.show(
         LOG_TAG,
-        `Total ${files.length} media files ready to rename by exif`,
-        fastMode ? "(FastMode)" : "",
+        t("dcim.files.ready", { count: files.length }),
+        fastMode ? "(" + t("mode.fast") + ")" : "",
     )
 
-    log.show(LOG_TAG, `task sample list:`)
+    log.show(LOG_TAG, t("dcim.task.sample"))
     for (const f of files.slice(-10)) {
         log.show(path.basename(f.path), f.outName, f.date)
     }
     log.info(LOG_TAG, argv)
-    testMode && log.showYellow("++++++++++ TEST MODE (DRY RUN) ++++++++++")
+    testMode && log.showYellow("++++++++++ " + t("ffmpeg.test.mode") + " ++++++++++")
     const answer = await inquirer.prompt([
         {
             type: "confirm",
             name: "yes",
             default: false,
             message: chalk.bold.red(
-                `Are you sure to rename ${files.length} files?` + (fastMode ? " (FastMode)" : ""),
+                t("dcim.rename.confirm", { count: files.length }) + (fastMode ? " (" + t("mode.fast") + ")" : ""),
             ),
         },
     ])
     if (answer.yes) {
         if (testMode) {
-            log.showYellow(LOG_TAG, `All ${files.length} files, NO file renamed in TEST MODE.`)
+            log.showYellow(LOG_TAG, t("dcim.test.mode.note", { count: files.length }))
         } else {
             const results = await renameFiles(files, false)
-            log.showGreen(LOG_TAG, `All ${results.length} file were renamed.`)
+            log.showGreen(LOG_TAG, t("dcim.files.renamed", { count: results.length }))
         }
     } else {
-        log.showYellow(LOG_TAG, "Will do nothing, aborted by user.")
+        log.showYellow(LOG_TAG, t("dcim.aborted.by.user"))
     }
 }

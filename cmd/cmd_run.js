@@ -20,13 +20,14 @@ import * as log from "../lib/debug.js"
 import * as exif from "../lib/exif.js"
 import * as mf from "../lib/file.js"
 import * as helper from "../lib/helper.js"
+import { t } from "../lib/i18n.js"
 
 //
 export { aliases, builder, command, describe, handler }
 
 const command = "execute [input]"
 const aliases = ["run"]
-const describe = "Run standalone tasks"
+const describe = t("run.description")
 
 const builder = function addOptions(ya, helpOrVersionSet) {
     return (
@@ -34,34 +35,34 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             // 输出目录，默认输出文件与原文件同目录
             .option("output", {
                 alias: "o",
-                describe: "Folder store ouput files",
+                describe: t("option.run.output"),
                 type: "string",
             })
             // 正则，包含文件名规则
             .option("include", {
                 alias: "I",
                 type: "string",
-                description: "filename include pattern",
+                description: t("option.run.include"),
             })
             //字符串或正则，不包含文件名规则
             // 如果是正则的话需要转义
             .option("exclude", {
                 alias: "E",
                 type: "string",
-                description: "filename exclude pattern ",
+                description: t("option.run.exclude"),
             })
             // 默认启用正则模式，禁用则为字符串模式
             .option("regex", {
                 alias: "re",
                 type: "boolean",
                 default: true,
-                description: "match filenames by regex pattern",
+                description: t("option.run.regex"),
             })
             // 需要处理的扩展名列表，默认为常见视频文件
             .option("extensions", {
                 alias: "e",
                 type: "string",
-                describe: "include files by extensions (eg. .wav|.flac)",
+                describe: t("option.run.extensions"),
             })
     )
 }

@@ -21,13 +21,14 @@ import * as mf from "../lib/file.js"
 import * as helper from "../lib/helper.js"
 import { parseImageParams } from "../lib/query_parser.mjs"
 import { applyFileNameRules, calculateScale, compressImage } from "./cmd_shared.js"
+import { t } from "../lib/i18n.js"
 
 //
 export { aliases, builder, command, describe, handler }
 
 const command = "compress <input> [output]"
 const aliases = ["cs", "cps"]
-const describe = "Compress input images to target size"
+const describe = t("compress.description")
 
 const QUALITY_DEFAULT = 86
 const SIZE_DEFAULT = 2048 // in kbytes
@@ -41,97 +42,93 @@ const builder = function addOptions(ya, helpOrVersionSet) {
                 alias: "p",
                 type: "boolean",
                 default: false,
-                description: "Delete original image files after compress",
+                description: t("option.compress.delete.source"),
             })
             // 输出目录，默认输出文件与原文件同目录
             .option("output", {
                 alias: "o",
-                describe: "Folder store ouput files",
+                describe: t("option.compress.output"),
                 type: "string",
             })
             // 正则，包含文件名规则
             .option("include", {
                 alias: "I",
                 type: "string",
-                description: "filename include pattern",
+                description: t("option.compress.include"),
             })
             //字符串或正则，不包含文件名规则
             // 如果是正则的话需要转义
             .option("exclude", {
                 alias: "E",
                 type: "string",
-                description: "filename exclude pattern ",
+                description: t("option.compress.exclude"),
             })
             // 默认启用正则模式，禁用则为字符串模式
             .option("regex", {
                 alias: "re",
                 type: "boolean",
                 default: true,
-                description: "match filenames by regex pattern",
+                description: t("option.compress.regex"),
             })
             // 需要处理的扩展名列表，默认为常见视频文件
             .option("extensions", {
                 alias: "e",
                 type: "string",
-                describe: "include files by extensions (eg. .wav|.flac)",
+                describe: t("option.compress.extensions"),
             })
             // 压缩后的文件后缀，默认为 _Z4K
             .option("suffix", {
                 alias: "S",
-                describe: "filename suffix for compressed files",
+                describe: t("option.compress.suffix"),
                 type: "string",
                 // default: "_Z4K",
             })
             .option("delete-source-files-only", {
                 type: "boolean",
                 default: false,
-                description: "Just delete original image files only, no compression",
+                description: t("option.compress.delete.source.only"),
             })
             // 是否覆盖已存在的压缩后文件
             .option("force", {
                 type: "boolean",
                 default: false,
-                description: "Force compress all files",
+                description: t("option.compress.force"),
             })
             // 是否覆盖已存在的压缩后文件
             .option("override", {
                 type: "boolean",
                 default: false,
-                description: "Override existing dst files",
+                description: t("option.compress.override"),
             })
             // 压缩后文件质量参数
             .option("quality", {
                 alias: "q",
                 type: "number",
-                // default: QUALITY_DEFAULT,
-                description: "Target image file compress quality",
+                description: t("option.compress.quality"),
             })
             // 需要处理的最小文件大小
             .option("size", {
                 alias: "s",
                 type: "number",
-                // default: SIZE_DEFAULT,
-                description: "Processing file bigger than this size (unit:k)",
+                description: t("option.compress.size"),
             })
             // 需要处理的图片最小尺寸
             .option("width", {
                 alias: "w",
                 type: "number",
-                // default: WIDTH_DEFAULT,
-                description: "Max width of long side of image thumb",
+                description: t("option.compress.width"),
             })
             // 优先级低于单独的各种参数
             // 图片处理参数，示例 q=85,w=6000,s=2048,suffix=_Z4K
             .option("config", {
                 alias: "c",
                 type: "string",
-                description:
-                    "compress config in one query string, such as: q=85,w=6000,s=2048,suffix=_Z4K",
+                description: t("option.compress.config"),
             })
             // 并行操作限制，并发数，默认为 CPU 核心数
             .option("jobs", {
                 alias: "j",
-                describe: "multi jobs running parallelly",
+                describe: t("option.compress.jobs"),
                 type: "number",
             })
             // 确认执行所有系统操作，非测试模式，如删除和重命名和移动操作
@@ -139,7 +136,7 @@ const builder = function addOptions(ya, helpOrVersionSet) {
                 alias: "d",
                 type: "boolean",
                 default: false,
-                description: "execute os operations in real mode, not dry run",
+                description: t("option.compress.doit"),
             })
     )
 }
@@ -177,14 +174,14 @@ async function cmdCompress(argv) {
     log.showGreen(logTag, `Walking files ...`)
     let files = await mf.walk(root, walkOpts)
     if (!files || files.length === 0) {
-        log.showYellow(logTag, "no files found, abort.")
+        log.showYellow(logTag, t("compress.no.files.found"))
         return
     }
     // 应用文件名过滤规则
     files = await applyFileNameRules(files, argv)
-    log.show(logTag, `total ${files.length} files found (all)`)
+    log.show(logTag, t("compress.total.files.found", { count: files.length }))
     if (!files || files.length === 0) {
-        log.showYellow("Nothing to do, abort.")
+        log.showYellow(t("compress.nothing.to.do"))
         return
     }
     const confirmFiles = await inquirer.prompt([
@@ -192,15 +189,15 @@ async function cmdCompress(argv) {
             type: "confirm",
             name: "yes",
             default: false,
-            message: chalk.bold.green(`Press y to continue processing...`),
+            message: chalk.bold.green(t("compress.continue.processing")),
         },
     ])
     if (!confirmFiles.yes) {
-        log.showYellow("Will do nothing, aborted by user.")
+        log.showYellow(t("compress.delete.aborted"))
         return
     }
     const needBar = files.length > 9999 && !log.isVerbose()
-    log.showGreen(logTag, `preparing compress arguments...`)
+    log.showGreen(logTag, t("compress.preparing"))
     let startMs = Date.now()
     const addArgsFunc = async (f, i) => {
         return {
@@ -230,10 +227,10 @@ async function cmdCompress(argv) {
     const skipped = total - tasks.length
     log.info(logTag, "after filter: ", tasks.length)
     if (skipped > 0) {
-        log.showYellow(logTag, `${skipped} image files skipped`)
+        log.showYellow(logTag, t("compress.files.skipped", { count: skipped }))
     }
     if (tasks.length === 0) {
-        log.showYellow("Nothing to do, abort.")
+        log.showYellow(t("compress.nothing.to.do"))
         return
     }
     tasks.forEach((t, i) => {
@@ -242,12 +239,12 @@ async function cmdCompress(argv) {
         t.bar1 = null
         t.needBar = false
     })
-    log.show(logTag, `in ${helper.humanTime(startMs)} tasks:`)
+    log.show(logTag, `${t('compress.tasks.summary')} (${helper.humanTime(startMs)}):`)
     tasks.slice(-1).forEach((t) => {
         log.show(core.omit(t, "stats", "bar1"))
     })
     log.info(logTag, argv)
-    testMode && log.showYellow("++++++++++ TEST MODE (DRY RUN) ++++++++++")
+    testMode && log.showYellow("++++++++++ " + t("ffmpeg.test.mode") + " ++++++++++")
 
     if (purgeOnly) {
         log.showYellow("+++++ PURGE ONLY (NO COMPRESS) +++++")
@@ -260,18 +257,23 @@ async function cmdCompress(argv) {
             name: "yes",
             default: false,
             message: chalk.bold.red(
-                `Are you sure to compress ${tasks.length} files? \n[Apply to files bigger than ${minFileSize / 1024}K, target long width is ${maxWidth}] \n${purgeSource ? "(Attention: you choose to delete original file!)" : "(Will keep original file)"}`,
+                t("compress.confirm", {
+                    count: tasks.length,
+                    sizeK: minFileSize / 1024,
+                    maxWidth: maxWidth,
+                    note: purgeSource ? t("compress.warning.delete") : t("compress.warning.keep")
+                })
             ),
         },
     ])
 
     if (!answer.yes) {
-        log.showYellow("Will do nothing, aborted by user.")
+        log.showYellow(t("compress.delete.aborted"))
         return
     }
 
     if (testMode) {
-        log.showYellow(logTag, `[DRY RUN], no thumbs generated.`)
+        log.showYellow(logTag, `[${t("mode.test")}], ${t("compress.note.no.thumbnail")}`)
     } else {
         startMs = Date.now()
         log.showGreen(logTag, "startAt", dayjs().format())
@@ -279,10 +281,10 @@ async function cmdCompress(argv) {
         tasks = await pMap(tasks, compressImage, { concurrency: cpus().length / 2 })
         const okTasks = tasks.filter((t) => t?.done)
         const failedTasks = tasks.filter((t) => t?.errorFlag && !t.done)
-        log.showGreen(logTag, `${okTasks.length} files compressed in ${helper.humanTime(startMs)}`)
+        log.showGreen(logTag, `${okTasks.length} ${t("compress.files.compressed")} ${helper.humanTime(startMs)}`)
         log.showGreen(logTag, "endAt", dayjs().format(), helper.humanTime(startMs))
         if (failedTasks.length > 0) {
-            log.showYellow(logTag, `${okTasks.length} tasks are failed`)
+            log.showYellow(logTag, `${failedTasks.length} ${t("compress.tasks.failed")}`)
             const failedContent = failedTasks.map((t) => t.src).join("\n")
             const failedLogFile = path.join(
                 root,
@@ -290,7 +292,7 @@ async function cmdCompress(argv) {
             )
             await fs.writeFile(failedLogFile, failedContent)
             const clickablePath = failedLogFile.split(path.sep).join("/")
-            log.showYellow(logTag, `failed filenames: file:///${clickablePath}`)
+            log.showYellow(logTag, `${t("compress.failed.list")}: file:///${clickablePath}`)
         }
         if (purgeSource) {
             await purgeSrcFiles(tasks)
@@ -388,11 +390,11 @@ async function purgeSrcFiles(results) {
             type: "confirm",
             name: "yes",
             default: false,
-            message: chalk.bold.red(`Are you sure to delete ${total} original files?`),
+            message: chalk.bold.red(t("compress.delete.confirm", { count: total })),
         },
     ])
     if (!answer.yes) {
-        log.showYellow("Will do nothing, aborted by user.")
+        log.showYellow(t("compress.delete.aborted"))
         return
     }
     const deletecFunc = async (td, index) => {
@@ -410,5 +412,5 @@ async function purgeSrcFiles(results) {
         return td.src
     }
     const deleted = await pMap(toDelete, deletecFunc, { concurrency: cpus().length * 8 })
-    log.showCyan(logTag, `${deleted.filter(Boolean).length} files are safely removed`)
+    log.showCyan(logTag, t("compress.safely.removed", { count: deleted.filter(Boolean).length }))
 }

@@ -69,8 +69,8 @@ async function cmdLRMove(argv) {
             fileSrc: fileSrc,
             fileDst: fileDst,
         }
-        log.show(`SRC:`, fileSrc)
-        log.show("DST:", fileDst)
+        log.show(`${t('path.source')}:`, fileSrc)
+        log.show(`${t('path.destination')}:`, fileDst)
         return task
     })
 

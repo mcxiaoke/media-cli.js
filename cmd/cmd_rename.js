@@ -21,6 +21,7 @@ import * as helper from "../lib/helper.js"
 import { getMediaInfo } from "../lib/mediainfo.js"
 import { mergePath } from "../lib/path-merge.js"
 import { applyFileNameRules, cleanFileName, renameFiles } from "./cmd_shared.js"
+import { t } from "../lib/i18n.js"
 
 const TYPE_LIST = ["a", "f", "d"]
 const MODE_LIST = ["clean", "zhcn", "replace", "fixenc", "mergedir", "suffix", "prefix"]
@@ -28,63 +29,63 @@ const MODE_LIST = ["clean", "zhcn", "replace", "fixenc", "mergedir", "suffix", "
 export { aliases, builder, command, describe, handler }
 const command = "rename <input>"
 const aliases = ["fn", "fxn"]
-const describe = "Reanme files: fix encoding, replace by regex, clean chars, from tc to sc."
+const describe = t("rename.description")
 
 const builder = function addOptions(ya, helpOrVersionSet) {
     return (
         ya // 仅处理符合指定条件的文件，包含文件名规则
             .positional("input", {
-                describe: "input directory",
+                describe: t("option.rename.input"),
                 type: "string",
             })
             // 复杂字符串参数，单独解析 cargs = complex args
             .option("cargs", {
-                describe: "complex combined string arguments for parse",
+                describe: t("option.rename.cargs"),
                 type: "string",
             })
             // 正则，包含文件名规则
             .option("include", {
                 alias: "I",
                 type: "string",
-                description: "filename include pattern",
+                description: t("option.rename.include"),
             })
             //字符串或正则，不包含文件名规则
             // 如果是正则的话需要转义
             .option("exclude", {
                 alias: "E",
                 type: "string",
-                description: "filename exclude pattern ",
+                description: t("option.rename.exclude"),
             })
             // 需要处理的扩展名列表，默认为常见视频文件
             .option("extensions", {
                 alias: "e",
                 type: "string",
-                describe: "include files by extensions (eg. .wav|.flac)",
+                describe: t("option.rename.extensions"),
             })
             // 遍历目录层次深度限制
             .option("max-depth", {
                 alias: "depth",
                 type: "number",
                 default: 99,
-                description: "max depth when walk directories and files",
+                description: t("option.rename.max.depth"),
             })
             // 要处理的文件类型 文件或目录或所有，默认只处理文件
             .option("type", {
                 type: "choices",
                 choices: TYPE_LIST,
                 default: "f",
-                description: "applied to file type (a=all,f=file,d=dir)",
+                description: t("option.rename.type"),
             })
             // 清理文件名中的特殊字符和非法字符
             .option("clean", {
                 alias: "c",
                 type: "boolean",
-                description: "remove ugly and special chars in filename",
+                description: t("option.rename.clean"),
             })
             .option("separator", {
                 alias: "sep",
                 type: "string",
-                description: "word separator for clean filenames ",
+                description: t("option.rename.separator"),
             })
             // 使用正则表达式替换文件名中的特定字符，比如问号
             // 如果数组只有一项，就是替换这一项为空白，即删除模式字符串
@@ -96,7 +97,7 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             .option("replace", {
                 alias: "rp",
                 type: "array",
-                description: "replace filename chars by pattern [from,to]",
+                description: t("option.rename.replace"),
             })
             // 替换特殊模式flag
             // d = applied to dir names
@@ -105,67 +106,67 @@ const builder = function addOptions(ya, helpOrVersionSet) {
                 alias: "rpf",
                 type: "string",
                 default: "f",
-                description: "special flag for replace operations",
+                description: t("option.rename.replace.flags"),
             })
             // 默认使用字符串模式，可启用正则模式
             .option("regex", {
                 alias: "re",
                 type: "boolean",
-                description: "match filenames by regex pattern",
+                description: t("option.rename.regex"),
             })
             // 修复文件名乱码
             .option("fixenc", {
                 alias: "fc",
                 type: "boolean",
-                description: "fix filenames by guess encoding",
+                description: t("option.rename.fixenc"),
             })
             // 繁体转简体
             .option("zhcn", {
                 type: "boolean",
-                description: "convert from tc to sc for Chinese chars",
+                description: t("option.rename.zhcn"),
             })
             // 文件添加前缀
             .option("prefix-media", {
                 alias: "pxm",
                 type: "string",
-                description: "add prefix to filename, support media template args",
+                description: t("option.rename.prefix.media"),
             })
             // 文件添加后缀 媒体元数据
             .option("suffix-media", {
                 alias: "sxm",
                 type: "string",
-                description: "add suffix to filename, support media template args",
+                description: t("option.rename.suffix.media"),
             })
             //todo fixme add suffix-date
             // 文件添加后缀日期时间
             .option("suffix-date", {
                 alias: "sxd",
                 type: "string",
-                description: "add suffix to filename, support date time template args",
+                description: t("option.rename.suffix.date"),
             })
             // 按照视频分辨率移动文件到指定目录
             .option("video-dimension", {
                 alias: "vdn",
                 type: "string",
-                description: "move video files to dir according to dimension",
+                description: t("option.rename.video.dimension"),
             })
             // 合并多层重复目录，减少层级，不改动文件名
             .option("merge-dirs", {
                 alias: "simplify-dirs",
                 type: "boolean",
-                description: "reduce duplicate named directory hierarchy",
+                description: t("option.rename.merge.dirs"),
             })
             // 并行操作限制，并发数，默认为 CPU 核心数
             .option("jobs", {
                 alias: "j",
-                describe: "multi jobs running parallelly",
+                describe: t("option.rename.jobs"),
                 type: "number",
             })
             // 确认执行所有系统操作，非测试模式，如删除和重命名和移动操作
             .option("doit", {
                 alias: "d",
                 type: "boolean",
-                description: "execute os operations in real mode, not dry run",
+                description: t("option.rename.doit"),
             })
     )
 }
@@ -181,7 +182,7 @@ async function cmdRename(argv) {
         log.fileLog(`Argv: ${JSON.stringify(argv)}`, logTag)
     }
     const startMs = Date.now()
-    log.show(logTag, `Input:`, root)
+    log.show(logTag, `${t("path.input")}:`, root)
     argv.cargs = argparser.parseArgs(argv.cargs)
     log.show(logTag, `cargs:`, argv.cargs)
     if (
@@ -196,11 +197,11 @@ async function cmdRename(argv) {
         )
     ) {
         // log.error(`Error: replace|clean|encoding|zhcn|mergeDirs, one is required`)
-        throw new Error(`replace|clean|encoding|zhcn|mergeDirs, one is required`)
+        throw new Error(t("rename.one.operation.required"))
     }
     const type = (argv.type || "f").toLowerCase()
     if (!TYPE_LIST.includes(type)) {
-        throw new Error(`Error: type must be one of ${TYPE_LIST}`)
+        throw new Error(`${t("error.type.must.be.one.of")} ${TYPE_LIST}`)
     }
     const options = {
         needStats: true,
@@ -210,14 +211,14 @@ async function cmdRename(argv) {
     }
     let entries = await mf.walk(root, options)
     if (entries.length === 0) {
-        log.showYellow(logTag, `No files found, abort. (type=${type})`)
+        log.showYellow(logTag, t("rename.no.files.found", { type }))
         return
     }
-    log.show(logTag, `Total ${entries.length} entries found (type=${type})`)
+    log.show(logTag, `${t("rename.total.entries.found")} ${entries.length} (type=${type})`)
     // 应用文件名过滤规则
     entries = await applyFileNameRules(entries, argv)
     if (entries.length === 0) {
-        log.showYellow(logTag, "No files left after rules, nothing to do.")
+        log.showYellow(logTag, t("rename.no.files.left.after.rules"))
         return
     }
     entries = entries.map((f, i) => {
@@ -238,14 +239,14 @@ async function cmdRename(argv) {
     if (outPathSet.size < tCount) {
         log.showCyan(
             logTag,
-            `${tCount}=>${outPathSet.size} some files have duplicate names, please check.`,
+            t("rename.duplicate.names.warning", { count1: tCount, count2: outPathSet.size }),
         )
     }
-    log.showYellow(logTag, `Total ${fCount - tCount} files are skipped. (type=${type})`)
+    log.showYellow(logTag, t("rename.files.skipped", { count: fCount - tCount, type }))
     if (tasks.length > 0) {
-        log.showGreen(logTag, `Total ${tasks.length} files ready to rename. (type=${type})`)
+        log.showGreen(logTag, t("rename.files.ready.to.rename", { count: tasks.length, type }))
     } else {
-        log.showYellow(logTag, `Nothing to do, abort. (type=${type})`)
+        log.showYellow(logTag, t("rename.nothing.to.do", { type }))
         return
     }
 
@@ -256,7 +257,7 @@ async function cmdRename(argv) {
             name: "yes",
             default: false,
             message: chalk.bold.red(
-                `Are you sure to rename these ${tasks.length} files (type=${type})? `,
+                t("rename.confirm.rename", { count: tasks.length, type }),
             ),
         },
     ])
@@ -264,14 +265,14 @@ async function cmdRename(argv) {
         if (testMode) {
             log.showYellow(
                 logTag,
-                `${tasks.length} files, NO file renamed in TEST MODE. (type=${type})`,
+                t("rename.no.file.renamed.in.test.mode", { count: tasks.length, type }),
             )
         } else {
             const results = await renameFiles(tasks, true)
-            log.showGreen(logTag, `All ${results.length} file were renamed. (type=${type})`)
+            log.showGreen(logTag, t("rename.all.files.renamed", { count: results.length, type }))
         }
     } else {
-        log.showYellow(logTag, "Will do nothing, aborted by user. ")
+        log.showYellow(logTag, t("operation.cancelled"))
     }
 }
 
