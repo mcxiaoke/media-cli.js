@@ -693,13 +693,7 @@ async function runFFmpegCmd(entry) {
         return entry
     } finally {
         // 确保进度条被正确停止
-        if (progressBar) {
-            try {
-                progressBar.stop()
-            } catch (e) {
-                // 忽略进度条停止时的错误
-            }
-        }
+        progressBar?.stop()
         await fs.remove(entry.fileDstTemp)
     }
 }
@@ -1572,13 +1566,7 @@ async function executeFFmpeg(args, entry, progressBar = null) {
         const line = data.toString()
         // 如果包含错误关键字，记录到日志
         if (line.includes("Error") || line.includes("error")) {
-            if (progressBar) {
-                try {
-                    progressBar.stop()
-                } catch (e) {
-                    // 忽略进度条停止时的错误
-                }
-            }
+            progressBar?.stop()
             log.showRed(logTag, "FFmpeg Error:", line.trim().substring(0, 200))
         }
     })
@@ -1586,15 +1574,11 @@ async function executeFFmpeg(args, entry, progressBar = null) {
     try {
         await subprocess
         // 进度完成，确保换行
-        if (progressBar) {
-            progressBar.stop()
-            console.log() // 添加换行符
-        }
+        progressBar?.stop()
+        console.log() // 添加换行符
     } catch (error) {
-        if (progressBar) {
-            progressBar.stop()
-            console.log() // 添加换行符
-        }
+        progressBar?.stop()
+        console.log() // 添加换行符
         throw error
     }
 }
