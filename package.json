@@ -6,8 +6,7 @@
     "main": "index.js",
     "scripts": {
         "test": "echo \"Error: no test specified\" && exit 1",
-        "start": "node index.js",
-        "media_cli": "node ./scripts/media_cli.js"
+        "start": "node index.js"
     },
     "files": [
         "index.js",
@@ -16,7 +15,7 @@
         "cmd"
     ],
     "bin": {
-        "mediac": "./scripts/media_cli.js"
+        "mediac": "./index.js"
     },
     "repository": {
         "type": "git",
