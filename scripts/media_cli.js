@@ -77,21 +77,7 @@ async function main() {
         .command(await import("../cmd/cmd_dcim.js"))
         // 命令 LR输出文件移动
         // 移动RAW目录下LR输出的JPEG目录到单独的图片目录
-        .command(
-            ["lrmove <input> [output]", "lv"],
-            "Move JPEG output of RAW files to other folder",
-            (ya) => {
-                // yargs.option("output", {
-                //   alias: "o",
-                //   type: "string",
-                //   normalize: true,
-                //   description: "Output folder",
-                // });
-            },
-            (argv) => {
-                cmdLRMove(argv)
-            },
-        )
+        .command(await import("../cmd/cmd_lr.js"))
         // 命令 压缩图片
         // 压缩满足条件的图片，可指定最大边长和文件大小，输出质量
         // 可选删除压缩后的源文件
@@ -142,59 +128,5 @@ async function main() {
             log.showYellow(`See logs: file:///${filePath}`)
             // await open(filePath)
         }
-    }
-}
-
-async function cmdLRMove(argv) {
-    log.show("cmdLRMove", argv)
-    const root = path.resolve(argv.input)
-    if (!root || !(await fs.pathExists(root))) {
-        yargs.showHelp()
-        log.error("LRMove", `Invalid Input: '${root}'`)
-        return
-    }
-    // const output = argv.output || root;
-    log.show(`LRMove: input:`, root)
-    // log.show(`LRMove: output:`, output);
-    let filenames = await mf.walk(root, { needStats: true, withFiles: false, withDirs: true })
-    filenames = filenames.map((entry) => entry.path).filter((f) => path.basename(f) === "JPEG")
-    log.show("LRMove:", `Total ${filenames.length} JPEG folders found`)
-    if (filenames.length === 0) {
-        log.showGreen("Nothing to do, abort.")
-        return
-    }
-    const files = filenames.map((f) => {
-        const fileSrc = f
-        const fileBase = path.dirname(fileSrc)
-        const fileDst = fileBase.replace("RAW" + path.sep, "JPEG" + path.sep)
-        const task = {
-            fileSrc: fileSrc,
-            fileDst: fileDst,
-        }
-        log.show(`SRC:`, fileSrc)
-        log.show("DST:", fileDst)
-        return task
-    })
-    const answer = await inquirer.prompt([
-        {
-            type: "confirm",
-            name: "yes",
-            default: false,
-            message: chalk.bold.red(
-                `Are you sure to move these ${files.length} JPEG folder with files?`,
-            ),
-        },
-    ])
-    if (answer.yes) {
-        for (const f of files) {
-            try {
-                await fs.move(f.fileSrc, f.fileDst)
-                log.showGreen("Moved:", f.fileSrc, "to", f.fileDst)
-            } catch (error) {
-                log.error("Failed:", error, f.fileSrc, "to", f.fileDst)
-            }
-        }
-    } else {
-        log.showYellow("Will do nothing, aborted by user.")
     }
 }
