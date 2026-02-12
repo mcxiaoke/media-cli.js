@@ -143,6 +143,23 @@ const builder = function addOptions(ya, helpOrVersionSet) {
 
 const handler = cmdCompress
 
+/**
+ * 压缩图片命令处理函数
+ * @param {Object} argv - 命令行参数对象
+ * @param {string} argv.input - 输入目录路径
+ * @param {boolean} argv.doit - 是否执行实际操作（非测试模式）
+ * @param {number} argv.jobs - 并发任务数
+ * @param {string} argv.output - 输出目录
+ * @param {number} argv.quality - 压缩质量
+ * @param {number} argv.size - 最小文件大小（KB）
+ * @param {number} argv.width - 图片最大宽度
+ * @param {string} argv.suffix - 压缩后文件名后缀
+ * @param {boolean} argv.deleteSourceFiles - 是否删除源文件
+ * @param {boolean} argv.deleteSourceFilesOnly - 仅删除源文件不压缩
+ * @param {boolean} argv.force - 是否强制处理（跳过文件名过滤）
+ * @param {boolean} argv.override - 是否覆盖已存在的压缩文件
+ * @returns {Promise<void>}
+ */
 async function cmdCompress(argv) {
     const testMode = !argv.doit
     const logTag = "cmdCompress"
@@ -302,8 +319,20 @@ async function cmdCompress(argv) {
 
 let compressLastUpdatedAt = 0
 const bar1 = new cliProgress.SingleBar({ etaBuffer: 300 }, cliProgress.Presets.shades_classic)
-// 文心一言注释 20231206
-// 准备压缩图片的参数，并进行相应的处理
+/**
+ * 准备压缩图片的参数，并进行相应的处理
+ * @param {Object} f - 文件对象
+ * @param {string} f.path - 源文件路径
+ * @param {number} f.size - 文件大小
+ * @param {number} f.maxWidth - 最大宽度限制
+ * @param {string} f.suffix - 压缩后文件名后缀
+ * @param {number} f.index - 文件索引
+ * @param {number} f.total - 总文件数
+ * @param {string} f.output - 输出目录
+ * @param {Object} f.bar1 - 进度条对象
+ * @param {boolean} f.needBar - 是否需要进度条
+ * @returns {Promise<Object|null>} 返回准备好的压缩任务对象，或null（目标文件已存在）
+ */
 async function preCompress(f) {
     const logTag = "PreCompress"
     const maxWidth = f.maxWidth || 6000 // 获取最大宽度限制，默认为6000
@@ -378,6 +407,11 @@ async function preCompress(f) {
     }
 }
 
+/**
+ * 删除已成功压缩后的源文件
+ * @param {Array<Object>} results - 压缩任务结果数组
+ * @returns {Promise<void>}
+ */
 async function purgeSrcFiles(results) {
     const logTag = "Purge"
     const toDelete = results.filter((t) => t?.src && t.dstExists && t.dst)

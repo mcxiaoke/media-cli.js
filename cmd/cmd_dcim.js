@@ -67,6 +67,18 @@ const builder = function addOptions(ya, helpOrVersionSet) {
     )
 }
 
+/**
+ * DCIM重命名命令处理函数
+ * 根据EXIF日期重命名媒体文件
+ * @param {Object} argv - 命令行参数对象
+ * @param {string} argv.input - 输入目录路径
+ * @param {boolean} argv.doit - 是否执行实际操作
+ * @param {boolean} argv.fast - 是否使用快速模式
+ * @param {string} argv.prefix - 文件名前缀
+ * @param {string} argv.suffix - 文件名后缀
+ * @param {string} argv.template - 日期模板
+ * @returns {Promise<void>}
+ */
 const handler = async function cmdRename(argv) {
     log.show(LOG_TAG, argv)
     const root = path.resolve(argv.input)

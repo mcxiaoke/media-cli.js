@@ -98,6 +98,20 @@ const builder = function addOptions(ya, helpOrVersionSet) {
 
 const handler = cmdZipUnicode
 
+/**
+ * 解压Unicode编码的ZIP文件命令处理函数
+ * 修复ZIP文件中的乱码文件名并解压
+ * @param {Object} argv - 命令行参数对象
+ * @param {string} argv.input - 输入目录路径
+ * @param {string} argv.output - 输出目录路径
+ * @param {string} argv.encoding - 文件名编码
+ * @param {boolean} argv.override - 是否覆盖已存在的文件
+ * @param {number} argv.start - 起始索引
+ * @param {number} argv.count - 处理文件数量
+ * @param {boolean} argv.purge - 是否删除原ZIP文件
+ * @param {boolean} argv.doit - 是否执行实际操作
+ * @returns {Promise<void>}
+ */
 async function cmdZipUnicode(argv) {
     const testMode = !argv.doit
     const logTag = "ZipU"
@@ -209,6 +223,20 @@ async function cmdZipUnicode(argv) {
     }
 }
 
+/**
+ * 处理单个ZIP文件的解压操作
+ * @param {Object} f - 文件对象
+ * @param {string} f.path - ZIP文件路径
+ * @param {number} f.size - 文件大小
+ * @param {number} f.index - 文件索引
+ * @param {number} f.total - 总文件数
+ * @param {Object} f.argv - 命令行参数
+ * @param {string} f.encoding - 文件名编码
+ * @param {boolean} f.override - 是否覆盖已存在的文件
+ * @param {boolean} f.testMode - 是否为测试模式
+ * @param {number} f.startMs - 开始时间戳
+ * @returns {Promise<Object|null>} 处理结果对象
+ */
 async function UnzipOneFile(f) {
     const testMode = f.testMode
     const ipx = `${f.index + 1}/${f.total}`
@@ -269,6 +297,15 @@ async function UnzipOneFile(f) {
     return await unzipFileUseUnzipper(f, useEncoding)
 }
 
+/**
+ * 使用adm-zip库解压文件
+ * @param {Object} f - 文件对象
+ * @param {string} f.path - ZIP文件路径
+ * @param {number} f.index - 文件索引
+ * @param {number} f.total - 总文件数
+ * @param {string} useEncoding - 使用的编码
+ * @returns {Promise<Object>} 处理结果对象
+ */
 async function unzipFileUseAdmZip(f, useEncoding) {
     // adm-zip有内存泄漏，内存不足直接退出
     if (os.freemem() < mf.FILE_SIZE_1G * 4) {
@@ -344,6 +381,10 @@ async function unzipFileUseAdmZip(f, useEncoding) {
     }
 }
 
+/**
+ * 生成临时文件名
+ * @returns {string} 临时文件名
+ */
 function getTempFileName() {
     const randomness = Math.floor(Math.random() * 16777215)
         .toString(16)
@@ -352,6 +393,16 @@ function getTempFileName() {
     return `_${timestamp}${randomness}.tmp`
 }
 
+/**
+ * 使用unzipper库解压文件（推荐使用）
+ * @param {Object} f - 文件对象
+ * @param {string} f.path - ZIP文件路径
+ * @param {number} f.index - 文件索引
+ * @param {number} f.total - 总文件数
+ * @param {number} f.startMs - 开始时间戳
+ * @param {string} useEncoding - 使用的编码
+ * @returns {Promise<Object>} 处理结果对象
+ */
 async function unzipFileUseUnzipper(f, useEncoding) {
     const logTag = "ZipU"
     const ipx = `${f.index + 1}/${f.total}`
@@ -471,6 +522,13 @@ async function unzipFileUseUnzipper(f, useEncoding) {
     }
 }
 
+/**
+ * 使用adm-zip库猜测ZIP文件的编码
+ * @param {Object} f - 文件对象
+ * @param {string} f.path - ZIP文件路径
+ * @param {string} f.encoding - 用户指定的编码（可选）
+ * @returns {string|null} 猜测的编码
+ */
 function guessEncodingUseAdmZip(f) {
     const logTag = "guessEncoding"
     const zipFilePath = f.path
@@ -507,6 +565,13 @@ function guessEncodingUseAdmZip(f) {
     }
 }
 
+/**
+ * 使用unzipper库猜测ZIP文件的编码（推荐使用）
+ * @param {Object} f - 文件对象
+ * @param {string} f.path - ZIP文件路径
+ * @param {string} f.encoding - 用户指定的编码（可选）
+ * @returns {Promise<string|null>} 猜测的编码
+ */
 async function guessEncodingUseUnzipper(f) {
     const logTag = "guessEncoding2"
     const zipFilePath = f.path
@@ -558,7 +623,13 @@ async function guessEncodingUseUnzipper(f) {
 
 // 添加一个缓存，避免重复解析
 // const decodedNameCache = new Map()
-// 智能解析文件， 如果发现乱码，就按编码列表逐个尝试，找到无乱码的文件名
+
+/**
+ * 智能解析文件名编码，尝试多种编码以找到最佳解码结果
+ * @param {Buffer|string} fileNameRaw - 原始文件名数据
+ * @param {string|null} userEncoding - 用户指定的编码（可选）
+ * @returns {{fileName: string, encoding: string, badName: boolean}} 解码结果
+ */
 function decodeNameSmart(fileNameRaw, userEncoding = null) {
     // const cachedResult = decodedNameCache.get(fileNameRaw)
     // if (cachedResult) { return cachedResult }
@@ -612,6 +683,12 @@ function decodeNameSmart(fileNameRaw, userEncoding = null) {
     return { fileName, encoding, badName }
 }
 
+/**
+ * 检测字符串是否包含乱码字符
+ * @param {string} str - 要检测的字符串
+ * @param {boolean} strict - 是否使用严格模式
+ * @returns {boolean} 是否包含乱码字符
+ */
 function hasBadChars(str, strict = false) {
     if (enc.hasBadCJKChar(str)) {
         return true

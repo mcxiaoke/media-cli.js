@@ -6,6 +6,7 @@
  * License: Apache License 2.0
  */
 import chalk from "chalk"
+import * as cliProgress from "cli-progress"
 import dayjs from "dayjs"
 import { execa } from "execa"
 import fs from "fs-extra"
@@ -16,7 +17,6 @@ import { cpus } from "os"
 import pMap from "p-map"
 import path from "path"
 import which from "which"
-import * as cliProgress from "cli-progress"
 import argparser from "../lib/argparser.js"
 import * as core from "../lib/core.js"
 import { asyncFilter, formatArgs } from "../lib/core.js"
@@ -284,6 +284,49 @@ const builder = function addOptions(ya, helpOrVersionSet) {
 
 const handler = cmdConvert
 
+/**
+ * FFmpeg转换命令处理函数
+ * 处理媒体文件的转码、压缩、格式转换等操作
+ * @param {Object} argv - 命令行参数对象
+ * @param {string} argv.input - 输入目录路径
+ * @param {string[]} argv.directories - 额外输入目录列表
+ * @param {string} argv.output - 输出目录路径
+ * @param {string} argv.ffargs - 复合参数
+ * @param {string} argv.outputMode - 输出模式 (tree|dir|file)
+ * @param {number} argv.start - 起始索引
+ * @param {number} argv.count - 处理文件数量
+ * @param {string} argv.include - 包含文件名规则
+ * @param {string} argv.exclude - 排除文件名规则
+ * @param {boolean} argv.regex - 是否使用正则模式
+ * @param {string} argv.extensions - 需要处理的扩展名列表
+ * @param {string} argv.preset - 预设配置名称
+ * @param {boolean} argv.showPresets - 是否显示预设列表
+ * @param {boolean} argv.override - 是否覆盖已存在的文件
+ * @param {string} argv.prefix - 输出文件名前缀
+ * @param {string} argv.suffix - 输出文件名后缀
+ * @param {number} argv.dimension - 视频尺寸，长边最大数值
+ * @param {number} argv.fps - 视频帧率
+ * @param {number} argv.speed - 视频速度调整
+ * @param {string} argv.videoArgs - 视频参数
+ * @param {number} argv.videoBitrate - 视频码率
+ * @param {boolean} argv.videoCopy - 是否直接复制视频流
+ * @param {number} argv.videoQuality - 视频质量
+ * @param {string} argv.audioArgs - 音频参数
+ * @param {number} argv.audioBitrate - 音频码率
+ * @param {boolean} argv.audioCopy - 是否直接复制音频流
+ * @param {number} argv.audioQuality - 音频质量
+ * @param {string} argv.filters - FFmpeg滤镜字符串
+ * @param {string} argv.filterComplex - FFmpeg复杂滤镜字符串
+ * @param {string} argv.errorFile - 错误日志文件
+ * @param {string} argv.hwaccel - 硬件加速方式
+ * @param {string} argv.decodeMode - 解码模式 (auto|gpu|cpu)
+ * @param {number} argv.jobs - 并行操作限制
+ * @param {boolean} argv.deleteSourceFiles - 是否删除源文件
+ * @param {boolean} argv.info - 是否仅显示信息
+ * @param {boolean} argv.debug - 是否启用调试
+ * @param {boolean} argv.doit - 是否执行实际操作
+ * @returns {Promise<void>}
+ */
 async function cmdConvert(argv) {
     // 显示预设列表
     if (argv.showPresets) {
@@ -559,6 +602,24 @@ async function cmdConvert(argv) {
         )
 }
 
+/**
+ * 执行FFmpeg命令处理单个媒体文件
+ * @param {Object} entry - 文件对象
+ * @param {string} entry.path - 文件路径
+ * @param {number} entry.size - 文件大小
+ * @param {number} entry.index - 文件索引
+ * @param {number} entry.total - 总文件数
+ * @param {Object} entry.preset - 预设配置
+ * @param {Object} entry.dstArgs - 目标参数
+ * @param {Object} entry.info - 媒体信息
+ * @param {boolean} entry.testMode - 是否为测试模式
+ * @param {boolean} entry.retryOnFailed - 是否为重试操作
+ * @param {string} entry.fileDst - 目标文件路径
+ * @param {string} entry.fileDstDir - 目标文件目录
+ * @param {string} entry.fileDstTemp - 临时文件路径
+ * @param {string} entry.errorFile - 错误日志文件
+ * @returns {Promise<Object|null>} 处理结果对象
+ */
 async function runFFmpegCmd(entry) {
     const ipx = `${entry.index + 1}/${entry.total}`
 
@@ -611,19 +672,22 @@ async function runFFmpegCmd(entry) {
     let progressBar = null
 
     if (srcDuration > 0) {
-        progressBar = new cliProgress.SingleBar({
-            format: '{bar} | {percentage}% | {filename}',
-            barCompleteChar: '█',
-            barIncompleteChar: '░',
-            hideCursor: true,
-            clearOnComplete: false,
-            stopOnComplete: true,
-            etaBuffer: 10,
-            etaAsynchronous: true,
-        }, cliProgress.Presets.shades_classic)
+        progressBar = new cliProgress.SingleBar(
+            {
+                format: "{bar} | {percentage}% | {filename}",
+                barCompleteChar: "█",
+                barIncompleteChar: "░",
+                hideCursor: true,
+                clearOnComplete: false,
+                stopOnComplete: true,
+                etaBuffer: 10,
+                etaAsynchronous: true,
+            },
+            cliProgress.Presets.shades_classic,
+        )
 
         const fileName = path.parse(entry.path).name
-        const shortFileName = fileName.length > 30 ? fileName.substring(0, 27) + '...' : fileName
+        const shortFileName = fileName.length > 30 ? fileName.substring(0, 27) + "..." : fileName
 
         progressBar.start(100, 0, {
             filename: shortFileName,
@@ -698,6 +762,11 @@ async function runFFmpegCmd(entry) {
     }
 }
 
+/**
+ * 生成FFmpeg元数据注释参数
+ * @param {Object} entry - 文件对象
+ * @returns {string[]} FFmpeg元数据参数数组
+ */
 function getCommentArgs(entry) {
     // 将所有ffmpeg参数放到comment
     const ffmpegArgsText = createFFmpegArgs(entry, entry.useCUDA, true)
@@ -707,7 +776,12 @@ function getCommentArgs(entry) {
     return ["-metadata", `comment="${ffmpegArgsText}"`]
 }
 
-// 失败了在输出目录写一个Error文件
+/**
+ * 在输出目录写入错误日志文件
+ * @param {Object} entry - 文件对象
+ * @param {Error} error - 错误对象
+ * @returns {Promise<void>}
+ */
 async function writeErrorFile(entry, error) {
     if (entry.errorFile) {
         const useJson = entry.errorFile === "json"
@@ -729,6 +803,20 @@ async function writeErrorFile(entry, error) {
     }
 }
 
+/**
+ * 准备FFmpeg命令参数
+ * 处理文件路径、媒体信息、目标参数等
+ * @param {Object} entry - 文件对象
+ * @param {string} entry.path - 文件路径
+ * @param {string} entry.name - 文件名
+ * @param {number} entry.size - 文件大小
+ * @param {number} entry.index - 文件索引
+ * @param {number} entry.total - 总文件数
+ * @param {Object} entry.preset - 预设配置
+ * @param {Object} entry.argv - 命令行参数
+ * @param {string} entry.root - 根目录路径
+ * @returns {Promise<Object|boolean>} 处理后的文件对象或false（跳过）
+ */
 async function prepareFFmpegCmd(entry) {
     const preset = entry.preset
     const argv = entry.argv
@@ -978,7 +1066,19 @@ async function prepareFFmpegCmd(entry) {
     }
 }
 
-// 创建目标文件名基本名，不包含路径和扩展名
+/**
+ * 创建目标文件名基本名，不包含路径和扩展名
+ * @param {Object} entry - 文件对象
+ * @param {string} entry.name - 原始文件名
+ * @param {Object} entry.preset - 预设配置
+ * @param {string} entry.preset.name - 预设名称
+ * @param {string} entry.preset.prefix - 前缀模板
+ * @param {string} entry.preset.suffix - 后缀模板
+ * @param {Object} entry.dstValues - 目标值
+ * @param {number} entry.audioBitrate - 音频码率
+ * @param {number} entry.videoBitrate - 视频码率
+ * @returns {Array} [fileDstBase, prefix, suffix] - 目标文件名基本名、前缀、后缀
+ */
 function createDstBaseName(entry) {
     const srcBase = path.parse(entry.name).name
     // 模板参数变量，除了Preset的字段，有些需要替换
@@ -998,11 +1098,41 @@ function createDstBaseName(entry) {
     return [`${prefix}${srcBase}${suffix}`, prefix, suffix]
 }
 
+/**
+ * 将数值转换为K为单位的字符串
+ * @param {number} value - 原始数值
+ * @returns {string} 转换后的字符串
+ */
 function kNum(value) {
     return `${Math.round(value / 1000)}K`
 }
 
-// 显示媒体编码和码率信息，调试用
+/**
+ * 显示媒体编码和码率信息，调试用
+ * @param {Object} entry - 文件对象
+ * @param {Object} entry.info - 媒体信息
+ * @param {Object} entry.info.audio - 音频信息
+ * @param {Object} entry.info.video - 视频信息
+ * @param {Object} entry.info.subtitles - 字幕信息
+ * @param {Object} entry.dstArgs - 目标参数
+ * @param {string} entry.dstArgs.srcAudioCodec - 原始音频编码
+ * @param {string} entry.dstArgs.srcVideoCodec - 原始视频编码
+ * @param {number} entry.dstArgs.srcAudioBitrate - 原始音频码率
+ * @param {number} entry.dstArgs.dstAudioBitrate - 目标音频码率
+ * @param {number} entry.dstArgs.srcVideoBitrate - 原始视频码率
+ * @param {number} entry.dstArgs.dstVideoBitrate - 目标视频码率
+ * @param {number} entry.dstArgs.dstAudioQuality - 目标音频质量
+ * @param {number} entry.dstArgs.dstFrameRate - 目标视频帧率
+ * @param {number} entry.dstArgs.srcFrameRate - 原始视频帧率
+ * @param {number} entry.dstArgs.speed - 速度
+ * @param {number} entry.dstArgs.srcWidth - 原始视频宽度
+ * @param {number} entry.dstArgs.dstWidth - 目标视频宽度
+ * @param {number} entry.dstArgs.srcHeight - 原始视频高度
+ * @param {number} entry.dstArgs.dstHeight - 目标视频高度
+ * @param {number} entry.size - 文件大小
+ * @param {number} entry.dstArgs.srcDuration - 视频时长
+ * @returns {string} 格式化的媒体信息字符串
+ */
 function getEntryShowInfo(entry) {
     const ia = entry.info?.audio
     const iv = entry.info?.video
@@ -1052,7 +1182,14 @@ function getEntryShowInfo(entry) {
     return showText.join(",")
 }
 
-// 读取单个音频文件的元数据
+/**
+ * 读取单个音频文件的元数据
+ * @param {Object} entry - 文件对象
+ * @param {string} entry.path - 文件路径
+ * @param {string} entry.name - 文件名
+ * @param {number} entry.index - 文件索引
+ * @returns {Promise<Object|null>} 包含格式和标签信息的对象或null
+ */
 async function readMusicMeta(entry) {
     try {
         const mt = await mm.parseFile(entry.path, { skipCovers: true })
@@ -1093,13 +1230,42 @@ const bitrateMap = [
     { threshold: 0, value: 48 * 1000 }, // 默认值
 ]
 
+/**
+ * 获取非零最小值
+ * @param {number[]} numbers - 数字数组
+ * @returns {number} 非零最小值
+ */
 function minNoZero(...numbers) {
     const fNumbers = numbers.filter((n) => n > 0)
     return Math.min(...fNumbers)
 }
 
-const PIXELS_1080P = 1920 * 1080
-// 计算视频和音频码率等各种目标文件数据
+/**
+ * 计算视频和音频码率等各种目标文件数据
+ * @param {Object} entry - 文件对象
+ * @param {string} entry.path - 文件路径
+ * @param {string} entry.name - 文件名
+ * @param {Object} entry.preset - 预设配置
+ * @param {Object} entry.preset.userArgs - 用户参数
+ * @param {number} entry.preset.userArgs.audioBitrate - 用户指定的音频码率
+ * @param {number} entry.preset.userArgs.videoBitrate - 用户指定的视频码率
+ * @param {number} entry.preset.userArgs.audioQuality - 用户指定的音频质量
+ * @param {number} entry.preset.userArgs.videoQuality - 用户指定的视频质量
+ * @param {number} entry.preset.userArgs.speed - 用户指定的速度
+ * @param {number} entry.preset.userArgs.dimension - 用户指定的分辨率
+ * @param {number} entry.preset.audioBitrate - 预设的音频码率
+ * @param {number} entry.preset.videoBitrate - 预设的视频码率
+ * @param {number} entry.preset.audioQuality - 预设的音频质量
+ * @param {number} entry.preset.videoQuality - 预设的视频质量
+ * @param {number} entry.preset.speed - 预设的速度
+ * @param {number} entry.preset.dimension - 预设的分辨率
+ * @param {boolean} entry.preset.smartBitrate - 是否启用智能码率
+ * @param {Object} entry.info - 媒体信息
+ * @param {Object} entry.info.video - 视频信息
+ * @param {Object} entry.info.audio - 音频信息
+ * @param {Object} entry.format - 格式信息
+ * @returns {Object} 目标参数对象
+ */
 function calculateDstArgs(entry) {
     const ep = entry.preset
     const info = entry.info
@@ -1292,8 +1458,13 @@ function calculateDstArgs(entry) {
     }
 }
 
-// 组合各种参数，替换模板参数，输出最终的ffmpeg命令行参数
-// 此函数仅读取参数，不修改preset对象
+/**
+ * 组合各种参数，替换模板参数，输出最终的ffmpeg命令行参数
+ * @param {Object} entry - 文件对象
+ * @param {boolean} useCUDA - 是否使用CUDA加速
+ * @param {boolean} forDisplay - 是否仅用于显示
+ * @returns {Array} [inputArgs, middleArgs, outputArgs] - 输入参数、中间参数、输出参数
+ */
 function createFFmpegArgs(entry, useCUDA = false, forDisplay = false) {
     // 不要使用 entry.perset，下面复制一份针对每个entry
     const tempPreset = { ...entry.preset, ...entry.dstArgs }
@@ -1516,6 +1687,13 @@ function createFFmpegArgs(entry, useCUDA = false, forDisplay = false) {
     return [inputArgs, middleArgs, outputArgs]
 }
 
+/**
+ * 执行FFmpeg命令
+ * @param {Array} args - FFmpeg命令参数
+ * @param {Object} entry - 文件对象
+ * @param {Object} progressBar - 进度条对象
+ * @returns {Promise<void>}
+ */
 async function executeFFmpeg(args, entry, progressBar = null) {
     const ipx = `${entry.index + 1}/${entry.total}`
     const logTag = chalk.green("FFCMD") + chalk.cyanBright(entry.useCUDA ? "[HW]" : "[SW]")
@@ -1583,7 +1761,11 @@ async function executeFFmpeg(args, entry, progressBar = null) {
     }
 }
 
-// 将 ffmpeg 时间格式 HH:MM:SS.ms 转换为秒数
+/**
+ * 将 ffmpeg 时间格式 HH:MM:SS.ms 转换为秒数
+ * @param {string} timeStr - 时间字符串
+ * @returns {number} 秒数
+ */
 function parseTimeToSeconds(timeStr) {
     // timeStr 格式可能是:
     // 1. "00:00:04.633333" (out_time, 有6位小数)
@@ -1599,7 +1781,11 @@ function parseTimeToSeconds(timeStr) {
     return 0
 }
 
-// 检测CUDA解码器支持情况
+/**
+ * 检测CUDA解码器支持情况
+ * @param {string} inputPath - 输入文件路径
+ * @returns {Promise<boolean>} 是否支持CUDA解码
+ */
 async function canUseCUDADecoder(inputPath) {
     try {
         // 探测命令

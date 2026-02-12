@@ -18,10 +18,10 @@ import * as log from "../lib/debug.js"
 import * as enc from "../lib/encoding.js"
 import * as mf from "../lib/file.js"
 import * as helper from "../lib/helper.js"
+import { t } from "../lib/i18n.js"
 import { getMediaInfo } from "../lib/mediainfo.js"
 import { mergePath } from "../lib/path-merge.js"
 import { applyFileNameRules, cleanFileName, renameFiles } from "./cmd_shared.js"
-import { t } from "../lib/i18n.js"
 
 const TYPE_LIST = ["a", "f", "d"]
 const MODE_LIST = ["clean", "zhcn", "replace", "fixenc", "mergedir", "suffix", "prefix"]
@@ -256,17 +256,12 @@ async function cmdRename(argv) {
             type: "confirm",
             name: "yes",
             default: false,
-            message: chalk.bold.red(
-                t("rename.confirm.rename", { count: tasks.length, type }),
-            ),
+            message: chalk.bold.red(t("rename.confirm.rename", { count: tasks.length, type })),
         },
     ])
     if (answer.yes) {
         if (testMode) {
-            log.showYellow(
-                logTag,
-                t("common.test.mode.note", { count: tasks.length, type }),
-            )
+            log.showYellow(logTag, t("common.test.mode.note", { count: tasks.length, type }))
         } else {
             const results = await renameFiles(tasks, true)
             log.showGreen(logTag, t("rename.all.files.renamed", { count: results.length, type }))
@@ -280,6 +275,17 @@ const MEDIA_EXTRA_EXTS = [".jpg", ".png", ".ass", ".srt", ".nfo", ".txt"]
 let badCount = 0
 // 重复文件名Set，检测重复，防止覆盖
 const nameDuplicateSet = new Set()
+
+/**
+ * 预处理重命名操作，根据不同模式修复文件名和路径
+ * @param {Object} f - 文件对象
+ * @param {string} f.path - 文件路径
+ * @param {boolean} f.isDir - 是否为目录
+ * @param {number} f.index - 文件索引
+ * @param {number} f.total - 总文件数
+ * @param {Object} f.argv - 命令行参数
+ * @returns {Promise<Object|null>} 处理后的文件对象，包含新路径信息
+ */
 async function preRename(f) {
     const isDir = f.isDir
     const flag = isDir ? "D" : "F"
@@ -300,6 +306,11 @@ async function preRename(f) {
     const pathDepth = oldPath.split(path.sep).length
     log.info(logTag, `Processing "${oldPath} [${flag}]"`)
 
+    /**
+     * 重新组合修复后的目录路径
+     * @param {...string} parts - 路径部分
+     * @returns {string} 组合后的路径
+     */
     // 重新组合修复后的目录路径
     function combinePath(...parts) {
         let joinedPath = path.join(...parts)

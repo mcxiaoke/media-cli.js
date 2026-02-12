@@ -43,6 +43,15 @@ const builder = function addOptions(ya, helpOrVersionSet) {
     )
 }
 
+/**
+ * 解码文本命令处理函数
+ * 尝试使用不同编码解码乱码文本
+ * @param {Object} argv - 命令行参数对象
+ * @param {Array<string>} argv.strings - 需要解码的字符串数组
+ * @param {string} argv.fromEnc - 源编码（可选）
+ * @param {string} argv.toEnc - 目标编码（可选）
+ * @returns {Promise<void>}
+ */
 const handler = async function cmdDecode(argv) {
     const logTag = "cmdDecode"
     log.info(logTag, "Args:", argv)
@@ -67,11 +76,24 @@ const handler = async function cmdDecode(argv) {
     }
 }
 
+/**
+ * 解码文本，尝试不同编码组合
+ * @param {string} str - 需要解码的字符串
+ * @param {Array<string>} fromEnc - 源编码列表
+ * @param {Array<string>} toEnc - 目标编码列表
+ * @param {number} threhold - 置信度阈值
+ * @returns {Array} 解码结果数组（反转顺序）
+ */
 function decodeText(str, fromEnc = ENC_LIST, toEnc = ENC_LIST, threhold = 50) {
     let results = enc.tryDecodeText(str, fromEnc, toEnc, threhold)
     return results.reverse()
 }
 
+/**
+ * 显示解码结果
+ * @param {Array} r - 解码结果数组
+ * @returns {void}
+ */
 function showResults(r) {
     log.info(`-`)
     const str = r[0]

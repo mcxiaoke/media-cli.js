@@ -127,6 +127,12 @@ const builder = function addOptions(ya, helpOrVersionSet) {
     )
 }
 
+/**
+ * 根据目录层次自动生成前缀
+ * @param {string} dir - 目录路径
+ * @param {string} sep - 分隔符
+ * @returns {string} 生成的前缀
+ */
 function getAutoModePrefix(dir, sep) {
     // 从左到右的目录层次
     const [d1, d2, d3] = dir.split(path.sep).slice(-3)
@@ -143,6 +149,11 @@ function getAutoModePrefix(dir, sep) {
     return [d1, d2, d3].join(sep)
 }
 
+/**
+ * 解析命名模式
+ * @param {Object} argv - 命令行参数对象
+ * @returns {string} 解析后的模式
+ */
 function parseNameMode(argv) {
     let mode = argv.auto ? MODE_AUTO : argv.mode || MODE_AUTO
     if (argv.mprefix) {
@@ -160,9 +171,22 @@ function parseNameMode(argv) {
     return mode
 }
 
-// 重复文件名Set，检测重复，防止覆盖
+/**
+ * 重复文件名Set，检测重复，防止覆盖
+ */
 const nameDupSet = new Set()
 let nameDupIndex = 0
+
+/**
+ * 根据模式创建新文件名
+ * @param {Object} f - 文件对象
+ * @param {string} f.path - 文件路径
+ * @param {Object} f.argv - 命令行参数对象
+ * @param {number} f.index - 文件索引
+ * @param {number} f.total - 总文件数
+ * @param {number} f.size - 文件大小
+ * @returns {Promise<Object>} 处理后的文件对象
+ */
 async function createNewNameByMode(f) {
     const argv = f.argv
     const mode = parseNameMode(argv)
@@ -182,6 +206,7 @@ async function createNewNameByMode(f) {
     let sep = "_"
     let prefix = argv.prefix
     let oldBase = base
+
     switch (mode) {
         case MODE_CLEAN:
             {
@@ -265,12 +290,14 @@ async function createNewNameByMode(f) {
     fullBase = fullBase.replaceAll(RE_UGLY_CHARS, sep)
     // 去掉重复词组，如目录名和人名
     fullBase = Array.from(new Set(fullBase.split(sep))).join(sep)
+    // 限制文件名长度
     fullBase = helper.unicodeLength(fullBase) > nameLength ? fullBase.slice(nameSlice) : fullBase
     // 再次去掉首位的特殊字符和空白字符
     fullBase = fullBase.replaceAll(RE_UGLY_CHARS_BORDER, "")
 
     let newName = `${fullBase}${ext}`
     let newPath = path.resolve(path.join(dir, newName))
+
     if (newPath === f.path) {
         log.info(logTag, `Same: ${ipx} ${helper.pathShort(newPath)}`)
         f.skipped = true
@@ -294,10 +321,11 @@ async function createNewNameByMode(f) {
         log.info(logTag, `Duplicate: ${ipx} ${helper.pathShort(newPath)}`)
         f.skipped = true
     }
+
     nameDupSet.add(newPath)
+
     if (f.skipped) {
-        // log.fileLog(`Skip: ${ipx} ${f.path}`, logTag);
-        // log.showGray(logTag, `Skip: ${ipx} ${f.path}`);
+        // 跳过的文件不做处理
     } else {
         f.outName = newName
         f.outPath = newPath
@@ -306,6 +334,7 @@ async function createNewNameByMode(f) {
         log.fileLog(`Prepare: ${ipx} <${f.path}> [SRC]`, logTag)
         log.fileLog(`Prepare: ${ipx} <${newPath}> [DST]`, logTag)
     }
+
     return f
 }
 

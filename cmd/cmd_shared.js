@@ -94,11 +94,30 @@ export async function renameFiles(files, parallel = false) {
     return results
 }
 
+/**
+ * 修复字符串编码，将binary编码转换为cp936编码
+ * @param {string} str - 要修复编码的字符串，默认为空字符串
+ * @returns {string} 修复编码后的字符串
+ */
 function fixEncoding(str = "") {
     return iconv.decode(Buffer.from(str, "binary"), "cp936")
 }
 // 需要使用外部程序压缩的格式
 const fixedOkStr = iconv.decode(Buffer.from("OK"), "utf8")
+/**
+ * 使用外部工具nconvert压缩图片
+ * @param {Object} t - 压缩任务对象
+ * @param {string} t.src - 源图片路径
+ * @param {string} t.tmpDst - 临时目标文件路径
+ * @param {number} t.width - 目标宽度
+ * @param {number} t.quality - 压缩质量
+ * @param {number} t.index - 当前任务索引
+ * @param {number} t.total - 总任务数
+ * @param {number} t.srcWidth - 源图片宽度
+ * @param {number} t.srcHeight - 源图片高度
+ * @param {boolean} force - 是否强制使用外部压缩，默认为false
+ * @returns {Object|null} 压缩结果对象，包含宽度、高度等信息，失败返回null
+ */
 async function compressExternal(t, force = false) {
     const logTag = "Compress"
     log.info(logTag, "processing", t)
@@ -122,7 +141,7 @@ async function compressExternal(t, force = false) {
         const sr = fixEncoding(stderr || "NULL")
         log.debug(logTag, "stdout", so)
         log.debug(logTag, "stderr", sr)
-        // strange fix for encoding str compare
+        // 检查压缩是否成功
         if (sr.endsWith(fixedOkStr)) {
             log.show(
                 chalk.yellow(logTag),
@@ -227,12 +246,28 @@ export async function compressImage(t) {
     }
 } // 结束函数定义
 
+/**
+ * 检查压缩结果并处理临时文件
+ * @param {Object} t - 压缩任务对象
+ * @param {string} t.tmpDst - 临时目标文件路径
+ * @param {string} t.dst - 最终目标文件路径
+ * @param {string} t.src - 源文件路径
+ * @param {number} t.index - 当前任务索引
+ * @param {number} t.total - 总任务数
+ * @param {number} t.srcWidth - 源图片宽度
+ * @param {number} t.srcHeight - 源图片高度
+ * @param {number} t.size - 源文件大小
+ * @param {number} t.startMs - 任务开始时间
+ * @param {Object} r - 压缩结果对象
+ * @param {number} r.width - 压缩后宽度
+ * @param {number} r.height - 压缩后高度
+ * @returns {Object|null} 处理后的任务对象，失败返回null
+ */
 async function checkCompressResult(t, r) {
     const logTag = chalk.green("Compressed")
     try {
         const tmpSt = await fs.stat(t.tmpDst)
-        // 如果目标文件大小小于100KB，则可能文件损坏，删除该文件
-        // file may be corrupted, remove it
+        // 如果目标文件大小小于10KB，则可能文件损坏，删除该文件
         if (tmpSt.size < 10 * 1024) {
             await helper.safeRemove(t.tmpDst)
             log.showYellow(
@@ -248,15 +283,18 @@ async function checkCompressResult(t, r) {
             )
             return
         }
+        // 将临时文件重命名为最终目标文件
         await fs.rename(t.tmpDst, t.dst)
         t.dstExists = await fs.pathExists(t.dst)
         if (!t.dstExists) {
             return
         }
+        // 生成尺寸信息字符串
         let dimensionStr = `${r.width}x${r.height}`
         if (r.width !== t.srcWidth || r.height !== t.srcHeight) {
             dimensionStr = `${t.srcWidth}x${t.srcHeight}` + `=>` + dimensionStr
         }
+        // 记录压缩成功的日志
         log.show(
             logTag,
             `${t.index}/${t.total}`,
@@ -266,10 +304,13 @@ async function checkCompressResult(t, r) {
             helper.humanTime(t.startMs),
         )
         log.fileLog(`<${t.src}> => ${path.basename(t.dst)} ${helper.humanSize(tmpSt.size)}`, logTag)
+        // 更新任务对象的属性
         t.dstSize = tmpSt.size || 0
         t.done = true
         return t
-    } catch (error) {}
+    } catch (error) {
+        // 忽略错误，返回undefined
+    }
 }
 
 // 正则：仅包含数字
@@ -374,11 +415,17 @@ export function cleanFileName(nameString, options = {}) {
     return helper.filenameSafe(nameStr)
 }
 
+/**
+ * 根据模式过滤文件名
+ * @param {string} fpath - 文件路径
+ * @param {string} pattern - 过滤模式
+ * @param {boolean} useRegex - 是否使用正则表达式匹配，默认为false
+ * @returns {boolean} 是否匹配模式
+ */
 function filterFileNames(fpath, pattern, useRegex = false) {
     const name = path.basename(fpath)
     if (useRegex) {
         const rgx = new RegExp(pattern, "ui")
-        // log.show(name, pattern, rgx)
         return name.includes(pattern) || rgx.test(name)
     }
     return name.includes(pattern)

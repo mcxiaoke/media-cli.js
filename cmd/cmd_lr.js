@@ -32,6 +32,14 @@ const handler = async (argv) => {
     await cmdLRMove(argv)
 }
 
+/**
+ * LR移动命令处理函数
+ * 移动RAW文件的JPEG输出到其他文件夹
+ * @param {Object} argv - 命令行参数对象
+ * @param {string} argv.input - 输入目录路径
+ * @param {string} argv.output - 输出目录路径（可选）
+ * @returns {Promise<void>}
+ */
 async function cmdLRMove(argv) {
     log.show("cmdLRMove", argv)
     const root = path.resolve(argv.input)

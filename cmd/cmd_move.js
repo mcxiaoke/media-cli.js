@@ -199,6 +199,14 @@ function countByStatus(entries, fallback = CheckStatus.NULL) {
     }, {})
 }
 
+/**
+ * 检查移动操作的可行性
+ * @param {Object} entry - 文件条目对象
+ * @param {string} entry.path - 文件路径
+ * @param {string} entry.name - 文件名
+ * @param {string} entry.output - 输出目录
+ * @returns {Promise<Object>} 包含移动信息的结果对象
+ */
 async function checkMove(entry) {
     const logTag = chalk.green(t("operation.move"))
     const date = extractDate(entry.name)
@@ -238,6 +246,14 @@ async function checkMove(entry) {
     return entry
 }
 
+/**
+ * 准备移动任务
+ * @param {Array<Object>} entries - 文件条目数组
+ * @param {Object} argv - 命令行参数对象
+ * @param {string} argv.output - 输出目录
+ * @param {number} argv.jobs - 并发任务数
+ * @returns {Promise<Array<Object>>} 准备好的任务数组
+ */
 async function prepareMove(entries, argv) {
     const output = path.resolve(argv.output || argv.input)
     let tasks = entries.map((f, i) => {
@@ -263,6 +279,19 @@ async function prepareMove(entries, argv) {
     return tasks.filter((e) => e && e.fileDst)
 }
 
+/**
+ * 移动命令处理函数
+ * 按照文件名中的日期时间将文件移动到对应月份目录
+ * @param {Object} argv - 命令行参数对象
+ * @param {string} argv.input - 输入目录路径
+ * @param {string} argv.output - 输出目录路径
+ * @param {string} argv.include - 包含文件名规则
+ * @param {string} argv.exclude - 排除文件名规则
+ * @param {string} argv.extensions - 扩展名列表
+ * @param {number} argv.maxDepth - 遍历目录深度限制
+ * @param {boolean} argv.doit - 是否执行实际操作
+ * @returns {Promise<void>}
+ */
 const handler = async function cmdMove(argv) {
     log.info(argv)
     const testMode = !argv.doit

@@ -62,6 +62,17 @@ const builder = function addOptions(ya, helpOrVersionSet) {
     )
 }
 
+/**
+ * 向上移动命令处理函数
+ * 将深层子目录的文件移动到子目录或根目录的图片/视频目录
+ * @param {Object} argv - 命令行参数对象
+ * @param {string} argv.input - 输入目录路径
+ * @param {string} argv.output - 输出文件名
+ * @param {string} argv.mode - 操作模式
+ * @param {boolean} argv.topmost - 是否移动到根目录
+ * @param {boolean} argv.doit - 是否执行实际操作
+ * @returns {Promise<void>}
+ */
 const handler = async function cmdMoveUp(argv) {
     const logTag = "MoveUp"
     log.info(logTag, argv)
@@ -255,6 +266,12 @@ const handler = async function cmdMoveUp(argv) {
     log.showGreen(logTag, `${delCount} dirs were SAFE DELETED ${testMode ? "[DRY RUN]" : ""}`)
 }
 
+/**
+ * 计算两个集合的差集
+ * @param {Set} setA - 第一个集合
+ * @param {Set} setB - 第二个集合
+ * @returns {Set} setA - setB 的差集
+ */
 function setDifference(setA, setB) {
     const ds = new Set(setA)
     for (const elem of setB) {

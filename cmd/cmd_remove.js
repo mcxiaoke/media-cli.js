@@ -23,9 +23,9 @@ import * as log from "../lib/debug.js"
 import * as enc from "../lib/encoding.js"
 import * as mf from "../lib/file.js"
 import * as helper from "../lib/helper.js"
+import { t } from "../lib/i18n.js"
 import { getMediaInfo, getVideoInfo } from "../lib/mediainfo.js"
 import { addEntryProps, applyFileNameRules } from "./cmd_shared.js"
-import { t } from "../lib/i18n.js"
 
 // a = all, f = files, d = directories
 const TYPE_LIST = ["a", "f", "d"]
@@ -261,7 +261,7 @@ async function cmdRemove(argv) {
 
     cNames = cNames || new Set()
 
-    log.show(logTag, `${t('path.input')}:`, root)
+    log.show(logTag, `${t("path.input")}:`, root)
     if (!testMode) {
         log.fileLog(`Root: ${root}`, logTag)
         log.fileLog(`Argv: ${JSON.stringify(argv)}`, logTag)
@@ -273,9 +273,9 @@ async function cmdRemove(argv) {
         withFiles: type === "a" || type === "f",
         withIndex: true,
     }
-    log.showGreen(logTag, `${t('remove.scanning')}... (${type})`)
+    log.showGreen(logTag, `${t("remove.scanning")}... (${type})`)
     let fileEntries = await mf.walk(root, walkOpts)
-    log.show(logTag, `${t('remove.found.files', { count: fileEntries.length })}: ${root}`)
+    log.show(logTag, `${t("remove.found.files", { count: fileEntries.length })}: ${root}`)
     // 处理额外目录参数
     if (argv.directories?.length > 0) {
         const extraDirs = new Set(argv.directories.map((d) => path.resolve(d)))
@@ -284,7 +284,10 @@ async function cmdRemove(argv) {
             if (st.isDirectory()) {
                 const dirFiles = await mf.walk(dirPath, walkOpts)
                 if (dirFiles.length > 0) {
-                    log.show(logTag, t("ffmpeg.add.files", { count: dirFiles.length, path: dirPath }))
+                    log.show(
+                        logTag,
+                        t("ffmpeg.add.files", { count: dirFiles.length, path: dirPath }),
+                    )
                     fileEntries = fileEntries.concat(dirFiles)
                 }
             }
@@ -296,7 +299,7 @@ async function cmdRemove(argv) {
     fileEntries = await applyFileNameRules(fileEntries, argv)
     // 路径排序，路径深度=>路径长度=>自然语言
     fileEntries = fileEntries.sort(comparePathSmartBy("path"))
-    log.show(logTag, `${t('remove.found.files', { count: fileEntries.length })} (${type})`)
+    log.show(logTag, `${t("remove.found.files", { count: fileEntries.length })} (${type})`)
 
     const conditions = {
         total: fileEntries.length,
@@ -375,7 +378,7 @@ async function cmdRemove(argv) {
                 t("remove.confirm.delete", {
                     count: tasks.length,
                     size: helper.humanSize(totalSize),
-                    type: type
+                    type: type,
                 }),
             ),
         },
@@ -431,9 +434,17 @@ async function cmdRemove(argv) {
     }
 
     log.showGreen(logTag, "task endAt", dayjs().format())
-    log.showGreen(logTag, t("remove.summary", { count: removedCount, time: helper.humanTime(startMs), type: type }))
+    log.showGreen(
+        logTag,
+        t("remove.summary", { count: removedCount, time: helper.humanTime(startMs), type: type }),
+    )
 }
 
+/**
+ * 从文件中读取文件名列表
+ * @param {string} list - 文件名列表文件路径
+ * @returns {Promise<Set<string>>} 文件名集合
+ */
 async function readNameList(list) {
     const listContent = (await fs.readFile(list, "utf-8")) || ""
     const nameList = listContent
@@ -443,6 +454,15 @@ async function readNameList(list) {
     return new Set(nameList)
 }
 
+/**
+ * 构建删除任务参数
+ * @param {number} index - 文件索引
+ * @param {string} desc - 任务描述
+ * @param {boolean} shouldRemove - 是否应该删除
+ * @param {string} src - 文件路径
+ * @param {number} size - 文件大小
+ * @returns {Object} 删除任务参数对象
+ */
 function buildRemoveArgs(index, desc, shouldRemove, src, size) {
     return {
         index,
@@ -453,7 +473,17 @@ function buildRemoveArgs(index, desc, shouldRemove, src, size) {
     }
 }
 
-let preparedCount = 0
+/**
+ * 准备删除任务参数
+ * @param {Object} f - 文件对象
+ * @param {string} f.path - 文件路径
+ * @param {boolean} f.isDir - 是否为目录
+ * @param {number} f.index - 文件索引
+ * @param {number} f.total - 总文件数
+ * @param {number} f.size - 文件大小
+ * @param {Object} f.conditions - 条件对象
+ * @returns {Promise<Object>} 删除任务参数对象
+ */
 async function preRemoveArgs(f) {
     const fileSrc = path.resolve(f.path)
     const fileName = path.basename(fileSrc)
@@ -461,7 +491,6 @@ async function preRemoveArgs(f) {
     const flag = f.isDir ? "D" : "F"
     const c = f.conditions || {}
     const ipx = `${f.index}/${f.total}`
-    //log.show("prepareRM options:", options);
     // 文件名列表规则
     const cNames = c.names || new Set()
     // 是否反转文件名列表
@@ -495,10 +524,6 @@ async function preRemoveArgs(f) {
     const cWidth = c.width || 0
     // 最大高度
     const cHeight = c.height || 0
-    // // 交换长宽，长>宽
-    // if (cWidth < cHeight) {
-    //     [cWidth, cHeight] = [cHeight, cWidth]
-    // }
     // 文件名匹配文本
     const cPattern = (c.pattern || "").toLowerCase()
     // 启用反向匹配
@@ -508,8 +533,6 @@ async function preRemoveArgs(f) {
     const hasSize = c.sizeLeft > 0 || c.sizeRight > 0
     const hasMeasure = cWidth > 0 || cHeight > 0
 
-    //log.show("prepareRM", `${cWidth}x${cHeight} ${cSize} /${cPattern}/`);
-
     let testCorrupted = false
     let testBadChars = false
     let testPattern = false
@@ -518,30 +541,25 @@ async function preRemoveArgs(f) {
 
     const isImageExt = helper.isImageFile(fileSrc)
     const isVideoExt = helper.isVideoFile(fileSrc)
-    // 如果是目录，获取并显示目录内容大小
-    // const itemSize = f.isDir ? await mf.getDirectorySizeR(fileSrc) : f.size
-    // const itemCount = f.isDir ? await mf.getDirectoryFileCount(fileSrc) : 0
     const itemSize = f.size
     const itemCount = 1
 
     try {
         // 检查文件是否损坏
         if (hasCorrupted && f.isFile) {
-            // only check video/audio/image type files
             const isAudioExt = helper.isAudioFile(fileName)
             const isRawExt = helper.isRawFile(fileName)
             const isArchiveExt = helper.isArchiveFile(fileName)
             if (isAudioExt || isVideoExt) {
-                // size  < 5k , maybe corrputed
+                // 大小小于5k，可能损坏
                 if (f.size < 5 * 1024) {
                     log.showGray("preRemove[BadSizeM]:", `${ipx} ${fileSrc}`)
                     itemDesc += " BadSizeM"
                     testCorrupted = true
                 } else {
-                    // file-type库支持格式不全，不能用用于判断文件是否损坏
-                    // 对于媒体文件，用ffprobe试试
+                    // 对于媒体文件，获取媒体信息判断是否损坏
                     const info = await getMediaInfo(fileSrc)
-                    // 正常的多媒体文件有这两个字段
+                    // 正常的多媒体文件有duration和bitrate字段
                     const validMediaFile = info?.duration && info?.bitrate
                     if (!validMediaFile) {
                         log.showGray(
@@ -554,13 +572,13 @@ async function preRemoveArgs(f) {
                     }
                 }
             } else if (isImageExt || isRawExt || isArchiveExt) {
-                // size  < 5k , maybe corrputed
+                // 大小小于5k，可能损坏
                 if (f.size < 5 * 1024) {
                     log.showGray("preRemove[BadSizeF]:", `${ipx} ${fileSrc}`)
                     itemDesc += " BadSizeF"
                     testCorrupted = true
                 } else {
-                    // file-type库支持格式不全，但可用于图片文件损坏判断
+                    // 对于图片文件，检查文件类型
                     const ft = await fileTypeFromFile(fileSrc)
                     if (!ft?.mime) {
                         log.showGray("preRemove[CorruptedFormat]:", `${ipx} ${fileSrc}`)
@@ -568,16 +586,14 @@ async function preRemoveArgs(f) {
                         testCorrupted = true
                     }
                 }
-            } else {
-                // 其它类型文件，暂时没有判断是否损坏的可靠方法
             }
             if (!testCorrupted) {
                 log.info("preRemove[Good]:", `${ipx} ${fileSrc}`)
             }
         }
 
+        // 检查文件名是否有乱码
         if (hasBadChars) {
-            // 可能为文件或目录
             if (enc.hasBadCJKChar(fileName) || enc.hasBadUnicode(fileName, true)) {
                 log.showGray(
                     "preRemove[BadChars]:",
@@ -588,7 +604,7 @@ async function preRemoveArgs(f) {
             }
         }
 
-        // 首先检查名字正则匹配
+        // 检查文件名匹配
         if (!testCorrupted && hasName) {
             const fName = fileName.toLowerCase()
             const rp = new RegExp(cPattern, "ui")
@@ -608,9 +624,9 @@ async function preRemoveArgs(f) {
             }
         }
 
-        // 其次检查文件大小是否满足条件
+        // 检查文件大小
         if (!testCorrupted && hasSize && f.isFile) {
-            // 命令行参数单位为K，这里修正
+            // 命令行参数单位为K，这里修正为字节
             const sizeLeft = c.sizeLeft * 1000
             const sizeRight = c.sizeRight * 1000
             itemDesc += ` S=${helper.humanSize(f.size)} (${c.sizeLeft}K,${c.sizeRight}K)`
@@ -626,27 +642,23 @@ async function preRemoveArgs(f) {
             )
         }
 
-        // 图片和视频文件才检查宽高
-        // 再次检查宽高是否满足条件
+        // 检查宽高
         if (!testCorrupted && hasMeasure && f.isFile) {
             try {
                 let fWidth, fHeight
                 if (isImageExt) {
-                    // 图片宽高
+                    // 获取图片宽高
                     const imageSizeOf = promisify(imageSizeOfSync)
                     const dimension = await imageSizeOf(fileSrc)
                     fWidth = dimension.width || 0
                     fHeight = dimension.height || 0
                 } else if (isVideoExt) {
-                    // 视频宽高
+                    // 获取视频宽高
                     const vi = await getVideoInfo(fileSrc)
                     fWidth = vi.width || 0
                     fHeight = vi.height || 0
                 }
-                // // 确保宽大于高
-                // if (fWidth < fHeight) {
-                //     [fWidth, fHeight] = [fHeight, fWidth]
-                // }
+
                 itemDesc += ` M=${fWidth}x${fHeight}`
                 if (cWidth > 0 && cHeight > 0) {
                     // 宽高都提供时，要求都满足才能删除
@@ -683,8 +695,10 @@ async function preRemoveArgs(f) {
             shouldRemove = true
         } else {
             if (hasLoose) {
+                // 宽松模式：满足任一条件
                 shouldRemove = testPattern || testSize || testMeasure
             } else {
+                // 严格模式：满足所有条件
                 log.debug(
                     "PreRemove ",
                     `${ipx} ${helper.pathShort(fileSrc)} hasName=${hasName}-${testPattern} hasSize=${hasSize}-${testSize} hasMeasure=${hasMeasure}-${testMeasure} testCorrupted=${testCorrupted},testBadChars=${testBadChars},flag=${flag}`,
@@ -694,6 +708,7 @@ async function preRemoveArgs(f) {
         }
 
         if (shouldRemove) {
+            // 大文件或大目录警告
             if (itemSize > mf.FILE_SIZE_1M * 200 || (f.isDir && itemCount > 100)) {
                 log.showYellow(
                     "PreRemove[Large]:",
@@ -726,6 +741,10 @@ async function preRemoveArgs(f) {
         throw error
     }
 
+    /**
+     * 检查删除条件
+     * @returns {boolean} 是否满足删除条件
+     */
     function checkConditions() {
         // 当三个条件都为真时
         if (hasName && hasSize && hasMeasure) {
