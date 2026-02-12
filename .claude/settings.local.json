@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find:*)",
+      "Bash(for file in lib/*.js)",
+      "Bash(do echo:*)",
+      "Bash(grep -c\"/\\\\*\\\\*\" \"$file\")",
+      "Bash(done:*)"
+    ]
+  }
+}
