@@ -16,6 +16,7 @@ import { cpus } from "os"
 import pMap from "p-map"
 import path from "path"
 import which from "which"
+import * as cliProgress from "cli-progress"
 import argparser from "../lib/argparser.js"
 import * as core from "../lib/core.js"
 import { asyncFilter, formatArgs } from "../lib/core.js"
@@ -24,9 +25,9 @@ import * as enc from "../lib/encoding.js"
 import presets from "../lib/ffmpeg_presets.js"
 import * as mf from "../lib/file.js"
 import * as helper from "../lib/helper.js"
+import { t } from "../lib/i18n.js"
 import { getMediaInfo, getSimpleInfo } from "../lib/mediainfo.js"
 import { addEntryProps, applyFileNameRules, calculateScale } from "./cmd_shared.js"
-import { t } from "../lib/i18n.js"
 
 const LOG_TAG = "FFConv"
 // ===========================================
@@ -334,7 +335,10 @@ async function cmdConvert(argv) {
             if (st.isDirectory()) {
                 const dirFiles = await mf.walk(dirPath, walkOpts)
                 if (dirFiles.length > 0) {
-                    log.show(logTag, t("ffmpeg.add.files", { count: dirFiles.length, path: dirPath }))
+                    log.show(
+                        logTag,
+                        t("ffmpeg.add.files", { count: dirFiles.length, path: dirPath }),
+                    )
                     fileEntries = fileEntries.concat(dirFiles)
                 }
             }
@@ -421,9 +425,7 @@ async function cmdConvert(argv) {
             type: "confirm",
             name: "yes",
             default: false,
-            message: chalk.bold.red(
-                t("ffmpeg.confirm.check", { preset: preset.name }),
-            ),
+            message: chalk.bold.red(t("ffmpeg.confirm.check", { preset: preset.name })),
         },
     ])
     if (!prepareAnswer.yes) {
@@ -440,16 +442,16 @@ async function cmdConvert(argv) {
         // 删除目标文件已存在的源文件
         let dstExitsTasks = tasks.filter((t) => t && t.dstExists && !t.fileDst)
         if (dstExitsTasks.length > 0) {
-                const answer = await inquirer.prompt([
-                    {
-                        type: "confirm",
-                        name: "yes",
-                        default: false,
-                        message: chalk.bold.red(
-                            t("ffmpeg.confirm.delete.source", { count: dstExitsTasks.length }),
-                        ),
-                    },
-                ])
+            const answer = await inquirer.prompt([
+                {
+                    type: "confirm",
+                    name: "yes",
+                    default: false,
+                    message: chalk.bold.red(
+                        t("ffmpeg.confirm.delete.source", { count: dstExitsTasks.length }),
+                    ),
+                },
+            ])
             if (answer.yes) {
                 addEntryProps(dstExitsTasks)
                 await pMap(
@@ -491,7 +493,7 @@ async function cmdConvert(argv) {
                 t("ffmpeg.confirm.process", {
                     count: tasks.length,
                     preset: preset.name,
-                    duration: helper.humanSeconds(totalDuration)
+                    duration: helper.humanSeconds(totalDuration),
                 }),
             ),
         },
@@ -525,9 +527,7 @@ async function cmdConvert(argv) {
                 type: "confirm",
                 name: "yes",
                 default: false,
-                message: chalk.bold.red(
-                    t("ffmpeg.confirm.retry", { count: failedTasks.length }),
-                ),
+                message: chalk.bold.red(t("ffmpeg.confirm.retry", { count: failedTasks.length })),
             },
         ])
         if (answer.yes) {
@@ -554,7 +554,7 @@ async function cmdConvert(argv) {
             logTag,
             t("ffmpeg.total.processed", {
                 count: okResults.length + rOKCount,
-                time: helper.humanTime(startMs)
+                time: helper.humanTime(startMs),
             }),
         )
 }
@@ -606,8 +606,32 @@ async function runFFmpegCmd(entry) {
     const metaComment = getCommentArgs(entry)
     const ffmpegArgs = [...inputArgs, ...middleArgs, ...metaComment, ...outputArgs]
 
+    // 创建进度条
+    const srcDuration = entry.dstArgs?.srcDuration || entry.info?.duration || 0
+    let progressBar = null
+
+    if (srcDuration > 0) {
+        progressBar = new cliProgress.SingleBar({
+            format: '{bar} | {percentage}% | {filename}',
+            barCompleteChar: '█',
+            barIncompleteChar: '░',
+            hideCursor: true,
+            clearOnComplete: false,
+            stopOnComplete: true,
+            etaBuffer: 10,
+            etaAsynchronous: true,
+        }, cliProgress.Presets.shades_classic)
+
+        const fileName = path.parse(entry.path).name
+        const shortFileName = fileName.length > 30 ? fileName.substring(0, 27) + '...' : fileName
+
+        progressBar.start(100, 0, {
+            filename: shortFileName,
+        })
+    }
+
     try {
-        await executeFFmpeg(ffmpegArgs)
+        await executeFFmpeg(ffmpegArgs, entry, progressBar)
 
         if (await fs.pathExists(entry.fileDst)) {
             log.showYellow(
@@ -647,7 +671,7 @@ async function runFFmpegCmd(entry) {
             logTag,
             `${ipx} Failed ${entry.path}`,
             entry.preset.name,
-            helper.humanSize(dstSize),
+            helper.humanSize(entry.size),
         )
         log.fileLog(
             `${ipx} Failed <${entry.path}> [${entry.dstAudioBitrate || entry.preset.name}]`,
@@ -668,6 +692,14 @@ async function runFFmpegCmd(entry) {
         entry.ffmpegError = errMsg
         return entry
     } finally {
+        // 确保进度条被正确停止
+        if (progressBar) {
+            try {
+                progressBar.stop()
+            } catch (e) {
+                // 忽略进度条停止时的错误
+            }
+        }
         await fs.remove(entry.fileDstTemp)
     }
 }
@@ -1313,7 +1345,7 @@ function createFFmpegArgs(entry, useCUDA = false, forDisplay = false) {
     inputArgs.push("-v", entry.argv.debug ? "repeat+level+info" : "error")
     // 输出视频时才需要cuda加速，音频用cpu就行
     if (tempPreset.type === "video") {
-        inputArgs.push("-stats")
+        inputArgs.push("-progress", "-", "-nostats")
         // 只能使用cuda缩放
         if (useCUDA) {
             // 使用cuda硬件解码
@@ -1322,7 +1354,8 @@ function createFFmpegArgs(entry, useCUDA = false, forDisplay = false) {
             // 系统自动选择
             inputArgs.push("-hwaccel", "auto")
         }
-        // 不支持硬解的格式，如H264-10bit，使用软解
+    } else {
+        inputArgs.push("-stats")
     }
     // 输入参数在输入文件前面，顺序重要
     if (tempPreset.inputArgs?.length > 0) {
@@ -1489,21 +1522,97 @@ function createFFmpegArgs(entry, useCUDA = false, forDisplay = false) {
     return [inputArgs, middleArgs, outputArgs]
 }
 
-async function executeFFmpeg(args) {
+async function executeFFmpeg(args, entry, progressBar = null) {
+    const ipx = `${entry.index + 1}/${entry.total}`
+    const logTag = chalk.green("FFCMD") + chalk.cyanBright(entry.useCUDA ? "[HW]" : "[SW]")
+    const srcDuration = entry.dstArgs?.srcDuration || entry.info?.duration || 0
+
     // 1. 创建控制器
     const controller = new AbortController()
     const { signal } = controller
+
     // 2. 启动子进程
-    return await execa("ffmpeg", args, {
+    // shell: true 是必须的，因为参数包含复杂引号
+    const subprocess = execa("ffmpeg", args, {
         stdin: "pipe",
-        stdout: "inherit",
-        stderr: "inherit",
+        stdout: "pipe",
+        stderr: "pipe",
         shell: true,
         encoding: "latin1",
         cancelSignal: signal,
         forceKillAfterDelay: 1000,
         cleanup: true,
     })
+
+    // 解析进度信息
+    let currentTime = 0
+
+    // 监听 stdout
+    subprocess.stdout.on("data", (data) => {
+        const lines = data.toString().split("\n")
+        for (const line of lines) {
+            const trimmedLine = line.trim()
+            // 解析 out_time= 字段（-progress 输出的是 out_time）
+            const timeMatch = trimmedLine.match(/^out_time=(.*)$/)
+            if (timeMatch) {
+                const timeStr = timeMatch[1].trim()
+                currentTime = parseTimeToSeconds(timeStr)
+
+                // 计算进度百分比
+                if (srcDuration > 0 && progressBar) {
+                    const progress = Math.min(100, Math.round((currentTime / srcDuration) * 100))
+                    progressBar.update(progress)
+                }
+            }
+        }
+    })
+
+    // 监听 stderr
+    subprocess.stderr.on("data", (data) => {
+        const line = data.toString()
+        // 如果包含错误关键字，记录到日志
+        if (line.includes("Error") || line.includes("error")) {
+            if (progressBar) {
+                try {
+                    progressBar.stop()
+                } catch (e) {
+                    // 忽略进度条停止时的错误
+                }
+            }
+            log.showRed(logTag, "FFmpeg Error:", line.trim().substring(0, 200))
+        }
+    })
+
+    try {
+        await subprocess
+        // 进度完成，确保换行
+        if (progressBar) {
+            progressBar.stop()
+            console.log() // 添加换行符
+        }
+    } catch (error) {
+        if (progressBar) {
+            progressBar.stop()
+            console.log() // 添加换行符
+        }
+        throw error
+    }
+}
+
+// 将 ffmpeg 时间格式 HH:MM:SS.ms 转换为秒数
+function parseTimeToSeconds(timeStr) {
+    // timeStr 格式可能是:
+    // 1. "00:00:04.633333" (out_time, 有6位小数)
+    // 2. "00:04:36.30" (time, 有2位小数)
+    // 3. "00:04:36" (无小数)
+    const parts = timeStr.split(":")
+    if (parts.length === 3) {
+        const [hours, minutes, seconds] = parts
+        // 只取小数点前两位，忽略微秒
+        const secondsNum = parseFloat(seconds)
+        return parseFloat(hours) * 3600 + parseFloat(minutes) * 60 + secondsNum
+    }
+    return 0
 }
 
 // 检测CUDA解码器支持情况
