@@ -18,6 +18,7 @@ import * as log from "../lib/debug.js"
 import * as exif from "../lib/exif.js"
 import * as mf from "../lib/file.js"
 import * as helper from "../lib/helper.js"
+import { i18n, t } from "../lib/i18n.js"
 
 // fix max listeners
 EventEmitter.defaultMaxListeners = 1000
@@ -106,9 +107,9 @@ async function main() {
         .alias("v", "verbose")
         .alias("h", "help")
         .epilog(
-            "MediaCli is a multimedia file processing tool.\nCopyright 2021-2025 @ Zhang Xiaoke",
+            `${t('app.description')}.\n${t('app.copyright')}`,
         )
-        .demandCommand(1, chalk.red("Missing sub command you want to execute!"))
+        .demandCommand(1, chalk.red("缺少要执行的子命令!"))
         .showHelpOnFail(true)
         .version()
         .help()
