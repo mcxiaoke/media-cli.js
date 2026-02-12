@@ -44,7 +44,7 @@ const builder = function addOptions(ya, helpOrVersionSet) {
                 type: "boolean",
                 default: false,
                 // 宽松模式，默认不开启，宽松模式条件或，默认严格模式条件与
-                description: t("option.remove.loose"),
+                description: t("remove.loose"),
             })
             // 输出目录，如果存在，就是移动到这个目录，否则是删除
             .option("output", {
@@ -55,7 +55,7 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             // 保持源文件目录结构
             .option("output-tree", {
                 alias: "otree",
-                describe: t("option.remove.output.tree"),
+                describe: t("remove.output.tree"),
                 type: "boolean",
                 default: false,
             })
@@ -63,53 +63,53 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             .option("include", {
                 alias: "I",
                 type: "string",
-                description: t("option.remove.include"),
+                description: t("option.common.include"),
             })
             //字符串或正则，不包含文件名规则
             // 如果是正则的话需要转义
             .option("exclude", {
                 alias: "E",
                 type: "string",
-                description: t("option.remove.exclude"),
+                description: t("option.common.exclude"),
             })
             // 默认启用正则模式，禁用则为字符串模式
             .option("regex", {
                 alias: "re",
                 type: "boolean",
                 default: true,
-                description: t("option.remove.regex"),
+                description: t("option.common.regex"),
             })
             // 需要处理的扩展名列表，默认为常见视频文件
             .option("extensions", {
                 alias: "e",
                 type: "string",
-                describe: t("option.remove.extensions"),
+                describe: t("option.common.extensions"),
             })
             .option("width", {
                 type: "number",
                 default: 0,
                 // 图片文件的最大宽度
-                description: t("option.remove.width"),
+                description: t("remove.width"),
             })
             .option("height", {
                 type: "number",
                 default: 0,
                 // 图片文件的最大高度
-                description: t("option.remove.height"),
+                description: t("remove.height"),
             })
             .option("measure", {
                 alias: "m",
                 type: "string",
                 default: "",
                 // 图片文件的长宽字符串形式
-                description: t("option.remove.measure"),
+                description: t("remove.measure"),
             })
             .option("sizel", {
                 alias: "sl",
                 type: "number",
                 default: 0,
                 // 图片文件的文件大小，最小值，大于，单位为k
-                description: t("option.remove.sizel"),
+                description: t("remove.sizel"),
             })
             .option("sizer", {
                 alias: "sr",
@@ -117,27 +117,27 @@ const builder = function addOptions(ya, helpOrVersionSet) {
                 default: 0,
                 // size 的 别名
                 // 图片文件的文件大小，最大值，小于，单位为k
-                description: t("option.remove.sizer"),
+                description: t("remove.sizer"),
             })
             .option("pattern", {
                 alias: "p",
                 type: "string",
                 default: "",
                 // 文件名匹配，字符串或正则表达式
-                description: t("option.remove.pattern"),
+                description: t("remove.pattern"),
             })
             // 启用反转匹配模式
             .option("not-match", {
                 alias: "n",
                 type: "boolean",
                 default: false,
-                description: t("option.remove.not.match"),
+                description: t("remove.not.match"),
             })
             .option("list", {
                 type: "string",
                 default: null,
                 // 文件名列表文本文件，或者一个目录，里面包含的文件作为文件名列表来源
-                description: t("option.remove.list"),
+                description: t("remove.list"),
             })
             // 视频模式，按照视频文件的元数据删除
             // duration,dimension(width,height),bitrate
@@ -146,48 +146,48 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             .option("video", {
                 alias: "vdm",
                 type: "string",
-                description: t("option.remove.video"),
+                description: t("remove.video"),
             })
             // 要处理的文件类型 文件或目录或所有，默认只处理文件
             .option("type", {
                 type: "choices",
                 choices: TYPE_LIST,
                 default: "f",
-                description: t("option.remove.type"),
+                description: t("remove.type"),
             })
             .option("reverse", {
                 alias: "r",
                 type: "boolean",
                 default: false,
                 // 文件名列表反转，默认为否，即删除列表中的文件，反转则删除不在列表中的文件
-                description: t("option.remove.reverse"),
+                description: t("remove.reverse"),
             })
             .option("corrupted", {
                 alias: "c",
                 type: "boolean",
                 default: false,
                 // 移除损坏的文件
-                description: t("option.remove.corrupted"),
+                description: t("remove.corrupted"),
             })
             .option("badchars", {
                 alias: "b",
                 type: "boolean",
                 default: false,
                 // 移除文件名含乱码的文件
-                description: t("option.remove.badchars"),
+                description: t("remove.badchars"),
             })
             .option("delete-permanently", {
                 type: "boolean",
                 default: false,
                 // 直接删除文件，不使用安全删除
-                description: t("option.remove.delete.permanently"),
+                description: t("remove.delete.permanently"),
             })
             // 确认执行所有系统操作，非测试模式，如删除和重命名和移动操作
             .option("doit", {
                 alias: "d",
                 type: "boolean",
                 default: false,
-                description: t("option.remove.doit"),
+                description: t("option.common.doit"),
             })
     )
 }
@@ -391,7 +391,7 @@ async function cmdRemove(argv) {
     let removedCount = 0
     let index = 0
     if (testMode) {
-        log.showYellow(logTag, t("remove.test.mode.note", { count: tasks.length }))
+        log.showYellow(logTag, t("common.test.mode.note", { count: tasks.length }))
     } else {
         for (const task of tasks) {
             const flag = task.isDir ? "D" : "F"

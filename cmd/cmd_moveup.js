@@ -36,28 +36,28 @@ const builder = function addOptions(ya, helpOrVersionSet) {
                 alias: "o",
                 type: "string",
                 normalize: true,
-                description: t("option.moveup.output"),
+                description: t("moveup.output"),
             })
             // 指定MODE，三种：自动，目录名，指定前缀
             .option("mode", {
                 alias: "m",
                 type: "string",
                 default: MODE_AUTO,
-                description: t("option.moveup.mode"),
+                description: t("moveup.mode"),
                 choices: [MODE_AUTO, MODE_DIR, MODE_PREFIX, MODE_MEDIA, MODE_CLEAN],
             })
             // 移动所有文件到根目录的指定目录
             .option("topmost", {
                 alias: "r",
                 type: "boolean",
-                description: t("option.moveup.topmost"),
+                description: t("moveup.topmost"),
             })
             // 确认执行所有系统操作，非测试模式，如删除和重命名和移动操作
             .option("doit", {
                 alias: "d",
                 type: "boolean",
                 default: false,
-                description: t("option.moveup.doit"),
+                description: t("option.common.doit"),
             })
     )
 }

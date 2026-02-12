@@ -33,36 +33,36 @@ const builder = function addOptions(ya, helpOrVersionSet) {
                 alias: "b",
                 type: "boolean",
                 default: false,
-                description: t("option.dcim.backup"),
+                description: t("dcim.backup"),
             })
             .option("fast", {
                 alias: "f",
                 type: "boolean",
-                description: t("option.dcim.fast"),
+                description: t("dcim.fast"),
             })
             .option("prefix", {
                 alias: "p",
                 type: "string",
                 default: "IMG_/DSC_/VID_",
-                description: t("option.dcim.prefix"),
+                description: t("dcim.prefix"),
             })
             .option("suffix", {
                 alias: "s",
                 type: "string",
                 default: "",
-                description: t("option.dcim.suffix"),
+                description: t("dcim.suffix"),
             })
             .option("template", {
                 alias: "t",
                 type: "string",
                 default: "YYYYMMDD_HHmmss",
-                description: t("option.dcim.template"),
+                description: t("dcim.template"),
             })
             .option("doit", {
                 alias: "d",
                 type: "boolean",
                 default: false,
-                description: t("option.dcim.doit"),
+                description: t("option.common.doit"),
             })
     )
 }
@@ -91,11 +91,11 @@ const handler = async function cmdRename(argv) {
             type: "confirm",
             name: "yes",
             default: false,
-            message: chalk.bold.green(t("dcim.continue.processing")),
+            message: chalk.bold.green(t("common.continue.processing")),
         },
     ])
     if (!confirmFiles.yes) {
-        log.showYellow(t("dcim.aborted.by.user"))
+        log.showYellow(t("common.aborted.by.user"))
         return
     }
     log.show(LOG_TAG, t("dcim.processing.exif"))
@@ -126,7 +126,7 @@ const handler = async function cmdRename(argv) {
         log.showYellow(LOG_TAG, t("dcim.files.skipped.by.date", { count: skippedByDate.length }))
     }
     if (files.length === 0) {
-        log.showYellow(LOG_TAG, t("dcim.nothing.to.do"))
+        log.showYellow(LOG_TAG, t("common.nothing.to.do"))
         return
     }
     files = addEntryProps(files)
@@ -154,12 +154,12 @@ const handler = async function cmdRename(argv) {
     ])
     if (answer.yes) {
         if (testMode) {
-            log.showYellow(LOG_TAG, t("dcim.test.mode.note", { count: files.length }))
+            log.showYellow(LOG_TAG, t("common.test.mode.note", { count: files.length }))
         } else {
             const results = await renameFiles(files, false)
             log.showGreen(LOG_TAG, t("dcim.files.renamed", { count: results.length }))
         }
     } else {
-        log.showYellow(LOG_TAG, t("dcim.aborted.by.user"))
+        log.showYellow(LOG_TAG, t("common.aborted.by.user"))
     }
 }

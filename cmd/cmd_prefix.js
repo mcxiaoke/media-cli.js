@@ -47,74 +47,74 @@ const builder = function addOptions(ya, helpOrVersionSet) {
                 alias: "l",
                 type: "number",
                 default: NAME_LENGTH,
-                description: t("option.prefix.length"),
+                description: t("prefix.length"),
             })
             // 仅处理符合指定条件的文件，包含文件名规则
             .option("include", {
                 alias: "I",
                 type: "string",
-                description: t("option.prefix.include"),
+                description: t("option.common.include"),
             })
             // 仅处理不符合指定条件的文件，例外文件名规则
             .option("exclude", {
                 alias: "E",
                 type: "string",
-                description: t("option.prefix.exclude"),
+                description: t("option.common.exclude"),
             })
             // 仅用于PREFIX模式，文件名添加指定前缀字符串
             .option("prefix", {
                 alias: "p",
                 type: "string",
-                description: t("option.prefix.prefix"),
+                description: t("prefix.prefix"),
             })
             // 指定MODE，三种：自动，目录名，指定前缀
             .option("mode", {
                 alias: "m",
                 type: "string",
                 default: MODE_AUTO,
-                description: t("option.prefix.mode"),
+                description: t("prefix.mode"),
                 choices: [MODE_AUTO, MODE_DIR, MODE_PREFIX, MODE_MEDIA, MODE_CLEAN],
             })
             .option("auto", {
                 type: "boolean",
-                description: t("option.prefix.auto"),
+                description: t("prefix.auto"),
             })
             .option("dirname", {
                 alias: "D",
                 type: "boolean",
-                description: t("option.prefix.dirname"),
+                description: t("prefix.dirname"),
             })
             .option("prefix", {
                 alias: "P",
                 type: "boolean",
-                description: t("option.prefix.prefix"),
+                description: t("prefix.prefix"),
             })
             .option("media", {
                 alias: "M",
                 type: "boolean",
-                description: t("option.prefix.media"),
+                description: t("prefix.media"),
             })
             .option("clean-only", {
                 alias: "C",
                 type: "boolean",
-                description: t("option.prefix.clean.only"),
+                description: t("prefix.clean.only"),
             })
             // 清理文件名中的特殊字符和非法字符
             .option("clean", {
                 alias: "c",
                 type: "boolean",
-                description: t("option.prefix.clean"),
+                description: t("prefix.clean"),
             })
             // 全选模式，强制处理所有文件
             .option("all", {
                 alias: "a",
                 type: "boolean",
-                description: t("option.prefix.all"),
+                description: t("prefix.all"),
             })
             // 并行操作限制，并发数，默认为 CPU 核心数
             .option("jobs", {
                 alias: "j",
-                describe: t("option.prefix.jobs"),
+                describe: t("option.common.jobs"),
                 type: "number",
             })
             // 确认执行所有系统操作，非测试模式，如删除和重命名和移动操作
@@ -122,7 +122,7 @@ const builder = function addOptions(ya, helpOrVersionSet) {
                 alias: "d",
                 type: "boolean",
                 default: false,
-                description: t("option.prefix.doit"),
+                description: t("option.common.doit"),
             })
     )
 }
@@ -349,7 +349,7 @@ const handler = async function cmdPrefix(argv) {
         log.show(logTag, `Total ${files.length} files left after exclude rules`)
     }
     if (files.length == 0) {
-        log.showYellow("Prefix", t("prefix.nothing.to.do"))
+        log.showYellow("Prefix", t("common.nothing.to.do"))
         return
     }
     files = files.map((f, i) => {
@@ -380,7 +380,7 @@ const handler = async function cmdPrefix(argv) {
     if (tasks.length > 0) {
         log.showGreen(logTag, `Total ${tasks.length} media files ready to rename`)
     } else {
-        log.showYellow(logTag, t("prefix.nothing.to.do"))
+        log.showYellow(logTag, t("common.nothing.to.do"))
         return
     }
     log.show(logTag, argv)

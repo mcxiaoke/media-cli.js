@@ -35,57 +35,57 @@ const builder = function addOptions(ya, helpOrVersionSet) {
     return (
         ya // 仅处理符合指定条件的文件，包含文件名规则
             .positional("input", {
-                describe: t("option.rename.input"),
+                describe: t("option.common.input"),
                 type: "string",
             })
             // 复杂字符串参数，单独解析 cargs = complex args
             .option("cargs", {
-                describe: t("option.rename.cargs"),
+                describe: t("rename.cargs"),
                 type: "string",
             })
             // 正则，包含文件名规则
             .option("include", {
                 alias: "I",
                 type: "string",
-                description: t("option.rename.include"),
+                description: t("option.common.include"),
             })
             //字符串或正则，不包含文件名规则
             // 如果是正则的话需要转义
             .option("exclude", {
                 alias: "E",
                 type: "string",
-                description: t("option.rename.exclude"),
+                description: t("option.common.exclude"),
             })
             // 需要处理的扩展名列表，默认为常见视频文件
             .option("extensions", {
                 alias: "e",
                 type: "string",
-                describe: t("option.rename.extensions"),
+                describe: t("option.common.extensions"),
             })
             // 遍历目录层次深度限制
             .option("max-depth", {
                 alias: "depth",
                 type: "number",
                 default: 99,
-                description: t("option.rename.max.depth"),
+                description: t("option.common.max.depth"),
             })
             // 要处理的文件类型 文件或目录或所有，默认只处理文件
             .option("type", {
                 type: "choices",
                 choices: TYPE_LIST,
                 default: "f",
-                description: t("option.rename.type"),
+                description: t("rename.type"),
             })
             // 清理文件名中的特殊字符和非法字符
             .option("clean", {
                 alias: "c",
                 type: "boolean",
-                description: t("option.rename.clean"),
+                description: t("rename.clean"),
             })
             .option("separator", {
                 alias: "sep",
                 type: "string",
-                description: t("option.rename.separator"),
+                description: t("rename.separator"),
             })
             // 使用正则表达式替换文件名中的特定字符，比如问号
             // 如果数组只有一项，就是替换这一项为空白，即删除模式字符串
@@ -97,7 +97,7 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             .option("replace", {
                 alias: "rp",
                 type: "array",
-                description: t("option.rename.replace"),
+                description: t("rename.replace"),
             })
             // 替换特殊模式flag
             // d = applied to dir names
@@ -106,67 +106,67 @@ const builder = function addOptions(ya, helpOrVersionSet) {
                 alias: "rpf",
                 type: "string",
                 default: "f",
-                description: t("option.rename.replace.flags"),
+                description: t("rename.replace.flags"),
             })
             // 默认使用字符串模式，可启用正则模式
             .option("regex", {
                 alias: "re",
                 type: "boolean",
-                description: t("option.rename.regex"),
+                description: t("option.common.regex"),
             })
             // 修复文件名乱码
             .option("fixenc", {
                 alias: "fc",
                 type: "boolean",
-                description: t("option.rename.fixenc"),
+                description: t("rename.fixenc"),
             })
             // 繁体转简体
             .option("zhcn", {
                 type: "boolean",
-                description: t("option.rename.zhcn"),
+                description: t("rename.zhcn"),
             })
             // 文件添加前缀
             .option("prefix-media", {
                 alias: "pxm",
                 type: "string",
-                description: t("option.rename.prefix.media"),
+                description: t("rename.prefix.media"),
             })
             // 文件添加后缀 媒体元数据
             .option("suffix-media", {
                 alias: "sxm",
                 type: "string",
-                description: t("option.rename.suffix.media"),
+                description: t("rename.suffix.media"),
             })
             //todo fixme add suffix-date
             // 文件添加后缀日期时间
             .option("suffix-date", {
                 alias: "sxd",
                 type: "string",
-                description: t("option.rename.suffix.date"),
+                description: t("rename.suffix.date"),
             })
             // 按照视频分辨率移动文件到指定目录
             .option("video-dimension", {
                 alias: "vdn",
                 type: "string",
-                description: t("option.rename.video.dimension"),
+                description: t("rename.video.dimension"),
             })
             // 合并多层重复目录，减少层级，不改动文件名
             .option("merge-dirs", {
                 alias: "simplify-dirs",
                 type: "boolean",
-                description: t("option.rename.merge.dirs"),
+                description: t("rename.merge.dirs"),
             })
             // 并行操作限制，并发数，默认为 CPU 核心数
             .option("jobs", {
                 alias: "j",
-                describe: t("option.rename.jobs"),
+                describe: t("option.common.jobs"),
                 type: "number",
             })
             // 确认执行所有系统操作，非测试模式，如删除和重命名和移动操作
             .option("doit", {
                 alias: "d",
                 type: "boolean",
-                description: t("option.rename.doit"),
+                description: t("option.common.doit"),
             })
     )
 }
@@ -265,7 +265,7 @@ async function cmdRename(argv) {
         if (testMode) {
             log.showYellow(
                 logTag,
-                t("rename.no.file.renamed.in.test.mode", { count: tasks.length, type }),
+                t("common.test.mode.note", { count: tasks.length, type }),
             )
         } else {
             const results = await renameFiles(tasks, true)

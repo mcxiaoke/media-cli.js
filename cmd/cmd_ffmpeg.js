@@ -50,12 +50,12 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             // 输出目录，默认输出文件与原文件同目录
             .option("output", {
                 alias: "o",
-                describe: t("option.ffmpeg.output"),
+                describe: t("option.common.output"),
                 type: "string",
             })
             // 复杂字符串参数，单独解析
             .option("ffargs", {
-                describe: t("option.ffmpeg.ffargs"),
+                describe: t("ffmpeg.ffargs"),
                 type: "string",
             })
             // 保持源文件目录结构
@@ -64,25 +64,25 @@ const builder = function addOptions(ya, helpOrVersionSet) {
                 type: "choices",
                 choices: ["tree", "dir", "file"],
                 default: "dir",
-                describe: t("option.ffmpeg.output.mode"),
+                describe: t("ffmpeg.output.mode"),
             })
             // 列表处理，起始索引
             .option("start", {
                 type: "number",
                 default: 0,
-                description: t("option.ffmpeg.start"),
+                description: t("ffmpeg.start"),
             })
             // 列表处理，每次数目
             .option("count", {
                 type: "number",
                 default: 99999,
-                description: t("option.ffmpeg.count"),
+                description: t("ffmpeg.count"),
             })
             // 正则，包含文件名规则
             .option("include", {
                 alias: "I",
                 type: "string",
-                description: t("option.ffmpeg.include"),
+                description: t("option.common.include"),
             })
             //字符串或正则，不包含文件名规则
             // 如果是正则的话需要转义
@@ -91,39 +91,39 @@ const builder = function addOptions(ya, helpOrVersionSet) {
                 alias: "E",
                 type: "string",
                 default: "shana|.m4a",
-                description: t("option.ffmpeg.exclude"),
+                description: t("option.common.exclude"),
             })
             // 默认启用正则模式，禁用则为字符串模式
             .option("regex", {
                 alias: "re",
                 type: "boolean",
                 default: true,
-                description: t("option.ffmpeg.regex"),
+                description: t("option.common.regex"),
             })
             // 需要处理的扩展名列表，默认为常见视频文件
             .option("extensions", {
                 alias: "e",
                 type: "string",
-                describe: t("option.ffmpeg.extensions"),
+                describe: t("option.common.extensions"),
             })
             // 选择预设，从预设列表中选一个，预设等于一堆预定义参数
             .option("preset", {
                 type: "choices",
                 choices: presets.getAllNames(),
                 default: "hevc_2k",
-                describe: t("option.ffmpeg.preset"),
+                describe: t("ffmpeg.preset"),
             })
             // 显示预设名字列表
             .option("show-presets", {
                 type: "boolean",
-                description: t("option.ffmpeg.show.presets"),
+                description: t("ffmpeg.show.presets"),
             })
             // 强制解压，覆盖之前的文件
             .option("override", {
                 alias: "O",
                 type: "boolean",
                 default: false,
-                description: t("option.ffmpeg.override"),
+                description: t("ffmpeg.override"),
             })
             // 输出文件名前缀
             // 提供几个预定义变量
@@ -132,33 +132,33 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             .option("prefix", {
                 alias: "P",
                 type: "string",
-                describe: t("option.ffmpeg.prefix"),
+                describe: t("ffmpeg.prefix"),
             })
             // 输出文件名后缀
             // 同上支持模板替换
             .option("suffix", {
                 alias: "S",
                 type: "string",
-                describe: t("option.ffmpeg.suffix"),
+                describe: t("ffmpeg.suffix"),
             })
             // 视频尺寸，长边最大数值
             .option("dimension", {
                 type: "number",
                 default: 0,
-                describe: t("option.ffmpeg.dimension"),
+                describe: t("ffmpeg.dimension"),
             })
             // 视频帧率，FPS
             .option("fps", {
                 alias: "framerate",
                 type: "number",
                 default: 0,
-                describe: t("option.ffmpeg.fps"),
+                describe: t("ffmpeg.fps"),
             })
             // 视频加速减速，默认不改动，范围0.25-4.0
             .option("speed", {
                 type: "number",
                 default: 0,
-                describe: t("option.ffmpeg.speed"),
+                describe: t("ffmpeg.speed"),
             })
             // 视频选项
             // video-args = video-encoder + video-quality
@@ -166,27 +166,27 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             .option("video-args", {
                 alias: "va",
                 type: "string",
-                describe: t("option.ffmpeg.video.args"),
+                describe: t("ffmpeg.video.args"),
             })
             // 视频选项，指定码率
             .option("video-bitrate", {
                 alias: "vb",
                 type: "number",
                 default: 0,
-                describe: t("option.ffmpeg.video.bitrate"),
+                describe: t("ffmpeg.video.bitrate"),
             })
             // 直接复制视频流，不重新编码
             .option("video-copy", {
                 type: "boolean",
                 default: false,
-                describe: t("option.ffmpeg.video.copy"),
+                describe: t("ffmpeg.video.copy"),
             })
             // 视频选项，指定视频质量参数
             .option("video-quality", {
                 alias: "vq",
                 type: "number",
                 default: 0,
-                describe: t("option.ffmpeg.video.quality"),
+                describe: t("ffmpeg.video.quality"),
             })
             // 音频选项
             // audio-args = audio-encoder + audio-quality
@@ -194,50 +194,50 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             .option("audio-args", {
                 alias: "aa",
                 type: "string",
-                describe: t("option.ffmpeg.audio.args"),
+                describe: t("ffmpeg.audio.args"),
             })
             // 音频选项，指定码率
             .option("audio-bitrate", {
                 alias: "ab",
                 type: "number",
                 default: 0,
-                describe: t("option.ffmpeg.audio.bitrate"),
+                describe: t("ffmpeg.audio.bitrate"),
             })
             // 直接复制音频流，不重新编码
             .option("audio-copy", {
                 type: "boolean",
                 default: false,
-                describe: t("option.ffmpeg.audio.copy"),
+                describe: t("ffmpeg.audio.copy"),
             })
             // 音频选项，指定音频质量参数
             .option("audio-quality", {
                 alias: "aq",
                 type: "number",
                 default: 0,
-                describe: t("option.ffmpeg.audio.quality"),
+                describe: t("ffmpeg.audio.quality"),
             })
             // ffmpeg filter string
             .option("filters", {
                 alias: "fs",
                 type: "string",
-                describe: t("option.ffmpeg.filters"),
+                describe: t("ffmpeg.filters"),
             })
             // ffmpeg complex filter string
             .option("filter-complex", {
                 alias: "fc",
                 type: "string",
-                describe: t("option.ffmpeg.filter.complex"),
+                describe: t("ffmpeg.filter.complex"),
             })
             // 记录日志到文件
             // 可选text文件或json文件
             .option("error-file", {
-                describe: t("option.ffmpeg.error.file"),
+                describe: t("ffmpeg.error.file"),
                 type: "string",
             })
             // 硬件加速方式
             .option("hwaccel", {
                 alias: "hw",
-                describe: t("option.ffmpeg.hwaccel"),
+                describe: t("ffmpeg.hwaccel"),
                 type: "string",
             })
             // 仅使用硬件解码
@@ -245,38 +245,38 @@ const builder = function addOptions(ya, helpOrVersionSet) {
                 type: "choices",
                 choices: ["auto", "gpu", "cpu"],
                 default: "auto",
-                describe: t("option.ffmpeg.decode.mode"),
+                describe: t("ffmpeg.decode.mode"),
             })
             // 并行操作限制，并发数，默认为 CPU 核心数
             .option("jobs", {
                 alias: "j",
-                describe: t("option.ffmpeg.jobs"),
+                describe: t("option.common.jobs"),
                 type: "number",
             })
             // 如果目标文件已存在或转换成功，删除源文件
             .option("delete-source-files", {
                 type: "boolean",
                 default: false,
-                description: t("option.ffmpeg.delete.source"),
+                description: t("ffmpeg.delete.source"),
             })
             // 显示视频参数
             .option("info", {
                 type: "boolean",
                 default: false,
-                description: t("option.ffmpeg.info"),
+                description: t("ffmpeg.info"),
             })
             // 启用调试参数
             .option("debug", {
                 type: "boolean",
                 default: false,
-                description: t("option.ffmpeg.debug"),
+                description: t("ffmpeg.debug"),
             })
             // 确认执行所有系统操作，非测试模式，如删除和重命名和移动操作
             .option("doit", {
                 alias: "d",
                 type: "boolean",
                 default: false,
-                description: t("option.ffmpeg.doit"),
+                description: t("option.common.doit"),
             })
     )
 }
@@ -395,7 +395,7 @@ async function cmdConvert(argv) {
             },
         ])
         if (!continueAnswer.yes) {
-            log.showYellow(t("ffmpeg.aborted.by.user"))
+            log.showYellow(t("common.aborted.by.user"))
             return
         }
     }
@@ -427,7 +427,7 @@ async function cmdConvert(argv) {
         },
     ])
     if (!prepareAnswer.yes) {
-        log.showYellow(t("ffmpeg.aborted.by.user"))
+        log.showYellow(t("common.aborted.by.user"))
         return
     }
     log.showGreen(logTag, t("ffmpeg.preparing.tasks"))
@@ -497,7 +497,7 @@ async function cmdConvert(argv) {
         },
     ])
     if (!answer.yes) {
-        log.showYellow(t("ffmpeg.aborted.by.user"))
+        log.showYellow(t("common.aborted.by.user"))
         return
     }
     // 检查ffmpeg可执行文件是否存在
@@ -547,7 +547,7 @@ async function cmdConvert(argv) {
     }
 
     // const results = await core.asyncMapGroup(tasks, runFFmpegCmd, jobCount)
-    testMode && log.showYellow(logTag, t("ffmpeg.test.mode.note"))
+    testMode && log.showYellow(logTag, t("common.test.mode.note"))
     const okResults = results.filter((r) => r && r.ok)
     !testMode &&
         log.showGreen(

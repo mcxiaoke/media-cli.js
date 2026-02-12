@@ -42,93 +42,93 @@ const builder = function addOptions(ya, helpOrVersionSet) {
                 alias: "p",
                 type: "boolean",
                 default: false,
-                description: t("option.compress.delete.source"),
+                description: t("compress.delete.source"),
             })
             // 输出目录，默认输出文件与原文件同目录
             .option("output", {
                 alias: "o",
-                describe: t("option.compress.output"),
+                describe: t("option.common.output"),
                 type: "string",
             })
             // 正则，包含文件名规则
             .option("include", {
                 alias: "I",
                 type: "string",
-                description: t("option.compress.include"),
+                description: t("option.common.include"),
             })
             //字符串或正则，不包含文件名规则
             // 如果是正则的话需要转义
             .option("exclude", {
                 alias: "E",
                 type: "string",
-                description: t("option.compress.exclude"),
+                description: t("option.common.exclude"),
             })
             // 默认启用正则模式，禁用则为字符串模式
             .option("regex", {
                 alias: "re",
                 type: "boolean",
                 default: true,
-                description: t("option.compress.regex"),
+                description: t("option.common.regex"),
             })
             // 需要处理的扩展名列表，默认为常见视频文件
             .option("extensions", {
                 alias: "e",
                 type: "string",
-                describe: t("option.compress.extensions"),
+                describe: t("option.common.extensions"),
             })
             // 压缩后的文件后缀，默认为 _Z4K
             .option("suffix", {
                 alias: "S",
-                describe: t("option.compress.suffix"),
+                describe: t("compress.suffix"),
                 type: "string",
                 // default: "_Z4K",
             })
             .option("delete-source-files-only", {
                 type: "boolean",
                 default: false,
-                description: t("option.compress.delete.source.only"),
+                description: t("compress.delete.source.only"),
             })
             // 是否覆盖已存在的压缩后文件
             .option("force", {
                 type: "boolean",
                 default: false,
-                description: t("option.compress.force"),
+                description: t("compress.force"),
             })
             // 是否覆盖已存在的压缩后文件
             .option("override", {
                 type: "boolean",
                 default: false,
-                description: t("option.compress.override"),
+                description: t("compress.override"),
             })
             // 压缩后文件质量参数
             .option("quality", {
                 alias: "q",
                 type: "number",
-                description: t("option.compress.quality"),
+                description: t("compress.quality"),
             })
             // 需要处理的最小文件大小
             .option("size", {
                 alias: "s",
                 type: "number",
-                description: t("option.compress.size"),
+                description: t("compress.size"),
             })
             // 需要处理的图片最小尺寸
             .option("width", {
                 alias: "w",
                 type: "number",
-                description: t("option.compress.width"),
+                description: t("compress.width"),
             })
             // 优先级低于单独的各种参数
             // 图片处理参数，示例 q=85,w=6000,s=2048,suffix=_Z4K
             .option("config", {
                 alias: "c",
                 type: "string",
-                description: t("option.compress.config"),
+                description: t("compress.config"),
             })
             // 并行操作限制，并发数，默认为 CPU 核心数
             .option("jobs", {
                 alias: "j",
-                describe: t("option.compress.jobs"),
+                describe: t("option.common.jobs"),
                 type: "number",
             })
             // 确认执行所有系统操作，非测试模式，如删除和重命名和移动操作
@@ -136,7 +136,7 @@ const builder = function addOptions(ya, helpOrVersionSet) {
                 alias: "d",
                 type: "boolean",
                 default: false,
-                description: t("option.compress.doit"),
+                description: t("option.common.doit"),
             })
     )
 }
@@ -181,7 +181,7 @@ async function cmdCompress(argv) {
     files = await applyFileNameRules(files, argv)
     log.show(logTag, t("compress.total.files.found", { count: files.length }))
     if (!files || files.length === 0) {
-        log.showYellow(t("compress.nothing.to.do"))
+        log.showYellow(t("common.nothing.to.do"))
         return
     }
     const confirmFiles = await inquirer.prompt([
@@ -189,11 +189,11 @@ async function cmdCompress(argv) {
             type: "confirm",
             name: "yes",
             default: false,
-            message: chalk.bold.green(t("compress.continue.processing")),
+            message: chalk.bold.green(t("common.continue.processing")),
         },
     ])
     if (!confirmFiles.yes) {
-        log.showYellow(t("compress.delete.aborted"))
+        log.showYellow(t("common.aborted.by.user"))
         return
     }
     const needBar = files.length > 9999 && !log.isVerbose()
@@ -230,7 +230,7 @@ async function cmdCompress(argv) {
         log.showYellow(logTag, t("compress.files.skipped", { count: skipped }))
     }
     if (tasks.length === 0) {
-        log.showYellow(t("compress.nothing.to.do"))
+        log.showYellow(t("common.nothing.to.do"))
         return
     }
     tasks.forEach((t, i) => {
@@ -268,7 +268,7 @@ async function cmdCompress(argv) {
     ])
 
     if (!answer.yes) {
-        log.showYellow(t("compress.delete.aborted"))
+        log.showYellow(t("common.aborted.by.user"))
         return
     }
 
@@ -394,7 +394,7 @@ async function purgeSrcFiles(results) {
         },
     ])
     if (!answer.yes) {
-        log.showYellow(t("compress.delete.aborted"))
+        log.showYellow(t("common.aborted.by.user"))
         return
     }
     const deletecFunc = async (td, index) => {

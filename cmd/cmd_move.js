@@ -132,47 +132,47 @@ const builder = function addOptions(ya, helpOrVersionSet) {
     return (
         ya // 仅处理符合指定条件的文件，包含文件名规则
             .positional("input", {
-                describe: t("option.move.input"),
+                describe: t("option.common.input"),
                 type: "string",
             })
             // 输出目录，默认输出文件与原文件同目录
             .option("output", {
                 alias: "o",
-                describe: t("option.move.output"),
+                describe: t("option.common.output"),
                 type: "string",
             })
             // 正则，包含文件名规则
             .option("include", {
                 alias: "I",
                 type: "string",
-                description: t("option.move.include"),
+                description: t("option.common.include"),
             })
             //字符串或正则，不包含文件名规则
             // 如果是正则的话需要转义
             .option("exclude", {
                 alias: "E",
                 type: "string",
-                description: t("option.move.exclude"),
+                description: t("option.common.exclude"),
             })
             // 需要处理的扩展名列表，默认为视频和图片格式
             .option("extensions", {
                 alias: "e",
                 type: "string",
-                describe: t("option.move.extensions"),
+                describe: t("option.common.extensions"),
             })
             // 遍历目录层次深度限制，默认1
             .option("max-depth", {
                 alias: "depth",
                 type: "number",
                 default: 1,
-                description: t("option.move.max.depth"),
+                description: t("option.common.max.depth"),
             })
             // 确认执行所有系统操作，非测试模式，如删除和重命名和移动操作
             .option("doit", {
                 alias: "d",
                 type: "boolean",
                 default: false,
-                description: t("option.move.doit"),
+                description: t("option.common.doit"),
             })
     )
 }
@@ -310,7 +310,7 @@ const handler = async function cmdMove(argv) {
     if (tasks.length > 0) {
         log.showGreen(logTag, `${t("move.total.files.ready.to.move")} ${tasks.length} ${t("files")}`)
     } else {
-        log.showYellow(logTag, t("move.nothing.to.do"))
+        log.showYellow(logTag, t("common.nothing.to.do"))
         return
     }
 

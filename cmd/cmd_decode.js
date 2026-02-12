@@ -24,7 +24,7 @@ const builder = function addOptions(ya, helpOrVersionSet) {
     return (
         ya
             .positional("strings", {
-                describe: t("option.decode.strings"),
+                describe: t("decode.strings"),
                 type: "string",
             })
             // 修复文件名乱码
@@ -32,13 +32,13 @@ const builder = function addOptions(ya, helpOrVersionSet) {
                 alias: "f",
                 type: "choices",
                 choices: ["utf8", "gbk", "shift_jis", "big5", "euc-kr"],
-                description: t("option.decode.from.enc"),
+                description: t("decode.from.enc"),
             })
             .option("to-enc", {
                 alias: "t",
                 type: "choices",
                 choices: ["utf8", "gbk", "shift_jis", "big5", "euc-kr"],
-                description: t("option.decode.to.enc"),
+                description: t("decode.to.enc"),
             }).po
     )
 }

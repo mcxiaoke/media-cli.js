@@ -51,47 +51,47 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             .option("encoding", {
                 alias: "e",
                 type: "string",
-                description: t("option.zipu.encoding"),
+                description: t("zipu.encoding"),
             })
             // 强制解压，覆盖之前的文件
             .option("override", {
                 alias: "o",
                 type: "boolean",
                 default: false,
-                description: t("option.zipu.override"),
+                description: t("zipu.override"),
             })
             // 列表处理，起始索引
             .option("start", {
                 type: "number",
                 default: 0,
-                description: t("option.zipu.start"),
+                description: t("zipu.start"),
             })
             // 列表处理，每次数目
             .option("count", {
                 type: "number",
                 default: 99999,
-                description: t("option.zipu.count"),
+                description: t("zipu.count"),
             })
             // 繁体转简体
             .option("tcsc", {
                 alias: "t",
                 type: "boolean",
                 default: false,
-                description: t("option.zipu.tcsc"),
+                description: t("zipu.tcsc"),
             })
             // 解压成功后删除原ZIP文件
             .option("purge", {
                 alias: "delete-zip",
                 type: "boolean",
                 default: false,
-                description: t("option.zipu.purge"),
+                description: t("zipu.purge"),
             })
             // 确认执行所有系统操作，非测试模式，如删除和重命名和移动操作
             .option("doit", {
                 alias: "d",
                 type: "boolean",
                 default: false,
-                description: t("option.zipu.doit"),
+                description: t("option.common.doit"),
             })
     )
 }
