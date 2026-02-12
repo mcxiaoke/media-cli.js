@@ -14,6 +14,7 @@ import path from "path"
 import yargs from "yargs"
 import * as log from "../lib/debug.js"
 import * as mf from "../lib/file.js"
+import { ErrorTypes, createError, handleError, withErrorHandling } from "../lib/errors.js"
 
 export { aliases, builder, command, describe, handler }
 
@@ -33,9 +34,23 @@ const handler = async (argv) => {
 async function cmdLRMove(argv) {
   log.show("cmdLRMove", argv)
   const root = path.resolve(argv.input)
-  if (!root || !(await fs.pathExists(root))) {
-    yargs.showHelp()
-    log.error("LRMove", `Invalid Input: '${root}'`)
+  
+  // 使用新的错误处理系统验证输入
+  if (!root) {
+    throw createError(
+      ErrorTypes.INVALID_ARGUMENT,
+      '输入路径不能为空',
+      null,
+      'ERROR'
+    )
+  }
+  
+  if (!(await fs.pathExists(root))) {
+    const error = createError(
+      ErrorTypes.FILE_NOT_FOUND,
+      `输入路径不存在: '${root}'`
+    )
+    await handleError(error, { command: 'lrmove', input: root })
     return
   }
   
@@ -75,15 +90,27 @@ async function cmdLRMove(argv) {
   ])
   
   if (answer.yes) {
+    // 使用错误处理包装器处理文件移动
+    const moveFile = withErrorHandling(async (f) => {
+      await fs.move(f.fileSrc, f.fileDst)
+      log.showGreen("Moved:", f.fileSrc, "to", f.fileDst)
+      return f
+    }, { operation: 'move', file: f.fileSrc })
+    
+    let successCount = 0
+    let errorCount = 0
+    
     for (const f of files) {
-      try {
-        await fs.move(f.fileSrc, f.fileDst)
-        log.showGreen("Moved:", f.fileSrc, "to", f.fileDst)
-      } catch (error) {
-        log.error("Failed:", error, f.fileSrc, "to", f.fileDst)
+      const result = await moveFile(f)
+      if (result) {
+        successCount++
+      } else {
+        errorCount++
       }
     }
+    
+    log.showCyan(`操作完成: 成功 ${successCount} 个, 失败 ${errorCount} 个`)
   } else {
-    log.showYellow("Will do nothing, aborted by user.")
+    log.showYellow("操作已取消，未执行任何更改。")
   }
 }
