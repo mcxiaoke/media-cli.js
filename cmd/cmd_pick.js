@@ -48,6 +48,7 @@ import dayjs from "dayjs"
 import fs from "fs-extra"
 import inquirer from "inquirer"
 import os from "os"
+import pMap from "p-map"
 import path from "path"
 import * as log from "../lib/debug.js"
 import * as mf from "../lib/file.js"
@@ -102,6 +103,12 @@ const builder = (ya) =>
             type: "boolean",
             default: false,
             describe: t("option.common.dryRun"),
+        })
+        .option("jobs", {
+            alias: "j",
+            type: "number",
+            default: Math.max(1, Math.floor(os.cpus().length / 4)),
+            describe: t("option.common.jobs"),
         })
 
 const handler = cmdPick
@@ -218,14 +225,11 @@ async function copyPickedFiles(files, root, argv) {
     }
 
     log.showGreen(t("pick.copy.start", { dryRun: argv.dryRun }))
-    let count = 0
-    let skipCount = 0
-    let errorCount = 0
 
     // 用于生成报告
     const reportData = {} // { "202401": ["name1.jpg", "name2.jpg"] }
 
-    for (const f of files) {
+    const mapper = async (f) => {
         // 计算目标路径结构：Year/YearMonth/Filename
         // f.date 已经在 parseFilesByName 中解析为 Date 对象
         const date = dayjs(f.date)
@@ -241,30 +245,43 @@ async function copyPickedFiles(files, root, argv) {
 
         if (argv.dryRun) {
             console.log(`[DryRun] Copy: ${f.path} -> ${dest} (${sizeStr})`)
-            count++
+            return { status: "success" }
         } else {
             try {
                 // 检查目标是否存在
                 if (await fs.pathExists(dest)) {
                     console.log(`[Skip] Exists: ${dest}`)
-                    skipCount++
-                    continue
+                    return { status: "skipped" }
                 }
 
                 await fs.ensureDir(path.dirname(dest))
                 await fs.copy(f.path, dest, { preserveTimestamps: true })
 
-                // 记录成功的文件
-                if (!reportData[month]) reportData[month] = []
-                reportData[month].push(path.basename(dest))
-
                 console.log(`[Done] Copy: ${path.basename(f.path)} -> ${destRel} (${sizeStr})`)
-                count++
+                // 返回成功信息以便后续统计
+                return { status: "success", month: month, filename: path.basename(dest) }
             } catch (err) {
                 console.error(`[Error] Copy failed: ${f.path}`, err)
-                errorCount++
+                return { status: "error", error: err }
             }
         }
+    }
+
+    const results = await pMap(files, mapper, { concurrency: argv.jobs })
+
+    // 统一统计结果
+    const count = results.filter((r) => r.status === "success").length
+    const skipCount = results.filter((r) => r.status === "skipped").length
+    const errorCount = results.filter((r) => r.status === "error").length
+
+    // 构建报告数据
+    if (!argv.dryRun) {
+        results.forEach((r) => {
+            if (r.status === "success" && r.month && r.filename) {
+                if (!reportData[r.month]) reportData[r.month] = []
+                reportData[r.month].push(r.filename)
+            }
+        })
     }
 
     log.showGreen(t("pick.copy.finish", { count, skip: skipCount, error: errorCount }))
