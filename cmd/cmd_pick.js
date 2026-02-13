@@ -102,36 +102,167 @@ export async function cmdPick(argv) {
     // 初始排序
     parsed.sort((a, b) => a.date - b.date)
 
-    // 3. 应用挑选规则
+    // 3. 统计原始数据（筛选前）
+    const sourceStats = calculateSourceStats(parsed)
+
+    // 4. 应用挑选规则
     const daySelections = processDailySelections(parsed)
     applyMonthlyLimit(daySelections, 1000)
 
-    // 4. 汇总结果
+    // 5. 汇总结果与构建JSON
+    // 聚合 selected
     const finalList = []
+    const selectedStats = { days: new Map(), months: new Map(), years: new Map() }
+
     for (const day of Array.from(daySelections.keys()).sort()) {
         const arr = daySelections.get(day)
         arr.sort((a, b) => a.date - b.date)
         finalList.push(...arr)
+
+        // Stats counting
+        if (arr.length > 0) {
+            const date = dayjs(day) // day is YYYY-MM-DD
+            const m = date.format("YYYY-MM")
+            const y = date.format("YYYY")
+
+            selectedStats.days.set(day, arr.length)
+            selectedStats.months.set(m, (selectedStats.months.get(m) || 0) + arr.length)
+            selectedStats.years.set(y, (selectedStats.years.get(y) || 0) + arr.length)
+        }
     }
 
-    // 5. 输出文件
+    const outputData = buildJsonOutput(daySelections, sourceStats, selectedStats)
+    outputData.root = root
+
+    // 6. 输出文件
     const nowTag = dayjs().format("YYYYMMDD_HHmmss")
     // 如果指定了 output，则 output 作为输出目录，否则使用 input 目录
     const outDir = argv.output ? argv.output : root
     // 确保是目录
     await fs.ensureDir(outDir)
 
-    const pickedName = path.join(outDir, `picked_${nowTag}.txt`)
-    const statsName = path.join(outDir, `stats_${nowTag}.txt`)
+    const jsonName = path.join(outDir, `picked_${nowTag}.json`)
+    await fs.writeJson(jsonName, outputData, { spaces: 2 })
 
-    await fs.writeFile(pickedName, finalList.map((f) => f.path).join("\n"), "utf8")
+    // 7. 控制台输出
+    printConsoleStats(finalList.length, selectedStats, jsonName)
+    log.showGreen(logTag, `Results saved to:\n  ${jsonName}`)
+}
 
-    const stats = buildStats(finalList)
-    await fs.writeFile(statsName, formatStatsText(stats), "utf8")
+// ----------------------------------------------------------------------------
+// 逻辑实现
+// ----------------------------------------------------------------------------
 
-    // 6. 控制台输出
-    printConsoleStats(finalList.length, stats, statsName)
-    log.showGreen(logTag, `Results saved to:\n  ${pickedName}\n  ${statsName}`)
+function calculateSourceStats(parsed) {
+    const s = { days: new Map(), months: new Map(), years: new Map() }
+    for (const p of parsed) {
+        const d = p.dayKey
+        const m = d.slice(0, 7)
+        const y = d.slice(0, 4)
+        s.days.set(d, (s.days.get(d) || 0) + 1)
+        s.months.set(m, (s.months.get(m) || 0) + 1)
+        s.years.set(y, (s.years.get(y) || 0) + 1)
+    }
+    return s
+}
+
+function buildJsonOutput(daySelections, srcStats, selStats) {
+    // Structure:
+    // files: [ { year, months: [ { month, files: [] } ] } ]
+    // stats: [ { year, stats: { total, selected, months: {}, days: {} } } ]
+
+    const filesByYear = new Map()
+    const statsByYear = new Map()
+
+    // Iterate all known years/months from source or selected?
+    // Usually source contains all years.
+    const allYears = Array.from(srcStats.years.keys()).sort()
+
+    const outputFiles = []
+    const outputStats = []
+
+    for (const year of allYears) {
+        // Build Files Section
+        const yearMonths = []
+        // Find months in this year
+        const monthsInYear = Array.from(srcStats.months.keys())
+            .filter((m) => m.startsWith(year))
+            .sort()
+
+        for (const m of monthsInYear) {
+            const mFiles = []
+            // Collect files for this month
+            // Need to scan days in this month
+            const daysInMonth = Array.from(daySelections.keys())
+                .filter((d) => d.startsWith(m))
+                .sort()
+
+            for (const d of daysInMonth) {
+                const arr = daySelections.get(d)
+                if (arr) mFiles.push(...arr.map((f) => f.path))
+            }
+
+            const monthKey = m.replace("-", "") // 2025-01 -> 202501
+            const mTotal = srcStats.months.get(m) || 0
+            
+            // Only add to files list if selected > 0
+            if (mFiles.length > 0) {
+                yearMonths.push({
+                    month: monthKey,
+                    total: mTotal,
+                    selected: mFiles.length,
+                    files: mFiles,
+                })
+            }
+        }
+
+        if (yearMonths.length > 0) {
+            outputFiles.push({
+                year: year,
+                months: yearMonths,
+            })
+        }
+
+        // Build Stats Section
+        const yStats = {
+            total: srcStats.years.get(year) || 0,
+            selected: selStats.years.get(year) || 0,
+            months: {},
+            days: {},
+        }
+
+        for (const m of monthsInYear) {
+            const monthKey = m.replace("-", "") // 2025-01 -> 202501
+            yStats.months[monthKey] = {
+                total: srcStats.months.get(m) || 0,
+                selected: selStats.months.get(m) || 0,
+            }
+
+            // Days
+            const daysInMonth = Array.from(srcStats.days.keys())
+                .filter((d) => d.startsWith(m))
+                .sort()
+
+            for (const d of daysInMonth) {
+                const dayKey = d.replaceAll("-", "") // 2025-01-01 -> 20250101
+                yStats.days[dayKey] = {
+                    total: srcStats.days.get(d) || 0,
+                    selected: selStats.days.get(d) || 0,
+                }
+            }
+        }
+
+        outputStats.push({
+            year: year,
+            stats: yStats,
+        })
+    }
+
+    return {
+        generatedAt: dayjs().format("YYYY-MM-DD HH:mm:ss"),
+        files: outputFiles,
+        stats: outputStats,
+    }
 }
 
 // ----------------------------------------------------------------------------
@@ -318,67 +449,14 @@ function applyMonthlyLimit(daySelections, monthLimit) {
     }
 }
 
-// ----------------------------------------------------------------------------
 // 统计与输出
 // ----------------------------------------------------------------------------
 
-function buildStats(list) {
-    const days = new Map()
-    const months = new Map()
-    const years = new Map()
+// Unused legacy text stats functions removed
+// function buildStats(list) ...
+// function formatStatsText(stats) ...
 
-    for (const it of list) {
-        const d = dayjs(it.date)
-        const dayKey = d.format("YYYY-MM-DD")
-        const monKey = d.format("YYYY-MM")
-        const yearKey = d.format("YYYY")
-
-        days.set(dayKey, (days.get(dayKey) || 0) + 1)
-        months.set(monKey, (months.get(monKey) || 0) + 1)
-        years.set(yearKey, (years.get(yearKey) || 0) + 1)
-    }
-    return { days, months, years }
-}
-
-function formatStatsText(stats) {
-    const lines = []
-    const total = Array.from(stats.days.values()).reduce((a, b) => a + b, 0)
-    lines.push(`Total selected: ${total}`)
-    lines.push("")
-
-    lines.push("[By Year]")
-    const sortedYears = Array.from(stats.years.entries()).sort()
-    for (const [k, v] of sortedYears) lines.push(`${k}: ${v}`)
-
-    lines.push("")
-    lines.push("[By Month]")
-    const sortedMonths = Array.from(stats.months.entries()).sort()
-    for (const [k, v] of sortedMonths) lines.push(`${k}: ${v}`)
-
-    lines.push("")
-    lines.push("[By Day] (Grouped by Month)")
-    // Group days by month for compact display
-    const daysByMonth = new Map()
-    for (const [day, count] of stats.days.entries()) {
-        const m = day.slice(0, 7)
-        if (!daysByMonth.has(m)) daysByMonth.set(m, [])
-        daysByMonth.get(m).push({ day, count })
-    }
-
-    const monthKeys = Array.from(daysByMonth.keys()).sort()
-    for (const m of monthKeys) {
-        const ds = daysByMonth.get(m)
-        ds.sort((a, b) => (a.day < b.day ? -1 : 1))
-        // "按天信息可以精简不用每个一行，可以合并"
-        // Format: 2021-01: 01(5), 02(10), 05(3)...
-        const dailyStr = ds.map((d) => `${d.day.slice(8)}(${d.count})`).join(", ")
-        lines.push(`${m}: ${dailyStr}`)
-    }
-
-    return lines.join("\n")
-}
-
-function printConsoleStats(total, stats, statsFile) {
+function printConsoleStats(total, stats, jsonFile) {
     console.log(`Total selected: ${total}`)
 
     console.log("By Year:")
@@ -391,16 +469,14 @@ function printConsoleStats(total, stats, statsFile) {
         .sort()
         .forEach(([k, v]) => console.log(`  ${k}: ${v}`))
 
-    if (stats.days.size <= 30) {
-        // Less days, show parsed list
+    const dayCount = stats.days.size
+    if (dayCount <= 30) {
         console.log("By Day:")
         const sortedDays = Array.from(stats.days.entries()).sort()
         for (const [d, c] of sortedDays) {
             console.log(`  ${d}: ${c}`)
         }
     } else {
-        console.log(
-            `By Day: ${stats.days.size} days active (details omitted in console, see stats file)`,
-        )
+        console.log(`By Day: ${dayCount} days active (details in json file)`)
     }
 }
