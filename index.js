@@ -13,6 +13,7 @@ import { cpus } from "os"
 import path from "path"
 import yargs from "yargs"
 import * as log from "./lib/debug.js"
+import { errorHandler, handleError } from "./lib/errors.js"
 import * as exif from "./lib/exif.js"
 import * as mf from "./lib/file.js"
 import * as helper from "./lib/helper.js"
@@ -36,10 +37,35 @@ const configCli = (argv) => {
 //   helper.killProcessSync('ffmpeg')
 // })
 
+// 全局未捕获错误处理，统一委托到错误处理器
+process.on("uncaughtException", async (err) => {
+    try {
+        await handleError(err, { context: "uncaughtException" })
+    } catch (e) {
+        console.error("Fatal uncaughtException:", e)
+        process.exit(1)
+    }
+})
+
+process.on("unhandledRejection", async (reason) => {
+    try {
+        await handleError(reason, { context: "unhandledRejection" })
+    } catch (e) {
+        console.error("Fatal unhandledRejection:", e)
+        process.exit(1)
+    }
+})
+
 try {
     await main()
 } catch (error) {
-    console.error(error)
+    // 将顶层错误委托给统一错误处理器
+    try {
+        await handleError(error, { context: "main" })
+    } catch (e) {
+        console.error(e)
+        process.exit(1)
+    }
 }
 
 async function main() {
