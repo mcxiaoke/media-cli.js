@@ -117,6 +117,8 @@ async function main() {
         // 命令 按文件名日期时间移动文件
         // 按文件名的日期时间，移动到按年月的子目录中
         .command(await import("./cmd/cmd_move.js"))
+        // 命令 从文件名中提取日期时间，移动文件
+        .command(await import("./cmd/cmd_pick.js"))
         // 命令 重命名文件 添加前缀
         .command(await import("./cmd/cmd_prefix.js"))
         // 命令 文件名替换 乱码修复 文件名净化等
