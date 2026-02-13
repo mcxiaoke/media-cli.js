@@ -120,7 +120,7 @@ export async function cmdPick(argv) {
 
     // 1. 扫描文件
     const root = await helper.validateInput(argv.input)
-    const ignoreRe = /delete|thumb/i
+    const ignoreRe = /delete|thumb|MVIMG/i
     const walkOpts = {
         needStats: true,
         entryFilter: (f) => {
@@ -131,14 +131,14 @@ export async function cmdPick(argv) {
     }
     const entries = await mf.walk(root, walkOpts)
     if (!entries.length) {
-        log.showYellow(logTag, "No files found, abort.")
+        log.showYellow(logTag, t("pick.no.files"))
         return
     }
 
     // 2. 提取日期
     const parsed = parseFilesByName(entries)
     if (!parsed.length) {
-        log.showYellow(logTag, "No valid dates found in filenames, abort.")
+        log.showYellow(logTag, t("pick.no.dates"))
         return
     }
     // 初始排序
@@ -190,7 +190,7 @@ export async function cmdPick(argv) {
 
     // 7. 控制台输出
     printConsoleStats(finalList.length, selectedStats, sourceStats, jsonName)
-    log.showGreen(logTag, `Results saved to:\n  ${jsonName}`)
+    log.showGreen(logTag, t("pick.result.saved", { path: jsonName }))
 
     // 8. 复制文件到输出目录
     if (finalList.length > 0) {
@@ -199,8 +199,9 @@ export async function cmdPick(argv) {
 }
 
 async function copyPickedFiles(files, root, argv) {
+    const logTag = "cmdPick"
     if (!argv.output) {
-        log.showYellow(t("pick.skip.copy.no.output"))
+        log.showYellow(logTag, t("pick.skip.copy.no.output"))
         return
     }
 
@@ -220,11 +221,11 @@ async function copyPickedFiles(files, root, argv) {
 
     const answers = await inquirer.prompt(questions)
     if (!answers.doCopy) {
-        log.showYellow(t("common.aborted.by.user"))
+        log.showYellow(logTag, t("common.aborted.by.user"))
         return
     }
 
-    log.showGreen(t("pick.copy.start", { dryRun: argv.dryRun }))
+    log.showGreen(logTag, t("pick.copy.start", { dryRun: argv.dryRun }))
 
     // 用于生成报告
     const reportData = {} // { "202401": ["name1.jpg", "name2.jpg"] }
@@ -244,24 +245,31 @@ async function copyPickedFiles(files, root, argv) {
         const sizeStr = (f.size / 1024 / 1024).toFixed(2) + " MB"
 
         if (argv.dryRun) {
-            console.log(`[DryRun] Copy: ${f.path} -> ${dest} (${sizeStr})`)
+            log.show(logTag, t("pick.copy.dryrun", { src: f.path, dest: dest, size: sizeStr }))
             return { status: "success" }
         } else {
             try {
                 // 检查目标是否存在
                 if (await fs.pathExists(dest)) {
-                    console.log(`[Skip] Exists: ${dest}`)
+                    log.show(logTag, t("pick.copy.skip.exists", { path: dest }))
                     return { status: "skipped" }
                 }
 
                 await fs.ensureDir(path.dirname(dest))
                 await fs.copy(f.path, dest, { preserveTimestamps: true })
 
-                console.log(`[Done] Copy: ${path.basename(f.path)} -> ${destRel} (${sizeStr})`)
+                log.show(
+                    logTag,
+                    t("pick.copy.done", {
+                        name: path.basename(f.path),
+                        dest: destRel,
+                        size: sizeStr,
+                    }),
+                )
                 // 返回成功信息以便后续统计
                 return { status: "success", month: month, filename: path.basename(dest) }
             } catch (err) {
-                console.error(`[Error] Copy failed: ${f.path}`, err)
+                log.showRed(logTag, t("pick.copy.error", { path: f.path }), err)
                 return { status: "error", error: err }
             }
         }
@@ -284,16 +292,16 @@ async function copyPickedFiles(files, root, argv) {
         })
     }
 
-    log.showGreen(t("pick.copy.finish", { count, skip: skipCount, error: errorCount }))
+    log.showGreen(logTag, t("pick.copy.finish", { count, skip: skipCount, error: errorCount }))
 
     if (!argv.dryRun && count > 0) {
         const nowTag = dayjs().format("YYYYMMDD_HHmmss")
         const reportName = path.join(outDir, `report_${nowTag}.json`)
         try {
             await fs.writeJson(reportName, reportData, { spaces: 2 })
-            log.showGreen(t("pick.report.saved", { path: reportName }))
+            log.showGreen(logTag, t("pick.report.saved", { path: reportName }))
         } catch (e) {
-            log.showRed(t("pick.report.failed", { error: e.message }))
+            log.showRed(logTag, t("pick.report.failed", { error: e.message }))
         }
     }
 }
