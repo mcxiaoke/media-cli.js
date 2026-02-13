@@ -60,12 +60,17 @@ const describe = t("pick.description")
 
 // 配置常量
 const CONFIG = {
-    // 每日挑选规则：
-    // 如果数量 < SMALL_DAY_THRESHOLD (100)，最多选 1/SMALL_DAY_RATIO (2)
-    // 如果数量 >= SMALL_DAY_THRESHOLD (100)，最多选 1/LARGE_DAY_RATIO (5)
-    SMALL_DAY_THRESHOLD: 100,
-    SMALL_DAY_RATIO: 2, // 1/2
-    LARGE_DAY_RATIO: 5, // 1/5
+    // 每日挑选规则 (数量 -> 分母):
+    // < 100 -> 1/2
+    // < 500 -> 1/3
+    // < 1000 -> 1/4
+    // > 1000 -> 1/5
+    RATIO_LEVELS: [
+        { limit: 100, ratio: 2 },
+        { limit: 500, ratio: 3 },
+        { limit: 1000, ratio: 4 },
+    ],
+    MAX_RATIO: 5, // > 1000
 
     // 如果当天照片极其少 (< MIN_FILES_KEEP_ALL)，则全部保留
     MIN_FILES_KEEP_ALL: 5,
@@ -73,8 +78,8 @@ const CONFIG = {
     // 每小时限制 (20 张)
     MAX_PER_HOUR: 20,
 
-    // 最小间隔 (2.5 分钟 = 150000 ms)
-    MIN_INTERVAL_MS: 2.5 * 60 * 1000,
+    // 最小间隔 (默认 5 分钟 = 300000 ms) - 具体值会在 selectForDay 中根据当天照片数量动态计算
+    MIN_INTERVAL_MS: 5 * 60 * 1000,
 
     // 宠物/特定主题每日最大数量
     MAX_PET_PER_DAY: 20,
@@ -353,12 +358,16 @@ function processDailySelections(parsed) {
 
         if (total < CONFIG.MIN_FILES_KEEP_ALL) {
             targetCount = total
-        } else if (total < CONFIG.SMALL_DAY_THRESHOLD) {
-            // < 100 张，取 1/2
-            targetCount = Math.ceil(total / CONFIG.SMALL_DAY_RATIO)
         } else {
-            // >= 100 张，取 1/5
-            targetCount = Math.ceil(total / CONFIG.LARGE_DAY_RATIO)
+            // Gradient ratios
+            let ratio = CONFIG.MAX_RATIO
+            for (const level of CONFIG.RATIO_LEVELS) {
+                if (total < level.limit) {
+                    ratio = level.ratio
+                    break
+                }
+            }
+            targetCount = Math.ceil(total / ratio)
         }
 
         // 确保不超过总数
@@ -384,6 +393,24 @@ function selectForDay(files, targetN) {
     // 假设 files 里现在有了 size (见下文修正)
 
     const len = files.length
+
+    // 动态计算最小间隔 (依据当天总照片数)
+    // < 50 张: 10秒
+    // < 100 张: 30秒
+    // < 500 张: 2 分钟
+    // < 1000 张: 4 分钟
+    // >= 1000 张: 6 分钟 (维持原状)
+    let minIntervalMs = 6 * 60 * 1000
+    if (len < 50) {
+        minIntervalMs = 10 * 1000
+    } else if (len < 100) {
+        minIntervalMs = 30 * 1000
+    } else if (len < 500) {
+        minIntervalMs = 2 * 60 * 1000
+    } else if (len < 1000) {
+        minIntervalMs = 4 * 60 * 1000
+    }
+
     // 生成目标索引：平均分布
     const indices = []
     for (let i = 0; i < targetN; i++) {
@@ -414,7 +441,7 @@ function selectForDay(files, targetN) {
 
         // 3. 间隔限制
         for (const p of picked) {
-            if (Math.abs(candTime - p.date.getTime()) < CONFIG.MIN_INTERVAL_MS) return false
+            if (Math.abs(candTime - p.date.getTime()) < minIntervalMs) return false
         }
         return true
     }
