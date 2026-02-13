@@ -256,7 +256,7 @@ async function cmdCompress(argv) {
         t.bar1 = null
         t.needBar = false
     })
-    log.show(logTag, `${t('compress.tasks.summary')} (${helper.humanTime(startMs)}):`)
+    log.show(logTag, `${t("compress.tasks.summary")} (${helper.humanTime(startMs)}):`)
     tasks.slice(-1).forEach((t) => {
         log.show(core.omit(t, "stats", "bar1"))
     })
@@ -278,8 +278,8 @@ async function cmdCompress(argv) {
                     count: tasks.length,
                     sizeK: minFileSize / 1024,
                     maxWidth: maxWidth,
-                    note: purgeSource ? t("compress.warning.delete") : t("compress.warning.keep")
-                })
+                    note: purgeSource ? t("compress.warning.delete") : t("compress.warning.keep"),
+                }),
             ),
         },
     ])
@@ -298,7 +298,10 @@ async function cmdCompress(argv) {
         tasks = await pMap(tasks, compressImage, { concurrency: cpus().length / 2 })
         const okTasks = tasks.filter((t) => t?.done)
         const failedTasks = tasks.filter((t) => t?.errorFlag && !t.done)
-        log.showGreen(logTag, `${okTasks.length} ${t("compress.files.compressed")} ${helper.humanTime(startMs)}`)
+        log.showGreen(
+            logTag,
+            `${okTasks.length} ${t("compress.files.compressed")} ${helper.humanTime(startMs)}`,
+        )
         log.showGreen(logTag, "endAt", dayjs().format(), helper.humanTime(startMs))
         if (failedTasks.length > 0) {
             log.showYellow(logTag, `${failedTasks.length} ${t("compress.tasks.failed")}`)

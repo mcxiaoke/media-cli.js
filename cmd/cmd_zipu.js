@@ -308,15 +308,18 @@ async function UnzipOneFile(f) {
  * @returns {Promise<Object>} 处理结果对象
  */
 async function unzipFileUseAdmZip(f, useEncoding) {
-    // adm-zip有内存泄漏，内存不足直接退出
-    if (os.freemem() < mf.FILE_SIZE_1G * 4) {
-        log.error(`Not enough memory to unzip ${zipFilePath}`)
-        throw new Error(logTag, `Not enough memory to unzip ${zipFilePath}`)
-    }
-
     const logTag = "ZipU"
     const ipx = `${f.index + 1}/${f.total}`
     const zipFilePath = f.path
+
+    // adm-zip有内存泄漏，内存不足直接退出
+    if (os.freemem() < mf.FILE_SIZE_1G * 4) {
+        log.error(logTag, `Not enough memory to unzip ${zipFilePath}`)
+        throw createError(
+            ErrorTypes.INSUFFICIENT_MEMORY,
+            `Not enough memory to unzip ${zipFilePath}`,
+        )
+    }
     const parts = path.parse(zipFilePath)
     const zipDir = path.join(parts.dir, parts.name)
     try {
@@ -431,7 +434,10 @@ async function unzipFileUseUnzipper(f, useEncoding) {
                 // 如果二次解码还是乱码，报错
                 if (hasBadChars(entryName, true)) {
                     entry.autodrain()
-                    throw new Error(`BadName: ${ipx} ${entryName} in <${zipFilePath}> ${entryEnc}`)
+                    throw createError(
+                        ErrorTypes.CORRUPTED_FILE,
+                        `BadName: ${ipx} ${entryName} in <${zipFilePath}> ${entryEnc}`,
+                    )
                 } else {
                     log.showGray(logTag, `NewName: <${entryName}> [${entryEnc}]`)
                 }
