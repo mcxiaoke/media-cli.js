@@ -46,6 +46,8 @@
 
 import dayjs from "dayjs"
 import fs from "fs-extra"
+import inquirer from "inquirer"
+import os from "os"
 import path from "path"
 import * as log from "../lib/debug.js"
 import * as mf from "../lib/file.js"
@@ -94,6 +96,12 @@ const builder = (ya) =>
             alias: "e",
             type: "string",
             describe: t("option.common.extensions"),
+        })
+        .option("dry-run", {
+            alias: "n",
+            type: "boolean",
+            default: false,
+            describe: t("option.common.dryRun"),
         })
 
 const handler = cmdPick
@@ -164,8 +172,9 @@ export async function cmdPick(argv) {
 
     // 6. 输出文件
     const nowTag = dayjs().format("YYYYMMDD_HHmmss")
-    // 如果指定了 output，则 output 作为输出目录，否则使用 input 目录
-    const outDir = argv.output ? argv.output : root
+    // 如果指定了 output，则 output 作为输出目录，否则使用系统临时目录
+    // 改动：如果没有output，不保存到输入目录，而是保存到临时目录
+    const outDir = argv.output ? argv.output : os.tmpdir()
     // 确保是目录
     await fs.ensureDir(outDir)
 
@@ -175,11 +184,102 @@ export async function cmdPick(argv) {
     // 7. 控制台输出
     printConsoleStats(finalList.length, selectedStats, sourceStats, jsonName)
     log.showGreen(logTag, `Results saved to:\n  ${jsonName}`)
+
+    // 8. 复制文件到输出目录
+    if (finalList.length > 0) {
+        await copyPickedFiles(finalList, root, argv)
+    }
 }
 
-// ----------------------------------------------------------------------------
-// 逻辑实现
-// ----------------------------------------------------------------------------
+async function copyPickedFiles(files, root, argv) {
+    if (!argv.output) {
+        log.showYellow(t("pick.skip.copy.no.output"))
+        return
+    }
+
+    const outDir = argv.output
+    // 不要在输入目录里创建副本，除非用户真的想这么做（通常不会）
+    // outDir 已在前面通过 ensureDir 创建
+
+    // 提示用户
+    const questions = [
+        {
+            type: "confirm",
+            name: "doCopy",
+            message: t("pick.copy.confirm", { count: files.length, dir: outDir }),
+            default: false,
+        },
+    ]
+
+    const answers = await inquirer.prompt(questions)
+    if (!answers.doCopy) {
+        log.showYellow(t("common.aborted.by.user"))
+        return
+    }
+
+    log.showGreen(t("pick.copy.start", { dryRun: argv.dryRun }))
+    let count = 0
+    let skipCount = 0
+    let errorCount = 0
+
+    // 用于生成报告
+    const reportData = {} // { "202401": ["name1.jpg", "name2.jpg"] }
+
+    for (const f of files) {
+        // 计算目标路径结构：Year/YearMonth/Filename
+        // f.date 已经在 parseFilesByName 中解析为 Date 对象
+        const date = dayjs(f.date)
+        const year = date.format("YYYY")
+        const month = date.format("YYYYMM")
+
+        // 目标相对路径：2024\202401\IMG_001.jpg
+        const destRel = path.join(year, month, path.basename(f.path))
+        const dest = path.join(outDir, destRel)
+
+        // 文件大小格式化
+        const sizeStr = (f.size / 1024 / 1024).toFixed(2) + " MB"
+
+        if (argv.dryRun) {
+            console.log(`[DryRun] Copy: ${f.path} -> ${dest} (${sizeStr})`)
+            count++
+        } else {
+            try {
+                // 检查目标是否存在
+                if (await fs.pathExists(dest)) {
+                    console.log(`[Skip] Exists: ${dest}`)
+                    skipCount++
+                    continue
+                }
+
+                await fs.ensureDir(path.dirname(dest))
+                await fs.copy(f.path, dest, { preserveTimestamps: true })
+
+                // 记录成功的文件
+                if (!reportData[month]) reportData[month] = []
+                reportData[month].push(path.basename(dest))
+
+                console.log(`[Done] Copy: ${path.basename(f.path)} -> ${destRel} (${sizeStr})`)
+                count++
+            } catch (err) {
+                console.error(`[Error] Copy failed: ${f.path}`, err)
+                errorCount++
+            }
+        }
+    }
+
+    log.showGreen(t("pick.copy.finish", { count, skip: skipCount, error: errorCount }))
+
+    if (!argv.dryRun && count > 0) {
+        const nowTag = dayjs().format("YYYYMMDD_HHmmss")
+        const reportName = path.join(outDir, `report_${nowTag}.json`)
+        try {
+            await fs.writeJson(reportName, reportData, { spaces: 2 })
+            log.showGreen(t("pick.report.saved", { path: reportName }))
+        } catch (e) {
+            log.showRed(t("pick.report.failed", { error: e.message }))
+        }
+    }
+}
 
 function calculateSourceStats(parsed) {
     const s = { days: new Map(), months: new Map(), years: new Map() }
@@ -425,7 +525,7 @@ function selectForDay(files, targetN) {
     const hourCounts = new Map() // 'YYYY-MM-DD-HH' -> count
 
     // Pet limit
-    const petRe = /荷兰猪|宠物|猫|鸟|cat|bird/i
+    const petRe = /猪|宠|猫|鸟|鱼|cat|bird/i
     let petCount = 0
 
     // 检查是否可被选中
