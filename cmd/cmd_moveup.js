@@ -12,6 +12,7 @@ import inquirer from "inquirer"
 import path from "path"
 
 import * as log from "../lib/debug.js"
+import { ErrorTypes, createError, handleError } from "../lib/errors.js"
 import * as mf from "../lib/file.js"
 import * as helper from "../lib/helper.js"
 import { t } from "../lib/i18n.js"
@@ -80,7 +81,7 @@ const handler = async function cmdMoveUp(argv) {
     const root = path.resolve(argv.input)
     if (!root || !(await fs.pathExists(root))) {
         log.error(logTag, `Invalid Input: '${root}'`)
-        throw new Error(`Invalid Input: ${argv.input}`)
+        throw createError(ErrorTypes.INVALID_ARGUMENT, `Invalid Input: ${argv.input}`)
     }
     if (!testMode) {
         log.fileLog(`Root: ${root}`, logTag)

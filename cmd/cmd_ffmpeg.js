@@ -22,6 +22,7 @@ import * as core from "../lib/core.js"
 import { asyncFilter, formatArgs } from "../lib/core.js"
 import * as log from "../lib/debug.js"
 import * as enc from "../lib/encoding.js"
+import { ErrorTypes, createError, handleError } from "../lib/errors.js"
 import presets from "../lib/ffmpeg_presets.js"
 import * as mf from "../lib/file.js"
 import * as helper from "../lib/helper.js"
@@ -548,7 +549,7 @@ async function cmdConvert(argv) {
     // 检查ffmpeg可执行文件是否存在
     const ffmpegPath = await which("ffmpeg", { nothrow: true })
     if (!ffmpegPath) {
-        throw new Error(t("ffmpeg.not.found"))
+        throw createError(ErrorTypes.FFMPEG_ERROR, t("ffmpeg.not.found"))
     }
     // 记录开始时间
     startMs = Date.now()
@@ -847,7 +848,10 @@ async function prepareFFmpegCmd(entry) {
                 fileDstDir = path.join(preset.output, path.basename(srcDir))
                 break
             default:
-                throw new Error(`Unknown output mode: ${argv.outputMode}`)
+                throw createError(
+                    ErrorTypes.INVALID_ARGUMENT,
+                    `Unknown output mode: ${argv.outputMode}`,
+                )
         }
     } else {
         // 如果没有指定输出目录，直接输出在原文件同目录
@@ -1753,10 +1757,10 @@ async function executeFFmpeg(args, entry, progressBar = null) {
         await subprocess
         // 进度完成，确保换行
         progressBar?.stop()
-        console.log() // 添加换行符
+        log.show() // 添加换行符
     } catch (error) {
         progressBar?.stop()
-        console.log() // 添加换行符
+        log.show() // 添加换行符
         throw error
     }
 }

@@ -21,6 +21,7 @@ import { promisify } from "util"
 import { comparePathSmartBy, uniqueByFields } from "../lib/core.js"
 import * as log from "../lib/debug.js"
 import * as enc from "../lib/encoding.js"
+import { ErrorTypes, createError, handleError } from "../lib/errors.js"
 import * as mf from "../lib/file.js"
 import * as helper from "../lib/helper.js"
 import { t } from "../lib/i18n.js"
@@ -214,12 +215,12 @@ async function cmdRemove(argv) {
     ) {
         log.show(logTag, argv)
         log.error(logTag, t("remove.required.conditions"))
-        throw new Error(t("remove.required.conditions"))
+        throw createError(ErrorTypes.MISSING_REQUIRED_ARGUMENT, t("remove.required.conditions"))
     }
 
     const type = (argv.type || "f").toLowerCase()
     if (!TYPE_LIST.includes(type)) {
-        throw new Error(`Error: type must be one of ${TYPE_LIST}`)
+        throw createError(ErrorTypes.INVALID_ARGUMENT, `Error: type must be one of ${TYPE_LIST}`)
     }
 
     let cWidth = 0

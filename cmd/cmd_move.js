@@ -17,11 +17,12 @@ import pMap from "p-map"
 import path from "path"
 import * as core from "../lib/core.js"
 import * as log from "../lib/debug.js"
+import { ErrorTypes, createError, handleError } from "../lib/errors.js"
 import * as mf from "../lib/file.js"
 import * as helper from "../lib/helper.js"
+import { t } from "../lib/i18n.js"
 import { isSameFileCached } from "../lib/tools.js"
 import { applyFileNameRules } from "./cmd_shared.js"
-import { t } from "../lib/i18n.js"
 
 dayjs.extend(utc)
 dayjs.extend(timezone)
@@ -272,7 +273,10 @@ async function prepareMove(entries, argv) {
     tasks = await pMap(tasks, checkMove, { concurrency: argv.jobs || cpus().length })
 
     for (const [status, count] of Object.entries(countByStatus(tasks))) {
-        log.show(chalk.green(t("operation.move") + "[Check]"), `${t("status")}: ${status} => ${count} ${t("files")}`)
+        log.show(
+            chalk.green(t("operation.move") + "[Check]"),
+            `${t("status")}: ${status} => ${count} ${t("files")}`,
+        )
     }
 
     // 无法提取日期的文件将被跳过
@@ -295,11 +299,13 @@ async function prepareMove(entries, argv) {
 const handler = async function cmdMove(argv) {
     log.info(argv)
     const testMode = !argv.doit
-    const logTag = testMode ? chalk.yellow(t("operation.move") + "[DryRun]") : chalk.green(t("operation.move"))
+    const logTag = testMode
+        ? chalk.yellow(t("operation.move") + "[DryRun]")
+        : chalk.green(t("operation.move"))
     const root = path.resolve(argv.input)
     if (!root || !(await fs.pathExists(root))) {
         log.error(logTag, `${t("input.invalid")}: '${root}'`)
-        throw new Error(`${t("input.invalid")}: ${argv.input}`)
+        throw createError(ErrorTypes.INVALID_ARGUMENT, `${t("input.invalid")}: ${argv.input}`)
     }
 
     const output = path.resolve(argv.output || root)
@@ -337,7 +343,10 @@ const handler = async function cmdMove(argv) {
     const tCount = tasks.length
     log.showYellow(logTag, `${t("move.total.files.skipped")} ${fCount - tCount} ${t("files")}`)
     if (tasks.length > 0) {
-        log.showGreen(logTag, `${t("move.total.files.ready.to.move")} ${tasks.length} ${t("files")}`)
+        log.showGreen(
+            logTag,
+            `${t("move.total.files.ready.to.move")} ${tasks.length} ${t("files")}`,
+        )
     } else {
         log.showYellow(logTag, t("common.nothing.to.do"))
         return
@@ -352,7 +361,10 @@ const handler = async function cmdMove(argv) {
     }
 
     if (testMode) {
-        log.showYellow(logTag, `${t("mode.test")} (${t("mode.dryrun")}), ${t("move.no.files.will.be.moved")}`)
+        log.showYellow(
+            logTag,
+            `${t("mode.test")} (${t("mode.dryrun")}), ${t("move.no.files.will.be.moved")}`,
+        )
     }
     const answer = await inquirer.prompt([
         {
@@ -386,7 +398,10 @@ const handler = async function cmdMove(argv) {
         }
         const skippedCount = entries.length - movedCount
         if (skippedCount > 0) {
-            log.show(logTag, `${t("move.files.skipped.in.dir", { count: skippedCount, dir: destDir })}`)
+            log.show(
+                logTag,
+                `${t("move.files.skipped.in.dir", { count: skippedCount, dir: destDir })}`,
+            )
         }
         if (movedCount > 0) {
             log.show(logTag, `${t("move.files.moved.to.dir", { count: movedCount, dir: destDir })}`)

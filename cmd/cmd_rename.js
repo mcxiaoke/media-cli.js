@@ -16,6 +16,7 @@ import argparser from "../lib/argparser.js"
 import * as core from "../lib/core.js"
 import * as log from "../lib/debug.js"
 import * as enc from "../lib/encoding.js"
+import { ErrorTypes, createError, handleError } from "../lib/errors.js"
 import * as mf from "../lib/file.js"
 import * as helper from "../lib/helper.js"
 import { t } from "../lib/i18n.js"
@@ -197,11 +198,14 @@ async function cmdRename(argv) {
         )
     ) {
         // log.error(`Error: replace|clean|encoding|zhcn|mergeDirs, one is required`)
-        throw new Error(t("rename.one.operation.required"))
+        throw createError(ErrorTypes.MISSING_REQUIRED_ARGUMENT, t("rename.one.operation.required"))
     }
     const type = (argv.type || "f").toLowerCase()
     if (!TYPE_LIST.includes(type)) {
-        throw new Error(`${t("error.type.must.be.one.of")} ${TYPE_LIST}`)
+        throw createError(
+            ErrorTypes.INVALID_ARGUMENT,
+            `${t("error.type.must.be.one.of")} ${TYPE_LIST}`,
+        )
     }
     const options = {
         needStats: true,

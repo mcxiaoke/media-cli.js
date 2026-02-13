@@ -16,6 +16,7 @@ import inquirer from "inquirer"
 import path from "path"
 import { asyncMap, compareSmartBy, countAndSort } from "../lib/core.js"
 import * as log from "../lib/debug.js"
+import { ErrorTypes, createError, handleError } from "../lib/errors.js"
 import * as mf from "../lib/file.js"
 import * as helper from "../lib/helper.js"
 import { t } from "../lib/i18n.js"
@@ -118,7 +119,7 @@ async function cmdZipUnicode(argv) {
     log.info(logTag, argv)
     const root = path.resolve(argv.input)
     if (!root || !(await fs.pathExists(root))) {
-        throw new Error(`Invalid Input: ${root}`)
+        throw createError(ErrorTypes.INVALID_ARGUMENT, `Invalid Input: ${root}`)
     }
 
     if (!testMode) {

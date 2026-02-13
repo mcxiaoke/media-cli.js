@@ -14,6 +14,7 @@ import path from "path"
 import { addEntryProps, renameFiles } from "./cmd_shared.js"
 
 import * as log from "../lib/debug.js"
+import { ErrorTypes, createError, handleError } from "../lib/errors.js"
 import * as exif from "../lib/exif.js"
 import * as helper from "../lib/helper.js"
 import { t } from "../lib/i18n.js"
@@ -27,44 +28,42 @@ const aliases = ["dm", "dcim"]
 const describe = t("dcim.description")
 
 const builder = function addOptions(ya, helpOrVersionSet) {
-    return (
-        ya
-            .option("backup", {
-                alias: "b",
-                type: "boolean",
-                default: false,
-                description: t("dcim.backup"),
-            })
-            .option("fast", {
-                alias: "f",
-                type: "boolean",
-                description: t("dcim.fast"),
-            })
-            .option("prefix", {
-                alias: "p",
-                type: "string",
-                default: "IMG_/DSC_/VID_",
-                description: t("dcim.prefix"),
-            })
-            .option("suffix", {
-                alias: "s",
-                type: "string",
-                default: "",
-                description: t("dcim.suffix"),
-            })
-            .option("template", {
-                alias: "t",
-                type: "string",
-                default: "YYYYMMDD_HHmmss",
-                description: t("dcim.template"),
-            })
-            .option("doit", {
-                alias: "d",
-                type: "boolean",
-                default: false,
-                description: t("option.common.doit"),
-            })
-    )
+    return ya
+        .option("backup", {
+            alias: "b",
+            type: "boolean",
+            default: false,
+            description: t("dcim.backup"),
+        })
+        .option("fast", {
+            alias: "f",
+            type: "boolean",
+            description: t("dcim.fast"),
+        })
+        .option("prefix", {
+            alias: "p",
+            type: "string",
+            default: "IMG_/DSC_/VID_",
+            description: t("dcim.prefix"),
+        })
+        .option("suffix", {
+            alias: "s",
+            type: "string",
+            default: "",
+            description: t("dcim.suffix"),
+        })
+        .option("template", {
+            alias: "t",
+            type: "string",
+            default: "YYYYMMDD_HHmmss",
+            description: t("dcim.template"),
+        })
+        .option("doit", {
+            alias: "d",
+            type: "boolean",
+            default: false,
+            description: t("option.common.doit"),
+        })
 }
 
 /**
@@ -84,13 +83,13 @@ const handler = async function cmdRename(argv) {
     const root = path.resolve(argv.input)
     if (!(await fs.pathExists(root))) {
         log.error(`Invalid Input: '${root}'`)
-        throw new Error(`Invalid Input: '${root}'`)
+        throw createError(ErrorTypes.INVALID_ARGUMENT, `Invalid Input: '${root}'`)
     }
     const testMode = !argv.doit
     const fastMode = argv.fast || false
     // action: rename media file by exif date
     const startMs = Date.now()
-    log.show(LOG_TAG, `${t('path.input')}: ${root}`)
+    log.show(LOG_TAG, `${t("path.input")}: ${root}`)
     let files = await exif.listMedia(root)
     const fileCount = files.length
     log.show(LOG_TAG, t("dcim.total.files.found", { count: files.length }))
@@ -112,7 +111,11 @@ const handler = async function cmdRename(argv) {
     }
     log.show(LOG_TAG, t("dcim.processing.exif"))
     files = await exif.parseFiles(files, { fastMode })
-    log.show(LOG_TAG, t("dcim.files.parsed", { count: files.length }), fastMode ? "(" + t("mode.fast") + ")" : "")
+    log.show(
+        LOG_TAG,
+        t("dcim.files.parsed", { count: files.length }),
+        fastMode ? "(" + t("mode.fast") + ")" : "",
+    )
     files = files.map((f) => {
         // add naming options
         f.namePrefix = argv.prefix
@@ -160,7 +163,8 @@ const handler = async function cmdRename(argv) {
             name: "yes",
             default: false,
             message: chalk.bold.red(
-                t("dcim.rename.confirm", { count: files.length }) + (fastMode ? " (" + t("mode.fast") + ")" : ""),
+                t("dcim.rename.confirm", { count: files.length }) +
+                    (fastMode ? " (" + t("mode.fast") + ")" : ""),
             ),
         },
     ])

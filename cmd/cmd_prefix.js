@@ -15,6 +15,7 @@ import pMap from "p-map"
 import path from "path"
 import { asyncFilter } from "../lib/core.js"
 import * as log from "../lib/debug.js"
+import { ErrorTypes, createError, handleError } from "../lib/errors.js"
 import * as mf from "../lib/file.js"
 import * as helper from "../lib/helper.js"
 import { t } from "../lib/i18n.js"
@@ -260,14 +261,14 @@ async function createNewNameByMode(f) {
             }
             break
         default:
-            throw new Error(`Invalid mode: ${mode} ${argv.mode}`)
+            throw createError(ErrorTypes.INVALID_ARGUMENT, `Invalid mode: ${mode} ${argv.mode}`)
     }
 
     if (mode !== MODE_CLEAN) {
         // 无有效前缀，报错退出
         if (!prefix || prefix.length == 0) {
             log.warn(logTag, `Invalid Prefix: ${helper.pathShort(f.path)} ${mode}`)
-            throw new Error(`No prefix supplied!`)
+            throw createError(ErrorTypes.MISSING_REQUIRED_ARGUMENT, `No prefix supplied!`)
         }
     }
 
@@ -344,7 +345,7 @@ const handler = async function cmdPrefix(argv) {
     log.info(logTag, argv)
     const root = path.resolve(argv.input)
     if (!root || !(await fs.pathExists(root))) {
-        throw new Error(`Invalid Input: ${root}`)
+        throw createError(ErrorTypes.INVALID_ARGUMENT, `Invalid Input: ${root}`)
     }
     if (!testMode) {
         log.fileLog(`Root: ${root}`, logTag)
@@ -356,7 +357,7 @@ const handler = async function cmdPrefix(argv) {
     log.show(logTag, `Input: ${root}`)
 
     if (mode === MODE_PREFIX && !prefix) {
-        throw new Error(`No prefix value supplied!`)
+        throw createError(ErrorTypes.MISSING_REQUIRED_ARGUMENT, `No prefix value supplied!`)
     }
 
     let files = await mf.walk(root, {

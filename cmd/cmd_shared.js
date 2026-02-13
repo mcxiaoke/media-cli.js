@@ -19,6 +19,7 @@ import sharp from "sharp"
 import which from "which"
 import { asyncFilter, copyFields } from "../lib/core.js"
 import * as log from "../lib/debug.js"
+import { ErrorTypes, createError, handleError } from "../lib/errors.js"
 import * as helper from "../lib/helper.js"
 
 // https://day.js.org/docs/zh-CN/display/format
@@ -445,7 +446,10 @@ export async function applyFileNameRules(fileEntries, argv) {
     if (extensions?.length > 0) {
         if (!/\.[a-z0-9]{2,4}/.test(extensions)) {
             // 有扩展名参数，但是参数错误，报错
-            throw new Error(`Invalid extensions argument: ${extensions}`)
+            throw createError(
+                ErrorTypes.INVALID_ARGUMENT,
+                `Invalid extensions argument: ${extensions}`,
+            )
         }
         fileEntries = fileEntries.filter((entry) => extensions.includes(helper.pathExt(entry.name)))
         log.info(logTag, `${fileEntries.length} entries left by extension rules`)

@@ -10,8 +10,9 @@
 import chardet from "chardet"
 import * as log from "../lib/debug.js"
 import * as enc from "../lib/encoding.js"
-import * as unicode from "../lib/unicode.js"
+import { ErrorTypes, createError, handleError } from "../lib/errors.js"
 import { t } from "../lib/i18n.js"
+import * as unicode from "../lib/unicode.js"
 
 const ENC_LIST = ["ISO-8859-1", "UTF8", "UTF-16", "GBK", "BIG5", "SHIFT_JIS", "EUC-JP", "EUC-KR"]
 
@@ -57,7 +58,7 @@ const handler = async function cmdDecode(argv) {
     log.info(logTag, "Args:", argv)
     const strArgs = argv.strings
     if (strArgs?.length === 0) {
-        throw new Error(t("decode.text.input.required"))
+        throw createError(ErrorTypes.MISSING_REQUIRED_ARGUMENT, t("decode.text.input.required"))
     }
     const fromEnc = argv.fromEnc?.length > 0 ? [argv.fromEnc] : ENC_LIST
     const toEnc = argv.toEnc?.length > 0 ? [argv.toEnc] : ENC_LIST
@@ -72,7 +73,7 @@ const handler = async function cmdDecode(argv) {
         results.forEach(showResults)
         log.show("INPUT:", [str, str.length])
         log.show("OUPUT:", results.pop())
-        console.log()
+        log.show()
     }
 }
 
