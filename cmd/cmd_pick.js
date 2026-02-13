@@ -204,7 +204,7 @@ function buildJsonOutput(daySelections, srcStats, selStats) {
 
             const monthKey = m.replace("-", "") // 2025-01 -> 202501
             const mTotal = srcStats.months.get(m) || 0
-            
+
             // Only add to files list if selected > 0
             if (mFiles.length > 0) {
                 yearMonths.push({
