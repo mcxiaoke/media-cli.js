@@ -58,6 +58,28 @@ const command = "pick <input>"
 const aliases = ["pk"]
 const describe = t("pick.description")
 
+// 配置常量
+const CONFIG = {
+    // 每日挑选规则：
+    // 如果数量 < SMALL_DAY_THRESHOLD (100)，最多选 1/SMALL_DAY_RATIO (2)
+    // 如果数量 >= SMALL_DAY_THRESHOLD (100)，最多选 1/LARGE_DAY_RATIO (5)
+    SMALL_DAY_THRESHOLD: 100,
+    SMALL_DAY_RATIO: 2, // 1/2
+    LARGE_DAY_RATIO: 5, // 1/5
+
+    // 如果当天照片极其少 (< MIN_FILES_KEEP_ALL)，则全部保留
+    MIN_FILES_KEEP_ALL: 5,
+
+    // 每小时限制 (20 张)
+    MAX_PER_HOUR: 20,
+
+    // 最小间隔 (2.5 分钟 = 150000 ms)
+    MIN_INTERVAL_MS: 2.5 * 60 * 1000,
+
+    // 宠物/特定主题每日最大数量
+    MAX_PET_PER_DAY: 20,
+}
+
 const builder = (ya) =>
     ya
         .option("output", { alias: "o", describe: t("option.common.output"), type: "string" })
@@ -107,7 +129,8 @@ export async function cmdPick(argv) {
 
     // 4. 应用挑选规则
     const daySelections = processDailySelections(parsed)
-    applyMonthlyLimit(daySelections, 1000)
+    // Monthly limit logic removed as per request
+    // applyMonthlyLimit(daySelections, 1000)
 
     // 5. 汇总结果与构建JSON
     // 聚合 selected
@@ -304,6 +327,8 @@ function parseFilesByName(entries) {
             }
             out.push({
                 path: e.path,
+                // 保留 size 用于智能选择策略（优先选大图）
+                size: e.size || (e.stats && e.stats.size) || 0,
                 date: date.toDate(),
                 dayKey: date.format("YYYY-MM-DD"),
             })
@@ -323,10 +348,21 @@ function processDailySelections(parsed) {
 
     const selections = new Map()
     for (const [day, files] of days.entries()) {
-        // 规则：每天挑 1/5，最多 50；<5 则全选
         const total = files.length
-        let targetCount = total < 5 ? total : Math.ceil(total / 5)
-        if (targetCount > 50) targetCount = 50
+        let targetCount = 0
+
+        if (total < CONFIG.MIN_FILES_KEEP_ALL) {
+            targetCount = total
+        } else if (total < CONFIG.SMALL_DAY_THRESHOLD) {
+            // < 100 张，取 1/2
+            targetCount = Math.ceil(total / CONFIG.SMALL_DAY_RATIO)
+        } else {
+            // >= 100 张，取 1/5
+            targetCount = Math.ceil(total / CONFIG.LARGE_DAY_RATIO)
+        }
+
+        // 确保不超过总数
+        if (targetCount > total) targetCount = total
 
         const picked = selectForDay(files, targetCount)
         selections.set(day, picked)
@@ -335,14 +371,18 @@ function processDailySelections(parsed) {
 }
 
 // 针对单天的具体挑选逻辑
-// 规则：间隔 >= 5分钟，每小时 <= 10张，平均分布
+// 规则：使用配置常量控制间隔和数量
 function selectForDay(files, targetN) {
     if (targetN === 0) return []
-    // 如果当天照片少于5张，则全部挑选
-    // 假设这里的“少于5张”是特例，不受间隔限制
-    if (files.length < 5) return files.slice()
+    // 少量照片全选
+    if (files.length < CONFIG.MIN_FILES_KEEP_ALL) return files.slice()
 
-    // 对于普通情况，需满足约束
+    // 准备文件大小信息（如果没有size属性，尝试使用mock或fallback）
+    // entries 来自 walk 结果，应该有 size (fs.Stats)
+    // 之前解析时 parseFilesByName 没带 size，这里需要修正 parseFilesByName 或在此处读取
+    // 实际上 parseFilesByName 里注掉了 size。我们需要回去把 size 加上。
+    // 假设 files 里现在有了 size (见下文修正)
+
     const len = files.length
     // 生成目标索引：平均分布
     const indices = []
@@ -358,8 +398,6 @@ function selectForDay(files, targetN) {
     const petRe = /荷兰猪|宠物|猫|鸟|cat|bird/i
     let petCount = 0
 
-    const minInterval = 5 * 60 * 1000 // 5 minutes
-
     // 检查是否可被选中
     const canPick = (idx) => {
         const candidate = files[idx]
@@ -367,16 +405,16 @@ function selectForDay(files, targetN) {
         const candHour = dayjs(candidate.date).format("YYYY-MM-DD-HH")
 
         // 1. 每小时限制
-        if ((hourCounts.get(candHour) || 0) >= 10) return false
+        if ((hourCounts.get(candHour) || 0) >= CONFIG.MAX_PER_HOUR) return false
 
-        // 2. 宠物照片限制 (每天最多 10 张)
+        // 2. 宠物照片限制
         if (petRe.test(candidate.path)) {
-            if (petCount >= 10) return false
+            if (petCount >= CONFIG.MAX_PET_PER_DAY) return false
         }
 
         // 3. 间隔限制
         for (const p of picked) {
-            if (Math.abs(candTime - p.date.getTime()) < minInterval) return false
+            if (Math.abs(candTime - p.date.getTime()) < CONFIG.MIN_INTERVAL_MS) return false
         }
         return true
     }
@@ -393,61 +431,50 @@ function selectForDay(files, targetN) {
         }
     }
 
-    // 尝试在理想位置附近寻找可用照片
+    // 智能选择策略：在 idealIdx 附近寻找“最好”的一张
+    // 最好 = 满足约束 && (位于中间 OR 文件最大)
+    // 根据需求：优化采样策略：不仅仅是“取第一个”，用中间或体积大的那个
+    // 我们定义一个窗口 WINDOW_SIZE，在 idealIdx 前后寻找最佳候选者
+    const SEARCH_RADIUS = Math.max(1, Math.floor(len / targetN / 2)) // 动态搜索半径
+
     for (const idealIdx of indices) {
-        if (canPick(idealIdx)) {
-            doPick(idealIdx)
-        } else {
-            // 向两边搜索
-            let left = idealIdx - 1
-            let right = idealIdx + 1
-            let found = false
-            while ((left >= 0 || right < len) && !found) {
-                if (right < len && !takenIndices.has(right) && canPick(right)) {
-                    doPick(right)
-                    found = true
-                } else if (left >= 0 && !takenIndices.has(left) && canPick(left)) {
-                    doPick(left)
-                    found = true
-                }
-                left--
-                right++
+        // 定义搜索范围 [start, end]
+        const start = Math.max(0, idealIdx - SEARCH_RADIUS)
+        const end = Math.min(len - 1, idealIdx + SEARCH_RADIUS)
+
+        let bestIdx = -1
+        let maxScore = -1
+
+        // 寻找该范围内所有尚未被选且满足条件的候选者
+        const candidates = []
+        for (let i = start; i <= end; i++) {
+            if (!takenIndices.has(i) && canPick(i)) {
+                candidates.push(i)
             }
+        }
+
+        if (candidates.length === 0) continue // 该范围内无可用照片（可能被间隔或小时限制卡死）
+
+        // 评分：体积优先
+        for (const idx of candidates) {
+            // files[idx] 必须有 size 属性，如果没有视为 0
+            const score = files[idx].size || 0
+            if (score > maxScore) {
+                maxScore = score
+                bestIdx = idx
+            }
+        }
+
+        if (bestIdx !== -1) {
+            doPick(bestIdx)
         }
     }
 
     picked.sort((a, b) => a.date - b.date)
     return picked
 }
-
-// 应用月度限制：每月最多 monthLimit，超出则从照片最多的那天削减
-function applyMonthlyLimit(daySelections, monthLimit) {
-    const monthMap = new Map()
-    for (const [day, list] of daySelections.entries()) {
-        const m = day.slice(0, 7) // YYYY-MM
-        if (!monthMap.has(m)) monthMap.set(m, [])
-        monthMap.get(m).push({ day, list }) // list is reference
-    }
-
-    for (const [m, days] of monthMap.entries()) {
-        let currentTotal = days.reduce((sum, d) => sum + d.list.length, 0)
-
-        // 循环直到满足限制
-        while (currentTotal > monthLimit) {
-            // 找出照片最多的那天
-            // 排序：数量降序
-            days.sort((a, b) => b.list.length - a.list.length)
-            const topDay = days[0]
-
-            // 如果最多的那天也没照片了，跳出
-            if (!topDay || topDay.list.length === 0) break
-
-            // 削减：从该天移除一张
-            topDay.list.pop()
-            currentTotal--
-        }
-    }
-}
+// 删除 applyMonthlyLimit 实现，因为不再使用
+// function applyMonthlyLimit...
 
 // 统计与输出
 // ----------------------------------------------------------------------------
