@@ -173,7 +173,7 @@ export async function cmdPick(argv) {
     await fs.writeJson(jsonName, outputData, { spaces: 2 })
 
     // 7. 控制台输出
-    printConsoleStats(finalList.length, selectedStats, jsonName)
+    printConsoleStats(finalList.length, selectedStats, sourceStats, jsonName)
     log.showGreen(logTag, `Results saved to:\n  ${jsonName}`)
 }
 
@@ -256,27 +256,30 @@ function buildJsonOutput(daySelections, srcStats, selStats) {
             total: srcStats.years.get(year) || 0,
             selected: selStats.years.get(year) || 0,
             months: {},
-            days: {},
+            // days: {}, // moved to under months
         }
 
         for (const m of monthsInYear) {
             const monthKey = m.replace("-", "") // 2025-01 -> 202501
-            yStats.months[monthKey] = {
-                total: srcStats.months.get(m) || 0,
-                selected: selStats.months.get(m) || 0,
-            }
 
-            // Days
+            // Days in this month
+            const daysData = {}
             const daysInMonth = Array.from(srcStats.days.keys())
                 .filter((d) => d.startsWith(m))
                 .sort()
 
             for (const d of daysInMonth) {
                 const dayKey = d.replaceAll("-", "") // 2025-01-01 -> 20250101
-                yStats.days[dayKey] = {
+                daysData[dayKey] = {
                     total: srcStats.days.get(d) || 0,
                     selected: selStats.days.get(d) || 0,
                 }
+            }
+
+            yStats.months[monthKey] = {
+                total: srcStats.months.get(m) || 0,
+                selected: selStats.months.get(m) || 0,
+                days: daysData,
             }
         }
 
@@ -510,25 +513,48 @@ function selectForDay(files, targetN) {
 // function buildStats(list) ...
 // function formatStatsText(stats) ...
 
-function printConsoleStats(total, stats, jsonFile) {
+function printConsoleStats(total, stats, srcStats, jsonFile) {
     console.log(`Total selected: ${total}`)
 
     console.log("By Year:")
     Array.from(stats.years.entries())
         .sort()
-        .forEach(([k, v]) => console.log(`  ${k}: ${v}`))
+        .forEach(([k, v]) => {
+            const t = srcStats.years.get(k) || 0
+            console.log(`  ${k}: ${v}/${t}`)
+        })
 
     console.log("By Month:")
     Array.from(stats.months.entries())
         .sort()
-        .forEach(([k, v]) => console.log(`  ${k}: ${v}`))
+        .forEach(([k, v]) => {
+            const t = srcStats.months.get(k) || 0
+            const mk = k.replace("-", "")
+            console.log(`  ${mk}: ${v}/${t}`)
+        })
 
     const dayCount = stats.days.size
     if (dayCount <= 30) {
         console.log("By Day:")
+        // Group by month
+        const daysByMonth = new Map()
         const sortedDays = Array.from(stats.days.entries()).sort()
         for (const [d, c] of sortedDays) {
-            console.log(`  ${d}: ${c}`)
+            const m = d.slice(0, 7)
+            if (!daysByMonth.has(m)) daysByMonth.set(m, [])
+            daysByMonth.get(m).push([d, c])
+        }
+
+        for (const [m, days] of daysByMonth.entries()) {
+            console.log(`  ${m}:`)
+            for (const [d, c] of days) {
+                const t = srcStats.days.get(d) || 0
+                // Extract just the day part? Or keep full date?
+                // User example: 202412: 844/3456 -> Implicitly "Month: ..."
+                // If displaying days under month, maybe only show day part "01: 5/20"
+                const dayPart = d.slice(8)
+                console.log(`    ${dayPart}: ${c}/${t}`)
+            }
         }
     } else {
         console.log(`By Day: ${dayCount} days active (details in json file)`)
