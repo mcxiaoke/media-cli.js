@@ -16,7 +16,8 @@
         "index.js",
         "scripts",
         "lib",
-        "cmd"
+        "cmd",
+        "assets"
     ],
     "bin": {
         "mediac": "./index.js"

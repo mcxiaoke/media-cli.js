@@ -32,41 +32,7 @@ const configCli = (argv) => {
     log.debug(argv)
 }
 
-// exitHook(signal => {
-//   console.log(`Exiting with signal: ${signal}, kill ffmpeg`)
-//   helper.killProcessSync('ffmpeg')
-// })
-
-// 全局未捕获错误处理，统一委托到错误处理器
-process.on("uncaughtException", async (err) => {
-    try {
-        await handleError(err, { context: "uncaughtException" })
-    } catch (e) {
-        console.error("Fatal uncaughtException:", e)
-        process.exit(1)
-    }
-})
-
-process.on("unhandledRejection", async (reason) => {
-    try {
-        await handleError(reason, { context: "unhandledRejection" })
-    } catch (e) {
-        console.error("Fatal unhandledRejection:", e)
-        process.exit(1)
-    }
-})
-
-try {
-    await main()
-} catch (error) {
-    // 将顶层错误委托给统一错误处理器
-    try {
-        await handleError(error, { context: "main" })
-    } catch (e) {
-        console.error(e)
-        process.exit(1)
-    }
-}
+await main()
 
 async function main() {
     // 命令行参数解析

@@ -8,7 +8,7 @@
 import chalk from "chalk"
 import { sify } from "chinese-conv"
 import dayjs from "dayjs"
-import { $ } from "execa"
+import { $, execa } from "execa"
 import fs from "fs-extra"
 import iconv from "iconv-lite"
 import * as emoji from "node-emoji"
@@ -17,6 +17,7 @@ import pMap from "p-map"
 import path from "path"
 import sharp from "sharp"
 import which from "which"
+import config from "../lib/config.js"
 import * as core from "../lib/core.js"
 import { asyncFilter, copyFields } from "../lib/core.js"
 import * as log from "../lib/debug.js"
@@ -120,16 +121,12 @@ const fixedOkStr = iconv.decode(Buffer.from("OK"), "utf8")
  * @param {number} t.srcWidth - 源图片宽度
  * @param {number} t.srcHeight - 源图片高度
  * @param {boolean} force - 是否强制使用外部压缩，默认为false
- * @returns {Object|null} 压缩结果对象，包含宽度、高度等信息，失败返回null
+ * @returns {Promise<Object|null>} 压缩结果对象，包含宽度、高度等信息
  */
-async function compressExternal(t, force = false) {
-    const logTag = "Compress"
+async function useNConvert(t, force = false) {
+    const logTag = "NConvert"
     log.info(logTag, "processing", t)
-    if (!helper.isExternalImage(t.src) && !force) {
-        return
-    }
-    const exePath = await which("nconvert", { nothrow: true })
-    if (!exePath) {
+    if (!config.NCONVERT_BIN_PATH) {
         log.warn(logTag, "nconvert executable not in path")
         return
     }
@@ -140,13 +137,9 @@ async function compressExternal(t, force = false) {
     try {
         const { stdout, stderr } = await $({
             encoding: "latin1",
-        })`${exePath} -overwrite -opthuff -no_auto_ext -out jpeg -o ${dstName} -q ${t.quality} -resize longest ${t.width} ${fileSrc}`
-        const so = fixEncoding(stdout || "NULL")
-        const sr = fixEncoding(stderr || "NULL")
-        log.debug(logTag, "stdout", so)
-        log.debug(logTag, "stderr", sr)
+        })`${config.NCONVERT_BIN_PATH} -quiet -overwrite -opthuff -keep_icc -no_auto_ext -out jpeg -o ${dstName} -q ${t.quality} -resize longest ${t.width} ${fileSrc}`
         // 检查压缩是否成功
-        if (sr.endsWith(fixedOkStr)) {
+        if (await fs.pathExists(dstName)) {
             log.show(
                 chalk.yellow(logTag),
                 `${t.index}/${t.total}`,
@@ -165,6 +158,70 @@ async function compressExternal(t, force = false) {
         }
     } catch (error) {
         log.warn(logTag, fileSrc, error)
+    }
+}
+
+async function useVipsConvert(t, force = false) {
+    const logTag = "Vips"
+    log.info(logTag, "processing", t)
+    if (!config.VIPS_BIN_PATH) {
+        log.warn(logTag, "vips executable not in path")
+        return
+    }
+
+    const fileSrc = t.src
+    // 使用临时文件
+    const dstName = path.resolve(t.tmpDst)
+    const args = [
+        "thumbnail",
+        fileSrc,
+        `${dstName}[Q=${t.quality}]`,
+        "--size",
+        "down",
+        t.width,
+        "--export-profile",
+        "srgb",
+    ]
+    try {
+        const { stdout, stderr } = await execa(config.VIPS_BIN_PATH, args, { encoding: "latin1" })
+        // 检查压缩是否成功
+        if (!stderr && (await fs.pathExists(dstName))) {
+            log.show(
+                chalk.yellow(logTag),
+                `${t.index}/${t.total}`,
+                `${helper.pathShort(fileSrc)}`,
+                chalk.cyan("!use vips!"),
+                chalk.yellow(`DoneEx`),
+            )
+            log.fileLog(`DoneEx: <${fileSrc}> => ${dstName}`, logTag)
+            return {
+                srcWidth: t.srcWidth,
+                srcHeight: t.srcHeight,
+                width: t.width,
+                height: t.height,
+                format: "jpeg",
+            }
+        }
+    } catch (error) {
+        log.error(logTag, fileSrc, error.message)
+        // vips转换失败，不返回值
+    }
+}
+
+function createExtraMetadata(t) {
+    return {
+        ImageUniqueID: {},
+        UserComment: {},
+        IFD0: {
+            ImageDescription: `${dayjs().format(DATE_FORMAT)}`,
+            Copyright: `mediac`,
+            Artist: "mediac",
+            Software: "nodejs.cli.mediac",
+            XPSubject: t.name,
+            XPTitle: t.name,
+            XPComment: `${dayjs().format(DATE_FORMAT)} mediac`,
+            XPAuthor: "mediac",
+        },
     }
 }
 
@@ -194,8 +251,16 @@ export async function compressImage(t) {
         if (await fs.pathExists(t.tmpDst)) {
             await fs.remove(t.tmpDst)
         }
-        // 某几种格式sharp不支持
-        let r = await compressExternal(t)
+
+        const isFileHeic = [".heic", ".heif"].includes(helper.pathExt(t.src))
+        const supportHeic = config.SHARP_SUPPORT_HEIC
+        let r = null
+        // 性能测试 340张照片，N 1m22s V 1m16s
+        // 如果是heic文件且sharp不支持，则使用外部工具压缩
+        if (isFileHeic && !supportHeic) {
+            r = config.VIPS_BIN_PATH ? await useVipsConvert(t) : await useNConvert(t)
+        }
+        // 如果没有使用外部工具压缩，或者外部工具压缩失败，则使用sharp进行压缩
         if (!r) {
             // 初始化一个sharp对象，用于图像处理
             // 尝试读取源图像文件
@@ -205,31 +270,17 @@ export async function compressImage(t) {
             r = await s
                 .resize({ width: t.width })
                 .withMetadata()
-                .withExifMerge({
-                    ImageUniqueID: {},
-                    UserComment: {},
-                    IFD0: {
-                        ImageDescription: `${dayjs().format(DATE_FORMAT)}`,
-                        Copyright: `mediac`,
-                        Artist: "mediac",
-                        Software: "nodejs.cli.mediac",
-                        XPSubject: path.basename(t.src),
-                        XPTitle: path.basename(t.src),
-                        XPComment: `${dayjs().format(DATE_FORMAT)} mediac`,
-                        XPAuthor: "mediac",
-                    },
-                })
-                .jpeg({ quality: t.quality || 86, chromaSubsampling: "4:4:4" })
+                .withExifMerge(createExtraMetadata(t))
+                .jpeg({ quality: t.quality || 85, chromaSubsampling: "4:4:4" })
                 // 将处理后的图像保存到目标文件
                 .toFile(t.tmpDst)
             // 获取目标文件的文件信息
         }
-        // 临时文件状态
         return await checkCompressResult(t, r)
     } catch (error) {
         const errMsg = error.message.substring(0, 40)
-        // 使用sharp压缩失败，再使用xconvert试试
-        const cr = await compressExternal(t, true)
+        // 使用sharp压缩失败，再使用nconvert试试
+        const cr = config.VIPS_BIN_PATH ? await useVipsConvert(t) : await useNConvert(t)
         const r = await checkCompressResult(t, cr)
         if (r?.done) {
             return r
@@ -250,6 +301,64 @@ export async function compressImage(t) {
     }
 } // 结束函数定义
 
+async function checkMetadata(t) {
+    const logTag = chalk.green("CheckMeta")
+    const srcExt = helper.pathExt(t.name)
+    if (srcExt === ".heic" || srcExt === ".heif") {
+        // heic转换为jpg格式，可能需要手动复制元数据
+        try {
+            using etl = exif.createExif()
+            const dstMetadata = await etl.read(t.tmpDst)
+            const dstKeys = Object.keys(dstMetadata || {})
+            const hasDate = dstMetadata?.DateTimeOriginal || dstMetadata?.CreateDate
+            const hasGPS = dstMetadata?.GPSLatitude && dstMetadata?.GPSLongitude
+            const checkKeys = [
+                "Model",
+                "Make",
+                "ISO",
+                "FNumber",
+                "FocalLength",
+                "Flash",
+                "LensMake",
+                "LensModel",
+            ]
+            const matchCount = core.countListMatches(checkKeys, dstKeys)
+            // 如果同时有时间和GPS，说明元数据不缺失，不需要修复
+            const skipCopy = hasDate && (hasGPS || matchCount >= 2)
+            if (!skipCopy) {
+                const srcRawMetadata = await etl.readRaw(t.src)
+                const fixedMetadata = fixMetadata(srcRawMetadata)
+                await etl.write(t.tmpDst, fixedMetadata, {
+                    overwrite: true, // 覆盖原有元数据
+                    charset: "utf-8", // 统一字符编码
+                    ignoreMinorErrors: true, // 忽略次要错误
+                    preserve: true, // 保留原有非合法标签
+                })
+                // 如果没报错，删除ExifTool的备份文件
+                const bakFile = t.tmpDst + "_original"
+                if (await fs.pathExists(bakFile)) {
+                    await fs.remove(bakFile)
+                }
+                log.show(
+                    logTag,
+                    `${t.index}/${t.total}`,
+                    helper.pathShort(t.dst, 45),
+                    chalk.magenta(`Metadata fixed and copied to dest JPEG`),
+                )
+            } else {
+                log.info(
+                    logTag,
+                    `${t.index}/${t.total}`,
+                    helper.pathShort(t.dst, 45),
+                    chalk.magenta(`Metadata of dest JPEG is OK, no need to copy`),
+                )
+            }
+        } catch (error) {
+            console.error(logTag, t.src, `Copy metadata failed`, error)
+        }
+    }
+}
+
 /**
  * 检查压缩结果并处理临时文件
  * @param {Object} t - 压缩任务对象
@@ -265,7 +374,7 @@ export async function compressImage(t) {
  * @param {Object} r - 压缩结果对象
  * @param {number} r.width - 压缩后宽度
  * @param {number} r.height - 压缩后高度
- * @returns {Object|null} 处理后的任务对象，失败返回null
+ * @returns {Promise<Object|null>} 处理后的任务对象
  */
 async function checkCompressResult(t, r) {
     const logTag = chalk.green("Compressed")
@@ -287,53 +396,7 @@ async function checkCompressResult(t, r) {
             )
             return
         } else {
-            const srcExt = helper.pathExt(t.name)
-            if (srcExt === ".heic" || srcExt === ".heif") {
-                // heic转换为jpg格式，可能需要手动复制元数据
-                try {
-                    using etl = exif.createExif()
-                    const dstMetadata = await etl.read(t.tmpDst)
-                    const dstKeys = Object.keys(dstMetadata || {})
-                    const hasDate = dstMetadata?.CreateDate || dstMetadata?.DateTimeOriginal
-                    const hasGPS = dstMetadata?.GPSLatitude && dstMetadata?.GPSLongitude
-                    const checkKeys = [
-                        "Model",
-                        "Make",
-                        "ISO",
-                        "FNumber",
-                        "FocalLength",
-                        "Flash",
-                        "LensMake",
-                        "LensModel",
-                    ]
-                    const matchCount = core.countListMatches(checkKeys, dstKeys)
-                    // 如果同时有时间和GPS，说明元数据不缺失，不需要修复
-                    const skipCopy = hasDate && (hasGPS || matchCount >= 2)
-                    if (!skipCopy) {
-                        const srcRawMetadata = await etl.readRaw(t.src)
-                        const fixedMetadata = fixMetadata(srcRawMetadata)
-                        await etl.write(t.tmpDst, fixedMetadata, {
-                            overwrite: true, // 覆盖原有元数据
-                            charset: "utf-8", // 统一字符编码
-                            ignoreMinorErrors: true, // 忽略次要错误
-                            preserve: true, // 保留原有非合法标签
-                        })
-                        // 如果没报错，删除ExifTool的备份文件
-                        const bakFile = t.tmpDst + "_original"
-                        if (await fs.pathExists(bakFile)) {
-                            await fs.remove(bakFile)
-                        }
-                        log.show(
-                            logTag,
-                            `${t.index}/${t.total}`,
-                            helper.pathShort(t.dst, 45),
-                            chalk.magenta(`Metadata fixed and copied to dest JPEG`),
-                        )
-                    }
-                } catch (error) {
-                    console.error(logTag, t.src, `Copy metadata failed`, error)
-                }
-            }
+            await checkMetadata(t)
         }
         // 将临时文件重命名为最终目标文件
         await fs.rename(t.tmpDst, t.dst)

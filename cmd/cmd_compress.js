@@ -11,10 +11,12 @@ import * as cliProgress from "cli-progress"
 import dayjs from "dayjs"
 import fs from "fs-extra"
 import inquirer from "inquirer"
-import { cpus } from "os"
+import os, { cpus } from "os"
 import pMap from "p-map"
 import path from "path"
 import sharp from "sharp"
+import which from "which"
+import config from "../lib/config.js"
 import * as core from "../lib/core.js"
 import * as log from "../lib/debug.js"
 import * as mf from "../lib/file.js"
@@ -30,7 +32,7 @@ const command = "compress <input> [output]"
 const aliases = ["cs", "cps"]
 const describe = t("compress.description")
 
-const QUALITY_DEFAULT = 86
+const QUALITY_DEFAULT = 85
 const SIZE_DEFAULT = 2048 // in kbytes
 const WIDTH_DEFAULT = 6000
 const SUFFIX_DEFAULT = "_Z4K"
@@ -169,12 +171,12 @@ async function cmdCompress(argv) {
         log.fileLog(`Argv:${JSON.stringify(argv)}`, logTag)
     }
     log.show(logTag, argv)
-    const config = parseImageParams(argv.config)
+    const cfg = parseImageParams(argv.config)
     const override = argv.override || false
-    const quality = argv.quality || config.quality || QUALITY_DEFAULT
-    const minFileSize = (argv.size || config.size || SIZE_DEFAULT) * 1024
-    const maxWidth = argv.width || config.width || WIDTH_DEFAULT
-    const suffix = argv.suffix || config.suffix || SUFFIX_DEFAULT
+    const quality = argv.quality || cfg.quality || QUALITY_DEFAULT
+    const minFileSize = (argv.size || cfg.size || SIZE_DEFAULT) * 1024
+    const maxWidth = argv.width || cfg.width || WIDTH_DEFAULT
+    const suffix = argv.suffix || cfg.suffix || SUFFIX_DEFAULT
     const purgeOnly = argv.deleteSourceFilesOnly || false
     const purgeSource = argv.deleteSourceFiles || false
     log.show(`${logTag} input:`, root)
@@ -215,6 +217,10 @@ async function cmdCompress(argv) {
     }
     const needBar = files.length > 9999 && !log.isVerbose()
     log.showGreen(logTag, t("compress.preparing"))
+
+    // 更新全局配置,检测必要的工具和库支持，后续压缩图片时会用到
+    await updateConfig(argv)
+
     let startMs = Date.now()
     const addArgsFunc = async (f, i) => {
         return {
@@ -450,4 +456,31 @@ async function purgeSrcFiles(results) {
     }
     const deleted = await pMap(toDelete, deletecFunc, { concurrency: cpus().length * 8 })
     log.showCyan(logTag, t("compress.safely.removed", { count: deleted.filter(Boolean).length }))
+}
+
+async function updateConfig(argv) {
+    // 检测是否有nconvert
+    // 检测sharp是否支持heic2jpg
+    // 使用一张测试图片转换试试
+    try {
+        const testPic = await helper.resolveAssetPath("assets/test.heic")
+        const testTmp = path.join(os.tmpdir(), `mediac_test_${Date.now()}.jpg`)
+        const s = sharp(testPic)
+        const testOk = await s
+            .jpeg({ quality: 70 })
+            .toFile(testTmp)
+            .then(
+                () => true,
+                () => false,
+            )
+
+        log.showRed("cmdCompress", "Sharp support HEIC:", testOk)
+        // 更新全局变量，后面压缩图片时要用到
+        config.SHARP_SUPPORT_HEIC = testOk
+        config.NCONVERT_BIN_PATH = await which("nconvert", { nothrow: true })
+        config.VIPS_BIN_PATH = await which("vips", { nothrow: true })
+    } catch (error) {
+        // 如果测试过程中发生错误，记录日志并继续执行
+        log.error("cmdCompress", "Error update config:", error)
+    }
 }
