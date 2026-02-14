@@ -251,8 +251,8 @@ async function copyPickedFiles(files, root, argv) {
             try {
                 // 检查目标是否存在
                 if (await fs.pathExists(dest)) {
-                    log.show(logTag, t("pick.copy.skip.exists", { path: dest }))
-                    return { status: "skipped" }
+                    log.show(logTag, t("pick.copy.skip.exists", { path: f.path }))
+                    return { status: "skipped", month: month, srcPath: f.path }
                 }
 
                 await fs.ensureDir(path.dirname(dest))
@@ -267,7 +267,7 @@ async function copyPickedFiles(files, root, argv) {
                     }),
                 )
                 // 返回成功信息以便后续统计
-                return { status: "success", month: month, filename: path.basename(dest) }
+                return { status: "success", month: month, srcPath: f.path }
             } catch (err) {
                 log.showRed(logTag, t("pick.copy.error", { path: f.path }), err)
                 return { status: "error", error: err }
@@ -285,9 +285,9 @@ async function copyPickedFiles(files, root, argv) {
     // 构建报告数据
     if (!argv.dryRun) {
         results.forEach((r) => {
-            if (r.status === "success" && r.month && r.filename) {
+            if ((r.status === "success" || r.status === "skipped") && r.month && r.srcPath) {
                 if (!reportData[r.month]) reportData[r.month] = []
-                reportData[r.month].push(r.filename)
+                reportData[r.month].push(r.srcPath)
             }
         })
     }
