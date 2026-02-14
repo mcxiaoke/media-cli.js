@@ -120,11 +120,12 @@ export async function cmdPick(argv) {
 
     // 1. 扫描文件
     const root = await helper.validateInput(argv.input)
-    const ignoreRe = /delete|thumb|mvimg|featured|misc|shots|vsco|吃喝|截图|票据|医疗|医院/i
+    const ignoreRe = /delete|thumb|mvimg|feat|misc|shots|vsco|twit|p950|吃|喝|截|票|医/i
     const walkOpts = {
         needStats: true,
         entryFilter: (f) => {
             if (!f.isFile) return false
+            if (f.size < 200 * 1024) return false // 小于200KB的文件不考虑
             if (ignoreRe.test(f.path)) return false
             return helper.isImageFile(f.name || f.path)
         },
@@ -276,8 +277,8 @@ async function copyPickedFiles(files, root, argv) {
                 log.show(
                     logTag,
                     t("pick.copy.done", {
-                        name: path.basename(f.path),
-                        dest: destRel,
+                        name: helper.pathShort(f.path),
+                        dest: path.dirname(destRel),
                         size: sizeStr,
                     }),
                 )
