@@ -120,7 +120,7 @@ export async function cmdPick(argv) {
 
     // 1. 扫描文件
     const root = await helper.validateInput(argv.input)
-    const ignoreRe = /delete|thumb|MVIMG/i
+    const ignoreRe = /delete|thumb|mvimg|featured|misc|shots|vsco|吃喝|截图|票据|医疗|医院/i
     const walkOpts = {
         needStats: true,
         entryFilter: (f) => {
@@ -135,8 +135,23 @@ export async function cmdPick(argv) {
         return
     }
 
+    const { validEntries, ignoredDirs } = await filterIgnoredDirs(entries, root)
+    if (validEntries.length < entries.length) {
+        for (const d of ignoredDirs) {
+            log.showYellow(logTag, t("pick.dir.ignored", { name: d }))
+        }
+        log.showYellow(
+            logTag,
+            t("pick.entries.ignored", { count: entries.length - validEntries.length }),
+        )
+        if (validEntries.length === 0) {
+            log.showYellow(logTag, t("pick.no.files"))
+            return
+        }
+    }
+
     // 2. 提取日期
-    const parsed = parseFilesByName(entries)
+    const parsed = parseFilesByName(validEntries)
     if (!parsed.length) {
         log.showYellow(logTag, t("pick.no.dates"))
         return
@@ -550,7 +565,7 @@ function selectForDay(files, targetN) {
     const hourCounts = new Map() // 'YYYY-MM-DD-HH' -> count
 
     // Pet limit
-    const petRe = /猪|宠|猫|鸟|鱼|cat|bird/i
+    const petRe = /猪|宠|猫|鸟|鱼|鹦鹉|cat|bird/i
     let petCount = 0
 
     // 检查是否可被选中
@@ -637,6 +652,48 @@ function selectForDay(files, targetN) {
 // Unused legacy text stats functions removed
 // function buildStats(list) ...
 // function formatStatsText(stats) ...
+
+async function filterIgnoredDirs(entries, root) {
+    const dirCache = new Map()
+
+    // 检查目录是否包含需要忽略的标记文件 (.nomedia, .gitignore)
+    // 递归检查父目录，直到 root
+    const shouldIgnoreDir = async (dir) => {
+        // 如果已经超出 root 范围，或者是空路径，则不忽略
+        if (!dir || dir === "." || (root && dir.length < root.length)) return false
+        if (dirCache.has(dir)) return dirCache.get(dir)
+
+        let ignored = false
+        try {
+            if (
+                (await fs.pathExists(path.join(dir, ".nomedia"))) ||
+                (await fs.pathExists(path.join(dir, ".gitignore")))
+            ) {
+                ignored = true
+            } else {
+                // 如果当前目录没有标记，向上检查父目录
+                const parent = path.dirname(dir)
+                if (parent && parent !== dir && parent.length >= root.length) {
+                    ignored = await shouldIgnoreDir(parent)
+                }
+            }
+        } catch (e) {
+            // ignore error
+        }
+        dirCache.set(dir, ignored)
+        return ignored
+    }
+
+    // 提取所有涉及的目录并并行检查状态
+    const allDirs = [...new Set(entries.map((e) => path.dirname(e.path)))]
+    await pMap(allDirs, shouldIgnoreDir, { concurrency: 4 })
+
+    // 过滤文件
+    return {
+        validEntries: entries.filter((e) => !dirCache.get(path.dirname(e.path))),
+        ignoredDirs: allDirs.filter((d) => dirCache.get(d)),
+    }
+}
 
 function printConsoleStats(total, stats, srcStats, jsonFile) {
     console.log(`Total selected: ${total}`)
