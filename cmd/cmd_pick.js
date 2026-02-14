@@ -54,7 +54,7 @@ import * as log from "../lib/debug.js"
 import * as mf from "../lib/file.js"
 import * as helper from "../lib/helper.js"
 import { t } from "../lib/i18n.js"
-
+import { applyFileNameRules } from "./cmd_shared.js"
 export { aliases, builder, command, describe, handler }
 
 const command = "pick <input>"
@@ -130,12 +130,13 @@ export async function cmdPick(argv) {
             return helper.isImageFile(f.name || f.path)
         },
     }
-    const entries = await mf.walk(root, walkOpts)
-    if (!entries.length) {
-        log.showYellow(logTag, t("pick.no.files"))
+    let entries = await mf.walk(root, walkOpts)
+    entries = await applyFileNameRules(entries, argv)
+    log.show(logTag, t("compress.total.files.found", { count: entries.length }))
+    if (!entries || entries.length === 0) {
+        log.showYellow(t("common.nothing.to.do"))
         return
     }
-
     const { validEntries, ignoredDirs } = await filterIgnoredDirs(entries, root)
     if (validEntries.length < entries.length) {
         for (const d of ignoredDirs) {

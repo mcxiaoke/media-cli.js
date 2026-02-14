@@ -140,7 +140,7 @@ async function useNConvert(t, force = false) {
         })`${config.NCONVERT_BIN_PATH} -quiet -overwrite -opthuff -keep_icc -no_auto_ext -out jpeg -o ${dstName} -q ${t.quality} -resize longest ${t.width} ${fileSrc}`
         // 检查压缩是否成功
         if (await fs.pathExists(dstName)) {
-            log.show(
+            log.info(
                 chalk.yellow(logTag),
                 `${t.index}/${t.total}`,
                 `${helper.pathShort(fileSrc)}`,
@@ -154,6 +154,7 @@ async function useNConvert(t, force = false) {
                 width: t.width,
                 height: t.height,
                 format: "jpeg",
+                tool: "nconv",
             }
         }
     } catch (error) {
@@ -186,7 +187,7 @@ async function useVipsConvert(t, force = false) {
         const { stdout, stderr } = await execa(config.VIPS_BIN_PATH, args, { encoding: "latin1" })
         // 检查压缩是否成功
         if (!stderr && (await fs.pathExists(dstName))) {
-            log.show(
+            log.info(
                 chalk.yellow(logTag),
                 `${t.index}/${t.total}`,
                 `${helper.pathShort(fileSrc)}`,
@@ -200,6 +201,7 @@ async function useVipsConvert(t, force = false) {
                 width: t.width,
                 height: t.height,
                 format: "jpeg",
+                tool: "vips",
             }
         }
     } catch (error) {
@@ -255,7 +257,7 @@ export async function compressImage(t) {
         const isFileHeic = [".heic", ".heif"].includes(helper.pathExt(t.src))
         const supportHeic = config.SHARP_SUPPORT_HEIC
         let r = null
-        // 性能测试 340张照片，N 1m22s V 1m16s
+        // 性能测试 340张照片，N 1m22s V 1m16s WSL 1m43s
         // 如果是heic文件且sharp不支持，则使用外部工具压缩
         if (isFileHeic && !supportHeic) {
             r = config.VIPS_BIN_PATH ? await useVipsConvert(t) : await useNConvert(t)
@@ -339,12 +341,14 @@ async function checkMetadata(t) {
                 if (await fs.pathExists(bakFile)) {
                     await fs.remove(bakFile)
                 }
-                log.show(
+                log.info(
                     logTag,
                     `${t.index}/${t.total}`,
                     helper.pathShort(t.dst, 45),
                     chalk.magenta(`Metadata fixed and copied to dest JPEG`),
                 )
+
+                return "MetaCopied"
             } else {
                 log.info(
                     logTag,
@@ -352,10 +356,13 @@ async function checkMetadata(t) {
                     helper.pathShort(t.dst, 45),
                     chalk.magenta(`Metadata of dest JPEG is OK, no need to copy`),
                 )
+                return "MetaGood"
             }
         } catch (error) {
             console.error(logTag, t.src, `Copy metadata failed`, error)
         }
+    } else {
+        return "MetaSkip"
     }
 }
 
@@ -377,10 +384,11 @@ async function checkMetadata(t) {
  * @returns {Promise<Object|null>} 处理后的任务对象
  */
 async function checkCompressResult(t, r) {
-    const logTag = chalk.green("Compressed")
+    const logTag = chalk.green("Done")
     try {
         const tmpSt = await fs.stat(t.tmpDst)
         // 如果目标文件大小小于10KB，则可能文件损坏，删除该文件
+        let metaStatus = "Meta?"
         if (tmpSt.size < 10 * 1024) {
             await helper.safeRemove(t.tmpDst)
             log.showYellow(
@@ -396,7 +404,7 @@ async function checkCompressResult(t, r) {
             )
             return
         } else {
-            await checkMetadata(t)
+            metaStatus = await checkMetadata(t)
         }
         // 将临时文件重命名为最终目标文件
         await fs.rename(t.tmpDst, t.dst)
@@ -416,6 +424,8 @@ async function checkCompressResult(t, r) {
             helper.pathShort(t.dst, 45),
             chalk.yellow(dimensionStr),
             chalk.cyan(`${helper.humanSize(t.size)}=>${helper.humanSize(tmpSt.size)}`),
+            chalk.greenBright(r.tool || "sharp"),
+            chalk.magenta(metaStatus),
             helper.humanTime(t.startMs),
         )
         log.fileLog(`<${t.src}> => ${path.basename(t.dst)} ${helper.humanSize(tmpSt.size)}`, logTag)

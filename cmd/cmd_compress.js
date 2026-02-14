@@ -203,6 +203,10 @@ async function cmdCompress(argv) {
         log.showYellow(t("common.nothing.to.do"))
         return
     }
+
+    // 更新全局配置,检测必要的工具和库支持，后续压缩图片时会用到
+    await updateConfig(argv)
+
     const confirmFiles = await inquirer.prompt([
         {
             type: "confirm",
@@ -217,9 +221,6 @@ async function cmdCompress(argv) {
     }
     const needBar = files.length > 9999 && !log.isVerbose()
     log.showGreen(logTag, t("compress.preparing"))
-
-    // 更新全局配置,检测必要的工具和库支持，后续压缩图片时会用到
-    await updateConfig(argv)
 
     let startMs = Date.now()
     const addArgsFunc = async (f, i) => {
@@ -301,7 +302,7 @@ async function cmdCompress(argv) {
         startMs = Date.now()
         log.showGreen(logTag, "startAt", dayjs().format())
         tasks.forEach((t) => (t.startMs = startMs))
-        tasks = await pMap(tasks, compressImage, { concurrency: cpus().length / 2 })
+        tasks = await pMap(tasks, compressImage, { concurrency: argv.jobs || cpus().length / 2 })
         const okTasks = tasks.filter((t) => t?.done)
         const failedTasks = tasks.filter((t) => t?.errorFlag && !t.done)
         log.showGreen(
@@ -474,7 +475,11 @@ async function updateConfig(argv) {
                 () => false,
             )
 
-        log.showRed("cmdCompress", "Sharp support HEIC:", testOk)
+        log.show(
+            testOk
+                ? chalk.greenBright("Sharp support HEIC")
+                : chalk.redBright("Sharp do not support HEIC"),
+        )
         // 更新全局变量，后面压缩图片时要用到
         config.SHARP_SUPPORT_HEIC = testOk
         config.NCONVERT_BIN_PATH = await which("nconvert", { nothrow: true })
