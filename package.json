@@ -7,7 +7,10 @@
     "scripts": {
         "test": "echo \"Error: no test specified\" && exit 1",
         "start": "node index.js",
-        "check": "node ./scripts/check_syntax.cjs"
+        "check": "node ./scripts/check_syntax.cjs",
+        "lint": "eslint . --ext .js",
+        "lint:fix": "eslint . --ext .js --fix",
+        "prettier:fix": "prettier --write ."
     },
     "files": [
         "index.js",
@@ -110,7 +113,12 @@
         "yargs": "^17.7.2"
     },
     "devDependencies": {
-        "@types/node": "^20.12.7",
-        "prettier": "^3.8.0"
+        "@eslint/js": "^10.0.1",
+        "@types/node": "^25.2.3",
+        "eslint": "^10.0.0",
+        "eslint-config-prettier": "^10.1.8",
+        "eslint-plugin-prettier": "^5.5.5",
+        "globals": "^17.3.0",
+        "prettier": "^3.8.1"
     }
 }
