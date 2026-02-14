@@ -1,79 +1,87 @@
-# media-cli.js
+# MediaCli
 
-MediaCli is a multimedia file processing tool that utilizes ffmpeg and exiftool, among others, to compress/convert/rename/delete/organize media files, including images, videos, and audio.
+[查看中文文档](README_zh.md)
 
-created at 2021.07, updated at 2026.01.16
+MediaCli is a comprehensive multimedia file processing CLI tool. Specifically designed for
+photographers and media collectors, it leverages powerful tools like **ffmpeg** and **exiftool** to
+efficiently compress, convert, organize, rename, and manage image, video, and audio files.
+
+## Features
+
+- **Smart Organization**: Organize photos and videos by date (EXIF metadata or file attributes).
+- **Batch Processing**: Compress images, convert videos/audio, and rename files in bulk.
+- **File Management**: Intelligent file moving, deletion, and directory flattening.
+- **Encoding Fixes**: Detect and fix filename encoding issues (e.g., GBK, Shift-JIS) and smart
+  unzip.
+- **Raw Workflow**: Utilities to manage RAW + JPEG workflows.
 
 ## Installation
 
-```
+Install globally via npm:
+
+```bash
 npm install mediac -g
+```
+
+Or run locally:
+
+```bash
+git clone https://github.com/mcxiaoke/media-cli.js.git
+cd media-cli.js
+npm install
+npm start -- --help
 ```
 
 ## Usage
 
+Basic usage syntax:
+
+```bash
+mediac <command> <input> [options]
 ```
-mediac --help
+
+To see help for a specific command:
+
+```bash
+mediac <command> --help
 ```
 
-## Command Line
+### Commands
 
-```
-==============================================================
-Usage: media_cli.js <command> <input> [options]
+| Command    | Aliases      | Description                                                                       |
+| ---------- | ------------ | --------------------------------------------------------------------------------- |
+| `compress` | `cs`, `cps`  | **Compress images** to target size/quality while preserving metadata.             |
+| `dcimr`    | `dm`, `dcim` | **Rename media files** based on EXIF Date/Time or file attributes.                |
+| `organize` | `oz`         | **Organize files** into date-based folder structures (e.g., 2023/10).             |
+| `ffmpeg`   | `transcode`  | **Convert video/audio** using FFmpeg presets.                                     |
+| `pick`     | -            | **Smart photo selection** for photo journals (filters by time/date distribution). |
+| `lrmove`   | `lv`         | **Move JPEG files** that have matching RAW files to a separate folder.            |
+| `remove`   | `rm`         | **Delete files** matching specific size, resolution, or name patterns.            |
+| `moveup`   | `mp`         | **Flatten directories** by moving files to parent/top folders.                    |
+| `move`     | `md`         | **Move files** to folders based on date patterns in filenames.                    |
+| `prefix`   | `pf`         | **Batch rename** by prepending directory names or custom strings.                 |
+| `rename`   | `fn`         | **Advanced rename** (fix encoding, regex replace, char cleanup, TC to SC).        |
+| `zipu`     | `zipunicode` | **Smart Unzip** detecting filename encoding automatically.                        |
+| `decode`   | `dc`         | **Decode text** containing messy or invalid characters.                           |
 
-Commands:
-  media_cli.js test                         Test command, do nothing
-                                                         [default] [aliases: tt]
-  media_cli.js dcimr <input> [options]      Rename media files by exif metadata
-                                            eg. date         [aliases: dm, dcim]
-  media_cli.js organize <input> [output]    Organize pictures by file modified d
-                                            ate                    [aliases: oz]
-  media_cli.js lrmove <input> [output]      Move JPEG output of RAW files to oth
-                                            er folder              [aliases: lv]
-  media_cli.js compress <input> [output]    Compress input images to target size
-                                                              [aliases: cs, cps]
-  media_cli.js remove [input] [directories  Remove files by given size/width-hei
-  ...]                                      ght/name-pattern/file-list
-                                                              [aliases: rm, rmf]
-  media_cli.js moveup <input> [output]      Move files to sub top folder or top
-                                            folder                 [aliases: mp]
-  media_cli.js move <input> [output]        Move files to folders by filename da
-                                            te patterns            [aliases: md]
-  media_cli.js prefix <input> [output]      Rename files by append dir name or s
-                                            tring              [aliases: pf, px]
-  media_cli.js rename <input>               Reanme files: fix encoding, replace
-                                            by regex, clean chars, from tc to sc
-                                            .                 [aliases: fn, fxn]
-  media_cli.js zipu <input> [output]        Smart unzip command (auto detect enc
-                                            oding)         [aliases: zipunicode]
-  media_cli.js decode <strings...>          Decode text with messy or invalid ch
-                                            ars                    [aliases: dc]
-  media_cli.js ffmpeg [input] [directories  convert audio or video files using f
-  ...]                                      fmpeg.
-                                      [aliases: transcode, aconv, vconv, avconv]
+## Development
 
-Options:
-      --version  Show version number                                   [boolean]
-  -h, --help     Show help                                             [boolean]
+### Prerequisites
 
-MediaCli is a multimedia file processing tool.
-Copyright 2021-2026 @ Zhang Xiaoke
+- Node.js (v18+)
+- Tools: `ffmpeg`, `ffprobe`, `exiftool` must be installed and available in PATH for full
+  functionality.
 
-```
+### Scripts
+
+- `npm run check`: Verify syntax.
+- `npm run lint`: Lint code with ESLint.
+- `npm run lint:fix`: Fix linting errors.
+- `npm run prettier:fix`: Format code with Prettier.
+- `npm start`: Run the CLI locally.
 
 ## License
 
-    Copyright 2021-2026 github@mcxiaoke.com
+Copyright 2021-2026 @ Zhang Xiaoke.
 
-    Licensed under the Apache License, Version 2.0 (the "License");
-    you may not use this file except in compliance with the License.
-    You may obtain a copy of the License at
-
-        http://www.apache.org/licenses/LICENSE-2.0
-
-    Unless required by applicable law or agreed to in writing, software
-    distributed under the License is distributed on an "AS IS" BASIS,
-    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-    See the License for the specific language governing permissions and
-    limitations under the License.
+Licensed under the [Apache License 2.0](LICENSE).

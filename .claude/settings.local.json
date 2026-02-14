@@ -5,7 +5,8 @@
       "Bash(for file in lib/*.js)",
       "Bash(do echo:*)",
       "Bash(grep -c\"/\\\\*\\\\*\" \"$file\")",
-      "Bash(done:*)"
+      "Bash(done:*)",
+      "Bash(ls cmd/cmd_*.js)"
     ]
   }
 }
