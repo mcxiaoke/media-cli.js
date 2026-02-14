@@ -37,7 +37,7 @@ const LOG_TAG = "FFConv"
 
 export { aliases, builder, command, describe, handler }
 // directories 表示额外输入文件，用于支持多个目录
-const command = "ffmpeg [input] [directories...]"
+const command = "ffmpeg <input>"
 const aliases = ["transcode", "aconv", "vconv", "avconv"]
 const describe = t("ffmpeg.description")
 
@@ -337,7 +337,10 @@ async function cmdConvert(argv) {
         }
         return
     }
-    const root = await helper.validateInput(argv.input)
+    const root = path.resolve(argv.input)
+    if (!root || !(await fs.pathExists(root))) {
+        throw createError(ErrorTypes.INVALID_ARGUMENT, `Invalid Input: ${root}`)
+    }
     const testMode = !argv.doit
     const logTag = chalk.green("FFConv")
     let startMs = Date.now()
@@ -1392,6 +1395,7 @@ function calculateDstArgs(entry) {
             "scaled",
             dstScaleNeeded,
         )
+        const PIXELS_1080P = 1920 * 1080
         // 小于1080p分辨率，码率也需要缩放
         if (bigSideDst < 1920) {
             let scaleFactor = dstPixels / PIXELS_1080P
@@ -1430,7 +1434,6 @@ function calculateDstArgs(entry) {
         srcDuration,
         srcWidth: srcWidth,
         srcHeight: srcHeight,
-        srcDuration: srcDuration,
         srcSize: info?.size || 0,
         srcVideoCodec: ivideo?.format,
         srcAudioCodec: iaudio?.format,

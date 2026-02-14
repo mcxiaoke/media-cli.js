@@ -13,10 +13,10 @@
 // https://www.unicode.org/Public/UCD/latest/ucd/PropList.txt
 // https://zh.wikipedia.org/wiki/ISO_15924
 
-const REGEX_ASCII_ONLY = /^[\x00-\x7F]*$/ // or es2018: /^[\p{ASCII}]+$/u
+const REGEX_ASCII_ONLY = /^\p{ASCII}*$/u
 const strOnlyASCII = (str) => REGEX_ASCII_ONLY.test(str)
 
-const REGEX_ASCII_ANY = /[\x00-\x7F]/
+const REGEX_ASCII_ANY = /\p{ASCII}/u
 const strHasASCII = (str) => REGEX_ASCII_ANY.test(str)
 
 const REGEX_JAPANESE =

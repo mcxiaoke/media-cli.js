@@ -38,7 +38,7 @@ const NAME_LENGTH = 48
 
 export { aliases, builder, command, describe, handler }
 
-const command = "prefix <input> [output]"
+const command = "prefix <input>"
 const aliases = ["pf", "px"]
 const describe = t("prefix.description")
 const builder = function addOptions(ya, helpOrVersionSet) {
@@ -199,7 +199,7 @@ async function createNewNameByMode(f) {
     const dirName = path.basename(dir)
     const logTag = `Prefix::${mode.toUpperCase()[0]}`
     // 直接忽略 . _ 开头的目录
-    if (/^[\._]/.test(dirName)) {
+    if (/^[._]/.test(dirName)) {
         return
     }
     const ipx = `${f.index}/${f.total}`

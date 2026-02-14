@@ -356,7 +356,7 @@ export const RE_NON_COMMON_CHARS = /[^\p{Unified_Ideograph}\p{sc=Hira}\p{sc=Kana
 // 匹配空白字符和特殊字符
 // https://www.unicode.org/charts/PDF/U3000.pdf
 // https://www.asciitable.com/
-export const RE_UGLY_CHARS = /[\s\x00-\x1F\x21-\x2F\x3A-\x40\x5B-\x60\x7b-\xFF]+/giu
+export const RE_UGLY_CHARS = /[\s\p{Zs}\p{Punctuation}\P{ASCII}]+/giu
 // 匹配开头和结尾的空白和特殊字符
 export const RE_UGLY_CHARS_BORDER = /^([\s._-]+)|([\s._-]+)$/giu
 // 图片视频子文件夹名过滤
@@ -394,7 +394,7 @@ export function cleanFileName(nameString, options = {}) {
     // 去掉中文标点，全角符号
     nameStr = nameStr.replaceAll(/[\u3000-\u303F\uFE10-\uFE2F\uFF00-\uFF20]+/giu, "")
     // () [] {} <> . - 改为下划线
-    nameStr = nameStr.replaceAll(/[\s\(\)\[\]{}<>\._-]+/giu, sep)
+    nameStr = nameStr.replaceAll(/[\s()[\]{}<>._-]+/giu, sep)
     // 日文转罗马字母
     // nameStr = hepburn.fromKana(nameStr);
     // nameStr = wanakana.toRomaji(nameStr);

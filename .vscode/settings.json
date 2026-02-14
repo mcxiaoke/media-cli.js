@@ -1,3 +1,13 @@
 {
-    "editor.formatOnSave": true
+    "editor.formatOnSave": true,
+    "chat.tools.terminal.autoApprove": {
+        "/^node scripts/check_syntax\\.cjs$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^node --check cmd/cmd_pick\\.js$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
+    }
 }

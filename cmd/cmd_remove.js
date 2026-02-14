@@ -33,7 +33,7 @@ const TYPE_LIST = ["a", "f", "d"]
 
 export { aliases, builder, command, describe, handler }
 
-const command = "remove [input] [directories...]"
+const command = "remove <input>"
 const aliases = ["rm", "rmf"]
 const describe = t("remove.description")
 
@@ -198,10 +198,12 @@ async function cmdRemove(argv) {
     const logTag = "cmdRemove"
     log.info(logTag, argv)
     const testMode = !argv.doit
-    assert.strictEqual("string", typeof argv.input, "root must be string")
-    const root = await helper.validateInput(argv.input)
+    const root = path.resolve(argv.input)
+    if (!root || !(await fs.pathExists(root))) {
+        throw createError(ErrorTypes.INVALID_ARGUMENT, `Invalid Input: ${root}`)
+    }
     // 1200*1600 1200,1600 1200x1600 1200|1600
-    const reMeasure = /^\d+[x*,\|]\d+$/
+    const reMeasure = /^\d+[x*,|]\d+$/
     // 如果没有提供任何一个参数，报错，显示帮助
     if (
         argv.width == 0 &&
@@ -230,7 +232,7 @@ async function cmdRemove(argv) {
         cHeight = argv.height
     } else if (argv.measure && argv.measure.length > 0) {
         // 解析文件长宽字符串，例如 2160x4680
-        const [x, y] = argv.measure.split(/[x*,\|]/).map(Number)
+        const [x, y] = argv.measure.split(/[x*,|]/).map(Number)
         log.showRed(x, y)
         if (x > 0 && y > 0) {
             cWidth = x
@@ -353,7 +355,7 @@ async function cmdRemove(argv) {
         log.showYellow(logTag, `Attention: use file name list, ignore all other conditions`)
         log.showRed(
             logTag,
-            `Attention: Will DELETE all files ${cReverse ? "NOT IN" : "IN"} the name list!`,
+            `Attention: Will DELETE all files ${conditions.reverse ? "NOT IN" : "IN"} the name list!`,
         )
     }
     log.fileLog(`Conditions: ${JSON.stringify(conditions)}`, logTag)
@@ -719,7 +721,6 @@ async function preRemoveArgs(f) {
             log.show(
                 chalk.green("PreRemove"),
                 chalk.yellow("ADD"),
-                ++preparedCount,
                 `${helper.pathShort(fileSrc, 48)} ${itemDesc} ${testCorrupted ? "Corrupted" : ""} (${helper.humanSize(itemSize)})`,
                 ipx,
             )

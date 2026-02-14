@@ -554,7 +554,7 @@ function guessEncodingUseAdmZip(f) {
             // 解码后的文件名，确保无乱码
             const { fileName, encoding, badName } = decodeNameSmart(nameBuf, f.encoding)
             if (badName) {
-                log.info(logTag, `BadName: ${ipx} <${zipFileName}> <${fileName}> [${encoding}]`)
+                log.info(logTag, `BadName: <${zipFileName}> <${fileName}> [${encoding}]`)
                 return
             } else {
                 tryEncodings.push(encoding)

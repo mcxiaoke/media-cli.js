@@ -72,7 +72,8 @@ async function cmdLRMove(argv) {
     const files = filenames.map((f) => {
         const fileSrc = f
         const fileBase = path.dirname(fileSrc)
-        const fileDst = fileBase.replace("RAW" + path.sep, "JPEG" + path.sep)
+        // 使用正则表达式替换路径，更健壮地处理不同路径格式
+        const fileDst = fileBase.replace(new RegExp(`RAW[\\\\/]`), `JPEG${path.sep}`)
         const task = {
             fileSrc: fileSrc,
             fileDst: fileDst,
@@ -92,21 +93,31 @@ async function cmdLRMove(argv) {
     ])
 
     if (answer.yes) {
-        // 使用错误处理包装器处理文件移动
-        const moveFile = withErrorHandling(
-            async (f) => {
-                await fs.move(f.fileSrc, f.fileDst)
-                log.showGreen(t("commands.lrmove.moved", { src: f.fileSrc, dst: f.fileDst }))
-                return f
-            },
-            { operation: "move", file: f.fileSrc },
-        )
+        // 错误处理装饰器工厂函数
+        const createMoveFileHandler = (file) =>
+            withErrorHandling(
+                async (f) => {
+                    // 确保目标父目录存在
+                    await fs.ensureDir(path.dirname(f.fileDst))
+
+                    // 检查目标文件是否已存在
+                    if (await fs.pathExists(f.fileDst)) {
+                        log.showYellow(t("commands.lrmove.skip.exists", { dst: f.fileDst }))
+                        return null
+                    }
+
+                    await fs.move(f.fileSrc, f.fileDst)
+                    log.showGreen(t("commands.lrmove.moved", { src: f.fileSrc, dst: f.fileDst }))
+                    return f
+                },
+                { operation: "move", file: file.fileSrc },
+            )
 
         let successCount = 0
         let errorCount = 0
 
         for (const f of files) {
-            const result = await moveFile(f)
+            const result = await createMoveFileHandler(f)(f)
             if (result) {
                 successCount++
             } else {
