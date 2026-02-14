@@ -17,9 +17,12 @@ import pMap from "p-map"
 import path from "path"
 import sharp from "sharp"
 import which from "which"
+import * as core from "../lib/core.js"
 import { asyncFilter, copyFields } from "../lib/core.js"
 import * as log from "../lib/debug.js"
 import { ErrorTypes, createError, handleError } from "../lib/errors.js"
+import * as exif from "../lib/exif.js"
+import { fixMetadata } from "../lib/fixmetadata.js"
 import * as helper from "../lib/helper.js"
 
 // https://day.js.org/docs/zh-CN/display/format
@@ -146,10 +149,10 @@ async function compressExternal(t, force = false) {
         if (sr.endsWith(fixedOkStr)) {
             log.show(
                 chalk.yellow(logTag),
-                chalk.yellow(`DoneEx`),
                 `${t.index}/${t.total}`,
                 `${helper.pathShort(fileSrc)}`,
                 chalk.cyan("!use nconvert!"),
+                chalk.yellow(`DoneEx`),
             )
             log.fileLog(`DoneEx: <${fileSrc}> => ${dstName}`, logTag)
             return {
@@ -283,6 +286,54 @@ async function checkCompressResult(t, r) {
                 logTag,
             )
             return
+        } else {
+            const srcExt = helper.pathExt(t.name)
+            if (srcExt === ".heic" || srcExt === ".heif") {
+                // heic转换为jpg格式，可能需要手动复制元数据
+                try {
+                    using etl = exif.createExif()
+                    const dstMetadata = await etl.read(t.tmpDst)
+                    const dstKeys = Object.keys(dstMetadata || {})
+                    const hasDate = dstMetadata?.CreateDate || dstMetadata?.DateTimeOriginal
+                    const hasGPS = dstMetadata?.GPSLatitude && dstMetadata?.GPSLongitude
+                    const checkKeys = [
+                        "Model",
+                        "Make",
+                        "ISO",
+                        "FNumber",
+                        "FocalLength",
+                        "Flash",
+                        "LensMake",
+                        "LensModel",
+                    ]
+                    const matchCount = core.countListMatches(checkKeys, dstKeys)
+                    // 如果同时有时间和GPS，说明元数据不缺失，不需要修复
+                    const skipCopy = hasDate && (hasGPS || matchCount >= 2)
+                    if (!skipCopy) {
+                        const srcRawMetadata = await etl.readRaw(t.src)
+                        const fixedMetadata = fixMetadata(srcRawMetadata)
+                        await etl.write(t.tmpDst, fixedMetadata, {
+                            overwrite: true, // 覆盖原有元数据
+                            charset: "utf-8", // 统一字符编码
+                            ignoreMinorErrors: true, // 忽略次要错误
+                            preserve: true, // 保留原有非合法标签
+                        })
+                        // 如果没报错，删除ExifTool的备份文件
+                        const bakFile = t.tmpDst + "_original"
+                        if (await fs.pathExists(bakFile)) {
+                            await fs.remove(bakFile)
+                        }
+                        log.show(
+                            logTag,
+                            `${t.index}/${t.total}`,
+                            helper.pathShort(t.dst, 45),
+                            chalk.magenta(`Metadata fixed and copied to dest JPEG`),
+                        )
+                    }
+                } catch (error) {
+                    console.error(logTag, t.src, `Copy metadata failed`, error)
+                }
+            }
         }
         // 将临时文件重命名为最终目标文件
         await fs.rename(t.tmpDst, t.dst)
@@ -310,7 +361,10 @@ async function checkCompressResult(t, r) {
         t.done = true
         return t
     } catch (error) {
-        // 忽略错误，返回undefined
+        log.showYellow(
+            logTag,
+            `${t.index}/${t.total} ${helper.pathShort(t.src)} Compress failed: ${error.message}`,
+        )
     }
 }
 

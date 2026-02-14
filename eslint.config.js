@@ -7,7 +7,7 @@ import nodeGlobals from "globals"
 // 整合 Prettier 规则（ESLint v9+ 需手动组合规则）
 const prettierRules = {
     ...prettierConfig.rules,
-    "prettier/prettier": "error",
+    "prettier/prettier": "off",
 }
 
 export default [

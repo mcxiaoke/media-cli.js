@@ -62,7 +62,6 @@
         "registry": " https://registry.npmjs.org"
     },
     "dependencies": {
-        "@img/sharp-win32-x64": "^0.34.5",
         "@nodelib/fs.walk": "^2.0.0",
         "@vingle/bmp-js": "^0.2.5",
         "adm-zip": "^0.5.12",
