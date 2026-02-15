@@ -234,6 +234,7 @@ async function cmdCompress(argv) {
             quality,
             override,
             maxWidth,
+            cfg: argv.config,
         }
     }
     files = await Promise.all(files.map(addArgsFunc))

@@ -112,18 +112,9 @@ const fixedOkStr = iconv.decode(Buffer.from("OK"), "utf8")
 /**
  * 使用外部工具nconvert压缩图片
  * @param {Object} t - 压缩任务对象
- * @param {string} t.src - 源图片路径
- * @param {string} t.tmpDst - 临时目标文件路径
- * @param {number} t.width - 目标宽度
- * @param {number} t.quality - 压缩质量
- * @param {number} t.index - 当前任务索引
- * @param {number} t.total - 总任务数
- * @param {number} t.srcWidth - 源图片宽度
- * @param {number} t.srcHeight - 源图片高度
- * @param {boolean} force - 是否强制使用外部压缩，默认为false
  * @returns {Promise<Object|null>} 压缩结果对象，包含宽度、高度等信息
  */
-async function useNConvert(t, force = false) {
+async function useNConvert(t) {
     const logTag = "NConvert"
     log.info(logTag, "processing", t)
     if (!config.NCONVERT_BIN_PATH) {
@@ -162,7 +153,26 @@ async function useNConvert(t, force = false) {
     }
 }
 
-async function useVipsConvert(t, force = false) {
+/**
+ * 
+ * 使用外部工具vips压缩图片
+ * @param {Object} t - 压缩任务对象
+ * @returns {Promise<Object|null>} 压缩结果对象，包含宽度、高度等信息
+ * DOCS:
+ * https://www.libvips.org/API/8.18/method.Image.heifsave.html
+ * https://www.libvips.org/API/8.18/method.Image.jpegsave.html
+ * 
+//  VIPS jpegsave Optional arguments
+// Q: gint, quality factor
+// optimize_coding: gboolean, compute optimal Huffman coding tables
+// interlace: gboolean, write an interlaced (progressive) jpeg
+
+// convert to jpeg
+//  vips.exe thumbnail .\test.HEIC test.jpg[Q=50,optimize-coding] --size down 3000
+// convert to heic
+// vips.exe thumbnail .\test.jpg test.heic[Q=50] --size down 3000
+ */
+async function useVipsConvert(t) {
     const logTag = "Vips"
     log.info(logTag, "processing", t)
     if (!config.VIPS_BIN_PATH) {
@@ -176,7 +186,7 @@ async function useVipsConvert(t, force = false) {
     const args = [
         "thumbnail",
         fileSrc,
-        `${dstName}[Q=${t.quality}]`,
+        `${dstName}[Q=${t.quality},optimize-coding]`,
         "--size",
         "down",
         t.width,
@@ -215,14 +225,14 @@ function createExtraMetadata(t) {
         ImageUniqueID: {},
         UserComment: {},
         IFD0: {
-            ImageDescription: `${dayjs().format(DATE_FORMAT)}`,
-            Copyright: `mediac`,
-            Artist: "mediac",
-            Software: "nodejs.cli.mediac",
-            XPSubject: t.name,
-            XPTitle: t.name,
-            XPComment: `${dayjs().format(DATE_FORMAT)} mediac`,
-            XPAuthor: "mediac",
+            ImageDescription: t.name,
+            Copyright: `zxk`,
+            Artist: "zxk",
+            Software: `mediac ${t.cfg}`,
+            XPSubject: `${t.name} - ${dayjs().format(DATE_FORMAT)}`,
+            XPTitle: `${t.name} - ${dayjs().format(DATE_FORMAT)}`,
+            XPComment: `mediac ${t.cfg}`,
+            XPAuthor: "zxk",
         },
     }
 }
@@ -246,6 +256,7 @@ export async function compressImage(t) {
         t.dstSize = t.size
         return t
     }
+    const resizeFunc = config.VIPS_BIN_PATH ? useVipsConvert : useNConvert
     // 试图确保目标文件目录存在，如果不存在则创建
     try {
         await fs.ensureDir(path.dirname(t.dst))
@@ -260,7 +271,7 @@ export async function compressImage(t) {
         // 性能测试 340张照片，N 1m22s V 1m16s WSL 1m43s
         // 如果是heic文件且sharp不支持，则使用外部工具压缩
         if (isFileHeic && !supportHeic) {
-            r = config.VIPS_BIN_PATH ? await useVipsConvert(t) : await useNConvert(t)
+            r = await resizeFunc(t)
         }
         // 如果没有使用外部工具压缩，或者外部工具压缩失败，则使用sharp进行压缩
         if (!r) {
@@ -282,7 +293,7 @@ export async function compressImage(t) {
     } catch (error) {
         const errMsg = error.message.substring(0, 40)
         // 使用sharp压缩失败，再使用nconvert试试
-        const cr = config.VIPS_BIN_PATH ? await useVipsConvert(t) : await useNConvert(t)
+        const cr = await resizeFunc(t)
         const r = await checkCompressResult(t, cr)
         if (r?.done) {
             return r
@@ -330,7 +341,9 @@ async function checkMetadata(t) {
             if (!skipCopy) {
                 const srcRawMetadata = await etl.readRaw(t.src)
                 const fixedMetadata = fixMetadata(srcRawMetadata)
-                await etl.write(t.tmpDst, fixedMetadata, {
+                const extraMetadata = createExtraMetadata(t)
+                const finalMeta = { ...fixedMetadata, ...extraMetadata }
+                await etl.write(t.tmpDst, finalMeta, {
                     overwrite: true, // 覆盖原有元数据
                     charset: "utf-8", // 统一字符编码
                     ignoreMinorErrors: true, // 忽略次要错误

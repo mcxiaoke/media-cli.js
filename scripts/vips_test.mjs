@@ -20,7 +20,6 @@ const CONFIG = {
         jpg: [50, 55, 60, 65, 70, 75, 80, 85, 90],
     },
     concurrency: 4, // 4线程（不用改）
-    heicEffort: 9, // HEIC压缩优化（不用改）
 }
 
 // ========== 2. 工具函数（不用改） ==========
@@ -55,7 +54,7 @@ async function processImageTask(task) {
         if (type === "JPG") {
             outputPathWithParams = `${outputFile}[Q=${q}]`
         } else if (type === "HEIC") {
-            outputPathWithParams = `${outputFile}[Q=${q},effort=${CONFIG.heicEffort}]`
+            outputPathWithParams = `${outputFile}[Q=${q}]`
         }
 
         commandArgs = [
