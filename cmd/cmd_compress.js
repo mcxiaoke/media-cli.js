@@ -351,7 +351,7 @@ async function preCompress(f) {
     const suffix = f.suffix || "_Z4K"
     log.info(logTag, "Processing ", fileSrc, suffix)
 
-    let fileDstDir = f.output ? helper.pathRewrite(f.root, dir, f.output, false) : dir
+    let fileDstDir = f.output ? helper.pathRewrite(f.root, dir, f.output) : dir
     const tempSuffix = `_tmp@${helper.textHash(fileSrc)}@tmp_`
     const fileDstTmp = path.resolve(path.join(fileDstDir, `${base}${suffix}${tempSuffix}.jpg`))
     // 构建目标文件路径，添加压缩后的文件名后缀
@@ -364,6 +364,11 @@ async function preCompress(f) {
     if (timeNow - compressLastUpdatedAt > 2 * 1000) {
         f.needBar && f.bar1.update(f.index)
         compressLastUpdatedAt = timeNow
+    }
+
+    if (!(await fs.pathExists(fileSrc))) {
+        log.info(logTag, "File not found:", fileSrc)
+        return
     }
 
     if (await fs.pathExists(fileDst)) {
@@ -385,7 +390,7 @@ async function preCompress(f) {
     })
 
     if (err) {
-        log.warn(logTag, "sharp", err.message, fileSrc)
+        log.info(logTag, "Corrupt file:", fileSrc)
         log.fileLog(`SharpErr: ${f.index} <${fileSrc}> sharp:${err.message}`, logTag)
         return
     }
