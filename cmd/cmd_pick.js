@@ -40,7 +40,7 @@
 import dayjs from "dayjs"
 import fs from "fs-extra"
 import inquirer from "inquirer"
-import os from "os"
+import os, { cpus } from "os"
 import pFilter from "p-filter"
 import pMap from "p-map"
 import path from "path"
@@ -224,7 +224,7 @@ export async function cmdPick(argv) {
                 return helper.isImageFile(f.name || f.path)
             },
         }
-        entries = await mf.walk(root, walkOpts)
+        entries = await log.measure(mf.walk)(root, walkOpts)
 
         // 自动缓存文件列表供后续使用或调试
         const timestamp = dayjs().format("YYYYMMDD_HHmmss")
@@ -247,16 +247,15 @@ export async function cmdPick(argv) {
         } catch (err) {
             log.showYellow(logTag, `Failed to cache file list: ${err.message}`)
         }
-
-        entries = await applyFileNameRules(entries, argv)
     }
+    entries = await log.measure(applyFileNameRules)(entries, argv)
 
     log.show(logTag, t("compress.total.files.found", { count: entries.length }))
     if (!entries || entries.length === 0) {
         log.showYellow(t("common.nothing.to.do"))
         return
     }
-    const { validEntries, ignoredDirs } = await filterIgnoredDirs(entries, root)
+    const { validEntries, ignoredDirs } = await log.measure(filterIgnoredDirs)(entries, root)
     if (validEntries.length < entries.length) {
         for (const d of ignoredDirs) {
             log.showYellow(logTag, t("pick.dir.ignored", { name: d }))
@@ -290,7 +289,8 @@ export async function cmdPick(argv) {
     }
 
     // 2. 提取日期
-    const parsed = parseFilesByName(validEntries)
+    const parseFilesByNameMeasured = log.measure(parseFilesByName)
+    const parsed = await parseFilesByNameMeasured(validEntries)
     if (!parsed.length) {
         log.showYellow(logTag, t("pick.no.dates"))
         return
@@ -299,10 +299,11 @@ export async function cmdPick(argv) {
     parsed.sort((a, b) => a.date - b.date)
 
     // 3. 统计原始数据（筛选前）
-    const sourceStats = calculateSourceStats(parsed)
+    const sourceStats = await log.measure(calculateSourceStats)(parsed)
 
     // 4. 应用挑选规则
-    const daySelections = processDailySelections(parsed, argv)
+    const processDailySelectionsMeasured = log.measure(processDailySelections)
+    const daySelections = await processDailySelectionsMeasured(parsed, argv)
     // Monthly limit logic removed as per request
     // applyMonthlyLimit(daySelections, 1000)
 
@@ -328,7 +329,8 @@ export async function cmdPick(argv) {
         }
     }
 
-    const outputData = buildJsonOutput(daySelections, sourceStats, selectedStats)
+    const buildJsonOutputMeasured = log.measure(buildJsonOutput)
+    const outputData = await buildJsonOutputMeasured(daySelections, sourceStats, selectedStats)
     outputData.root = root
 
     // 6. 输出文件
@@ -482,7 +484,7 @@ async function copyPickedFiles(files, root, argv) {
         }
     }
 
-    const results = await pMap(files, mapper, { concurrency: argv.jobs })
+    const results = await pMap(files, mapper, { concurrency: cpus().length })
 
     // 统一统计结果
     const count = results.filter((r) => r.status === "success").length
@@ -659,14 +661,13 @@ function buildJsonOutput(daySelections, srcStats, selStats) {
 // ----------------------------------------------------------------------------
 
 // 从文件名提取日期时间
-function parseFilesByName(entries) {
-    const out = []
-    // Regex: YYYY MM DD [_-]? HH mm ss
-    const re = /(\d{4})(\d{2})(\d{2})[_-]?(\d{2})(\d{2})(\d{2})/
-    for (const e of entries) {
+async function parseFilesByName(entries) {
+    const mapper = async (e) => {
+        // Regex: YYYY MM DD [_-]? HH mm ss
+        const re = /(\d{4})(\d{2})(\d{2})[_-]?(\d{2})(\d{2})(\d{2})/
         const name = path.basename(e.path)
         const m = name.match(re)
-        if (!m) continue
+        if (!m) return null
 
         const Y = parseInt(m[1], 10)
         const M = parseInt(m[2], 10)
@@ -676,12 +677,12 @@ function parseFilesByName(entries) {
         const s = parseInt(m[6], 10)
 
         // Basic Range Check
-        if (Y < 2000 || Y > 2050) continue
-        if (M < 1 || M > 12) continue
-        if (D < 1 || D > 31) continue
-        if (h > 23) continue
-        if (m_ > 59) continue
-        if (s > 59) continue
+        if (Y < 2000 || Y > 2050) return null
+        if (M < 1 || M > 12) return null
+        if (D < 1 || D > 31) return null
+        if (h > 23) return null
+        if (m_ > 59) return null
+        if (s > 59) return null
 
         const dateStr = `${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}:${m[6]}`
         const date = dayjs(dateStr)
@@ -689,23 +690,26 @@ function parseFilesByName(entries) {
         if (date.isValid()) {
             // Strict check to prevent auto-correction (e.g. Feb 30 -> Mar 2)
             if (date.year() !== Y || date.month() + 1 !== M || date.date() !== D) {
-                continue
+                return null
             }
-            out.push({
+            return {
                 name: e.name,
                 path: e.path,
                 // 保留 size 用于智能选择策略（优先选大图）
                 size: e.size || (e.stats && e.stats.size) || 0,
                 date: date.toDate(),
                 dayKey: date.format("YYYY-MM-DD"),
-            })
+            }
         }
+        return null
     }
-    return out
+
+    const results = await pMap(entries, mapper, { concurrency: cpus().length })
+    return results.filter((r) => r !== null)
 }
 
 // 按天分组并应用日常挑选规则
-function processDailySelections(parsed, argv = {}) {
+async function processDailySelections(parsed, argv = {}) {
     const dayLimit = argv.dayLimit || CONFIG.MAX_FILES_PER_DAY
     // Group by day
     const days = new Map()
@@ -715,7 +719,12 @@ function processDailySelections(parsed, argv = {}) {
     }
 
     const selections = new Map()
-    for (const [day, files] of days.entries()) {
+    const dayKeys = Array.from(days.keys())
+
+    const mapper = async (day) => {
+        const files = days.get(day) // 这一天的所有文件
+        files.sort((a, b) => a.date - b.date) // 确保按时间排序，虽然 parseFilesByName 已经排过，但为了安全
+
         const total = files.length
         let targetCount = 0
 
@@ -741,8 +750,19 @@ function processDailySelections(parsed, argv = {}) {
         // 确保不超过总数
         if (targetCount > total) targetCount = total
 
+        // selectForDay 是纯 CPU 计算
         const picked = selectForDay(files, targetCount)
-        selections.set(day, picked)
+        return { day, picked }
+    }
+
+    // 虽然是同步计算，使用 pMap 可以避免长时间阻塞事件循环（如果每步稍微 yield 一下）
+    // 但目前 selectForDay 没有 yield。
+    // 如果想要利用多核，必须用 Worker Threads，但在 JS 单线程模型下，这里主要是为了代码结构一致性
+    // 并且如果列表很大，分批处理比一个大循环稍微好一点点（GC 友好？）
+    const results = await pMap(dayKeys, mapper, { concurrency: cpus().length })
+
+    for (const res of results) {
+        selections.set(res.day, res.picked)
     }
     return selections
 }
@@ -879,44 +899,80 @@ function selectForDay(files, targetN) {
 // function formatStatsText(stats) ...
 
 async function filterIgnoredDirs(entries, root) {
-    const dirCache = new Map()
+    const dirCache = new Map() // dir -> Boolean
 
-    // 检查目录是否包含需要忽略的标记文件 (.nomedia, .gitignore)
-    // 递归检查父目录，直到 root
-    const shouldIgnoreDir = async (dir) => {
-        // 如果已经超出 root 范围，或者是空路径，则不忽略
-        if (!dir || dir === "." || (root && dir.length < root.length)) return false
+    // 1. 获取所有涉及的唯一目录
+    const allDirs = [...new Set(entries.map((e) => path.dirname(e.path)))]
+
+    // 2. 排序：按路径长度（短的在前），确保先处理父目录
+    // 这样能够最大程度利用缓存，减少不必要的 FS 检查
+    allDirs.sort((a, b) => a.length - b.length || a.localeCompare(b))
+
+    // 3. 检查逻辑
+    // 为了防止递归造成的重复 Promise，我们需要一个 pendingCache
+    const pendingCache = new Map()
+
+    const checkDir = async (dir) => {
         if (dirCache.has(dir)) return dirCache.get(dir)
+        if (pendingCache.has(dir)) return pendingCache.get(dir)
 
-        let ignored = false
-        try {
-            if (
-                (await fs.pathExists(path.join(dir, ".nomedia"))) ||
-                (await fs.pathExists(path.join(dir, ".gitignore")))
-            ) {
-                ignored = true
-            } else {
-                // 如果当前目录没有标记，向上检查父目录
-                const parent = path.dirname(dir)
-                if (parent && parent !== dir && parent.length >= root.length) {
-                    ignored = await shouldIgnoreDir(parent)
-                }
+        const promise = (async () => {
+            // 边界情况：如果超出 root 范围
+            if (root && dir.length < root.length) return false
+            if (dir === "." || dir === "/" || dir === "") return false
+
+            // 先检查父目录
+            const parent = path.dirname(dir)
+            let parentIgnored = false
+
+            if (parent && parent !== dir && parent.length >= root.length) {
+                // 递归调用，由于有 pendingCache，不会死循环也不会重复执行
+                parentIgnored = await checkDir(parent)
             }
-        } catch (e) {
-            // ignore error
-        }
-        dirCache.set(dir, ignored)
-        return ignored
+
+            if (parentIgnored) return true
+
+            // 父目录未忽略，检查当前目录是否有标记文件
+            try {
+                const [hasNomedia, hasGitignore] = await Promise.all([
+                    fs.pathExists(path.join(dir, ".nomedia")),
+                    fs.pathExists(path.join(dir, ".gitignore")),
+                ])
+                return hasNomedia || hasGitignore
+            } catch (e) {
+                return false
+            }
+        })()
+
+        pendingCache.set(dir, promise)
+        const result = await promise
+        dirCache.set(dir, result)
+        pendingCache.delete(dir)
+        return result
     }
 
-    // 提取所有涉及的目录并并行检查状态
-    const allDirs = [...new Set(entries.map((e) => path.dirname(e.path)))]
-    await pMap(allDirs, shouldIgnoreDir, { concurrency: 4 })
+    // 4. 执行检查（使用 pMap 控制并发）
+    // 虽然我们有 pendingCache，但为了避免深度递归导致的栈溢出（虽然 async 不太会），
+    // 或者过多的 Promise 创建，我们依然使用 pMap。
+    // 由于父目录已排在前面，父目录的 Promise 会先被创建和执行。
+    await pMap(allDirs, checkDir, { concurrency: cpus().length })
 
-    // 过滤文件
+    // 5. 过滤文件
+    const validEntries = []
+    const ignoredDirs = new Set()
+
+    for (const e of entries) {
+        const dir = path.dirname(e.path)
+        if (dirCache.get(dir)) {
+            ignoredDirs.add(dir)
+        } else {
+            validEntries.push(e)
+        }
+    }
+
     return {
-        validEntries: entries.filter((e) => !dirCache.get(path.dirname(e.path))),
-        ignoredDirs: allDirs.filter((d) => dirCache.get(d)),
+        validEntries,
+        ignoredDirs: Array.from(ignoredDirs),
     }
 }
 
