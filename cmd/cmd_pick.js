@@ -48,6 +48,7 @@ import dayjs from "dayjs"
 import fs from "fs-extra"
 import inquirer from "inquirer"
 import os from "os"
+import pFilter from "p-filter"
 import pMap from "p-map"
 import path from "path"
 import * as log from "../lib/debug.js"
@@ -75,8 +76,11 @@ const CONFIG = {
     ],
     MAX_RATIO: 5, // > 1000
 
+    // 每日最大挑选数量 (硬限制)
+    MAX_FILES_PER_DAY: 30,
+
     // 如果当天照片极其少 (< MIN_FILES_KEEP_ALL)，则全部保留
-    MIN_FILES_KEEP_ALL: 5,
+    MIN_FILES_KEEP_ALL: 10,
 
     // 每小时限制 (20 张)
     MAX_PER_HOUR: 20,
@@ -93,6 +97,10 @@ const builder = (ya) =>
         .option("output", { alias: "o", describe: t("option.common.output"), type: "string" })
         .option("include", { alias: "I", type: "string", description: t("option.common.include") })
         .option("exclude", { alias: "E", type: "string", description: t("option.common.exclude") })
+        .option("exclude-dir", {
+            type: "string",
+            describe: t("option.pick.exclude.dir"),
+        })
         .option("extensions", {
             alias: "e",
             type: "string",
@@ -152,6 +160,24 @@ export async function cmdPick(argv) {
         }
     }
 
+    // Load exclude list
+    const excludedFiles = new Set()
+    if (argv.excludeDir && (await fs.pathExists(argv.excludeDir))) {
+        try {
+            const excludePath = path.resolve(argv.excludeDir)
+            log.show(logTag, `Loading exclude files from: ${excludePath}`)
+            const items = await mf.walk(excludePath, {
+                entryFilter: (f) => helper.isMediaFile(f.name),
+            })
+            for (const item of items) {
+                excludedFiles.add(item.name)
+            }
+            log.show(logTag, `Loaded ${excludedFiles.size} files to exclude.`)
+        } catch (e) {
+            log.showRed(logTag, `Failed to load exclude dir: ${e.message}`)
+        }
+    }
+
     // 2. 提取日期
     const parsed = parseFilesByName(validEntries)
     if (!parsed.length) {
@@ -171,13 +197,13 @@ export async function cmdPick(argv) {
 
     // 5. 汇总结果与构建JSON
     // 聚合 selected
-    const finalList = []
+    const pickedFiles = []
     const selectedStats = { days: new Map(), months: new Map(), years: new Map() }
 
     for (const day of Array.from(daySelections.keys()).sort()) {
         const arr = daySelections.get(day)
         arr.sort((a, b) => a.date - b.date)
-        finalList.push(...arr)
+        pickedFiles.push(...arr)
 
         // Stats counting
         if (arr.length > 0) {
@@ -206,13 +232,55 @@ export async function cmdPick(argv) {
     await fs.writeJson(jsonName, outputData, { spaces: 2 })
 
     // 7. 控制台输出
-    printConsoleStats(finalList.length, selectedStats, sourceStats, jsonName)
+    printConsoleStats(pickedFiles.length, selectedStats, sourceStats, jsonName)
     log.showGreen(logTag, t("pick.result.saved", { path: jsonName }))
 
-    // 8. 复制文件到输出目录
-    if (finalList.length > 0) {
-        await copyPickedFiles(finalList, root, argv)
+    if (pickedFiles.length === 0) {
+        log.showYellow(logTag, t("pick.copy.no.files"))
+        return
     }
+    // 8. 检查文件是否在排除目录中
+
+    const filesAfterExclude = pickedFiles.filter((e) => !excludedFiles.has(e.name))
+    if (filesAfterExclude.length < pickedFiles.length) {
+        log.showYellow(
+            logTag,
+            t("pick.entries.excluded", {
+                count: pickedFiles.length - filesAfterExclude.length,
+            }),
+        )
+    }
+
+    const checkExistsFunc = async (f) => {
+        const date = dayjs(f.date)
+        const year = date.format("YYYY")
+        const month = date.format("YYYYMM")
+        const destRel = path.join(year, month, path.basename(f.path))
+        const dest = path.join(outDir, destRel)
+        return !(await fs.pathExists(dest))
+    }
+
+    // 9. 检查输出目录，过滤掉已存在的文件
+    const finalFiles = await pFilter(filesAfterExclude, checkExistsFunc, {
+        concurrency: argv.jobs * 4,
+    })
+
+    if (finalFiles.length < filesAfterExclude.length) {
+        log.showYellow(
+            logTag,
+            t("pick.copy.skip.exists.count", {
+                count: filesAfterExclude.length - finalFiles.length,
+            }),
+        )
+    }
+
+    if (finalFiles.length === 0) {
+        log.showYellow(logTag, t("pick.copy.no.files"))
+        return
+    }
+
+    // 10. 复制文件
+    await copyPickedFiles(finalFiles, root, argv)
 }
 
 async function copyPickedFiles(files, root, argv) {
@@ -223,6 +291,9 @@ async function copyPickedFiles(files, root, argv) {
     }
 
     const outDir = argv.output
+
+    let copyIndex = 0
+    const copyTotal = files.length
     // 不要在输入目录里创建副本，除非用户真的想这么做（通常不会）
     // outDir 已在前面通过 ensureDir 创建
 
@@ -265,10 +336,17 @@ async function copyPickedFiles(files, root, argv) {
             log.show(logTag, t("pick.copy.dryrun", { src: f.path, dest: dest, size: sizeStr }))
             return { status: "success" }
         } else {
+            ++copyIndex
             try {
                 // 检查目标是否存在
                 if (await fs.pathExists(dest)) {
-                    log.show(logTag, t("pick.copy.skip.exists", { path: f.path }))
+                    log.showGray(
+                        logTag,
+                        t("pick.copy.skip.exists", {
+                            index: `${copyIndex}/${copyTotal}`,
+                            path: f.path,
+                        }),
+                    )
                     return { status: "skipped", month: month, srcPath: f.path }
                 }
 
@@ -278,6 +356,7 @@ async function copyPickedFiles(files, root, argv) {
                 log.show(
                     logTag,
                     t("pick.copy.done", {
+                        index: `${copyIndex}/${copyTotal}`,
                         name: helper.pathShort(f.path),
                         dest: path.dirname(destRel),
                         size: sizeStr,
@@ -476,6 +555,7 @@ function parseFilesByName(entries) {
                 continue
             }
             out.push({
+                name: e.name,
                 path: e.path,
                 // 保留 size 用于智能选择策略（优先选大图）
                 size: e.size || (e.stats && e.stats.size) || 0,
@@ -513,6 +593,11 @@ function processDailySelections(parsed) {
                 }
             }
             targetCount = Math.ceil(total / ratio)
+
+            // 每日最大数量限制
+            if (targetCount > CONFIG.MAX_FILES_PER_DAY) {
+                targetCount = CONFIG.MAX_FILES_PER_DAY
+            }
         }
 
         // 确保不超过总数
@@ -543,9 +628,9 @@ function selectForDay(files, targetN) {
     // < 50 张: 10秒
     // < 100 张: 30秒
     // < 500 张: 2 分钟
-    // < 1000 张: 4 分钟
-    // >= 1000 张: 6 分钟 (维持原状)
-    let minIntervalMs = 6 * 60 * 1000
+    // < 1000 张: 3 分钟
+    // >= 1000 张: 4 分钟 (维持原状)
+    let minIntervalMs = 4 * 60 * 1000
     if (len < 50) {
         minIntervalMs = 10 * 1000
     } else if (len < 100) {
@@ -553,7 +638,7 @@ function selectForDay(files, targetN) {
     } else if (len < 500) {
         minIntervalMs = 2 * 60 * 1000
     } else if (len < 1000) {
-        minIntervalMs = 4 * 60 * 1000
+        minIntervalMs = 3 * 60 * 1000
     }
 
     // 生成目标索引：平均分布
@@ -718,8 +803,23 @@ function printConsoleStats(total, stats, srcStats, jsonFile) {
         })
 
     const dayCount = stats.days.size
+    console.log(`By Day: ${dayCount} days active (details in json file)`)
+
+    // Show top 20 days overall
+    const topDays = Array.from(stats.days.entries())
+        .sort((a, b) => b[1] - a[1]) // Sort by count desc
+        .slice(0, 20)
+
+    if (topDays.length > 0) {
+        console.log("  Top days:")
+        topDays.forEach(([d, c]) => {
+            const t = srcStats.days.get(d) || 0
+            const dayKey = d.replaceAll("-", "")
+            console.log(`    ${dayKey}: ${c}/${t}`)
+        })
+    }
+
     if (dayCount <= 30) {
-        console.log("By Day:")
         // Group by month
         const daysByMonth = new Map()
         const sortedDays = Array.from(stats.days.entries()).sort()
@@ -740,7 +840,5 @@ function printConsoleStats(total, stats, srcStats, jsonFile) {
                 console.log(`    ${dayPart}: ${c}/${t}`)
             }
         }
-    } else {
-        console.log(`By Day: ${dayCount} days active (details in json file)`)
     }
 }

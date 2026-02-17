@@ -52,6 +52,11 @@ const builder = function addOptions(ya, helpOrVersionSet) {
                 describe: t("option.common.output"),
                 type: "string",
             })
+            .option("keep-root", {
+                describe: t("option.common.keepRoot"),
+                type: "boolean",
+                default: true,
+            })
             // 正则，包含文件名规则
             .option("include", {
                 alias: "I",
@@ -179,6 +184,8 @@ async function cmdCompress(argv) {
     const suffix = argv.suffix || cfg.suffix || SUFFIX_DEFAULT
     const purgeOnly = argv.deleteSourceFilesOnly || false
     const purgeSource = argv.deleteSourceFiles || false
+    // 是否保留输出文件的根目录结构，默认为true
+    const keepRoot = argv.keepRoot || true
     log.show(`${logTag} input:`, root)
     // 如果有force标志，就不过滤文件名
     const RE_THUMB = argv.force ? /@_@/ : /Z4K|P4K|M4K|feature|web|thumb$/i
@@ -235,6 +242,7 @@ async function cmdCompress(argv) {
             override,
             maxWidth,
             cfg: argv.config,
+            keepRoot,
         }
     }
     files = await Promise.all(files.map(addArgsFunc))
@@ -348,11 +356,11 @@ async function preCompress(f) {
     const logTag = "PreCompress"
     const maxWidth = f.maxWidth || 6000 // 获取最大宽度限制，默认为6000
     let fileSrc = path.resolve(f.path) // 解析源文件路径
-    const [dir, base, ext] = helper.pathSplit(fileSrc) // 将路径分解为目录、基本名和扩展名
+    const [fDir, base, ext] = helper.pathSplit(fileSrc) // 将路径分解为目录、基本名和扩展名
     const suffix = f.suffix || "_Z4K"
     log.info(logTag, "Processing ", fileSrc, suffix)
 
-    let fileDstDir = f.output ? helper.pathRewrite(f.root, dir, f.output) : dir
+    let fileDstDir = f.output ? helper.pathRewrite(f.root, fDir, f.output, f.keepRoot) : fDir
     const tempSuffix = `_tmp@${helper.textHash(fileSrc)}@tmp_`
     const fileDstTmp = path.resolve(path.join(fileDstDir, `${base}${suffix}${tempSuffix}.jpg`))
     // 构建目标文件路径，添加压缩后的文件名后缀
