@@ -95,7 +95,7 @@ const builder = function addOptions(ya, helpOrVersionSet) {
                 default: false,
                 description: t("compress.delete.source.only"),
             })
-            // 是否覆盖已存在的压缩后文件
+            // 是否禁用文件名过滤规则，强制处理所有文件
             .option("force", {
                 type: "boolean",
                 default: false,

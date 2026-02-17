@@ -145,7 +145,7 @@ async function useNConvert(t) {
                 width: t.width,
                 height: t.height,
                 format: "jpeg",
-                tool: "nconv",
+                tool: "N",
             }
         }
     } catch (error) {
@@ -211,7 +211,7 @@ async function useVipsConvert(t) {
                 width: t.width,
                 height: t.height,
                 format: "jpeg",
-                tool: "vips",
+                tool: "V",
             }
         }
     } catch (error) {
@@ -419,6 +419,10 @@ async function checkCompressResult(t, r) {
         } else {
             metaStatus = await checkMetadata(t)
         }
+        if ((await fs.pathExists(t.dst)) && t.overwrite) {
+            // 如果覆盖原文件，先删除原文件，再重命名
+            await helper.safeRemove(t.dst)
+        }
         // 将临时文件重命名为最终目标文件
         await fs.rename(t.tmpDst, t.dst)
         t.dstExists = await fs.pathExists(t.dst)
@@ -434,10 +438,10 @@ async function checkCompressResult(t, r) {
         log.show(
             logTag,
             `${t.index}/${t.total}`,
-            helper.pathShort(t.dst, 45),
+            helper.pathShort(t.dst, 40),
             chalk.yellow(dimensionStr),
             chalk.cyan(`${helper.humanSize(t.size)}=>${helper.humanSize(tmpSt.size)}`),
-            chalk.greenBright(r.tool || "sharp"),
+            chalk.greenBright(r.tool || "S"),
             chalk.magenta(metaStatus),
             helper.humanTime(t.startMs),
         )

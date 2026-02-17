@@ -77,7 +77,7 @@ const CONFIG = {
     MAX_RATIO: 5, // > 1000
 
     // 每日最大挑选数量 (硬限制)
-    MAX_FILES_PER_DAY: 30,
+    MAX_FILES_PER_DAY: 40,
 
     // 如果当天照片极其少 (< MIN_FILES_KEEP_ALL)，则全部保留
     MIN_FILES_KEEP_ALL: 10,
@@ -105,6 +105,12 @@ const builder = (ya) =>
             alias: "e",
             type: "string",
             describe: t("option.common.extensions"),
+        })
+        .option("day-limit", {
+            alias: "d",
+            type: "number",
+            default: CONFIG.MAX_FILES_PER_DAY,
+            describe: `每日数量限制（默认${CONFIG.MAX_FILES_PER_DAY}）`,
         })
         .option("dry-run", {
             alias: "n",
@@ -191,7 +197,7 @@ export async function cmdPick(argv) {
     const sourceStats = calculateSourceStats(parsed)
 
     // 4. 应用挑选规则
-    const daySelections = processDailySelections(parsed)
+    const daySelections = processDailySelections(parsed, argv)
     // Monthly limit logic removed as per request
     // applyMonthlyLimit(daySelections, 1000)
 
@@ -568,7 +574,8 @@ function parseFilesByName(entries) {
 }
 
 // 按天分组并应用日常挑选规则
-function processDailySelections(parsed) {
+function processDailySelections(parsed, argv = {}) {
+    const dayLimit = argv.dayLimit || CONFIG.MAX_FILES_PER_DAY
     // Group by day
     const days = new Map()
     for (const it of parsed) {
@@ -595,8 +602,8 @@ function processDailySelections(parsed) {
             targetCount = Math.ceil(total / ratio)
 
             // 每日最大数量限制
-            if (targetCount > CONFIG.MAX_FILES_PER_DAY) {
-                targetCount = CONFIG.MAX_FILES_PER_DAY
+            if (targetCount > dayLimit) {
+                targetCount = dayLimit
             }
         }
 
