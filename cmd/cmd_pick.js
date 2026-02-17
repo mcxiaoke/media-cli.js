@@ -1,47 +1,40 @@
 /*
  * Project: mediac
  * Created: 2026-02-13 17:16:15
- * Modified: 2026-02-13 17:16:15
+ * Modified: 2026-02-17 10:16:15
  * Author: mcxiaoke (github@mcxiaoke.com)
  * License: Apache License 2.0
  */
 
 /**
+ * 模块：照片智能挑选 (Pick)
  *
- * 项目计划和要求：
+ * 功能描述：
+ * 从大量照片中，按照时间线和预设规则智能挑选出一部分照片，用于制作照片日记或精选集。
  *
- * 我有很多照片，目录结构如下
+ * 主要特性：
+ * 1. 输入源支持：
+ *    - 目录扫描：递归扫描指定目录，支持正则过滤和排除特定目录。
+ *    - 文件列表：通过 --file-list 参数直接读取 JSON 或文本文件列表，跳过扫描过程。
  *
- * 手机照片
- *  2021
- *   2021-01
- *   2021-02
- *   2021-03
- *  2022
- *   2022-01
- *   2022-02 宠物
- *   2022-03 人像
- *  2023
+ * 2. 智能筛选规则：
+ *    - 时间间隔：同一天内的照片，相邻照片至少间隔一定时间（根据当天照片总量动态调整，默认 5 分钟）。
+ *    - 每日限制：根据当天照片总量动态计算保留比例（例如少于 100 张保留 1/2，多于 1000 张保留 1/5）。
+ *    - 数量硬限制：每天最多保留 MAX_FILES_PER_DAY (默认 40) 张。
+ *    - 每小时限制：防止某些时间段照片过于密集，每小时最多 MAX_PER_HOUR (20) 张。
+ *    - 特定主题：如宠物照片，每天有限额 MAX_PET_PER_DAY (20)。
  *
- * 照片的文件名都包含日期和时间，例如：IMG_20210101_120000.heic
+ * 3. 采样策略：
+ *    - 在理想的时间点附近，优先选择文件体积较大（通常质量更好）的照片。
  *
- * 按年份分类，可能有多级子目录
+ * 4. 输出与操作：
+ *    - 缓存：扫描模式下，自动将发现的所有文件保存为 filelist_YYYYMMDD_HHmmss.json 缓存。
+ *    - 报告：生成 picked_YYYYMMDD_HHmmss.json 包含详细的挑选结果和统计信息。
+ *    - 复制：支持将挑选出的文件复制到输出目录，自动按 YYYY/YYYYMM 结构整理。
  *
- * 我想按照时间线，每天挑出一些照片，组成照片日记
- * 规则如下：
- *
- * 小时限制：挑选的照片之间至少间隔5分钟；每小时最多10张
- * 每天限制：从每天的照片里挑选五分之一，最多50张；如果当天照片少于5张，则全部挑选
- * 确定每天的数目后，按时间顺序排序，平均分布
- * 月度限制：每月最多1000张，如果超过，从照片最多的那天开始按比例削减
- *
- *
- *
- * 在input目录生成两个文件 stats_{datetime}.txt 和 picked_{datetime}.txt
- * 命令行同时输出按天和按月和按年统计信息，
- * 如果按天信息过多，命令行就不给出，但 stats 文件里还是要有，
- * 按天信息可以精简不用每个一行，可以合并
- *
+ * 用法示例：
+ *   mediac pick /path/to/photos --output /path/to/output
+ *   mediac pick . --file-list list.json --dry-run
  */
 
 import dayjs from "dayjs"
@@ -57,6 +50,8 @@ import * as helper from "../lib/helper.js"
 import { t } from "../lib/i18n.js"
 import { applyFileNameRules } from "./cmd_shared.js"
 export { aliases, builder, command, describe, handler }
+
+import { ErrorTypes, MediaCliError } from "../lib/errors.js"
 
 const command = "pick <input>"
 const aliases = ["pk"]
@@ -101,6 +96,11 @@ const builder = (ya) =>
             type: "string",
             describe: t("option.pick.exclude.dir"),
         })
+        .option("file-list", {
+            alias: "l",
+            type: "string",
+            describe: t("option.pick.fileList"),
+        })
         .option("extensions", {
             alias: "e",
             type: "string",
@@ -110,7 +110,7 @@ const builder = (ya) =>
             alias: "d",
             type: "number",
             default: CONFIG.MAX_FILES_PER_DAY,
-            describe: `每日数量限制（默认${CONFIG.MAX_FILES_PER_DAY}）`,
+            describe: t("option.pick.dayLimit", { count: CONFIG.MAX_FILES_PER_DAY }),
         })
         .option("dry-run", {
             alias: "n",
@@ -127,25 +127,130 @@ const builder = (ya) =>
 
 const handler = cmdPick
 
-// 主命令：按文件名提取时间，挑选照片并输出 picked/stats 文件与控制台汇总
+// 主命令入口：负责参数处理、文件加载、逻辑调用与结果输出
 export async function cmdPick(argv) {
     const logTag = "cmdPick"
     log.show(logTag, argv)
 
-    // 1. 扫描文件
-    const root = await helper.validateInput(argv.input)
-    const ignoreRe = /delete|thumb|mvimg|feat|misc|shots|vsco|twit|p950|吃|喝|截|票|医/i
-    const walkOpts = {
-        needStats: true,
-        entryFilter: (f) => {
-            if (!f.isFile) return false
-            if (f.size < 200 * 1024) return false // 小于200KB的文件不考虑
-            if (ignoreRe.test(f.path)) return false
-            return helper.isImageFile(f.name || f.path)
-        },
+    // 1. 文件源加载
+    let entries = []
+    let root = argv.input
+
+    if (argv.fileList) {
+        // 模式 1: 直接读取文件列表
+        // 适用于已通过其他手段获取文件清单，直接进行挑选的场景
+        log.show(logTag, t("pick.using.file.list", { path: argv.fileList }))
+        if (!(await fs.pathExists(argv.fileList))) {
+            throw new MediaCliError(
+                ErrorTypes.FILE_NOT_FOUND,
+                t("pick.file.list.not.found", { path: argv.fileList }),
+            )
+        }
+        const fileListExt = helper.pathExt(argv.fileList, true)
+        const content = await fs.readFile(argv.fileList, "utf8")
+        let rawList = []
+
+        if (fileListExt === ".json") {
+            try {
+                const jsonData = JSON.parse(content)
+                if (Array.isArray(jsonData)) {
+                    rawList = jsonData
+                    // 严格校验 JSON 结构，避免后续逻辑出错
+                    for (const item of rawList) {
+                        if (!item.path || typeof item.size === "undefined") {
+                            throw new MediaCliError(
+                                ErrorTypes.INVALID_JSON_INPUT,
+                                t("pick.json.missing.field", { item: JSON.stringify(item) }),
+                            )
+                        }
+                    }
+                } else {
+                    throw new MediaCliError(
+                        ErrorTypes.INVALID_JSON_INPUT,
+                        t("pick.json.must.be.array"),
+                    )
+                }
+            } catch (e) {
+                // 如果已经是 MediaCliError，直接抛出
+                if (e instanceof MediaCliError) {
+                    throw e
+                }
+                throw new MediaCliError(
+                    ErrorTypes.INVALID_JSON_INPUT,
+                    t("pick.json.parse.failed", { error: e.message }),
+                    e,
+                )
+            }
+        } else if (fileListExt === ".txt") {
+            rawList = content
+                .split(/\r?\n/)
+                .map((line) => line.trim()) // 去除行首尾空白
+                .filter((line) => line.length > 0)
+                .map((line) => ({ path: line, size: 0 })) // 文本列表默认无大小信息
+        } else {
+            throw new MediaCliError(
+                ErrorTypes.INVALID_ARGUMENT,
+                t("pick.file.list.format.unknown", { ext: fileListExt }),
+            )
+        }
+
+        // 统一转换为标准 Entry 结构
+        entries = rawList
+            .map((item) => {
+                const p = item.path
+                if (!p) return null
+                return {
+                    path: p,
+                    name: item.name || path.basename(p),
+                    size: item.size,
+                    isFile: true,
+                    stats: { mtime: item.mtime ? new Date(item.mtime) : new Date() },
+                }
+            })
+            .filter((e) => e !== null)
+
+        log.show(logTag, t("pick.loaded.entries", { count: entries.length }))
+    } else {
+        // 模式 2: 扫描目录
+        // 递归扫描指定目录，应用正则过滤
+        root = await helper.validateInput(argv.input)
+        const ignoreRe = /delete|thumb|mvimg|feat|misc|shots|vsco|twit|p950|吃|喝|截|票|医/i
+        const walkOpts = {
+            needStats: true,
+            entryFilter: (f) => {
+                if (!f.isFile) return false
+                if (f.size < 200 * 1024) return false // 过滤掉小于 200KB 的小文件/缩略图
+                if (ignoreRe.test(f.path)) return false
+                return helper.isImageFile(f.name || f.path)
+            },
+        }
+        entries = await mf.walk(root, walkOpts)
+
+        // 自动缓存文件列表供后续使用或调试
+        const timestamp = dayjs().format("YYYYMMDD_HHmmss")
+        const fileListName = `filelist_${timestamp}.json`
+        const outputDir = argv.output || "output" // 优先使用 argv.output 或默认为 ./output
+        await fs.ensureDir(outputDir)
+        const fileListOutput = path.join(outputDir, fileListName)
+
+        const cachedList = entries.map((e) => ({
+            path: e.path,
+            name: e.name,
+            size: e.size,
+            ext: path.extname(e.path),
+            mtime: e.stats?.mtime,
+        }))
+
+        try {
+            await fs.writeJSON(fileListOutput, cachedList, { spaces: 2 })
+            log.show(logTag, `File list cached to: ${fileListOutput}`)
+        } catch (err) {
+            log.showYellow(logTag, `Failed to cache file list: ${err.message}`)
+        }
+
+        entries = await applyFileNameRules(entries, argv)
     }
-    let entries = await mf.walk(root, walkOpts)
-    entries = await applyFileNameRules(entries, argv)
+
     log.show(logTag, t("compress.total.files.found", { count: entries.length }))
     if (!entries || entries.length === 0) {
         log.showYellow(t("common.nothing.to.do"))
@@ -421,33 +526,59 @@ function calculateSourceStats(parsed) {
     return s
 }
 
+// 构建最终的 JSON 输出对象
 function buildJsonOutput(daySelections, srcStats, selStats) {
-    // Structure:
-    // files: [ { year, months: [ { month, files: [] } ] } ]
-    // stats: [ { year, stats: { total, selected, months: {}, days: {} } } ]
+    // 输出 JSON 结构说明:
+    // {
+    //   generatedAt: "2026-02-17 12:00:00",
+    //   files: [ // 被选中的文件列表，按年-月层级组织
+    //     {
+    //       year: "2024",
+    //       months: [
+    //         {
+    //           month: "202401",
+    //           total: 100,      // 该月原始总数
+    //           selected: 20,    // 该月选中总数
+    //           files: ["path/to/img1.jpg", ...] // 选中的文件路径列表
+    //         }
+    //       ]
+    //     }
+    //   ],
+    //   stats: [ // 详细统计信息
+    //     {
+    //       year: "2024",
+    //       stats: {
+    //         total: 1000,
+    //         selected: 200,
+    //         months: {
+    //           "202401": { total: 100, selected: 20, days: { "20240101": { total: 10, selected: 2 } } }
+    //         }
+    //       }
+    //     }
+    //   ]
+    // }
 
     const filesByYear = new Map()
     const statsByYear = new Map()
 
-    // Iterate all known years/months from source or selected?
-    // Usually source contains all years.
+    // 遍历所有年份（以源数据为准，覆盖所有年份）
     const allYears = Array.from(srcStats.years.keys()).sort()
 
     const outputFiles = []
     const outputStats = []
 
     for (const year of allYears) {
-        // Build Files Section
+        // --- 构建文件部分 (Files Section) ---
         const yearMonths = []
-        // Find months in this year
+        // 查找属于该年的所有月份
         const monthsInYear = Array.from(srcStats.months.keys())
             .filter((m) => m.startsWith(year))
             .sort()
 
         for (const m of monthsInYear) {
             const mFiles = []
-            // Collect files for this month
-            // Need to scan days in this month
+            // 收集该月份被选中的文件
+            // 需要遍历该月包含的所有日期
             const daysInMonth = Array.from(daySelections.keys())
                 .filter((d) => d.startsWith(m))
                 .sort()
@@ -457,10 +588,10 @@ function buildJsonOutput(daySelections, srcStats, selStats) {
                 if (arr) mFiles.push(...arr.map((f) => f.path))
             }
 
-            const monthKey = m.replace("-", "") // 2025-01 -> 202501
+            const monthKey = m.replace("-", "") // 格式化: 2025-01 -> 202501
             const mTotal = srcStats.months.get(m) || 0
 
-            // Only add to files list if selected > 0
+            // 仅当该月有选中文件时才添加到输出列表
             if (mFiles.length > 0) {
                 yearMonths.push({
                     month: monthKey,
@@ -478,18 +609,18 @@ function buildJsonOutput(daySelections, srcStats, selStats) {
             })
         }
 
-        // Build Stats Section
+        // --- 构建统计部分 (Stats Section) ---
         const yStats = {
             total: srcStats.years.get(year) || 0,
             selected: selStats.years.get(year) || 0,
             months: {},
-            // days: {}, // moved to under months
+            // days: {}, // 每日统计已移动到 months 节点下
         }
 
         for (const m of monthsInYear) {
             const monthKey = m.replace("-", "") // 2025-01 -> 202501
 
-            // Days in this month
+            // 收集该月内的每日统计数据
             const daysData = {}
             const daysInMonth = Array.from(srcStats.days.keys())
                 .filter((d) => d.startsWith(m))

@@ -116,3 +116,5 @@ Downloads/
 *.iml
 *.ipr
 /out/
+temp/
+tmp/
