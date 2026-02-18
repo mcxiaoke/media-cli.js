@@ -65,14 +65,14 @@ const CONFIG = {
     // < 1000 -> 1/4
     // > 1000 -> 1/5
     RATIO_LEVELS: [
-        { limit: 100, ratio: 2 },
-        { limit: 500, ratio: 3 },
-        { limit: 1000, ratio: 4 },
+        { limit: 100, ratio: 1.5 },
+        { limit: 500, ratio: 2 },
+        { limit: 1000, ratio: 3 },
     ],
-    MAX_RATIO: 5, // > 1000
+    MAX_RATIO: 4, // > 1000
 
     // 每日最大挑选数量 (硬限制)
-    MAX_FILES_PER_DAY: 40,
+    MAX_FILES_PER_DAY: 50,
 
     // 如果当天照片极其少 (< MIN_FILES_KEEP_ALL)，则全部保留
     MIN_FILES_KEEP_ALL: 10,
