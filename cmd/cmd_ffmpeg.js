@@ -371,7 +371,7 @@ async function cmdConvert(argv) {
     const walkOpts = {
         withFiles: true,
         needStats: true,
-        entryFilter: (e) => e.isFile && helper.isVideoFile(e.name),
+        entryFilter: (e) => e.isFile && helper.isMediaFile(e.name),
     }
     let fileEntries = await mf.walk(root, walkOpts)
     // 处理额外目录参数
