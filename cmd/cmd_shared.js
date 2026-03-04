@@ -500,9 +500,16 @@ export const RE_NON_COMMON_CHARS = /[^\p{Unified_Ideograph}\p{sc=Hira}\p{sc=Kana
 // 匹配空白字符和特殊字符
 // https://www.unicode.org/charts/PDF/U3000.pdf
 // https://www.asciitable.com/
-export const RE_UGLY_CHARS = /[\s\p{Zs}\p{Punctuation}\P{ASCII}]+/giu
+export const RE_UGLY_CHARS = /[\s\p{Zs}\p{Punctuation}]+/giu
 // 匹配开头和结尾的空白和特殊字符
 export const RE_UGLY_CHARS_BORDER = /^([\s._-]+)|([\s._-]+)$/giu
+
+// 匹配所有中英文标点、Unicode 特殊符号的正则（Node.js 专用）
+export const RE_ALL_PUNCTUATION = /\p{P}+/gu
+
+// 扩展版（包含易被忽略的特殊符号，如全角空格、连接符等）
+export const RE_ALL_SYMBOLS = /[\p{P}\p{S}\p{Zs}\u2000-\u206F\u3000-\u303F]+/gu
+
 // 图片视频子文件夹名过滤
 // 如果有表示，test() 会随机饭后true or false，是一个bug
 // 使用 string.match 函数没有问题
@@ -510,6 +517,82 @@ export const RE_UGLY_CHARS_BORDER = /^([\s._-]+)|([\s._-]+)$/giu
 // The g modifier causes the regex object to maintain state.
 // It tracks the index after the last match.
 export const RE_MEDIA_DIR_NAME = /^图片|视频|电影|电视剧|Image|Video|Thumbs$/giu
+
+// clean func by grok
+/**
+ * 超级干净的文件名/目录名清理函数（Node.js）
+ * 合并了你之前的所有正则 + 之前我写的针对 .rar / ls 的专用规则
+ * 特点：
+ *   • 每一步替换都有清晰注释和逻辑说明
+ *   • 严格按「先去垃圾标签 → 再去规格 → 再规范化字符 → 最后收尾」顺序执行，避免互相干扰
+ *   • 保留：中日韩文字、英文、数字、合理的空格、- . & '
+ *   • 彻底干掉：.rar/.partN.rar、R18、P/V规格、文件大小、Emoji、所有乱标点、全角垃圾、_ – — 等
+ */
+
+export const cleanNameEx = (input, sep = " ") => {
+    if (!input || typeof input !== "string") return ""
+
+    let cleaned = input.trim()
+
+    // ==================== 第1步：去掉文件扩展名（兼容 .rar .partN.rar 等） ====================
+    cleaned = cleaned.replace(/(\.part\d+)?\.(rar|zip|7z|mp4|mkv|avi|jpg|png|gif)$/i, "")
+
+    // ==================== 第2步：去掉 ls 目录前缀（你之前的 d---- 2026/3/4 ...） ====================
+    cleaned = cleaned.replace(/^d----\s+\d{4}\/\d{1,2}\/\d{1,2}\s+\d{2}:\d{2}\s+/, "")
+
+    // ==================== 第3步：去掉视频常见前后缀（你原来的 RE_VIDEO_EXTRA_CHARS）
+    // 合并成一个正则，一次性清除
+    cleaned = cleaned.replace(RE_VIDEO_EXTRA_CHARS, "")
+
+    // ==================== 第4步：去掉图片常见前后缀（你原来的 RE_IMAGE_EXTRA_CHARS）
+    cleaned = cleaned.replace(RE_IMAGE_EXTRA_CHARS, "")
+
+    // ==================== 第5步：额外强化去掉 R18/R17/R16（防止漏网） ====================
+    cleaned = cleaned.replace(/R1[6-8]/gi, "")
+
+    // ==================== 第6步：去掉所有带规格的括号标签（[104P 922M]、【4K】、(崩坏) 等）
+    // 优先清除带 P/V/G/M/B/K/DL/VIP/4K 的，避免后面留下空括号
+    cleaned = cleaned.replace(/\[[^\]]*?(?:P|V|G|M|B|K|DL|VIP|4K)[^\]]*?\]/gi, "")
+    cleaned = cleaned.replace(/【[^】]*?(?:P|V|G|M|B|K|DL|VIP|4K)[^】]*?】/gi, "")
+    cleaned = cleaned.replace(/\([^\)]*?(?:P|V|G|M|B|K)[^\)]*?\)/gi, "")
+
+    // ==================== 第7步：去掉文件大小（2.64G、1.52GB、953MB、69.8MB、7.00GB 等） ====================
+    cleaned = cleaned.replace(/\b[\d.,_]+[MGT][B]?\b/gi, "")
+
+    // ==================== 第8步：去掉图片数量（81P3V、150P19V、72P、23P 等） ====================
+    cleaned = cleaned.replace(/\b\d{1,4}P[\dV]*\b/gi, "")
+
+    // ==================== 第9步：去掉 +视频 等残留 ====================
+    cleaned = cleaned.replace(/\+?视频/gi, "")
+
+    // ==================== 第10步：去掉 Emoji ====================
+    const RE_EMOJI =
+        /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F900}-\u{1F9FF}\u{1FA70}-\u{1FAFF}\u{1F700}-\u{1F77F}]/gu
+    cleaned = cleaned.replace(RE_EMOJI, "")
+
+    // ==================== 第11步：规范化分隔符（_ – — 全部转成空格） ====================
+    // 保留原有的「 - 」作为分隔，但把下划线和长横线统一
+    cleaned = cleaned.replace(/[_–—]+/g, sep)
+
+    // ==================== 第12步：去掉所有 Unicode 丑陋字符和标点（
+    // 你原来的 RE_UGLY_CHARS + RE_ALL_SYMBOLS） ====================
+    // 先把连续的空白、标点、符号全部替换成单个空格
+    cleaned = cleaned.replace(RE_UGLY_CHARS, sep)
+
+    // ==================== 第13步：最终只保留允许的字符（你原来的 RE_NON_COMMON_CHARS 思想 + 增强）
+    // 保留：中日韩 + 平假名片假名 + 英文 + 数字 + 空格 + - . & '
+    // 其他全部转空格（包括你 RE_NON_COMMON_CHARS 想去掉的那些）
+    cleaned = cleaned.replace(
+        /[^\p{Unified_Ideograph}\p{sc=Hira}\p{sc=Kana}\p{L}\p{N}\s\-_.'&]/gu,
+        " ",
+    )
+    // ==================== 第14步：统一空格 + 去掉首尾多余的 - _ ====================
+    cleaned = cleaned.replace(/\s+/g, " ").trim()
+    cleaned = cleaned.replace(RE_UGLY_CHARS_BORDER, "")
+
+    return cleaned
+}
+
 // 可以考虑将日文和韩文罗马化处理
 // https://github.com/lovell/hepburn
 // https://github.com/fujaru/aromanize-js

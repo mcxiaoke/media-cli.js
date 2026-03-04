@@ -25,6 +25,7 @@ import {
     RE_UGLY_CHARS,
     RE_UGLY_CHARS_BORDER,
     cleanFileName,
+    cleanNameEx,
     renameFiles,
 } from "./cmd_shared.js"
 
@@ -34,7 +35,7 @@ const MODE_PREFIX = "prefix"
 const MODE_MEDIA = "media"
 const MODE_CLEAN = "clean"
 
-const NAME_LENGTH = 48
+const NAME_LENGTH = 60
 
 export { aliases, builder, command, describe, handler }
 
@@ -285,17 +286,20 @@ async function createNewNameByMode(f) {
     // 确保文件名不含有文件系统不允许的非法字符
     oldBase = helper.filenameSafe(oldBase)
     let fullBase = prefix.length > 0 ? prefix + sep + oldBase : oldBase
+    console.log("======", prefix, `fullBase1: ${fullBase}`)
     // 去除首位空白和特殊字符
-    fullBase = fullBase.replaceAll(RE_UGLY_CHARS_BORDER, "")
+    // fullBase = fullBase.replaceAll(RE_UGLY_CHARS_BORDER, "")
     // 多余空白和字符替换为一个字符 _或.
-    fullBase = fullBase.replaceAll(RE_UGLY_CHARS, sep)
+    // fullBase = fullBase.replaceAll(RE_UGLY_CHARS, sep)
+
+    fullBase = cleanNameEx(fullBase, sep)
+
     // 去掉重复词组，如目录名和人名
     fullBase = Array.from(new Set(fullBase.split(sep))).join(sep)
     // 限制文件名长度
     fullBase = helper.unicodeLength(fullBase) > nameLength ? fullBase.slice(nameSlice) : fullBase
     // 再次去掉首位的特殊字符和空白字符
-    fullBase = fullBase.replaceAll(RE_UGLY_CHARS_BORDER, "")
-
+    // fullBase = fullBase.replaceAll(RE_UGLY_CHARS_BORDER, "")
     let newName = `${fullBase}${ext}`
     let newPath = path.resolve(path.join(dir, newName))
 
