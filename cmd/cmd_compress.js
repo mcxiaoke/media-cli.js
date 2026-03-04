@@ -166,20 +166,158 @@ const builder = function addOptions(ya, helpOrVersionSet) {
 const handler = cmdCompress
 
 /**
+ * 解析并归一化 argv 为内部配置对象
+ * @param {Object} argv - yargs 命令行参数
+ * @returns {Object} 归一化后的配置
+ */
+function parseCompressOpts(argv) {
+    const cfg = parseImageParams(argv.config)
+    return {
+        overwrite: argv.overwrite || false,
+        quality: argv.quality || cfg.quality || QUALITY_DEFAULT,
+        minFileSize: (argv.minSize || cfg.size || SIZE_DEFAULT) * 1024,
+        maxWidth: argv.maxWidth || cfg.width || WIDTH_DEFAULT,
+        suffix: argv.suffix || cfg.suffix || SUFFIX_DEFAULT,
+        purgeOnly: argv.purgeOnly || false,
+        purgeSource: argv.purge || false,
+        keepRoot: argv.keepRoot ?? true,
+        keepMetadata: argv.keepMetadata ?? true,
+        force: argv.force || false,
+        jobs: argv.jobs,
+        output: argv.output,
+        cfg: argv.config, // 透传给任务对象的原始配置字符串
+    }
+}
+
+/**
+ * 遍历目录，返回满足过滤条件的图片文件列表
+ * @param {string} root - 根目录
+ * @param {Object} opts - 配置对象
+ * @returns {Promise<Array>}
+ */
+async function walkImageFiles(root, opts) {
+    const { minFileSize, force } = opts
+    const RE_THUMB = force ? /@_@/ : /Z4K|P4K|M4K|feature|web|thumb$/i
+    const walkOpts = {
+        needStats: true,
+        entryFilter: (f) =>
+            f.isFile &&
+            helper.isImageFile(f.path) &&
+            !RE_THUMB.test(f.path) &&
+            f.size > minFileSize,
+    }
+    log.showGreen("cmdCompress", `Walking files ...`)
+    return await mf.walk(root, walkOpts)
+}
+
+/**
+ * 并行运行 preCompress，返回全量任务列表（含已跳过项）
+ * @param {Array} files - 文件列表
+ * @param {Object} opts - 配置对象
+ * @returns {Promise<Array>}
+ */
+async function buildCompressTasks(files, opts) {
+    const {
+        suffix,
+        quality,
+        overwrite,
+        maxWidth,
+        keepRoot,
+        keepMetadata,
+        force,
+        output,
+        jobs,
+        cfg,
+    } = opts
+    const needBar = files.length > 9999 && !log.isVerbose()
+    const prepared = files.map((f, i) => ({
+        ...f,
+        force,
+        output,
+        total: files.length,
+        index: i,
+        suffix,
+        quality,
+        overwrite,
+        maxWidth,
+        cfg,
+        keepRoot,
+        keepMetadata,
+    }))
+    // 进度条和更新回调均局部于此函数，不污染任务对象
+    let lastProgressUpdatedAt = 0
+    let bar = null
+    const onProgress = needBar
+        ? (index) => {
+              const now = Date.now()
+              if (now - lastProgressUpdatedAt > 2000) {
+                  bar.update(index)
+                  lastProgressUpdatedAt = now
+              }
+          }
+        : null
+    if (needBar) {
+        bar = new cliProgress.SingleBar({ etaBuffer: 300 }, cliProgress.Presets.shades_classic)
+        bar.start(prepared.length, 0)
+    }
+    const tasks = await pMap(prepared, (f) => preCompress(f, onProgress), {
+        concurrency: jobs || cpus().length,
+    })
+    if (needBar) {
+        bar.update(prepared.length)
+        bar.stop()
+    }
+    return tasks
+}
+
+/**
+ * 并行执行图片压缩，返回全部结果和失败列表
+ * @param {Array} tasks - 待压缩任务列表
+ * @param {Object} opts - 配置对象
+ * @param {string} logTag - 日志标签
+ * @param {number} startMs - 起始时间戳
+ * @returns {Promise<{tasks: Array, failedTasks: Array}>}
+ */
+async function runCompression(tasks, opts, logTag, startMs) {
+    tasks.forEach((f) => (f.startMs = startMs))
+    const results = await pMap(tasks, compressImage, {
+        concurrency: opts.jobs || cpus().length / 2,
+    })
+    const okTasks = results.filter((f) => f?.done)
+    const failedTasks = results.filter((f) => f?.errorFlag && !f.done)
+    log.showGreen(
+        logTag,
+        `${okTasks.length} ${t("compress.files.compressed")} ${helper.humanTime(startMs)}`,
+    )
+    log.showGreen(logTag, "endAt", dayjs().format(), helper.humanTime(startMs))
+    return { tasks: results, failedTasks }
+}
+
+/**
+ * 将失败的压缩任务列表写入日志文件
+ * @param {Array} failedTasks - 失败任务列表
+ * @param {string} root - 根目录（日志文件写入位置）
+ * @param {string} logTag - 日志标签
+ * @returns {Promise<void>}
+ */
+async function writeFailedLog(failedTasks, root, logTag) {
+    if (failedTasks.length === 0) {
+        return
+    }
+    log.showYellow(logTag, `${failedTasks.length} ${t("compress.tasks.failed")}`)
+    const failedContent = failedTasks.map((f) => f.src).join("\n")
+    const failedLogFile = path.join(
+        root,
+        `mediac_compress_failed_list_${dayjs().format("YYYYMMDDHHmmss")}.txt`,
+    )
+    await fs.writeFile(failedLogFile, failedContent)
+    const clickablePath = failedLogFile.split(path.sep).join("/")
+    log.showYellow(logTag, `${t("compress.failed.list")}: file:///${clickablePath}`)
+}
+
+/**
  * 压缩图片命令处理函数
  * @param {Object} argv - 命令行参数对象
- * @param {string} argv.input - 输入目录路径
- * @param {boolean} argv.doit - 是否执行实际操作（非测试模式）
- * @param {number} argv.jobs - 并发任务数
- * @param {string} argv.output - 输出目录
- * @param {number} argv.quality - 压缩质量
- * @param {number} argv.minSize - 最小文件大小（KB）
- * @param {number} argv.maxWidth - 图片最大宽度
- * @param {string} argv.suffix - 压缩后文件名后缀
- * @param {boolean} argv.purge - 压缩后删除源文件
- * @param {boolean} argv.purgeOnly - 仅删除源文件不压缩
- * @param {boolean} argv.force - 是否强制处理（跳过文件名过滤）
- * @param {boolean} argv.overwrite - 是否覆盖已存在的压缩文件
  * @returns {Promise<void>}
  */
 async function cmdCompress(argv) {
@@ -191,31 +329,13 @@ async function cmdCompress(argv) {
         log.fileLog(`Argv:${JSON.stringify(argv)}`, logTag)
     }
     log.show(logTag, argv)
-    const cfg = parseImageParams(argv.config)
-    const overwrite = argv.overwrite || false
-    const quality = argv.quality || cfg.quality || QUALITY_DEFAULT
-    const minFileSize = (argv.minSize || cfg.size || SIZE_DEFAULT) * 1024
-    const maxWidth = argv.maxWidth || cfg.width || WIDTH_DEFAULT
-    const suffix = argv.suffix || cfg.suffix || SUFFIX_DEFAULT
-    const purgeOnly = argv.purgeOnly || false
-    const purgeSource = argv.purge || false
-    // 是否保留输出文件的根目录结构，默认为true
-    const keepRoot = argv.keepRoot ?? true
-    // 是否保留输出文件的元数据，默认为true
-    const keepMetadata = argv.keepMetadata ?? true
+
+    const opts = parseCompressOpts(argv)
+    const { minFileSize, maxWidth, purgeOnly, purgeSource } = opts
     log.show(`${logTag} input:`, root)
-    // 如果有force标志，就不过滤文件名
-    const RE_THUMB = argv.force ? /@_@/ : /Z4K|P4K|M4K|feature|web|thumb$/i
-    const walkOpts = {
-        needStats: true,
-        entryFilter: (f) =>
-            f.isFile &&
-            helper.isImageFile(f.path) &&
-            !RE_THUMB.test(f.path) &&
-            f.size > minFileSize,
-    }
-    log.showGreen(logTag, `Walking files ...`)
-    let files = await mf.walk(root, walkOpts)
+
+    // 阶段一：遍历文件
+    let files = await walkImageFiles(root, opts)
     if (!files || files.length === 0) {
         log.showYellow(logTag, t("compress.no.files.found"))
         return
@@ -228,7 +348,6 @@ async function cmdCompress(argv) {
         return
     }
 
-    // 更新全局配置,检测必要的工具和库支持，后续压缩图片时会用到
     // purgeOnly 模式只清理文件，不需要检测图像处理工具
     if (!purgeOnly) {
         await updateConfig(argv)
@@ -246,39 +365,16 @@ async function cmdCompress(argv) {
         log.showYellow(t("common.aborted.by.user"))
         return
     }
-    const needBar = files.length > 9999 && !log.isVerbose()
     log.showGreen(logTag, t("compress.preparing"))
 
-    let startMs = Date.now()
-    const addArgsFunc = (f, i) => ({
-        ...f,
-        force: argv.force || false,
-        output: argv.output,
-        total: files.length,
-        index: i,
-        suffix,
-        quality,
-        overwrite,
-        maxWidth,
-        cfg: argv.config,
-        keepRoot,
-        keepMetadata,
-    })
-    files = files.map(addArgsFunc)
-    files.forEach((f, i) => {
-        f.bar1 = bar1
-        f.needBar = needBar
-    })
-    needBar && bar1.start(files.length, 0)
-    let tasks = await pMap(files, preCompress, { concurrency: argv.jobs || cpus().length })
-    needBar && bar1.update(files.length)
-    needBar && bar1.stop()
+    // 阶段二：构建任务
+    const startMs = Date.now()
+    let tasks = await buildCompressTasks(files, opts)
     log.info(logTag, "before filter: ", tasks.length)
-    const total = tasks.length
     // 保存过滤前的全量有效任务，供 purgeOnly 模式使用（含已存在目标文件的任务）
     const allValidTasks = tasks.filter(Boolean)
     tasks = tasks.filter((t) => t?.dst && t.tmpDst && !t?.shouldSkip)
-    const skipped = total - tasks.length
+    const skipped = allValidTasks.length - tasks.length
     log.info(logTag, "after filter: ", tasks.length)
     if (skipped > 0) {
         log.showYellow(logTag, t("compress.files.skipped", { count: skipped }))
@@ -304,12 +400,10 @@ async function cmdCompress(argv) {
     tasks.forEach((f, i) => {
         f.total = tasks.length
         f.index = i
-        f.bar1 = null
-        f.needBar = false
     })
     log.show(logTag, `${t("compress.tasks.summary")} (${helper.humanTime(startMs)}):`)
     tasks.slice(-1).forEach((f) => {
-        log.show(core.omit(f, "stats", "bar1"))
+        log.show(core.omit(f, "stats"))
     })
     log.info(logTag, argv)
     testMode && log.showYellow("++++++++++ " + t("ffmpeg.test.mode") + " ++++++++++")
@@ -335,39 +429,25 @@ async function cmdCompress(argv) {
         return
     }
 
+    // 阶段三：执行压缩
     if (testMode) {
         log.showYellow(logTag, `[${t("mode.test")}], ${t("compress.note.no.thumbnail")}`)
     } else {
-        startMs = Date.now()
+        const compressStartMs = Date.now()
         log.showGreen(logTag, "startAt", dayjs().format())
-        tasks.forEach((f) => (f.startMs = startMs))
-        tasks = await pMap(tasks, compressImage, { concurrency: argv.jobs || cpus().length / 2 })
-        const okTasks = tasks.filter((f) => f?.done)
-        const failedTasks = tasks.filter((f) => f?.errorFlag && !f.done)
-        log.showGreen(
+        const { tasks: doneTasks, failedTasks } = await runCompression(
+            tasks,
+            opts,
             logTag,
-            `${okTasks.length} ${t("compress.files.compressed")} ${helper.humanTime(startMs)}`,
+            compressStartMs,
         )
-        log.showGreen(logTag, "endAt", dayjs().format(), helper.humanTime(startMs))
-        if (failedTasks.length > 0) {
-            log.showYellow(logTag, `${failedTasks.length} ${t("compress.tasks.failed")}`)
-            const failedContent = failedTasks.map((f) => f.src).join("\n")
-            const failedLogFile = path.join(
-                root,
-                `mediac_compress_failed_list_${dayjs().format("YYYYMMDDHHmmss")}.txt`,
-            )
-            await fs.writeFile(failedLogFile, failedContent)
-            const clickablePath = failedLogFile.split(path.sep).join("/")
-            log.showYellow(logTag, `${t("compress.failed.list")}: file:///${clickablePath}`)
-        }
+        await writeFailedLog(failedTasks, root, logTag)
         if (purgeSource) {
-            await purgeSrcFiles(tasks)
+            await purgeSrcFiles(doneTasks)
         }
     }
 }
 
-let compressLastUpdatedAt = 0
-const bar1 = new cliProgress.SingleBar({ etaBuffer: 300 }, cliProgress.Presets.shades_classic)
 /**
  * 准备压缩图片的参数，并进行相应的处理
  * @param {Object} f - 文件对象
@@ -378,11 +458,10 @@ const bar1 = new cliProgress.SingleBar({ etaBuffer: 300 }, cliProgress.Presets.s
  * @param {number} f.index - 文件索引
  * @param {number} f.total - 总文件数
  * @param {string} f.output - 输出目录
- * @param {Object} f.bar1 - 进度条对象
- * @param {boolean} f.needBar - 是否需要进度条
- * @returns {Promise<Object|null>} 返回准备好的压缩任务对象，或null（目标文件已存在）
+ * @param {Function|null} onProgress - 进度回调，接收当前索引，为 null 则不显示进度
+ * @returns {Promise<Object|null>} 返回准备好的压缩任务对象，或 null（文件损坏或不存在）
  */
-async function preCompress(f) {
+async function preCompress(f, onProgress = null) {
     const logTag = "PreCompress"
     const maxWidth = f.maxWidth || 6000 // 获取最大宽度限制，默认为6000
     let fileSrc = path.resolve(f.path) // 解析源文件路径
@@ -398,11 +477,7 @@ async function preCompress(f) {
 
     fileDst = path.resolve(fileDst) // 解析目标文件路径
 
-    const timeNow = Date.now()
-    if (timeNow - compressLastUpdatedAt > 2 * 1000) {
-        f.needBar && f.bar1.update(f.index)
-        compressLastUpdatedAt = timeNow
-    }
+    onProgress?.(f.index)
 
     if (!(await fs.pathExists(fileSrc))) {
         log.info(logTag, "File not found:", fileSrc)
