@@ -315,6 +315,9 @@ export async function compressImage(t) {
 } // 结束函数定义
 
 async function checkMetadata(t) {
+    if (!t.keepMetadata) {
+        return "MetaSkip0"
+    }
     const logTag = chalk.green("CheckMeta")
     const srcExt = helper.pathExt(t.name)
     if (srcExt === ".heic" || srcExt === ".heif") {
@@ -375,7 +378,7 @@ async function checkMetadata(t) {
             console.error(logTag, t.src, `Copy metadata failed`, error)
         }
     } else {
-        return "MetaSkip"
+        return "MetaSkip1"
     }
 }
 

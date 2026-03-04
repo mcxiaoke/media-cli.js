@@ -265,12 +265,28 @@ async function cmdCompress(argv) {
     needBar && bar1.stop()
     log.info(logTag, "before filter: ", tasks.length)
     const total = tasks.length
+    // 保存过滤前的全量有效任务，供 purgeOnly 模式使用（含已存在目标文件的任务）
+    const allValidTasks = tasks.filter(Boolean)
     tasks = tasks.filter((t) => t?.dst && t.tmpDst && !t?.shouldSkip)
     const skipped = total - tasks.length
     log.info(logTag, "after filter: ", tasks.length)
     if (skipped > 0) {
         log.showYellow(logTag, t("compress.files.skipped", { count: skipped }))
     }
+
+    // purgeOnly 需要在 tasks.length === 0 判断之前处理，
+    // 因为此时所有文件已压缩完毕（dst 已存在），tasks 会被过滤为空
+    if (purgeOnly) {
+        const purgeTargets = allValidTasks.filter((t) => t?.src && t.dstExists && t.dst)
+        if (purgeTargets.length === 0) {
+            log.showYellow(logTag, t("common.nothing.to.do"))
+            return
+        }
+        log.showYellow(logTag, `+++++ PURGE ONLY (NO COMPRESS): ${purgeTargets.length} files +++++`)
+        await purgeSrcFiles(purgeTargets)
+        return
+    }
+
     if (tasks.length === 0) {
         log.showYellow(t("common.nothing.to.do"))
         return
@@ -289,8 +305,9 @@ async function cmdCompress(argv) {
     testMode && log.showYellow("++++++++++ " + t("ffmpeg.test.mode") + " ++++++++++")
 
     if (purgeOnly) {
-        log.showYellow("+++++ PURGE ONLY (NO COMPRESS) +++++")
-        await purgeSrcFiles(tasks)
+        // 此分支理论上不会再被执行（已提前处理），保留作为兜底
+        log.showYellow(logTag, "+++++ PURGE ONLY (NO COMPRESS) +++++")
+        await purgeSrcFiles(allValidTasks)
         return
     }
     const answer = await inquirer.prompt([
@@ -472,7 +489,7 @@ async function purgeSrcFiles(results) {
         if (!(srcExists && dstExists)) {
             return
         }
-        ;(await fs.pathExists(td.tmpDst)) && (await fs.remove(td.tmpDst))
+        td.tmpDst && (await fs.pathExists(td.tmpDst)) && (await fs.remove(td.tmpDst))
         await helper.safeRemove(td.src)
         log.showYellow(logTag, `SafeDel: ${index}/${total} ${helper.pathShort(td.src)}`)
         log.fileLog(`SafeDel: <${td.src}>`, logTag)
