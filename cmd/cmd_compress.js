@@ -40,11 +40,38 @@ const SUFFIX_DEFAULT = "_Z4K"
 const builder = function addOptions(ya, helpOrVersionSet) {
     return (
         ya
-            .option("delete-source-files", {
-                alias: "p",
-                type: "boolean",
-                default: false,
-                description: t("compress.delete.source"),
+            // 核心压缩参数
+            // 压缩后文件质量参数
+            .option("quality", {
+                alias: "q",
+                type: "number",
+                description: t("compress.quality"),
+            })
+            // 需要处理的最小文件大小（KB），小于此值的文件跳过
+            .option("min-size", {
+                alias: "s",
+                type: "number",
+                description: t("compress.size"),
+            })
+            // 输出图片最大宽度（长边），超过则等比缩小
+            .option("max-width", {
+                alias: "w",
+                type: "number",
+                description: t("compress.width"),
+            })
+            // 压缩后的文件后缀，默认为 _Z4K
+            .option("suffix", {
+                alias: "S",
+                describe: t("compress.suffix"),
+                type: "string",
+                // default: "_Z4K",
+            })
+            // 优先级低于单独的各种参数
+            // 图片处理参数，示例 q=85,w=6000,s=2048,suffix=_Z4K
+            .option("config", {
+                alias: "c",
+                type: "string",
+                description: t("compress.config"),
             })
             // 输出目录，默认输出文件与原文件同目录
             .option("output", {
@@ -53,16 +80,12 @@ const builder = function addOptions(ya, helpOrVersionSet) {
                 type: "string",
             })
             .option("keep-root", {
+                alias: "R",
                 describe: t("option.common.keepRoot"),
                 type: "boolean",
                 default: true,
             })
-            .option("keep-metadata", {
-                alias: "m",
-                describe: t("option.common.keepMetadata"),
-                type: "boolean",
-                default: true,
-            })
+            // 文件过滤
             // 正则，包含文件名规则
             .option("include", {
                 alias: "I",
@@ -78,65 +101,51 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             })
             // 默认启用正则模式，禁用则为字符串模式
             .option("regex", {
-                alias: "re",
+                alias: "r",
                 type: "boolean",
                 default: true,
                 description: t("option.common.regex"),
             })
-            // 需要处理的扩展名列表，默认为常见视频文件
+            // 需要处理的扩展名列表
             .option("extensions", {
                 alias: "e",
                 type: "string",
                 describe: t("option.common.extensions"),
             })
-            // 压缩后的文件后缀，默认为 _Z4K
-            .option("suffix", {
-                alias: "S",
-                describe: t("compress.suffix"),
-                type: "string",
-                // default: "_Z4K",
-            })
-            .option("delete-source-files-only", {
-                type: "boolean",
-                default: false,
-                description: t("compress.delete.source.only"),
-            })
+            // 行为控制
             // 是否禁用文件名过滤规则，强制处理所有文件
             .option("force", {
+                alias: "f",
                 type: "boolean",
                 default: false,
                 description: t("compress.force"),
             })
             // 是否覆盖已存在的压缩后文件
-            .option("override", {
+            .option("overwrite", {
+                alias: "O",
                 type: "boolean",
                 default: false,
                 description: t("compress.override"),
             })
-            // 压缩后文件质量参数
-            .option("quality", {
-                alias: "q",
-                type: "number",
-                description: t("compress.quality"),
+            .option("keep-metadata", {
+                alias: "m",
+                describe: t("option.common.keepMetadata"),
+                type: "boolean",
+                default: true,
             })
-            // 需要处理的最小文件大小
-            .option("size", {
-                alias: "s",
-                type: "number",
-                description: t("compress.size"),
+            // 危险操作：删除源文件
+            // 压缩完成后删除原始文件
+            .option("purge", {
+                alias: "P",
+                type: "boolean",
+                default: false,
+                description: t("compress.delete.source"),
             })
-            // 需要处理的图片最小尺寸
-            .option("width", {
-                alias: "w",
-                type: "number",
-                description: t("compress.width"),
-            })
-            // 优先级低于单独的各种参数
-            // 图片处理参数，示例 q=85,w=6000,s=2048,suffix=_Z4K
-            .option("config", {
-                alias: "c",
-                type: "string",
-                description: t("compress.config"),
+            // 仅删除原始文件（跳过压缩），用于补救忘加 --purge 的情况
+            .option("purge-only", {
+                type: "boolean",
+                default: false,
+                description: t("compress.delete.source.only"),
             })
             // 并行操作限制，并发数，默认为 CPU 核心数
             .option("jobs", {
@@ -164,13 +173,13 @@ const handler = cmdCompress
  * @param {number} argv.jobs - 并发任务数
  * @param {string} argv.output - 输出目录
  * @param {number} argv.quality - 压缩质量
- * @param {number} argv.size - 最小文件大小（KB）
- * @param {number} argv.width - 图片最大宽度
+ * @param {number} argv.minSize - 最小文件大小（KB）
+ * @param {number} argv.maxWidth - 图片最大宽度
  * @param {string} argv.suffix - 压缩后文件名后缀
- * @param {boolean} argv.deleteSourceFiles - 是否删除源文件
- * @param {boolean} argv.deleteSourceFilesOnly - 仅删除源文件不压缩
+ * @param {boolean} argv.purge - 压缩后删除源文件
+ * @param {boolean} argv.purgeOnly - 仅删除源文件不压缩
  * @param {boolean} argv.force - 是否强制处理（跳过文件名过滤）
- * @param {boolean} argv.override - 是否覆盖已存在的压缩文件
+ * @param {boolean} argv.overwrite - 是否覆盖已存在的压缩文件
  * @returns {Promise<void>}
  */
 async function cmdCompress(argv) {
@@ -183,17 +192,17 @@ async function cmdCompress(argv) {
     }
     log.show(logTag, argv)
     const cfg = parseImageParams(argv.config)
-    const override = argv.override || false
+    const overwrite = argv.overwrite || false
     const quality = argv.quality || cfg.quality || QUALITY_DEFAULT
-    const minFileSize = (argv.size || cfg.size || SIZE_DEFAULT) * 1024
-    const maxWidth = argv.width || cfg.width || WIDTH_DEFAULT
+    const minFileSize = (argv.minSize || cfg.size || SIZE_DEFAULT) * 1024
+    const maxWidth = argv.maxWidth || cfg.width || WIDTH_DEFAULT
     const suffix = argv.suffix || cfg.suffix || SUFFIX_DEFAULT
-    const purgeOnly = argv.deleteSourceFilesOnly || false
-    const purgeSource = argv.deleteSourceFiles || false
+    const purgeOnly = argv.purgeOnly || false
+    const purgeSource = argv.purge || false
     // 是否保留输出文件的根目录结构，默认为true
-    const keepRoot = argv.keepRoot || true
+    const keepRoot = argv.keepRoot ?? true
     // 是否保留输出文件的元数据，默认为true
-    const keepMetadata = argv.keepMetadata || true
+    const keepMetadata = argv.keepMetadata ?? true
     log.show(`${logTag} input:`, root)
     // 如果有force标志，就不过滤文件名
     const RE_THUMB = argv.force ? /@_@/ : /Z4K|P4K|M4K|feature|web|thumb$/i
@@ -220,7 +229,10 @@ async function cmdCompress(argv) {
     }
 
     // 更新全局配置,检测必要的工具和库支持，后续压缩图片时会用到
-    await updateConfig(argv)
+    // purgeOnly 模式只清理文件，不需要检测图像处理工具
+    if (!purgeOnly) {
+        await updateConfig(argv)
+    }
 
     const confirmFiles = await inquirer.prompt([
         {
@@ -238,26 +250,24 @@ async function cmdCompress(argv) {
     log.showGreen(logTag, t("compress.preparing"))
 
     let startMs = Date.now()
-    const addArgsFunc = async (f, i) => {
-        return {
-            ...f,
-            force: argv.force || false,
-            output: argv.output,
-            total: files.length,
-            index: i,
-            suffix,
-            quality,
-            override,
-            maxWidth,
-            cfg: argv.config,
-            keepRoot,
-            keepMetadata,
-        }
-    }
-    files = await Promise.all(files.map(addArgsFunc))
-    files.forEach((t, i) => {
-        t.bar1 = bar1
-        t.needBar = needBar
+    const addArgsFunc = (f, i) => ({
+        ...f,
+        force: argv.force || false,
+        output: argv.output,
+        total: files.length,
+        index: i,
+        suffix,
+        quality,
+        overwrite,
+        maxWidth,
+        cfg: argv.config,
+        keepRoot,
+        keepMetadata,
+    })
+    files = files.map(addArgsFunc)
+    files.forEach((f, i) => {
+        f.bar1 = bar1
+        f.needBar = needBar
     })
     needBar && bar1.start(files.length, 0)
     let tasks = await pMap(files, preCompress, { concurrency: argv.jobs || cpus().length })
@@ -291,25 +301,19 @@ async function cmdCompress(argv) {
         log.showYellow(t("common.nothing.to.do"))
         return
     }
-    tasks.forEach((t, i) => {
-        t.total = tasks.length
-        t.index = i
-        t.bar1 = null
-        t.needBar = false
+    tasks.forEach((f, i) => {
+        f.total = tasks.length
+        f.index = i
+        f.bar1 = null
+        f.needBar = false
     })
     log.show(logTag, `${t("compress.tasks.summary")} (${helper.humanTime(startMs)}):`)
-    tasks.slice(-1).forEach((t) => {
-        log.show(core.omit(t, "stats", "bar1"))
+    tasks.slice(-1).forEach((f) => {
+        log.show(core.omit(f, "stats", "bar1"))
     })
     log.info(logTag, argv)
     testMode && log.showYellow("++++++++++ " + t("ffmpeg.test.mode") + " ++++++++++")
 
-    if (purgeOnly) {
-        // 此分支理论上不会再被执行（已提前处理），保留作为兜底
-        log.showYellow(logTag, "+++++ PURGE ONLY (NO COMPRESS) +++++")
-        await purgeSrcFiles(allValidTasks)
-        return
-    }
     const answer = await inquirer.prompt([
         {
             type: "confirm",
@@ -336,10 +340,10 @@ async function cmdCompress(argv) {
     } else {
         startMs = Date.now()
         log.showGreen(logTag, "startAt", dayjs().format())
-        tasks.forEach((t) => (t.startMs = startMs))
+        tasks.forEach((f) => (f.startMs = startMs))
         tasks = await pMap(tasks, compressImage, { concurrency: argv.jobs || cpus().length / 2 })
-        const okTasks = tasks.filter((t) => t?.done)
-        const failedTasks = tasks.filter((t) => t?.errorFlag && !t.done)
+        const okTasks = tasks.filter((f) => f?.done)
+        const failedTasks = tasks.filter((f) => f?.errorFlag && !f.done)
         log.showGreen(
             logTag,
             `${okTasks.length} ${t("compress.files.compressed")} ${helper.humanTime(startMs)}`,
@@ -347,7 +351,7 @@ async function cmdCompress(argv) {
         log.showGreen(logTag, "endAt", dayjs().format(), helper.humanTime(startMs))
         if (failedTasks.length > 0) {
             log.showYellow(logTag, `${failedTasks.length} ${t("compress.tasks.failed")}`)
-            const failedContent = failedTasks.map((t) => t.src).join("\n")
+            const failedContent = failedTasks.map((f) => f.src).join("\n")
             const failedLogFile = path.join(
                 root,
                 `mediac_compress_failed_list_${dayjs().format("YYYYMMDDHHmmss")}.txt`,
@@ -382,7 +386,7 @@ async function preCompress(f) {
     const logTag = "PreCompress"
     const maxWidth = f.maxWidth || 6000 // 获取最大宽度限制，默认为6000
     let fileSrc = path.resolve(f.path) // 解析源文件路径
-    const [fDir, base, ext] = helper.pathSplit(fileSrc) // 将路径分解为目录、基本名和扩展名
+    const [fDir, base] = helper.pathSplit(fileSrc) // 将路径分解为目录和基本名
     const suffix = f.suffix || "_Z4K"
     log.info(logTag, "Processing ", fileSrc, suffix)
 
@@ -392,8 +396,7 @@ async function preCompress(f) {
     // 构建目标文件路径，添加压缩后的文件名后缀
     let fileDst = path.join(fileDstDir, `${base}${suffix}.jpg`)
 
-    fileSrc = path.resolve(fileSrc) // 解析源文件路径（再次确认）
-    fileDst = path.resolve(fileDst) // 解析目标文件路径（再次确认）
+    fileDst = path.resolve(fileDst) // 解析目标文件路径
 
     const timeNow = Date.now()
     if (timeNow - compressLastUpdatedAt > 2 * 1000) {
@@ -514,6 +517,8 @@ async function updateConfig(argv) {
                 () => true,
                 () => false,
             )
+        // 清理临时测试文件，无论成功与否
+        await fs.remove(testTmp).catch(() => {})
 
         log.show(
             testOk

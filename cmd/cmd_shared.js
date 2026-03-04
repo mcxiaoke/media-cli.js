@@ -240,22 +240,6 @@ function createExtraMetadata(t) {
 // 这是一个异步函数，用于创建缩略图
 export async function compressImage(t) {
     const logTag = "Compress"
-    // 如果目标文件已存在，且有删除未压缩文件标志
-    // 则不进行压缩处理，添加标志后返回
-    if (t.shouldSkip) {
-        log.show(
-            logTag,
-            `Skip: ${t.index}/${t.total}`,
-            helper.pathShort(t.dst),
-            chalk.yellow(t.skipReason),
-        )
-        log.fileLog(
-            `Skip: ${t.index}/${t.total} <${t.src}> => ${path.basename(t.dst)} ${t.skipReason}`,
-            logTag,
-        )
-        t.dstSize = t.size
-        return t
-    }
     const resizeFunc = config.VIPS_BIN_PATH ? useVipsConvert : useNConvert
     // 试图确保目标文件目录存在，如果不存在则创建
     try {
@@ -310,7 +294,6 @@ export async function compressImage(t) {
         t.errorMessage = errMsg
         t.done = false
         return t
-    } finally {
     }
 } // 结束函数定义
 
