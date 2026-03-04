@@ -286,7 +286,6 @@ async function createNewNameByMode(f) {
     // 确保文件名不含有文件系统不允许的非法字符
     oldBase = helper.filenameSafe(oldBase)
     let fullBase = prefix.length > 0 ? prefix + sep + oldBase : oldBase
-    console.log("======", prefix, `fullBase1: ${fullBase}`)
     // 去除首位空白和特殊字符
     // fullBase = fullBase.replaceAll(RE_UGLY_CHARS_BORDER, "")
     // 多余空白和字符替换为一个字符 _或.

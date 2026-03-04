@@ -57,6 +57,12 @@ const builder = function addOptions(ya, helpOrVersionSet) {
                 type: "boolean",
                 default: true,
             })
+            .option("keep-metadata", {
+                alias: "m",
+                describe: t("option.common.keepMetadata"),
+                type: "boolean",
+                default: true,
+            })
             // 正则，包含文件名规则
             .option("include", {
                 alias: "I",
@@ -186,6 +192,8 @@ async function cmdCompress(argv) {
     const purgeSource = argv.deleteSourceFiles || false
     // 是否保留输出文件的根目录结构，默认为true
     const keepRoot = argv.keepRoot || true
+    // 是否保留输出文件的元数据，默认为true
+    const keepMetadata = argv.keepMetadata || true
     log.show(`${logTag} input:`, root)
     // 如果有force标志，就不过滤文件名
     const RE_THUMB = argv.force ? /@_@/ : /Z4K|P4K|M4K|feature|web|thumb$/i
@@ -243,6 +251,7 @@ async function cmdCompress(argv) {
             maxWidth,
             cfg: argv.config,
             keepRoot,
+            keepMetadata,
         }
     }
     files = await Promise.all(files.map(addArgsFunc))
