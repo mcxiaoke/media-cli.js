@@ -6,7 +6,8 @@
       "Bash(do echo:*)",
       "Bash(grep -c\"/\\\\*\\\\*\" \"$file\")",
       "Bash(done:*)",
-      "Bash(ls cmd/cmd_*.js)"
+      "Bash(ls cmd/cmd_*.js)",
+      "Bash(git add:*)"
     ]
   }
 }

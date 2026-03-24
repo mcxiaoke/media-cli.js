@@ -87,14 +87,19 @@ const builder = function addOptions(ya, helpOrVersionSet) {
 
 /**
  * DCIM重命名命令处理函数
- * 根据EXIF日期重命名媒体文件
+ * 根据EXIF元数据中的日期信息重命名媒体文件
+ * 支持批量处理多个目录，自动跳过无效文件和重复文件
+ *
  * @param {Object} argv - 命令行参数对象
  * @param {string[]} argv.input - 输入目录路径数组
- * @param {boolean} argv.doit - 是否执行实际操作
- * @param {boolean} argv.fast - 是否使用快速模式
- * @param {string} argv.prefix - 文件名前缀
+ * @param {boolean} argv.doit - 是否执行实际操作（false为预览模式）
+ * @param {boolean} argv.fast - 是否使用快速模式（跳过EXIF解析，使用文件修改时间）
+ * @param {string} argv.prefix - 文件名前缀（支持IMG_/DSC_/VID_自动识别）
  * @param {string} argv.suffix - 文件名后缀
- * @param {string} argv.template - 日期模板
+ * @param {string} argv.template - 日期格式化模板（dayjs格式）
+ * @param {boolean} argv.backup - 是否创建备份
+ * @param {string} argv.backup-dir - 备份目录路径
+ * @param {string} argv.log - 日志文件导出路径
  * @returns {Promise<void>}
  */
 const handler = async function cmdRename(argv) {

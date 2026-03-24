@@ -166,9 +166,11 @@ const builder = function addOptions(ya, helpOrVersionSet) {
 const handler = cmdCompress
 
 /**
- * 解析并归一化 argv 为内部配置对象
- * @param {Object} argv - yargs 命令行参数
- * @returns {Object} 归一化后的配置
+ * 解析并归一化命令行参数为内部配置对象
+ * 合并默认配置、配置文件参数和命令行参数
+ *
+ * @param {Object} argv - yargs 命令行参数对象
+ * @returns {Object} 归一化后的压缩配置对象
  */
 function parseCompressOpts(argv) {
     const cfg = parseImageParams(argv.config)
@@ -191,9 +193,13 @@ function parseCompressOpts(argv) {
 
 /**
  * 遍历目录，返回满足过滤条件的图片文件列表
- * @param {string} root - 根目录
- * @param {Object} opts - 配置对象
- * @returns {Promise<Array>}
+ * 使用高性能的文件系统遍历，支持多种过滤条件
+ *
+ * @param {string} root - 根目录路径
+ * @param {Object} opts - 配置对象，包含过滤条件
+ * @param {number} opts.minFileSize - 最小文件大小限制
+ * @param {boolean} opts.force - 是否强制处理所有文件（忽略缩略图过滤）
+ * @returns {Promise<Array>} 符合条件的图片文件列表
  */
 async function walkImageFiles(root, opts) {
     const { minFileSize, force } = opts
@@ -316,8 +322,21 @@ async function writeFailedLog(failedTasks, root, logTag) {
 }
 
 /**
- * 压缩图片命令处理函数
+ * 图片压缩命令的主处理函数
+ * 完整的图片压缩流程控制，包括文件遍历、参数解析、用户确认、压缩执行等
+ *
  * @param {Object} argv - 命令行参数对象
+ * @param {string} argv.input - 输入目录路径
+ * @param {string} argv.output - 输出目录路径（可选）
+ * @param {boolean} argv.doit - 是否执行实际操作（否则为测试模式）
+ * @param {boolean} argv.overwrite - 是否覆盖已存在的文件
+ * @param {number} argv.quality - 压缩质量（1-100）
+ * @param {number} argv.minSize - 最小文件大小（KB），小于此值的文件跳过
+ * @param {number} argv.maxWidth - 最大宽度，超过则等比缩小
+ * @param {string} argv.suffix - 压缩后文件名后缀
+ * @param {boolean} argv.purge - 压缩完成后是否删除源文件
+ * @param {boolean} argv.purgeOnly - 仅删除源文件，不进行压缩
+ * @param {number} argv.jobs - 并发任务数
  * @returns {Promise<void>}
  */
 async function cmdCompress(argv) {
