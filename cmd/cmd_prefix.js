@@ -7,6 +7,7 @@
  */
 
 import chalk from "chalk"
+import dayjs from "dayjs"
 import { sify } from "chinese-conv"
 import fs from "fs-extra"
 import inquirer from "inquirer"
@@ -34,6 +35,12 @@ const MODE_DIR = "dirname"
 const MODE_PREFIX = "prefix"
 const MODE_MEDIA = "media"
 const MODE_CLEAN = "clean"
+const MODE_SEQ = "sequence"
+
+const SUFFIX_DATE = "date"
+const SUFFIX_TIME = "time"
+const SUFFIX_SEQ = "seq"
+const SUFFIX_SIZE = "size"
 
 const NAME_LENGTH = 60
 
@@ -75,7 +82,7 @@ const builder = function addOptions(ya, helpOrVersionSet) {
                 type: "string",
                 default: MODE_AUTO,
                 description: t("prefix.mode"),
-                choices: [MODE_AUTO, MODE_DIR, MODE_PREFIX, MODE_MEDIA, MODE_CLEAN],
+                choices: [MODE_AUTO, MODE_DIR, MODE_PREFIX, MODE_MEDIA, MODE_CLEAN, MODE_SEQ],
             })
             .option("auto", {
                 type: "boolean",
@@ -86,15 +93,20 @@ const builder = function addOptions(ya, helpOrVersionSet) {
                 type: "boolean",
                 description: t("prefix.dirname"),
             })
-            .option("prefix", {
+            .option("mprefix", {
                 alias: "P",
                 type: "boolean",
-                description: t("prefix.prefix"),
+                description: t("prefix.mprefix"),
             })
             .option("media", {
                 alias: "M",
                 type: "boolean",
                 description: t("prefix.media"),
+            })
+            .option("sequence", {
+                alias: "S",
+                type: "boolean",
+                description: t("prefix.suffix.seq"),
             })
             .option("clean-only", {
                 alias: "C",
@@ -125,6 +137,31 @@ const builder = function addOptions(ya, helpOrVersionSet) {
                 type: "boolean",
                 default: false,
                 description: t("option.common.doit"),
+            })
+            // 输出目录选项
+            .option("output", {
+                alias: "o",
+                type: "string",
+                description: t("prefix.output"),
+            })
+            // 文件名后缀模式
+            .option("suffix", {
+                alias: "s",
+                type: "string",
+                description: t("prefix.suffix"),
+                choices: [SUFFIX_DATE, SUFFIX_TIME, SUFFIX_SEQ, SUFFIX_SIZE],
+            })
+            // 序号起始值
+            .option("seq-start", {
+                type: "number",
+                default: 1,
+                description: t("prefix.seq.start"),
+            })
+            // 序号补零位数
+            .option("seq-pad", {
+                type: "number",
+                default: 3,
+                description: t("prefix.seq.pad"),
             })
     )
 }
@@ -167,6 +204,9 @@ function parseNameMode(argv) {
     if (argv.media) {
         mode = MODE_MEDIA
     }
+    if (argv.sequence) {
+        mode = MODE_SEQ
+    }
     if (argv.cleanOnly) {
         mode = MODE_CLEAN
     }
@@ -176,8 +216,13 @@ function parseNameMode(argv) {
 /**
  * 重复文件名Set，检测重复，防止覆盖
  */
-const nameDupSet = new Set()
-let nameDupIndex = 0
+let nameDupSet
+let nameDupIndex
+
+function resetNameDups() {
+    nameDupSet = new Set()
+    nameDupIndex = 0
+}
 
 /**
  * 根据模式创建新文件名
@@ -201,7 +246,8 @@ async function createNewNameByMode(f) {
     const logTag = `Prefix::${mode.toUpperCase()[0]}`
     // 直接忽略 . _ 开头的目录
     if (/^[._]/.test(dirName)) {
-        return
+        f.skipped = true
+        return f
     }
     const ipx = `${f.index}/${f.total}`
     log.info(logTag, `Processing ${ipx} ${f.path}`)
@@ -223,8 +269,9 @@ async function createNewNameByMode(f) {
                 if (prefix.match(RE_MEDIA_DIR_NAME)) {
                     prefix = dirParts[2]
                 }
-                if (prefix.length < 4 && /^[A-Za-z0-9]+$/.test(prefix)) {
-                    prefix = dirParts[2] + sep + prefix
+                const checkPrefix = prefix
+                if (checkPrefix.length < 4 && /^[A-Za-z0-9]+$/.test(checkPrefix)) {
+                    prefix = dirParts[2] + sep + dirName
                 }
             }
             break
@@ -257,8 +304,18 @@ async function createNewNameByMode(f) {
                 const forceAll = argv.all || false
                 if (!shouldCheck && !forceAll) {
                     log.info(logTag, `Ignore: ${ipx} ${helper.pathShort(f.path)} [Auto]`)
-                    return
+                    f.skipped = true
+                    return f
                 }
+            }
+            break
+        case MODE_SEQ:
+            {
+                sep = "_"
+                const seqNum = (f.index + 1 + (argv.seqStart || 1) - 1)
+                    .toString()
+                    .padStart(argv.seqPad || 3, "0")
+                prefix = seqNum
             }
             break
         default:
@@ -299,8 +356,33 @@ async function createNewNameByMode(f) {
     fullBase = helper.unicodeLength(fullBase) > nameLength ? fullBase.slice(nameSlice) : fullBase
     // 再次去掉首位的特殊字符和空白字符
     // fullBase = fullBase.replaceAll(RE_UGLY_CHARS_BORDER, "")
+
+    // 处理后缀
+    let suffix = ""
+    if (argv.suffix) {
+        const suffixSep = "."
+        switch (argv.suffix) {
+            case SUFFIX_DATE:
+                suffix = dayjs(f.mtime || f.ctime).format("YYYY-MM-DD")
+                break
+            case SUFFIX_TIME:
+                suffix = dayjs(f.mtime || f.ctime).format("HHmmss")
+                break
+            case SUFFIX_SEQ:
+                suffix = (f.index + 1 + (argv.seqStart || 1) - 1).toString().padStart(argv.seqPad || 3, "0")
+                break
+            case SUFFIX_SIZE:
+                suffix = helper.humanSize(f.size).replace(" ", "")
+                break
+        }
+        if (suffix) {
+            fullBase = fullBase + suffixSep + suffix
+        }
+    }
+
     let newName = `${fullBase}${ext}`
-    let newPath = path.resolve(path.join(dir, newName))
+    const outputDir = argv.output ? path.resolve(argv.output) : dir
+    let newPath = path.resolve(path.join(outputDir, newName))
 
     if (newPath === f.path) {
         log.info(logTag, `Same: ${ipx} ${helper.pathShort(newPath)}`)
@@ -343,12 +425,20 @@ async function createNewNameByMode(f) {
 }
 
 const handler = async function cmdPrefix(argv) {
+    resetNameDups()
     const testMode = !argv.doit
     const logTag = "cmdPrefix"
     log.info(logTag, argv)
     const root = path.resolve(argv.input)
     if (!root || !(await fs.pathExists(root))) {
         throw createError(ErrorTypes.INVALID_ARGUMENT, `Invalid Input: ${root}`)
+    }
+    if (argv.output) {
+        const outputDir = path.resolve(argv.output)
+        if (!(await fs.pathExists(outputDir))) {
+            await fs.ensureDir(outputDir)
+        }
+        log.show(logTag, `Output: ${outputDir}`)
     }
     if (!testMode) {
         log.fileLog(`Root: ${root}`, logTag)

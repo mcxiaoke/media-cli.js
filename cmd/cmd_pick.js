@@ -1,7 +1,7 @@
 /*
- * Project: mediac
+ * Project: mediacli.js
  * Created: 2026-02-13 17:16:15
- * Modified: 2026-02-17 10:16:15
+ * Modified: 2026-03-24
  * Author: mcxiaoke (github@mcxiaoke.com)
  * License: Apache License 2.0
  */
@@ -26,6 +26,8 @@
  *
  * 3. 采样策略：
  *    - 在理想的时间点附近，优先选择文件体积较大（通常质量更好）的照片。
+ *    - 结合图像质量评估（对比度、清晰度）进行智能选择。
+ *    - 事件聚类：识别不同拍摄事件，确保每个事件都有代表性照片。
  *
  * 4. 输出与操作：
  *    - 缓存：扫描模式下，自动将发现的所有文件保存为 filelist_YYYYMMDD_HHmmss.json 缓存。
@@ -49,42 +51,60 @@ import * as mf from "../lib/file.js"
 import * as helper from "../lib/helper.js"
 import { t } from "../lib/i18n.js"
 import { applyFileNameRules } from "./cmd_shared.js"
-export { aliases, builder, command, describe, handler }
-
 import { ErrorTypes, MediaCliError } from "../lib/errors.js"
+import {
+    HASH_CONFIG,
+    QUALITY_CONFIG,
+    EVENT_CONFIG,
+    CACHE_CONFIG,
+    clusterByEvents,
+    calculateQualityScores,
+    computeHashDedup,
+    loadHashCache,
+    saveHashCache,
+    computeImageFeaturesWithCache,
+} from "../lib/image_hash.js"
+
+const LOG_TAG = "Pick"
+
+export { aliases, builder, command, describe, handler }
 
 const command = "pick <input>"
 const aliases = ["pk"]
 const describe = t("pick.description")
 
-// 配置常量
+/**
+ * 配置常量 - 控制照片挑选的核心参数
+ */
 const CONFIG = {
-    // 每日挑选规则 (数量 -> 分母):
-    // < 100 -> 1/2
-    // < 500 -> 1/3
-    // < 1000 -> 1/4
-    // > 1000 -> 1/5
+    /**
+     * 梯度比例配置 - 根据当天照片总量决定保留比例
+     */
     RATIO_LEVELS: [
         { limit: 100, ratio: 1.5 },
         { limit: 500, ratio: 2 },
         { limit: 1000, ratio: 3 },
     ],
-    MAX_RATIO: 4, // > 1000
 
-    // 每日最大挑选数量 (硬限制)
+    MAX_RATIO: 4,
     MAX_FILES_PER_DAY: 50,
-
-    // 如果当天照片极其少 (< MIN_FILES_KEEP_ALL)，则全部保留
     MIN_FILES_KEEP_ALL: 10,
-
-    // 每小时限制 (20 张)
     MAX_PER_HOUR: 20,
-
-    // 最小间隔 (默认 5 分钟 = 300000 ms) - 具体值会在 selectForDay 中根据当天照片数量动态计算
     MIN_INTERVAL_MS: 5 * 60 * 1000,
-
-    // 宠物/特定主题每日最大数量
     MAX_PET_PER_DAY: 20,
+
+    /**
+     * 连拍模式配置
+     */
+    BURST_MODE: {
+        SECONDS_THRESHOLD: 2,
+        SAMESEC_THRESHOLD: 3,
+        KEEP_LARGEST: 2,
+    },
+
+    IMAGE_HASH: HASH_CONFIG,
+    EVENT_CLUSTER: EVENT_CONFIG,
+    IMAGE_QUALITY: QUALITY_CONFIG,
 }
 
 const builder = (ya) =>
@@ -124,26 +144,96 @@ const builder = (ya) =>
             default: Math.max(1, Math.floor(os.cpus().length / 4)),
             describe: t("option.common.jobs"),
         })
+        .option("burst-mode", {
+            alias: "b",
+            type: "string",
+            choices: ["off", "auto", "aggressive"],
+            default: "auto",
+            describe: t("option.pick.burstMode"),
+        })
+        .option("hash-dedup", {
+            alias: "H",
+            type: "boolean",
+            default: false,
+            describe: t("option.pick.hashDedup"),
+        })
+        .option("hash-threshold", {
+            type: "number",
+            default: CONFIG.IMAGE_HASH.THRESHOLD,
+            describe: t("option.pick.hashThreshold"),
+        })
+        .option("cache", {
+            alias: "c",
+            type: "boolean",
+            default: true,
+            describe: "启用哈希缓存（加速多次运行）",
+        })
+        .option("cache-file", {
+            type: "string",
+            describe: "指定缓存文件路径（默认在输出目录）",
+        })
+        .option("no-cache", {
+            type: "boolean",
+            default: false,
+            describe: "禁用缓存，重新计算所有特征",
+        })
 
 const handler = cmdPick
 
-// 主命令入口：负责参数处理、文件加载、逻辑调用与结果输出
-export async function cmdPick(argv) {
-    const logTag = "cmdPick"
-    log.show(logTag, argv)
+const FILE_LIST_CACHE_DAYS = 3
 
-    // 1. 文件源加载
+function isFileListCacheValid(cacheData) {
+    if (!cacheData || !cacheData.createdAt) return false
+    const createdAt = dayjs(cacheData.createdAt)
+    const expiresAt = createdAt.add(FILE_LIST_CACHE_DAYS, "day")
+    return dayjs().isBefore(expiresAt)
+}
+
+async function findValidFileListCache(outputDir, rootPath) {
+    try {
+        if (!(await fs.pathExists(outputDir))) return null
+
+        const files = await fs.readdir(outputDir)
+        const cacheFiles = files
+            .filter((f) => f.startsWith("filelist_") && f.endsWith(".json"))
+            .sort()
+            .reverse()
+
+        for (const cacheFile of cacheFiles) {
+            const cachePath = path.join(outputDir, cacheFile)
+            try {
+                const data = await fs.readJson(cachePath)
+                if (isFileListCacheValid(data) && Array.isArray(data.files)) {
+                    const cacheRoot = data.root || ""
+                    if (cacheRoot && rootPath && !cacheRoot.includes(rootPath) && !rootPath.includes(cacheRoot)) {
+                        continue
+                    }
+                    return { path: cachePath, data, fileCount: data.files.length }
+                }
+            } catch (e) {
+                continue
+            }
+        }
+        return null
+    } catch (e) {
+        return null
+    }
+}
+
+export async function cmdPick(argv) {
+    log.logInfo(LOG_TAG, argv)
+
     let entries = []
     let root = argv.input
 
+    const outDir = argv.output || "output"
+
     if (argv.fileList) {
-        // 模式 1: 直接读取文件列表
-        // 适用于已通过其他手段获取文件清单，直接进行挑选的场景
-        log.show(logTag, t("pick.using.file.list", { path: argv.fileList }))
+        log.logInfo(LOG_TAG, t("pick.using.file.list", { path: argv.fileList }))
         if (!(await fs.pathExists(argv.fileList))) {
             throw new MediaCliError(
                 ErrorTypes.FILE_NOT_FOUND,
-                t("pick.file.list.not.found", { path: argv.fileList }),
+                t("pick.file.list.not.found", { path: argv.fileList })
             )
         }
         const fileListExt = helper.pathExt(argv.fileList, true)
@@ -155,46 +245,43 @@ export async function cmdPick(argv) {
                 const jsonData = JSON.parse(content)
                 if (Array.isArray(jsonData)) {
                     rawList = jsonData
-                    // 严格校验 JSON 结构，避免后续逻辑出错
                     for (const item of rawList) {
                         if (!item.path || typeof item.size === "undefined") {
                             throw new MediaCliError(
                                 ErrorTypes.INVALID_JSON_INPUT,
-                                t("pick.json.missing.field", { item: JSON.stringify(item) }),
+                                t("pick.json.missing.field", { item: JSON.stringify(item) })
                             )
                         }
                     }
                 } else {
                     throw new MediaCliError(
                         ErrorTypes.INVALID_JSON_INPUT,
-                        t("pick.json.must.be.array"),
+                        t("pick.json.must.be.array")
                     )
                 }
             } catch (e) {
-                // 如果已经是 MediaCliError，直接抛出
                 if (e instanceof MediaCliError) {
                     throw e
                 }
                 throw new MediaCliError(
                     ErrorTypes.INVALID_JSON_INPUT,
                     t("pick.json.parse.failed", { error: e.message }),
-                    e,
+                    e
                 )
             }
         } else if (fileListExt === ".txt") {
             rawList = content
                 .split(/\r?\n/)
-                .map((line) => line.trim()) // 去除行首尾空白
+                .map((line) => line.trim())
                 .filter((line) => line.length > 0)
-                .map((line) => ({ path: line, size: 0 })) // 文本列表默认无大小信息
+                .map((line) => ({ path: line, size: 0 }))
         } else {
             throw new MediaCliError(
                 ErrorTypes.INVALID_ARGUMENT,
-                t("pick.file.list.format.unknown", { ext: fileListExt }),
+                t("pick.file.list.format.unknown", { ext: fileListExt })
             )
         }
 
-        // 统一转换为标准 Entry 结构
         entries = rawList
             .map((item) => {
                 const p = item.path
@@ -209,106 +296,163 @@ export async function cmdPick(argv) {
             })
             .filter((e) => e !== null)
 
-        log.show(logTag, t("pick.loaded.entries", { count: entries.length }))
+        log.logInfo(LOG_TAG, t("pick.loaded.entries", { count: entries.length }))
     } else {
-        // 模式 2: 扫描目录
-        // 递归扫描指定目录，应用正则过滤
         root = await helper.validateInput(argv.input)
-        const ignoreRe = /delete|thumb|mvimg|feat|misc|shots|vsco|twit|p950|吃|喝|截|票|医/i
-        const walkOpts = {
-            needStats: true,
-            entryFilter: (f) => {
-                if (!f.isFile) return false
-                if (f.size < 200 * 1024) return false // 过滤掉小于 200KB 的小文件/缩略图
-                if (ignoreRe.test(f.path)) return false
-                return helper.isImageFile(f.name || f.path)
-            },
-        }
-        entries = await log.measure(mf.walk)(root, walkOpts)
 
-        // 自动缓存文件列表供后续使用或调试
-        const timestamp = dayjs().format("YYYYMMDD_HHmmss")
-        const fileListName = `filelist_${timestamp}.json`
-        const outputDir = argv.output || "output" // 优先使用 argv.output 或默认为 ./output
-        await fs.ensureDir(outputDir)
-        const fileListOutput = path.join(outputDir, fileListName)
+        const validCache = await findValidFileListCache(outDir, root)
+        if (validCache && !argv.noCache) {
+            log.logInfo(
+                LOG_TAG,
+                `Found valid file-list cache: ${validCache.path} (${validCache.fileCount} files, ${FILE_LIST_CACHE_DAYS} days valid)`
+            )
+            entries = validCache.data.files.map((item) => ({
+                path: item.path,
+                name: item.name || path.basename(item.path),
+                size: item.size,
+                isFile: true,
+                stats: { mtime: item.mtime ? new Date(item.mtime) : new Date() },
+            }))
+            log.logInfo(LOG_TAG, `Loaded ${entries.length} entries from cache`)
+        } else {
+            const ignoreRe = /delete|thumb|mvimg|feat|misc|shots|vsco|twit|p950|吃|喝|截|票|医/i
+            const walkOpts = {
+                needStats: true,
+                entryFilter: (f) => {
+                    if (!f.isFile) return false
+                    if (f.size < 200 * 1024) return false
+                    if (ignoreRe.test(f.path)) return false
+                    return helper.isImageFile(f.name || f.path)
+                },
+            }
+            entries = await log.measure(mf.walk)(root, walkOpts)
 
-        const cachedList = entries.map((e) => ({
-            path: e.path,
-            name: e.name,
-            size: e.size,
-            ext: path.extname(e.path),
-            mtime: e.stats?.mtime,
-        }))
+            const timestamp = dayjs().format("YYYYMMDD_HHmmss")
+            const fileListName = `filelist_${timestamp}.json`
+            await fs.ensureDir(outDir)
+            const fileListOutput = path.join(outDir, fileListName)
 
-        try {
-            await fs.writeJSON(fileListOutput, cachedList, { spaces: 2 })
-            log.show(logTag, `File list cached to: ${fileListOutput}`)
-        } catch (err) {
-            log.showYellow(logTag, `Failed to cache file list: ${err.message}`)
+            const cacheData = {
+                version: 1,
+                createdAt: new Date().toISOString(),
+                root: root,
+                validDays: FILE_LIST_CACHE_DAYS,
+                files: entries.map((e) => ({
+                    path: e.path,
+                    name: e.name,
+                    size: e.size,
+                    ext: path.extname(e.path),
+                    mtime: e.stats?.mtime,
+                })),
+            }
+
+            try {
+                await fs.writeJSON(fileListOutput, cacheData, { spaces: 2 })
+                log.logInfo(LOG_TAG, `File list cached to: ${fileListOutput} (valid for ${FILE_LIST_CACHE_DAYS} days)`)
+            } catch (err) {
+                log.logWarn(LOG_TAG, `Failed to cache file list: ${err.message}`)
+            }
         }
     }
     entries = await log.measure(applyFileNameRules)(entries, argv)
 
-    log.show(logTag, t("compress.total.files.found", { count: entries.length }))
+    log.logInfo(LOG_TAG, t("compress.total.files.found", { count: entries.length }))
     if (!entries || entries.length === 0) {
-        log.showYellow(t("common.nothing.to.do"))
+        log.logWarn(LOG_TAG, t("common.nothing.to.do"))
         return
     }
+
     const { validEntries, ignoredDirs } = await log.measure(filterIgnoredDirs)(entries, root)
     if (validEntries.length < entries.length) {
         for (const d of ignoredDirs) {
-            log.showYellow(logTag, t("pick.dir.ignored", { name: d }))
+            log.logWarn(LOG_TAG, t("pick.dir.ignored", { name: d }))
         }
-        log.showYellow(
-            logTag,
-            t("pick.entries.ignored", { count: entries.length - validEntries.length }),
+        log.logWarn(
+            LOG_TAG,
+            t("pick.entries.ignored", { count: entries.length - validEntries.length })
         )
         if (validEntries.length === 0) {
-            log.showYellow(logTag, t("pick.no.files"))
+            log.logWarn(LOG_TAG, t("pick.no.files"))
             return
         }
     }
 
-    // Load exclude list
     const excludedFiles = new Set()
+
     if (argv.excludeDir && (await fs.pathExists(argv.excludeDir))) {
         try {
             const excludePath = path.resolve(argv.excludeDir)
-            log.show(logTag, `Loading exclude files from: ${excludePath}`)
+            log.logInfo(LOG_TAG, `Loading exclude files from: ${excludePath}`)
             const items = await mf.walk(excludePath, {
                 entryFilter: (f) => helper.isMediaFile(f.name),
             })
             for (const item of items) {
                 excludedFiles.add(item.name)
             }
-            log.show(logTag, `Loaded ${excludedFiles.size} files to exclude.`)
+            log.logInfo(LOG_TAG, `Loaded ${excludedFiles.size} files to exclude.`)
         } catch (e) {
-            log.showRed(logTag, `Failed to load exclude dir: ${e.message}`)
+            log.logError(LOG_TAG, `Failed to load exclude dir: ${e.message}`)
         }
     }
 
-    // 2. 提取日期
     const parseFilesByNameMeasured = log.measure(parseFilesByName)
     const parsed = await parseFilesByNameMeasured(validEntries)
     if (!parsed.length) {
-        log.showYellow(logTag, t("pick.no.dates"))
+        log.logWarn(LOG_TAG, t("pick.no.dates"))
         return
     }
-    // 初始排序
     parsed.sort((a, b) => a.date - b.date)
 
-    // 3. 统计原始数据（筛选前）
     const sourceStats = await log.measure(calculateSourceStats)(parsed)
 
-    // 4. 应用挑选规则
-    const processDailySelectionsMeasured = log.measure(processDailySelections)
-    const daySelections = await processDailySelectionsMeasured(parsed, argv)
-    // Monthly limit logic removed as per request
-    // applyMonthlyLimit(daySelections, 1000)
+    const burstMode = argv.burstMode || "auto"
+    const hashDedup = argv.hashDedup || false
 
-    // 5. 汇总结果与构建JSON
-    // 聚合 selected
+    let processedForBurst = parsed
+    if (burstMode !== "off") {
+        const burstResult = await log.measure(processBurstGroups)(parsed, burstMode)
+        processedForBurst = burstResult.filtered
+        if (burstResult.removedCount > 0) {
+            log.logInfo(LOG_TAG, t("pick.burst.removed", { count: burstResult.removedCount }))
+        }
+    }
+
+    const processDailySelectionsMeasured = log.measure(processDailySelections)
+    let daySelections = await processDailySelectionsMeasured(processedForBurst, argv)
+
+    const useCache = !argv.noCache && argv.cache !== false
+    const cacheFile = argv.cacheFile || path.join(outDir, CACHE_CONFIG.FILENAME)
+
+    let cache = null
+    if (useCache && hashDedup) {
+        cache = await loadHashCache(cacheFile, root)
+        if (cache) {
+            log.logInfo(LOG_TAG, `Loaded cache from: ${cacheFile}`)
+        }
+    }
+
+    let cacheEntries = {}
+    if (hashDedup) {
+        const dedupResult = await log.measure(processImageHashDedup)(
+            daySelections,
+            argv.hashThreshold,
+            { cache, rootPath: root, useCache }
+        )
+        cacheEntries = dedupResult.cacheEntries || {}
+        if (dedupResult.removedCount > 0) {
+            log.logInfo(LOG_TAG, t("pick.hash.removed", { count: dedupResult.removedCount }))
+        }
+    }
+
+    if (useCache && hashDedup && Object.keys(cacheEntries).length > 0) {
+        await saveHashCache(cacheFile, root, cacheEntries, {
+            ahashSize: CONFIG.IMAGE_HASH.AHASH_SIZE,
+            phashSize: CONFIG.IMAGE_HASH.PHASH_SIZE,
+            sampleSize: CONFIG.IMAGE_QUALITY.SAMPLE_SIZE,
+        })
+        log.logInfo(LOG_TAG, `Saved cache to: ${cacheFile}`)
+    }
+
     const pickedFiles = []
     const selectedStats = { days: new Map(), months: new Map(), years: new Map() }
 
@@ -317,9 +461,8 @@ export async function cmdPick(argv) {
         arr.sort((a, b) => a.date - b.date)
         pickedFiles.push(...arr)
 
-        // Stats counting
         if (arr.length > 0) {
-            const date = dayjs(day) // day is YYYY-MM-DD
+            const date = dayjs(day)
             const m = date.format("YYYY-MM")
             const y = date.format("YYYY")
 
@@ -333,34 +476,25 @@ export async function cmdPick(argv) {
     const outputData = await buildJsonOutputMeasured(daySelections, sourceStats, selectedStats)
     outputData.root = root
 
-    // 6. 输出文件
     const nowTag = dayjs().format("YYYYMMDD_HHmmss")
-    // 如果指定了 output，则 output 作为输出目录，否则使用系统临时目录
-    // 改动：如果没有output，不保存到输入目录，而是保存到临时目录
-    const outDir = argv.output ? argv.output : os.tmpdir()
-    // 确保是目录
-    await fs.ensureDir(outDir)
-
     const jsonName = path.join(outDir, `picked_${nowTag}.json`)
     await fs.writeJson(jsonName, outputData, { spaces: 2 })
 
-    // 7. 控制台输出
     printConsoleStats(pickedFiles.length, selectedStats, sourceStats, jsonName)
-    log.showGreen(logTag, t("pick.result.saved", { path: jsonName }))
+    log.logSuccess(LOG_TAG, t("pick.result.saved", { path: jsonName }))
 
     if (pickedFiles.length === 0) {
-        log.showYellow(logTag, t("pick.copy.no.files"))
+        log.logWarn(LOG_TAG, t("pick.copy.no.files"))
         return
     }
-    // 8. 检查文件是否在排除目录中
 
     const filesAfterExclude = pickedFiles.filter((e) => !excludedFiles.has(e.name))
     if (filesAfterExclude.length < pickedFiles.length) {
-        log.showYellow(
-            logTag,
+        log.logWarn(
+            LOG_TAG,
             t("pick.entries.excluded", {
                 count: pickedFiles.length - filesAfterExclude.length,
-            }),
+            })
         )
     }
 
@@ -373,33 +507,33 @@ export async function cmdPick(argv) {
         return !(await fs.pathExists(dest))
     }
 
-    // 9. 检查输出目录，过滤掉已存在的文件
     const finalFiles = await pFilter(filesAfterExclude, checkExistsFunc, {
         concurrency: argv.jobs * 4,
     })
 
     if (finalFiles.length < filesAfterExclude.length) {
-        log.showYellow(
-            logTag,
+        log.logWarn(
+            LOG_TAG,
             t("pick.copy.skip.exists.count", {
                 count: filesAfterExclude.length - finalFiles.length,
-            }),
+            })
         )
     }
 
     if (finalFiles.length === 0) {
-        log.showYellow(logTag, t("pick.copy.no.files"))
+        log.logWarn(LOG_TAG, t("pick.copy.no.files"))
         return
     }
 
-    // 10. 复制文件
     await copyPickedFiles(finalFiles, root, argv)
 }
 
+/**
+ * 复制选中的照片到输出目录
+ */
 async function copyPickedFiles(files, root, argv) {
-    const logTag = "cmdPick"
     if (!argv.output) {
-        log.showYellow(logTag, t("pick.skip.copy.no.output"))
+        log.logWarn(LOG_TAG, t("pick.skip.copy.no.output"))
         return
     }
 
@@ -407,10 +541,7 @@ async function copyPickedFiles(files, root, argv) {
 
     let copyIndex = 0
     const copyTotal = files.length
-    // 不要在输入目录里创建副本，除非用户真的想这么做（通常不会）
-    // outDir 已在前面通过 ensureDir 创建
 
-    // 提示用户
     const questions = [
         {
             type: "confirm",
@@ -422,43 +553,37 @@ async function copyPickedFiles(files, root, argv) {
 
     const answers = await inquirer.prompt(questions)
     if (!answers.doCopy) {
-        log.showYellow(logTag, t("common.aborted.by.user"))
+        log.logWarn(LOG_TAG, t("common.aborted.by.user"))
         return
     }
 
-    log.showGreen(logTag, t("pick.copy.start", { dryRun: argv.dryRun }))
+    log.logSuccess(LOG_TAG, t("pick.copy.start", { dryRun: argv.dryRun }))
 
-    // 用于生成报告
-    const reportData = {} // { "202401": ["name1.jpg", "name2.jpg"] }
+    const reportData = {}
 
     const mapper = async (f) => {
-        // 计算目标路径结构：Year/YearMonth/Filename
-        // f.date 已经在 parseFilesByName 中解析为 Date 对象
         const date = dayjs(f.date)
         const year = date.format("YYYY")
         const month = date.format("YYYYMM")
 
-        // 目标相对路径：2024\202401\IMG_001.jpg
         const destRel = path.join(year, month, path.basename(f.path))
         const dest = path.join(outDir, destRel)
 
-        // 文件大小格式化
         const sizeStr = (f.size / 1024 / 1024).toFixed(2) + " MB"
 
         if (argv.dryRun) {
-            log.show(logTag, t("pick.copy.dryrun", { src: f.path, dest: dest, size: sizeStr }))
+            log.logInfo(LOG_TAG, t("pick.copy.dryrun", { src: f.path, dest: dest, size: sizeStr }))
             return { status: "success" }
         } else {
             ++copyIndex
             try {
-                // 检查目标是否存在
                 if (await fs.pathExists(dest)) {
-                    log.showGray(
-                        logTag,
+                    log.logSkip(
+                        LOG_TAG,
                         t("pick.copy.skip.exists", {
                             index: `${copyIndex}/${copyTotal}`,
                             path: f.path,
-                        }),
+                        })
                     )
                     return { status: "skipped", month: month, srcPath: f.path }
                 }
@@ -466,19 +591,19 @@ async function copyPickedFiles(files, root, argv) {
                 await fs.ensureDir(path.dirname(dest))
                 await fs.copy(f.path, dest, { preserveTimestamps: true })
 
-                log.show(
-                    logTag,
+                log.logTask(
+                    LOG_TAG,
+                    copyIndex,
+                    copyTotal,
                     t("pick.copy.done", {
-                        index: `${copyIndex}/${copyTotal}`,
                         name: helper.pathShort(f.path),
                         dest: path.dirname(destRel),
                         size: sizeStr,
-                    }),
+                    })
                 )
-                // 返回成功信息以便后续统计
                 return { status: "success", month: month, srcPath: f.path }
             } catch (err) {
-                log.showRed(logTag, t("pick.copy.error", { path: f.path }), err)
+                log.logError(LOG_TAG, t("pick.copy.error", { path: f.path }), err)
                 return { status: "error", error: err }
             }
         }
@@ -486,12 +611,10 @@ async function copyPickedFiles(files, root, argv) {
 
     const results = await pMap(files, mapper, { concurrency: cpus().length })
 
-    // 统一统计结果
     const count = results.filter((r) => r.status === "success").length
     const skipCount = results.filter((r) => r.status === "skipped").length
     const errorCount = results.filter((r) => r.status === "error").length
 
-    // 构建报告数据
     if (!argv.dryRun) {
         results.forEach((r) => {
             if ((r.status === "success" || r.status === "skipped") && r.month && r.srcPath) {
@@ -501,20 +624,23 @@ async function copyPickedFiles(files, root, argv) {
         })
     }
 
-    log.showGreen(logTag, t("pick.copy.finish", { count, skip: skipCount, error: errorCount }))
+    log.logSuccess(LOG_TAG, t("pick.copy.finish", { count, skip: skipCount, error: errorCount }))
 
     if (!argv.dryRun && count > 0) {
         const nowTag = dayjs().format("YYYYMMDD_HHmmss")
         const reportName = path.join(outDir, `report_${nowTag}.json`)
         try {
             await fs.writeJson(reportName, reportData, { spaces: 2 })
-            log.showGreen(logTag, t("pick.report.saved", { path: reportName }))
+            log.logSuccess(LOG_TAG, t("pick.report.saved", { path: reportName }))
         } catch (e) {
-            log.showRed(logTag, t("pick.report.failed", { error: e.message }))
+            log.logError(LOG_TAG, t("pick.report.failed", { error: e.message }))
         }
     }
 }
 
+/**
+ * 计算源文件统计信息
+ */
 function calculateSourceStats(parsed) {
     const s = { days: new Map(), months: new Map(), years: new Map() }
     for (const p of parsed) {
@@ -528,59 +654,26 @@ function calculateSourceStats(parsed) {
     return s
 }
 
-// 构建最终的 JSON 输出对象
+/**
+ * 构建 JSON 输出数据结构
+ */
 function buildJsonOutput(daySelections, srcStats, selStats) {
-    // 输出 JSON 结构说明:
-    // {
-    //   generatedAt: "2026-02-17 12:00:00",
-    //   files: [ // 被选中的文件列表，按年-月层级组织
-    //     {
-    //       year: "2024",
-    //       months: [
-    //         {
-    //           month: "202401",
-    //           total: 100,      // 该月原始总数
-    //           selected: 20,    // 该月选中总数
-    //           files: ["path/to/img1.jpg", ...] // 选中的文件路径列表
-    //         }
-    //       ]
-    //     }
-    //   ],
-    //   stats: [ // 详细统计信息
-    //     {
-    //       year: "2024",
-    //       stats: {
-    //         total: 1000,
-    //         selected: 200,
-    //         months: {
-    //           "202401": { total: 100, selected: 20, days: { "20240101": { total: 10, selected: 2 } } }
-    //         }
-    //       }
-    //     }
-    //   ]
-    // }
-
     const filesByYear = new Map()
     const statsByYear = new Map()
 
-    // 遍历所有年份（以源数据为准，覆盖所有年份）
     const allYears = Array.from(srcStats.years.keys()).sort()
 
     const outputFiles = []
     const outputStats = []
 
     for (const year of allYears) {
-        // --- 构建文件部分 (Files Section) ---
         const yearMonths = []
-        // 查找属于该年的所有月份
         const monthsInYear = Array.from(srcStats.months.keys())
             .filter((m) => m.startsWith(year))
             .sort()
 
         for (const m of monthsInYear) {
             const mFiles = []
-            // 收集该月份被选中的文件
-            // 需要遍历该月包含的所有日期
             const daysInMonth = Array.from(daySelections.keys())
                 .filter((d) => d.startsWith(m))
                 .sort()
@@ -590,10 +683,9 @@ function buildJsonOutput(daySelections, srcStats, selStats) {
                 if (arr) mFiles.push(...arr.map((f) => f.path))
             }
 
-            const monthKey = m.replace("-", "") // 格式化: 2025-01 -> 202501
+            const monthKey = m.replace("-", "")
             const mTotal = srcStats.months.get(m) || 0
 
-            // 仅当该月有选中文件时才添加到输出列表
             if (mFiles.length > 0) {
                 yearMonths.push({
                     month: monthKey,
@@ -611,25 +703,22 @@ function buildJsonOutput(daySelections, srcStats, selStats) {
             })
         }
 
-        // --- 构建统计部分 (Stats Section) ---
         const yStats = {
             total: srcStats.years.get(year) || 0,
             selected: selStats.years.get(year) || 0,
             months: {},
-            // days: {}, // 每日统计已移动到 months 节点下
         }
 
         for (const m of monthsInYear) {
-            const monthKey = m.replace("-", "") // 2025-01 -> 202501
+            const monthKey = m.replace("-", "")
 
-            // 收集该月内的每日统计数据
             const daysData = {}
             const daysInMonth = Array.from(srcStats.days.keys())
                 .filter((d) => d.startsWith(m))
                 .sort()
 
             for (const d of daysInMonth) {
-                const dayKey = d.replaceAll("-", "") // 2025-01-01 -> 20250101
+                const dayKey = d.replaceAll("-", "")
                 daysData[dayKey] = {
                     total: srcStats.days.get(d) || 0,
                     selected: selStats.days.get(d) || 0,
@@ -656,14 +745,11 @@ function buildJsonOutput(daySelections, srcStats, selStats) {
     }
 }
 
-// ----------------------------------------------------------------------------
-// 逻辑实现
-// ----------------------------------------------------------------------------
-
-// 从文件名提取日期时间
+/**
+ * 从文件名解析日期时间
+ */
 async function parseFilesByName(entries) {
     const mapper = async (e) => {
-        // Regex: YYYY MM DD [_-]? HH mm ss
         const re = /(\d{4})(\d{2})(\d{2})[_-]?(\d{2})(\d{2})(\d{2})/
         const name = path.basename(e.path)
         const m = name.match(re)
@@ -676,7 +762,6 @@ async function parseFilesByName(entries) {
         const m_ = parseInt(m[5], 10)
         const s = parseInt(m[6], 10)
 
-        // Basic Range Check
         if (Y < 2000 || Y > 2050) return null
         if (M < 1 || M > 12) return null
         if (D < 1 || D > 31) return null
@@ -688,14 +773,12 @@ async function parseFilesByName(entries) {
         const date = dayjs(dateStr)
 
         if (date.isValid()) {
-            // Strict check to prevent auto-correction (e.g. Feb 30 -> Mar 2)
             if (date.year() !== Y || date.month() + 1 !== M || date.date() !== D) {
                 return null
             }
             return {
                 name: e.name,
                 path: e.path,
-                // 保留 size 用于智能选择策略（优先选大图）
                 size: e.size || (e.stats && e.stats.size) || 0,
                 date: date.toDate(),
                 dayKey: date.format("YYYY-MM-DD"),
@@ -708,10 +791,11 @@ async function parseFilesByName(entries) {
     return results.filter((r) => r !== null)
 }
 
-// 按天分组并应用日常挑选规则
+/**
+ * 按天分组并应用筛选规则
+ */
 async function processDailySelections(parsed, argv = {}) {
     const dayLimit = argv.dayLimit || CONFIG.MAX_FILES_PER_DAY
-    // Group by day
     const days = new Map()
     for (const it of parsed) {
         if (!days.has(it.dayKey)) days.set(it.dayKey, [])
@@ -722,8 +806,8 @@ async function processDailySelections(parsed, argv = {}) {
     const dayKeys = Array.from(days.keys())
 
     const mapper = async (day) => {
-        const files = days.get(day) // 这一天的所有文件
-        files.sort((a, b) => a.date - b.date) // 确保按时间排序，虽然 parseFilesByName 已经排过，但为了安全
+        const files = days.get(day)
+        files.sort((a, b) => a.date - b.date)
 
         const total = files.length
         let targetCount = 0
@@ -731,7 +815,6 @@ async function processDailySelections(parsed, argv = {}) {
         if (total < CONFIG.MIN_FILES_KEEP_ALL) {
             targetCount = total
         } else {
-            // Gradient ratios
             let ratio = CONFIG.MAX_RATIO
             for (const level of CONFIG.RATIO_LEVELS) {
                 if (total < level.limit) {
@@ -741,24 +824,17 @@ async function processDailySelections(parsed, argv = {}) {
             }
             targetCount = Math.ceil(total / ratio)
 
-            // 每日最大数量限制
             if (targetCount > dayLimit) {
                 targetCount = dayLimit
             }
         }
 
-        // 确保不超过总数
         if (targetCount > total) targetCount = total
 
-        // selectForDay 是纯 CPU 计算
-        const picked = selectForDay(files, targetCount)
+        const picked = await selectForDay(files, targetCount)
         return { day, picked }
     }
 
-    // 虽然是同步计算，使用 pMap 可以避免长时间阻塞事件循环（如果每步稍微 yield 一下）
-    // 但目前 selectForDay 没有 yield。
-    // 如果想要利用多核，必须用 Worker Threads，但在 JS 单线程模型下，这里主要是为了代码结构一致性
-    // 并且如果列表很大，分批处理比一个大循环稍微好一点点（GC 友好？）
     const results = await pMap(dayKeys, mapper, { concurrency: cpus().length })
 
     for (const res of results) {
@@ -767,27 +843,15 @@ async function processDailySelections(parsed, argv = {}) {
     return selections
 }
 
-// 针对单天的具体挑选逻辑
-// 规则：使用配置常量控制间隔和数量
-function selectForDay(files, targetN) {
+/**
+ * 单日照片选择核心算法
+ */
+async function selectForDay(files, targetN) {
     if (targetN === 0) return []
-    // 少量照片全选
     if (files.length < CONFIG.MIN_FILES_KEEP_ALL) return files.slice()
-
-    // 准备文件大小信息（如果没有size属性，尝试使用mock或fallback）
-    // entries 来自 walk 结果，应该有 size (fs.Stats)
-    // 之前解析时 parseFilesByName 没带 size，这里需要修正 parseFilesByName 或在此处读取
-    // 实际上 parseFilesByName 里注掉了 size。我们需要回去把 size 加上。
-    // 假设 files 里现在有了 size (见下文修正)
 
     const len = files.length
 
-    // 动态计算最小间隔 (依据当天总照片数)
-    // < 50 张: 10秒
-    // < 100 张: 30秒
-    // < 500 张: 2 分钟
-    // < 1000 张: 3 分钟
-    // >= 1000 张: 4 分钟 (维持原状)
     let minIntervalMs = 4 * 60 * 1000
     if (len < 50) {
         minIntervalMs = 10 * 1000
@@ -799,7 +863,32 @@ function selectForDay(files, targetN) {
         minIntervalMs = 3 * 60 * 1000
     }
 
-    // 生成目标索引：平均分布
+    const qualityScores = await calculateQualityScores(files, CONFIG.IMAGE_QUALITY)
+
+    const events = clusterByEvents(files, CONFIG.EVENT_CLUSTER.GAP_THRESHOLD_MS)
+
+    if (events.length <= 2) {
+        return selectForDaySimple(files, targetN, minIntervalMs, qualityScores)
+    }
+
+    const picked = selectFromEventsWithQuality(
+        events,
+        targetN,
+        minIntervalMs,
+        CONFIG.MAX_PER_HOUR,
+        CONFIG.MAX_PET_PER_DAY,
+        qualityScores
+    )
+
+    return picked
+}
+
+/**
+ * 简单均匀分布选择算法
+ */
+function selectForDaySimple(files, targetN, minIntervalMs, qualityScores) {
+    const len = files.length
+
     const indices = []
     for (let i = 0; i < targetN; i++) {
         indices.push(Math.floor(((i + 0.5) * len) / targetN))
@@ -807,27 +896,22 @@ function selectForDay(files, targetN) {
 
     const picked = []
     const takenIndices = new Set()
-    const hourCounts = new Map() // 'YYYY-MM-DD-HH' -> count
+    const hourCounts = new Map()
 
-    // Pet limit
     const petRe = /猪|宠|猫|鸟|鱼|鹦鹉|cat|bird/i
     let petCount = 0
 
-    // 检查是否可被选中
     const canPick = (idx) => {
         const candidate = files[idx]
         const candTime = candidate.date.getTime()
         const candHour = dayjs(candidate.date).format("YYYY-MM-DD-HH")
 
-        // 1. 每小时限制
         if ((hourCounts.get(candHour) || 0) >= CONFIG.MAX_PER_HOUR) return false
 
-        // 2. 宠物照片限制
         if (petRe.test(candidate.path)) {
             if (petCount >= CONFIG.MAX_PET_PER_DAY) return false
         }
 
-        // 3. 间隔限制
         for (const p of picked) {
             if (Math.abs(candTime - p.date.getTime()) < minIntervalMs) return false
         }
@@ -846,21 +930,22 @@ function selectForDay(files, targetN) {
         }
     }
 
-    // 智能选择策略：在 idealIdx 附近寻找“最好”的一张
-    // 最好 = 满足约束 && (位于中间 OR 文件最大)
-    // 根据需求：优化采样策略：不仅仅是“取第一个”，用中间或体积大的那个
-    // 我们定义一个窗口 WINDOW_SIZE，在 idealIdx 前后寻找最佳候选者
-    const SEARCH_RADIUS = Math.max(1, Math.floor(len / targetN / 2)) // 动态搜索半径
+    const calculateScore = (idx) => {
+        const file = files[idx]
+        const sizeScore = (file.size || 0) / (10 * 1024 * 1024) * 50
+        const qualityScore = qualityScores.get(file.path) || 0
+        return sizeScore * 0.4 + qualityScore * 0.6
+    }
+
+    const SEARCH_RADIUS = Math.max(1, Math.floor(len / targetN / 2))
 
     for (const idealIdx of indices) {
-        // 定义搜索范围 [start, end]
         const start = Math.max(0, idealIdx - SEARCH_RADIUS)
         const end = Math.min(len - 1, idealIdx + SEARCH_RADIUS)
 
         let bestIdx = -1
         let maxScore = -1
 
-        // 寻找该范围内所有尚未被选且满足条件的候选者
         const candidates = []
         for (let i = start; i <= end; i++) {
             if (!takenIndices.has(i) && canPick(i)) {
@@ -868,12 +953,10 @@ function selectForDay(files, targetN) {
             }
         }
 
-        if (candidates.length === 0) continue // 该范围内无可用照片（可能被间隔或小时限制卡死）
+        if (candidates.length === 0) continue
 
-        // 评分：体积优先
         for (const idx of candidates) {
-            // files[idx] 必须有 size 属性，如果没有视为 0
-            const score = files[idx].size || 0
+            const score = calculateScore(idx)
             if (score > maxScore) {
                 maxScore = score
                 bestIdx = idx
@@ -888,28 +971,292 @@ function selectForDay(files, targetN) {
     picked.sort((a, b) => a.date - b.date)
     return picked
 }
-// 删除 applyMonthlyLimit 实现，因为不再使用
-// function applyMonthlyLimit...
 
-// 统计与输出
-// ----------------------------------------------------------------------------
+/**
+ * 事件聚类选择算法
+ */
+function selectFromEventsWithQuality(
+    events,
+    targetCount,
+    minIntervalMs,
+    hourLimit,
+    petLimit,
+    qualityScores
+) {
+    if (events.length === 0 || targetCount === 0) {
+        return []
+    }
 
-// Unused legacy text stats functions removed
-// function buildStats(list) ...
-// function formatStatsText(stats) ...
+    const totalFiles = events.reduce((sum, e) => sum + e.length, 0)
+    const picked = []
+    const takenPaths = new Set()
+    const hourCounts = new Map()
+    const petRe = /猪|宠|猫|鸟|鱼|鹦鹉|cat|bird/i
+    let petCount = 0
 
+    const canPick = (file) => {
+        if (takenPaths.has(file.path)) return false
+
+        const hour = dayjs(file.date).format("YYYY-MM-DD-HH")
+        if ((hourCounts.get(hour) || 0) >= hourLimit) return false
+
+        if (petRe.test(file.path) && petCount >= petLimit) return false
+
+        for (const p of picked) {
+            if (Math.abs(file.date.getTime() - p.date.getTime()) < minIntervalMs) {
+                return false
+            }
+        }
+
+        return true
+    }
+
+    const doPick = (file) => {
+        takenPaths.add(file.path)
+        picked.push(file)
+        const hour = dayjs(file.date).format("YYYY-MM-DD-HH")
+        hourCounts.set(hour, (hourCounts.get(hour) || 0) + 1)
+        if (petRe.test(file.path)) {
+            petCount++
+        }
+    }
+
+    const calculateScore = (file) => {
+        const sizeScore = (file.size || 0) / (10 * 1024 * 1024) * 50
+        const qualityScore = qualityScores.get(file.path) || 0
+        return sizeScore * 0.4 + qualityScore * 0.6
+    }
+
+    const eventQuotas = events.map((event) => {
+        const ratio = event.length / totalFiles
+        const quota = Math.max(1, Math.ceil(targetCount * ratio))
+        return Math.min(quota, event.length)
+    })
+
+    const totalQuota = eventQuotas.reduce((sum, q) => sum + q, 0)
+    if (totalQuota > targetCount) {
+        const scale = targetCount / totalQuota
+        for (let i = 0; i < eventQuotas.length; i++) {
+            eventQuotas[i] = Math.max(1, Math.floor(eventQuotas[i] * scale))
+        }
+    }
+
+    for (let i = 0; i < events.length; i++) {
+        const event = events[i]
+        let quota = eventQuotas[i]
+
+        const sortedByScore = [...event].sort((a, b) => calculateScore(b) - calculateScore(a))
+
+        for (const file of sortedByScore) {
+            if (quota <= 0) break
+            if (canPick(file)) {
+                doPick(file)
+                quota--
+            }
+        }
+    }
+
+    if (picked.length < targetCount) {
+        const remaining = events
+            .flat()
+            .filter((f) => canPick(f))
+            .sort((a, b) => calculateScore(b) - calculateScore(a))
+
+        for (const file of remaining) {
+            if (picked.length >= targetCount) break
+            if (canPick(file)) {
+                doPick(file)
+            }
+        }
+    }
+
+    picked.sort((a, b) => a.date - b.date)
+    return picked
+}
+
+/**
+ * 连拍照片分组处理
+ */
+function processBurstGroups(files, mode) {
+    if (!files || files.length === 0) {
+        return { filtered: files, removedCount: 0 }
+    }
+
+    const burstConfig = CONFIG.BURST_MODE
+    const sortedFiles = [...files].sort((a, b) => a.date - b.date)
+
+    const groups = []
+    let currentGroup = [sortedFiles[0]]
+    let currentSecond = Math.floor(sortedFiles[0].date.getTime() / 1000)
+
+    for (let i = 1; i < sortedFiles.length; i++) {
+        const file = sortedFiles[i]
+        const fileSecond = Math.floor(file.date.getTime() / 1000)
+        const diff = fileSecond - currentSecond
+
+        if (diff <= burstConfig.SECONDS_THRESHOLD) {
+            currentGroup.push(file)
+        } else {
+            if (currentGroup.length >= burstConfig.SAMESEC_THRESHOLD) {
+                groups.push([...currentGroup])
+            } else {
+                groups.push([...currentGroup])
+            }
+            currentGroup = [file]
+            currentSecond = fileSecond
+        }
+    }
+
+    if (currentGroup.length >= burstConfig.SAMESEC_THRESHOLD) {
+        groups.push([...currentGroup])
+    } else if (currentGroup.length > 0) {
+        groups.push([...currentGroup])
+    }
+
+    const filtered = []
+    let removedCount = 0
+
+    for (const group of groups) {
+        if (group.length >= burstConfig.SAMESEC_THRESHOLD) {
+            const keepCount = mode === "aggressive" ? 1 : burstConfig.KEEP_LARGEST
+            const sortedBySize = [...group].sort((a, b) => (b.size || 0) - (a.size || 0))
+            filtered.push(...sortedBySize.slice(0, keepCount))
+            removedCount += group.length - keepCount
+        } else {
+            filtered.push(...group)
+        }
+    }
+
+    filtered.sort((a, b) => a.date - b.date)
+
+    return { filtered, removedCount }
+}
+
+/**
+ * 图像哈希去重处理（带缓存支持）
+ *
+ * @param {Map} daySelections - 每日选择结果
+ * @param {number} threshold - 汉明距离阈值
+ * @param {Object} options - 缓存选项
+ * @returns {Object} { removedCount, cacheEntries }
+ */
+async function processImageHashDedup(daySelections, threshold = CONFIG.IMAGE_HASH.THRESHOLD, options = {}) {
+    const allFiles = []
+    const fileToDay = new Map()
+
+    for (const [day, files] of daySelections) {
+        for (const f of files) {
+            allFiles.push(f)
+            fileToDay.set(f.path, day)
+        }
+    }
+
+    if (allFiles.length === 0) {
+        return { removedCount: 0, cacheEntries: {} }
+    }
+
+    const { cache, rootPath, useCache } = options
+
+    log.logInfo(LOG_TAG, `Computing perceptual hash for ${allFiles.length} files...`)
+
+    let hashResults = []
+    let qualityScores = new Map()
+    let cacheEntries = {}
+
+    if (useCache && cache && rootPath) {
+        const result = await computeImageFeaturesWithCache(allFiles, cache, rootPath, {
+            concurrency: CONFIG.IMAGE_HASH.PARALLEL,
+            qualityConfig: CONFIG.IMAGE_QUALITY,
+        })
+        hashResults = result.hashResults
+        qualityScores = result.qualityScores
+        cacheEntries = result.cacheEntries
+
+        log.logInfo(LOG_TAG, `Cache: ${result.cacheHits} hits, ${result.cacheMisses} misses`)
+    } else {
+        const results = await computeHashDedup(allFiles, threshold, {
+            qualityScores: null,
+        })
+        hashResults = allFiles.map((f, i) => ({
+            file: f,
+            aHash: null,
+            pHash: null,
+        }))
+    }
+
+    const validHashes = hashResults.filter((r) => r.pHash !== null)
+    const toRemove = new Set()
+
+    for (let i = 0; i < validHashes.length; i++) {
+        if (toRemove.has(validHashes[i].file.path)) continue
+
+        for (let j = i + 1; j < validHashes.length; j++) {
+            if (toRemove.has(validHashes[j].file.path)) continue
+
+            const aHashDist = hammingDistance(validHashes[i].aHash, validHashes[j].aHash)
+            if (aHashDist > threshold * 2) continue
+
+            const pHashDist = hammingDistance(validHashes[i].pHash, validHashes[j].pHash)
+
+            if (pHashDist <= threshold) {
+                const scoreI = qualityScores.get(validHashes[i].file.path) || 0
+                const scoreJ = qualityScores.get(validHashes[j].file.path) || 0
+
+                const sizeI = validHashes[i].file.size || 0
+                const sizeJ = validHashes[j].file.size || 0
+
+                const keepI = scoreI > scoreJ || (scoreI === scoreJ && sizeI >= sizeJ)
+
+                if (keepI) {
+                    toRemove.add(validHashes[j].file.path)
+                } else {
+                    toRemove.add(validHashes[i].file.path)
+                    break
+                }
+            }
+        }
+    }
+
+    let removedCount = 0
+    for (const [day, files] of daySelections) {
+        const originalCount = files.length
+        const filtered = files.filter((f) => !toRemove.has(f.path))
+        daySelections.set(day, filtered)
+        removedCount += originalCount - filtered.length
+    }
+
+    return { removedCount, cacheEntries }
+}
+
+/**
+ * 计算汉明距离
+ */
+function hammingDistance(hash1, hash2) {
+    if (!hash1 || !hash2) return 64
+
+    const h1 = BigInt("0x" + hash1)
+    const h2 = BigInt("0x" + hash2)
+    const xor = h1 ^ h2
+
+    let distance = 0
+    let n = xor
+    while (n) {
+        distance += Number(n & BigInt(1))
+        n >>= BigInt(1)
+    }
+    return distance
+}
+
+/**
+ * 过滤包含 .nomedia 或 .gitignore 的目录
+ */
 async function filterIgnoredDirs(entries, root) {
-    const dirCache = new Map() // dir -> Boolean
+    const dirCache = new Map()
 
-    // 1. 获取所有涉及的唯一目录
     const allDirs = [...new Set(entries.map((e) => path.dirname(e.path)))]
 
-    // 2. 排序：按路径长度（短的在前），确保先处理父目录
-    // 这样能够最大程度利用缓存，减少不必要的 FS 检查
     allDirs.sort((a, b) => a.length - b.length || a.localeCompare(b))
 
-    // 3. 检查逻辑
-    // 为了防止递归造成的重复 Promise，我们需要一个 pendingCache
     const pendingCache = new Map()
 
     const checkDir = async (dir) => {
@@ -917,22 +1264,18 @@ async function filterIgnoredDirs(entries, root) {
         if (pendingCache.has(dir)) return pendingCache.get(dir)
 
         const promise = (async () => {
-            // 边界情况：如果超出 root 范围
             if (root && dir.length < root.length) return false
             if (dir === "." || dir === "/" || dir === "") return false
 
-            // 先检查父目录
             const parent = path.dirname(dir)
             let parentIgnored = false
 
             if (parent && parent !== dir && parent.length >= root.length) {
-                // 递归调用，由于有 pendingCache，不会死循环也不会重复执行
                 parentIgnored = await checkDir(parent)
             }
 
             if (parentIgnored) return true
 
-            // 父目录未忽略，检查当前目录是否有标记文件
             try {
                 const [hasNomedia, hasGitignore] = await Promise.all([
                     fs.pathExists(path.join(dir, ".nomedia")),
@@ -951,13 +1294,8 @@ async function filterIgnoredDirs(entries, root) {
         return result
     }
 
-    // 4. 执行检查（使用 pMap 控制并发）
-    // 虽然我们有 pendingCache，但为了避免深度递归导致的栈溢出（虽然 async 不太会），
-    // 或者过多的 Promise 创建，我们依然使用 pMap。
-    // 由于父目录已排在前面，父目录的 Promise 会先被创建和执行。
     await pMap(allDirs, checkDir, { concurrency: cpus().length })
 
-    // 5. 过滤文件
     const validEntries = []
     const ignoredDirs = new Set()
 
@@ -976,6 +1314,9 @@ async function filterIgnoredDirs(entries, root) {
     }
 }
 
+/**
+ * 打印控制台统计信息
+ */
 function printConsoleStats(total, stats, srcStats, jsonFile) {
     console.log(`Total selected: ${total}`)
 
@@ -999,9 +1340,8 @@ function printConsoleStats(total, stats, srcStats, jsonFile) {
     const dayCount = stats.days.size
     console.log(`By Day: ${dayCount} days active (details in json file)`)
 
-    // Show top 20 days overall
     const topDays = Array.from(stats.days.entries())
-        .sort((a, b) => b[1] - a[1]) // Sort by count desc
+        .sort((a, b) => b[1] - a[1])
         .slice(0, 20)
 
     if (topDays.length > 0) {
@@ -1014,7 +1354,6 @@ function printConsoleStats(total, stats, srcStats, jsonFile) {
     }
 
     if (dayCount <= 30) {
-        // Group by month
         const daysByMonth = new Map()
         const sortedDays = Array.from(stats.days.entries()).sort()
         for (const [d, c] of sortedDays) {
@@ -1027,9 +1366,6 @@ function printConsoleStats(total, stats, srcStats, jsonFile) {
             console.log(`  ${m}:`)
             for (const [d, c] of days) {
                 const t = srcStats.days.get(d) || 0
-                // Extract just the day part? Or keep full date?
-                // User example: 202412: 844/3456 -> Implicitly "Month: ..."
-                // If displaying days under month, maybe only show day part "01: 5/20"
                 const dayPart = d.slice(8)
                 console.log(`    ${dayPart}: ${c}/${t}`)
             }

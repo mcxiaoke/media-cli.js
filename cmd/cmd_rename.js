@@ -1,5 +1,5 @@
 /*
- * File: cmd_fixname.js
+ * File: cmd_rename.js
  * Created: 2024-03-16 21:12:41 +0800
  * Modified: 2024-04-09 22:13:39 +0800
  * Author: mcxiaoke (github@mcxiaoke.com)
@@ -281,6 +281,291 @@ let badCount = 0
 const nameDuplicateSet = new Set()
 
 /**
+ * 重新组合修复后的目录路径
+ * @param {string} oldDir - 原始目录路径
+ * @param {...string} parts - 路径部分
+ * @returns {string} 组合后的路径
+ */
+function combinePath(oldDir, ...parts) {
+    let joinedPath = path.join(...parts)
+    // 如果原路径是UNC路径，则需要补上前缀
+    if (core.isUNCPath(oldDir)) {
+        joinedPath = "\\" + joinedPath
+    }
+    return joinedPath
+}
+
+/**
+ * 处理乱码修复
+ * @param {Object} params - 参数对象
+ * @param {string} params.oldPath - 原始路径
+ * @param {string} params.oldDir - 原始目录
+ * @param {string} params.oldBase - 原始文件名
+ * @param {string} params.ext - 文件扩展名
+ * @param {string} params.logTag - 日志标签
+ * @param {string} params.ipx - 索引/总数
+ * @returns {Object} 包含新目录和新文件名的对象
+ */
+function fixEncoding({ oldPath, oldDir, oldBase, ext, logTag, ipx }) {
+    let tmpNewDir = null
+    let tmpNewBase = null
+    
+    // 执行文件路径乱码修复操作
+    // 对路径进行中日韩文字编码修复
+    let [fs, ft] = enc.decodeText(oldBase)
+    tmpNewBase = fs.trim()
+    // 将目录路径分割，并对每个部分进行编码修复
+    const dirNamesFixed = oldDir.split(path.sep).map((s) => {
+        let [rs, rt] = enc.decodeText(s)
+        return rs.trim()
+    })
+    tmpNewDir = combinePath(oldDir, ...dirNamesFixed)
+    // 显示有乱码的文件路径
+    const strPath = oldPath.split(path.sep).join("")
+    const strNewPath = combinePath(oldDir, tmpNewDir, tmpNewBase + ext)
+    if (enc.hasBadUnicode(strPath, true)) {
+        log.showGray(logTag, `BadSRC:${++badCount} ${oldPath} `)
+        log.showGray(logTag, `BadDST:${badCount} ${strNewPath} `)
+        log.fileLog(`BadEnc:${ipx} <${oldPath}>`, logTag)
+    }
+    
+    return { tmpNewDir, tmpNewBase }
+}
+
+/**
+ * 将通配符模式转换为正则表达式
+ * @param {string} pattern - 通配符模式
+ * @returns {RegExp} 对应的正则表达式
+ */
+function wildcardToRegex(pattern) {
+    // 转义特殊字符，然后将通配符转换为正则表达式
+    const regexPattern = pattern
+        .replace(/[.*+?^${}()|[\]\\]/g, '\\$&') // 转义正则特殊字符
+        .replace(/\*/g, '.*') // * 匹配任意字符
+        .replace(/\?/g, '.')  // ? 匹配单个字符
+    return new RegExp(regexPattern, 'ugi')
+}
+
+/**
+ * 处理字符串替换
+ * @param {Object} params - 参数对象
+ * @param {string} params.oldPath - 原始路径
+ * @param {string} params.oldDir - 原始目录
+ * @param {string} params.oldBase - 原始文件名
+ * @param {string} params.ext - 文件扩展名
+ * @param {Object} params.argv - 命令行参数
+ * @param {string} params.logTag - 日志标签
+ * @returns {Object} 包含新目录和新文件名的对象
+ */
+function replaceStrings({ oldPath, oldDir, oldBase, ext, argv, logTag }) {
+    let tmpNewDir = null
+    let tmpNewBase = null
+    
+    // 替换不涉及扩展名和目录路径，只处理文件名部分
+    // 只想处理特定类型文件，可以用include规则
+    // $在powershell中是特殊符号，需要使用单引号包裹
+    let strMode = argv.regex ? "regex" : "str"
+    let strFrom = argv.regex ? new RegExp(argv.replace[0], "ugi") : argv.replace[0]
+    
+    // 检查是否使用通配符模式
+    if (!argv.regex && (argv.replace[0].includes('*') || argv.replace[0].includes('?'))) {
+        strFrom = wildcardToRegex(argv.replace[0])
+        strMode = "wildcard"
+    }
+    
+    const strTo = argv.replace[1] || ""
+    const flags = argv.replaceFlags
+    log.info(logTag, `Replace: ${oldDir} = ${oldBase} P=${strFrom} F=${flags}`)
+
+    const replaceBaseName = flags.includes("f")
+    const replaceDirName = flags.includes("d")
+    // 默认使用字符串模式替换，可启用正则模式替换
+    let tempBase = oldBase
+    if (replaceBaseName) {
+        tempBase = oldBase.replaceAll(strFrom, strTo)
+        if (tempBase !== oldBase) {
+            tmpNewBase = tempBase
+        }
+    }
+    let tempDir = oldDir
+    if (replaceDirName) {
+        // 路径各个部分先分解，单独替换，然后组合路径
+        // 过滤掉空路径，比如被完全替换，减少层级，然后再组合
+        let parts = oldDir.split(path.sep).map((s) => s.replaceAll(strFrom, strTo).trim())
+        tempDir = combinePath(oldDir, ...parts.filter(Boolean))
+        if (tempDir !== oldDir) {
+            tmpNewDir = tempDir
+        }
+    }
+    const tmpNewPath = path.join(tmpNewDir || oldDir, (tmpNewBase || oldBase) + ext)
+    if (tmpNewPath !== oldPath) {
+        log.info(logTag, `Replace: pattern=${strFrom} replacement=${strTo} mode=${strMode}`)
+        log.info(logTag, `Replace: "${oldPath}"=>"${tmpNewPath}" (${strMode})`)
+    }
+    
+    return { tmpNewDir, tmpNewBase }
+}
+
+/**
+ * 处理文件名清理
+ * @param {Object} params - 参数对象
+ * @param {string} params.oldBase - 原始文件名
+ * @param {Object} params.argv - 命令行参数
+ * @param {string} params.oldDir - 原始目录
+ * @returns {Object} 包含新目录和新文件名的对象
+ */
+function cleanFileNameHandler({ oldBase, argv, oldDir }) {
+    let tmpNewDir = null
+    let tmpNewBase = null
+    
+    // 忽略压缩过的视频文件
+    if (!oldBase.toLowerCase().includes("shana")) {
+        // 执行净化文件名操作
+        tmpNewBase = cleanFileName(oldBase, {
+            separator: argv.separator,
+            keepDateStr: true,
+            zhcn: false,
+        })
+        tmpNewDir = oldDir
+    }
+    
+    return { tmpNewDir, tmpNewBase }
+}
+
+/**
+ * 处理繁体转简体
+ * @param {Object} params - 参数对象
+ * @param {string} params.tmpNewBase - 临时新文件名
+ * @param {string} params.tmpNewDir - 临时新目录
+ * @param {string} params.oldBase - 原始文件名
+ * @param {string} params.oldDir - 原始目录
+ * @returns {Object} 包含新目录和新文件名的对象
+ */
+function convertToZhCn({ tmpNewBase, tmpNewDir, oldBase, oldDir }) {
+    // 执行繁体转简体操作
+    const newBase = sify(tmpNewBase || oldBase)
+    const newDir = sify(tmpNewDir || oldDir)
+    
+    return { tmpNewDir: newDir, tmpNewBase: newBase }
+}
+
+/**
+ * 处理媒体文件前缀/后缀
+ * @param {Object} params - 参数对象
+ * @param {string} params.oldPath - 原始路径
+ * @param {string} params.oldDir - 原始目录
+ * @param {string} params.oldBase - 原始文件名
+ * @param {Object} params.argv - 命令行参数
+ * @param {string} params.logTag - 日志标签
+ * @returns {Promise<Object>} 包含新文件名和附加文件扩展名的对象
+ */
+async function addMediaPrefixSuffix({ oldPath, oldDir, oldBase, argv, logTag }) {
+    let tmpNewBase = oldBase
+    const extraExts = []
+    
+    if (helper.isMediaFile(oldPath) && (argv.suffixMedia || argv.prefixMedia)) {
+        try {
+            const isAudio = helper.isAudioFile(oldPath)
+            const info = await getMediaInfo(oldPath)
+            const duration = info?.duration || info?.video?.duration || info?.audio?.duration || 0
+            // duration>0 表示有效的媒体文件
+            if (duration > 0) {
+                const bitrate = info?.bitrate || info.video?.bitrate || info?.audio?.bitrate || 0
+                let tplValues = isAudio ? info.audio : info.video
+                tplValues = {
+                    ...tplValues,
+                    // 覆盖原本的数值，增加可读性
+                    duration: `${helper.humanSeconds(duration)}`,
+                    bitrate: `${Math.floor(bitrate / 1000)}K`,
+                }
+                // 替换模板字符串
+                const base = tmpNewBase
+                const prefix = core.formatArgs(argv.prefixMedia || "", tplValues)
+                const suffix = core.formatArgs(argv.suffixMedia || "", tplValues)
+                tmpNewBase = `${prefix}${base}${suffix}`
+                log.info(logTag, `PrefixSuffix: ${base} => ${tmpNewBase}`)
+            } else {
+                log.showYellow(logTag, `PrefixSuffix: No valid media info found for ${oldPath}`)
+            }
+        } catch (error) {
+            log.showYellow(logTag, `PrefixSuffix: Error getting media info for ${oldPath}: ${error.message}`)
+        }
+        
+        // 同步重命名附带的字幕和封面文件
+        // 扩展名 jpg png ass srt nfo txt 等
+        if (tmpNewBase !== oldBase) {
+            try {
+                for (const ext of MEDIA_EXTRA_EXTS) {
+                    const fp = path.join(oldDir, oldBase + ext)
+                    if (await fs.pathExists(fp)) {
+                        extraExts.push(ext)
+                    }
+                }
+            } catch (error) {
+                log.showYellow(logTag, `PrefixSuffix: Error checking extra files for ${oldPath}: ${error.message}`)
+            }
+        }
+    }
+    
+    return { tmpNewBase, extraExts }
+}
+
+/**
+ * 检查文件是否存在，如果存在则生成新的文件名
+ * @param {string} basePath - 基础路径
+ * @param {string} baseName - 基础文件名
+ * @param {string} ext - 文件扩展名
+ * @param {Function} existsCheck - 存在性检查函数
+ * @param {string} logTag - 日志标签
+ * @param {string} logPrefix - 日志前缀
+ * @returns {Promise<string>} 处理后的路径
+ */
+async function ensureUniquePath(basePath, baseName, ext, existsCheck, logTag, logPrefix) {
+    let newPath = path.resolve(path.join(basePath, baseName + ext))
+    let dupCount = 0
+    
+    while (await existsCheck(newPath)) {
+        const newName = baseName + `_${++dupCount}` + ext
+        newPath = path.resolve(path.join(basePath, newName))
+    }
+    
+    if (dupCount > 0) {
+        log.showGray(logTag, `${logPrefix}: ${helper.pathShort(newPath)}`)
+    }
+    
+    return newPath
+}
+
+/**
+ * 处理路径冲突
+ * @param {Object} params - 参数对象
+ * @param {string} params.oldPath - 原始路径
+ * @param {string} params.newPath - 新路径
+ * @param {string} params.tmpNewBase - 临时新文件名
+ * @param {string} params.ext - 文件扩展名
+ * @param {string} params.newDir - 新目录
+ * @param {string} params.logTag - 日志标签
+ * @returns {Promise<Object>} 处理后的新路径和跳过状态
+ */
+async function handlePathConflicts({ oldPath, newPath, tmpNewBase, ext, newDir, logTag }) {
+    if (newPath === oldPath) {
+        log.info(logTag, `Skip Same: ${helper.pathShort(oldPath)}`)
+        return { newPath, skipped: true }
+    }
+    
+    // 处理已存在的路径
+    if (await fs.pathExists(newPath)) {
+        newPath = await ensureUniquePath(newDir, tmpNewBase, ext, fs.pathExists, logTag, `NewPath[EXIST]`)
+    } 
+    // 处理重复的路径
+    else if (nameDuplicateSet.has(newPath)) {
+        newPath = await ensureUniquePath(newDir, tmpNewBase, ext, (path) => nameDuplicateSet.has(path), logTag, `NewPath[DUP]`)
+    }
+    
+    return { newPath, skipped: false }
+}
+
+/**
  * 预处理重命名操作，根据不同模式修复文件名和路径
  * @param {Object} f - 文件对象
  * @param {string} f.path - 文件路径
@@ -306,17 +591,18 @@ async function preRename(f) {
     // log.show([oldDir], [oldBase], [ext])
     let tmpNewDir = null
     let tmpNewBase = null
+    let extraExts = []
 
     const pathDepth = oldPath.split(path.sep).length
     log.info(logTag, `Processing "${oldPath} [${flag}]"`)
 
     /**
-     * 重新组合修复后的目录路径
+     * 重新组合修复后的目录路径（内部版本，避免与模块级函数冲突）
      * @param {...string} parts - 路径部分
      * @returns {string} 组合后的路径
      */
     // 重新组合修复后的目录路径
-    function combinePath(...parts) {
+    function makePath(...parts) {
         let joinedPath = path.join(...parts)
         // 如果原路径是UNC路径，则需要补上前缀
         if (core.isUNCPath(oldDir)) {
@@ -329,24 +615,9 @@ async function preRename(f) {
     // 适用 完整路径
     // ==================================
     if (argv.fixenc) {
-        // 执行文件路径乱码修复操作
-        // 对路径进行中日韩文字编码修复
-        let [fs, ft] = enc.decodeText(oldBase)
-        tmpNewBase = fs.trim()
-        // 将目录路径分割，并对每个部分进行编码修复
-        const dirNamesFixed = oldDir.split(path.sep).map((s) => {
-            let [rs, rt] = enc.decodeText(s)
-            return rs.trim()
-        })
-        tmpNewDir = combinePath(...dirNamesFixed)
-        // 显示有乱码的文件路径
-        const strPath = oldPath.split(path.sep).join("")
-        const strNewPath = combinePath(tmpNewDir, tmpNewBase + ext)
-        if (enc.hasBadUnicode(strPath, true)) {
-            log.showGray(logTag, `BadSRC:${++badCount} ${oldPath} `)
-            log.showGray(logTag, `BadDST:${badCount} ${strNewPath} `)
-            log.fileLog(`BadEnc:${ipx} <${oldPath}>`, logTag)
-        }
+        const result = fixEncoding({ oldPath, oldDir, oldBase, ext, logTag, ipx })
+        tmpNewDir = result.tmpNewDir
+        tmpNewBase = result.tmpNewBase
     }
     // ==================================
     // 文件名和路径字符串替换
@@ -355,131 +626,81 @@ async function preRename(f) {
     // ==================================
     // todo 除了正则，增加简单的通配符支持，使用第三方库
     if (argv.replace?.[0]?.length > 0) {
-        // 替换不涉及扩展名和目录路径，只处理文件名部分
-        // 只想处理特定类型文件，可以用include规则
-        // $在powershell中是特殊符号，需要使用单引号包裹
-        const strMode = argv.regex ? "regex" : "str"
-        const strFrom = argv.regex ? new RegExp(argv.replace[0], "ugi") : argv.replace[0]
-        const strTo = argv.replace[1] || ""
-        const flags = argv.replaceFlags
-        log.info(logTag, `Replace: ${oldDir} = ${oldBase} P=${strFrom} F=${flags}`)
-
-        const replaceBaseName = flags.includes("f")
-        const replaceDirName = flags.includes("d")
-        // 默认使用字符串模式替换，可启用正则模式替换
-        let tempBase = oldBase
-        if (replaceBaseName) {
-            tempBase = oldBase.replaceAll(strFrom, strTo)
-            if (tempBase !== oldBase) {
-                tmpNewBase = tempBase
-            }
-        }
-        let tempDir = oldDir
-        if (replaceDirName) {
-            // 路径各个部分先分解，单独替换，然后组合路径
-            // 过滤掉空路径，比如被完全替换，减少层级，然后再组合
-            let parts = oldDir.split(path.sep).map((s) => s.replaceAll(strFrom, strTo).trim())
-            tempDir = combinePath(...parts.filter(Boolean))
-            if (tempDir !== oldDir) {
-                tmpNewDir = tempDir
-            }
-        }
-        const tmpNewPath = path.join(tmpNewDir || oldDir, (tmpNewBase || oldBase) + ext)
-        if (tmpNewPath !== oldPath) {
-            log.info(logTag, `Replace: pattern=${strFrom} replacement=${strTo} mode=${strMode}`)
-            log.info(logTag, `Replace: "${oldPath}"=>"${tmpNewPath}" (${strMode})`)
-        }
+        const result = replaceStrings({ oldPath, oldDir, oldBase, ext, argv, logTag })
+        tmpNewDir = tmpNewDir || result.tmpNewDir
+        tmpNewBase = tmpNewBase || result.tmpNewBase
     }
     // ==================================
     // 文件名特殊字符清理
     // ==================================
     if (argv.clean) {
-        // 忽略压缩过的视频文件
-        if (!oldBase.toLowerCase().includes("shana")) {
-            // 执行净化文件名操作
-            tmpNewBase = cleanFileName(tmpNewBase || oldBase, {
-                separator: argv.separator,
-                keepDateStr: true,
-                zhcn: false,
-            })
-            tmpNewDir = tmpNewDir || oldDir
-        }
+        const result = cleanFileNameHandler({ oldBase, argv, oldDir })
+        tmpNewDir = tmpNewDir || result.tmpNewDir
+        tmpNewBase = tmpNewBase || result.tmpNewBase
     }
     // ==================================
     // 文件名繁体转简体
     // ==================================
     if (argv.zhcn) {
-        // 执行繁体转简体操作
-        tmpNewBase = sify(tmpNewBase || oldBase)
-        tmpNewDir = sify(tmpNewDir || oldDir)
+        const result = convertToZhCn({ tmpNewBase, tmpNewDir, oldBase, oldDir })
+        tmpNewDir = result.tmpNewDir
+        tmpNewBase = result.tmpNewBase
     }
 
     // 给视频文件添加后缀，支持模板参数
-    // MediaInfo {
-    //     provider: 'mediainfo',
-    //     format: 'matroska',
-    //     size: 404095670,
-    //     duration: 1801.19,
-    //     bitrate: 1794790,
-    //     createdAt: '2018-04-19 00:46:13 UTC',
-    //     audio: Audio {
-    //       type: 'audio',
-    //       format: 'aac',
-    //       codec: 'A_AAC-2',
-    //       size: 57077296,
-    //       duration: 1801.19,
-    //       bitrate: 253508,
-    //       sampleRate: 48000
-    //     },
-    //     video: Video {
-    //       type: 'video',
-    //       format: 'avc',
-    //       codec: 'V_MPEG4/ISO/AVC',
-    //       profile: 'High 10',
-    //       size: 346500882,
-    //       duration: 1801.13,
-    //       bitrate: 1539035,
-    //       framerate: 24000,
-    //       bitDepth: 10,
-    //       width: 960,
-    //       height: 720,
-    //       aspectRatio: 1.33,
-    //       pixelFormat: 'YUV4:2:0'
-    //     }
-    //   }
-    // 这里需要同步重命名伴随的字幕文件和封面文件
-    // 基本名相同的文件 ASS JPG PNG SRT NFO
-    const extraExts = []
-    if (helper.isMediaFile(oldPath) && (argv.suffixMedia || argv.prefixMedia)) {
-        const isAudio = helper.isAudioFile(oldPath)
-        const info = await getMediaInfo(oldPath)
-        const duration = info?.duration || info?.video?.duration || info?.audio?.duratio || 0
-        // duration>0 表示有效的媒体文件
-        if (duration > 0) {
-            const bitrate = info?.bitrate || info.video?.bitrate || info?.audio?.bitrate || 0
-            let tplValues = isAudio ? info.audio : info.video
-            tplValues = {
-                ...tplValues,
-                // 覆盖原本的数值，增加可读性
-                duration: `${helper.humanSeconds(duration)}`,
-                bitrate: `${Math.floor(bitrate / 1000)}K`,
-            }
-            // 替换模板字符串
-            const base = tmpNewBase || oldBase
-            const prefix = core.formatArgs(argv.prefixMedia || "", tplValues)
-            const suffix = core.formatArgs(argv.suffixMedia || "", tplValues)
-            tmpNewBase = `${prefix}${base}${suffix}`
-            log.info(logTag, `PrefixSuffix: ${base} => ${tmpNewBase}`)
+    const mediaResult = await addMediaPrefixSuffix({ oldPath, oldDir, oldBase: tmpNewBase || oldBase, argv, logTag })
+    tmpNewBase = mediaResult.tmpNewBase
+    extraExts = mediaResult.extraExts
+    
+    // 给文件添加日期时间后缀
+    if (argv.suffixDate) {
+        const now = new Date()
+        let dateStr = ""
+        
+        // 根据不同格式生成日期字符串
+        switch (argv.suffixDate.toLowerCase()) {
+            case "yyyy-mm-dd":
+                dateStr = now.toISOString().split('T')[0]
+                break
+            case "yyyymmdd":
+                dateStr = now.toISOString().split('T')[0].replace(/-/g, '')
+                break
+            case "yyyymmdd-hhmmss":
+                dateStr = now.toISOString().replace(/[-:]/g, '').split('.')[0]
+                break
+            case "yyyy-mm-dd-hhmmss":
+                dateStr = now.toISOString().replace('T', '-').split('.')[0]
+                break
+            default:
+                // 默认格式: yyyy-mm-dd
+                dateStr = now.toISOString().split('T')[0]
         }
-        // 同步重命名附带的字幕和封面文件
-        // 扩展名 jpg png ass srt nfo txt 等
-        if (tmpNewBase !== oldBase) {
-            for (const ext of MEDIA_EXTRA_EXTS) {
-                const fp = path.join(oldDir, oldBase + ext)
-                if (await fs.pathExists(fp)) {
-                    extraExts.push(ext)
+        
+        tmpNewBase = `${tmpNewBase}_${dateStr}`
+        log.info(logTag, `SuffixDate: ${tmpNewBase || oldBase} => ${tmpNewBase}`)
+    }
+    
+    // 按照视频分辨率移动文件到指定目录
+    if (argv.videoDimension && helper.isVideoFile(oldPath)) {
+        try {
+            const info = await getMediaInfo(oldPath)
+            if (info?.video) {
+                const { width, height } = info.video
+                if (width && height) {
+                    // 计算视频分辨率
+                    const dimension = `${width}x${height}`
+                    // 创建分辨率目录
+                    const dimensionDir = path.join(oldDir, dimension)
+                    tmpNewDir = dimensionDir
+                    log.info(logTag, `VideoDimension: ${oldPath} => ${dimensionDir}`)
+                } else {
+                    log.showYellow(logTag, `VideoDimension: No valid resolution found for ${oldPath}`)
                 }
+            } else {
+                log.showYellow(logTag, `VideoDimension: No video info found for ${oldPath}`)
             }
+        } catch (error) {
+            log.showYellow(logTag, `VideoDimension: Error getting media info for ${oldPath}: ${error.message}`)
         }
     }
 
@@ -515,30 +736,22 @@ async function preRename(f) {
         // log.show(logTag, `MergeDirs: ${ipx} DST:${newPath}`)
     }
 
-    if (newPath === oldPath) {
-        log.info(logTag, `Skip Same: ${helper.pathShort(oldPath)}`)
-        f.skipped = true
-    }
-    // todo 这里已存在和重复名的判断需要优化或调整
-    else if (await fs.pathExists(newPath)) {
-        let dupCount = 0
-        do {
-            newName = tmpNewBase + `_${++dupCount}` + ext
-            newPath = path.resolve(path.join(newDir, newName))
-        } while (await fs.pathExists(newPath))
-        log.showGray(logTag, `NewPath[EXIST]: ${helper.pathShort(newPath)}`)
-    } else if (nameDuplicateSet.has(newPath)) {
-        let dupCount = 0
-        do {
-            newName = tmpNewBase + `_${++dupCount}` + ext
-            newPath = path.resolve(path.join(newDir, newName))
-        } while (nameDuplicateSet.has(newPath))
-        log.showGray(logTag, `NewPath[DUP]: ${helper.pathShort(newPath)}`)
-    }
+    // 处理路径冲突
+    const conflictResult = await handlePathConflicts({
+        oldPath,
+        newPath,
+        tmpNewBase,
+        ext,
+        newDir,
+        logTag
+    })
+    newPath = conflictResult.newPath
+    f.skipped = conflictResult.skipped
     if (f.fixenc && enc.hasBadUnicode(newPath, true)) {
         // 如果修复乱码导致新文件名还是有乱码，就忽略后续操作
-        log.showGray(logTag, `BadEncFR:${++badCount}`, oldPath)
-        log.show(logTag, `BadEncTO:${++badCount}`, newPath)
+        const count = ++badCount
+        log.showGray(logTag, `BadEncFR:${count}`, oldPath)
+        log.show(logTag, `BadEncTO:${count}`, newPath)
         log.fileLog(`BadEncFR: <${oldPath}>`, logTag)
         log.fileLog(`BadEncTO: <${newPath}>`, logTag)
         f.skipped = true

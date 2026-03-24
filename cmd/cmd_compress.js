@@ -25,7 +25,7 @@ import { t } from "../lib/i18n.js"
 import { parseImageParams } from "../lib/query_parser.mjs"
 import { applyFileNameRules, calculateScale, compressImage } from "./cmd_shared.js"
 
-//
+const LOG_TAG = "Compress"
 export { aliases, builder, command, describe, handler }
 
 const command = "compress <input> [output]"
@@ -206,7 +206,7 @@ async function walkImageFiles(root, opts) {
             !RE_THUMB.test(f.path) &&
             f.size > minFileSize,
     }
-    log.showGreen("cmdCompress", `Walking files ...`)
+    log.logProgress(LOG_TAG, "Walking files ...")
     return await mf.walk(root, walkOpts)
 }
 
@@ -285,11 +285,11 @@ async function runCompression(tasks, opts, logTag, startMs) {
     })
     const okTasks = results.filter((f) => f?.done)
     const failedTasks = results.filter((f) => f?.errorFlag && !f.done)
-    log.showGreen(
-        logTag,
+    log.logSuccess(
+        LOG_TAG,
         `${okTasks.length} ${t("compress.files.compressed")} ${helper.humanTime(startMs)}`,
     )
-    log.showGreen(logTag, "endAt", dayjs().format(), helper.humanTime(startMs))
+    log.logSuccess(LOG_TAG, "endAt", dayjs().format(), helper.humanTime(startMs))
     return { tasks: results, failedTasks }
 }
 
@@ -304,7 +304,7 @@ async function writeFailedLog(failedTasks, root, logTag) {
     if (failedTasks.length === 0) {
         return
     }
-    log.showYellow(logTag, `${failedTasks.length} ${t("compress.tasks.failed")}`)
+    log.logWarn(LOG_TAG, `${failedTasks.length} ${t("compress.tasks.failed")}`)
     const failedContent = failedTasks.map((f) => f.src).join("\n")
     const failedLogFile = path.join(
         root,
@@ -312,7 +312,7 @@ async function writeFailedLog(failedTasks, root, logTag) {
     )
     await fs.writeFile(failedLogFile, failedContent)
     const clickablePath = failedLogFile.split(path.sep).join("/")
-    log.showYellow(logTag, `${t("compress.failed.list")}: file:///${clickablePath}`)
+    log.logWarn(LOG_TAG, `${t("compress.failed.list")}: file:///${clickablePath}`)
 }
 
 /**
@@ -322,33 +322,29 @@ async function writeFailedLog(failedTasks, root, logTag) {
  */
 async function cmdCompress(argv) {
     const testMode = !argv.doit
-    const logTag = "cmdCompress"
     const root = await helper.validateInput(argv.input)
     if (!testMode) {
-        log.fileLog(`Root:${root}`, logTag)
-        log.fileLog(`Argv:${JSON.stringify(argv)}`, logTag)
+        log.fileLog(`Root:${root}`, LOG_TAG)
+        log.fileLog(`Argv:${JSON.stringify(argv)}`, LOG_TAG)
     }
-    log.show(logTag, argv)
+    log.logInfo(LOG_TAG, argv)
 
     const opts = parseCompressOpts(argv)
     const { minFileSize, maxWidth, purgeOnly, purgeSource } = opts
-    log.show(`${logTag} input:`, root)
+    log.logInfo(LOG_TAG, `input: ${root}`)
 
-    // 阶段一：遍历文件
     let files = await walkImageFiles(root, opts)
     if (!files || files.length === 0) {
-        log.showYellow(logTag, t("compress.no.files.found"))
+        log.logWarn(LOG_TAG, t("compress.no.files.found"))
         return
     }
-    // 应用文件名过滤规则
     files = await applyFileNameRules(files, argv)
-    log.show(logTag, t("compress.total.files.found", { count: files.length }))
+    log.logInfo(LOG_TAG, t("compress.total.files.found", { count: files.length }))
     if (!files || files.length === 0) {
-        log.showYellow(t("common.nothing.to.do"))
+        log.logWarn(LOG_TAG, t("common.nothing.to.do"))
         return
     }
 
-    // purgeOnly 模式只清理文件，不需要检测图像处理工具
     if (!purgeOnly) {
         await updateConfig(argv)
     }
@@ -362,51 +358,47 @@ async function cmdCompress(argv) {
         },
     ])
     if (!confirmFiles.yes) {
-        log.showYellow(t("common.aborted.by.user"))
+        log.logWarn(LOG_TAG, t("common.aborted.by.user"))
         return
     }
-    log.showGreen(logTag, t("compress.preparing"))
+    log.logSuccess(LOG_TAG, t("compress.preparing"))
 
-    // 阶段二：构建任务
     const startMs = Date.now()
     let tasks = await buildCompressTasks(files, opts)
-    log.info(logTag, "before filter: ", tasks.length)
-    // 保存过滤前的全量有效任务，供 purgeOnly 模式使用（含已存在目标文件的任务）
+    log.info(LOG_TAG, "before filter: ", tasks.length)
     const allValidTasks = tasks.filter(Boolean)
     tasks = tasks.filter((t) => t?.dst && t.tmpDst && !t?.shouldSkip)
     const skipped = allValidTasks.length - tasks.length
-    log.info(logTag, "after filter: ", tasks.length)
+    log.info(LOG_TAG, "after filter: ", tasks.length)
     if (skipped > 0) {
-        log.showYellow(logTag, t("compress.files.skipped", { count: skipped }))
+        log.logWarn(LOG_TAG, t("compress.files.skipped", { count: skipped }))
     }
 
-    // purgeOnly 需要在 tasks.length === 0 判断之前处理，
-    // 因为此时所有文件已压缩完毕（dst 已存在），tasks 会被过滤为空
     if (purgeOnly) {
         const purgeTargets = allValidTasks.filter((t) => t?.src && t.dstExists && t.dst)
         if (purgeTargets.length === 0) {
-            log.showYellow(logTag, t("common.nothing.to.do"))
+            log.logWarn(LOG_TAG, t("common.nothing.to.do"))
             return
         }
-        log.showYellow(logTag, `+++++ PURGE ONLY (NO COMPRESS): ${purgeTargets.length} files +++++`)
+        log.logWarn(LOG_TAG, `+++++ PURGE ONLY (NO COMPRESS): ${purgeTargets.length} files +++++`)
         await purgeSrcFiles(purgeTargets)
         return
     }
 
     if (tasks.length === 0) {
-        log.showYellow(t("common.nothing.to.do"))
+        log.logWarn(LOG_TAG, t("common.nothing.to.do"))
         return
     }
     tasks.forEach((f, i) => {
         f.total = tasks.length
         f.index = i
     })
-    log.show(logTag, `${t("compress.tasks.summary")} (${helper.humanTime(startMs)}):`)
+    log.logInfo(LOG_TAG, `${t("compress.tasks.summary")} (${helper.humanTime(startMs)}):`)
     tasks.slice(-1).forEach((f) => {
         log.show(core.omit(f, "stats"))
     })
-    log.info(logTag, argv)
-    testMode && log.showYellow("++++++++++ " + t("ffmpeg.test.mode") + " ++++++++++")
+    log.info(LOG_TAG, argv)
+    testMode && log.logWarn(LOG_TAG, `++++++++++ ${t("ffmpeg.test.mode")} ++++++++++`)
 
     const answer = await inquirer.prompt([
         {
@@ -425,23 +417,22 @@ async function cmdCompress(argv) {
     ])
 
     if (!answer.yes) {
-        log.showYellow(t("common.aborted.by.user"))
+        log.logWarn(LOG_TAG, t("common.aborted.by.user"))
         return
     }
 
-    // 阶段三：执行压缩
     if (testMode) {
-        log.showYellow(logTag, `[${t("mode.test")}], ${t("compress.note.no.thumbnail")}`)
+        log.logWarn(LOG_TAG, `[${t("mode.test")}], ${t("compress.note.no.thumbnail")}`)
     } else {
         const compressStartMs = Date.now()
-        log.showGreen(logTag, "startAt", dayjs().format())
+        log.logSuccess(LOG_TAG, `startAt ${dayjs().format()}`)
         const { tasks: doneTasks, failedTasks } = await runCompression(
             tasks,
             opts,
-            logTag,
+            LOG_TAG,
             compressStartMs,
         )
-        await writeFailedLog(failedTasks, root, logTag)
+        await writeFailedLog(failedTasks, root, LOG_TAG)
         if (purgeSource) {
             await purgeSrcFiles(doneTasks)
         }
@@ -462,31 +453,28 @@ async function cmdCompress(argv) {
  * @returns {Promise<Object|null>} 返回准备好的压缩任务对象，或 null（文件损坏或不存在）
  */
 async function preCompress(f, onProgress = null) {
-    const logTag = "PreCompress"
-    const maxWidth = f.maxWidth || 6000 // 获取最大宽度限制，默认为6000
-    let fileSrc = path.resolve(f.path) // 解析源文件路径
-    const [fDir, base] = helper.pathSplit(fileSrc) // 将路径分解为目录和基本名
+    const maxWidth = f.maxWidth || 6000
+    let fileSrc = path.resolve(f.path)
+    const [fDir, base] = helper.pathSplit(fileSrc)
     const suffix = f.suffix || "_Z4K"
-    log.info(logTag, "Processing ", fileSrc, suffix)
+    log.info(LOG_TAG, "Processing ", fileSrc, suffix)
 
     let fileDstDir = f.output ? helper.pathRewrite(f.root, fDir, f.output, f.keepRoot) : fDir
     const tempSuffix = `_tmp@${helper.textHash(fileSrc)}@tmp_`
     const fileDstTmp = path.resolve(path.join(fileDstDir, `${base}${suffix}${tempSuffix}.jpg`))
-    // 构建目标文件路径，添加压缩后的文件名后缀
     let fileDst = path.join(fileDstDir, `${base}${suffix}.jpg`)
 
-    fileDst = path.resolve(fileDst) // 解析目标文件路径
+    fileDst = path.resolve(fileDst)
 
     onProgress?.(f.index)
 
     if (!(await fs.pathExists(fileSrc))) {
-        log.info(logTag, "File not found:", fileSrc)
+        log.info(LOG_TAG, "File not found:", fileSrc)
         return
     }
 
     if (await fs.pathExists(fileDst)) {
-        // 如果目标文件已存在，则进行相应的处理
-        log.info(logTag, "exists:", fileDst)
+        log.info(LOG_TAG, "exists:", fileDst)
         return {
             ...f,
             width: 0,
@@ -503,25 +491,20 @@ async function preCompress(f, onProgress = null) {
     })
 
     if (err) {
-        log.info(logTag, "Corrupt file:", fileSrc)
-        log.fileLog(`SharpErr: ${f.index} <${fileSrc}> sharp:${err.message}`, logTag)
+        log.info(LOG_TAG, "Corrupt file:", fileSrc)
+        log.fileLog(`SharpErr: ${f.index} <${fileSrc}> sharp:${err.message}`, LOG_TAG)
         return
     }
 
     const { dstWidth, dstHeight } = calculateScale(im.width, im.height, maxWidth)
     if (f.total < 1000 || f.index > f.total - 1000) {
-        log.show(
-            logTag,
-            `${f.index}/${f.total}`,
-            helper.pathShort(fileSrc),
-            `${im.width}x${im.height}=>${dstWidth}x${dstHeight} ${im.format || im.type} ${helper.humanSize(f.size)}`,
-        )
-        log.showGray(logTag, `${f.index}/${f.total} DST:`, fileDst)
+        log.logTask(LOG_TAG, f.index, f.total, helper.pathShort(fileSrc), `${im.width}x${im.height}=>${dstWidth}x${dstHeight} ${im.format || im.type} ${helper.humanSize(f.size)}`)
+        log.showGray(LOG_TAG, `${f.index}/${f.total} DST:`, fileDst)
     }
     log.fileLog(
         `Pre: ${f.index}/${f.total} <${fileSrc}> ` +
             `${dstWidth}x${dstHeight}) ${helper.humanSize(f.size)}`,
-        logTag,
+        LOG_TAG,
     )
     return {
         ...f,
@@ -541,7 +524,6 @@ async function preCompress(f, onProgress = null) {
  * @returns {Promise<void>}
  */
 async function purgeSrcFiles(results) {
-    const logTag = "Purge"
     const toDelete = results.filter((t) => t?.src && t.dstExists && t.dst)
     const total = toDelete?.length ?? 0
     if (total <= 0) {
@@ -556,25 +538,24 @@ async function purgeSrcFiles(results) {
         },
     ])
     if (!answer.yes) {
-        log.showYellow(t("common.aborted.by.user"))
+        log.logWarn(LOG_TAG, t("common.aborted.by.user"))
         return
     }
     const deletecFunc = async (td, index) => {
         const srcExists = await fs.pathExists(td.src)
         const dstExists = await fs.pathExists(td.dst)
-        log.info(logTag, `Check S=${srcExists} D=${dstExists} ${helper.pathShort(td.src)}`)
-        // 确认文件存在，确保不会误删除
+        log.info(LOG_TAG, `Check S=${srcExists} D=${dstExists} ${helper.pathShort(td.src)}`)
         if (!(srcExists && dstExists)) {
             return
         }
         td.tmpDst && (await fs.pathExists(td.tmpDst)) && (await fs.remove(td.tmpDst))
         await helper.safeRemove(td.src)
-        log.showYellow(logTag, `SafeDel: ${index}/${total} ${helper.pathShort(td.src)}`)
-        log.fileLog(`SafeDel: <${td.src}>`, logTag)
+        log.logWarn(LOG_TAG, `SafeDel: ${index}/${total} ${helper.pathShort(td.src)}`)
+        log.fileLog(`SafeDel: <${td.src}>`, LOG_TAG)
         return td.src
     }
     const deleted = await pMap(toDelete, deletecFunc, { concurrency: cpus().length * 8 })
-    log.showCyan(logTag, t("compress.safely.removed", { count: deleted.filter(Boolean).length }))
+    log.logSuccess(LOG_TAG, t("compress.safely.removed", { count: deleted.filter(Boolean).length }))
 }
 
 async function updateConfig(argv) {

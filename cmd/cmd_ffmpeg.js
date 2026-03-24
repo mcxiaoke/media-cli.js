@@ -31,6 +31,8 @@ import { getMediaInfo, getSimpleInfo } from "../lib/mediainfo.js"
 import { addEntryProps, applyFileNameRules, calculateScale } from "./cmd_shared.js"
 
 const LOG_TAG = "FFConv"
+// CUDA 探测结果缓存，避免对同一路径重复探测
+const cudaDecoderCache = new Map()
 // ===========================================
 // 命令内容执行
 // ===========================================
@@ -337,14 +339,23 @@ async function cmdConvert(argv) {
         }
         return
     }
+    // 参数验证
+    if (argv.jobs !== undefined && argv.jobs <= 0) {
+        throw createError(ErrorTypes.INVALID_ARGUMENT, "Jobs must be a positive number")
+    }
+    if (argv.speed !== undefined && (argv.speed < 0.25 || argv.speed > 4.0)) {
+        throw createError(ErrorTypes.INVALID_ARGUMENT, "Speed must be between 0.25 and 4.0")
+    }
+    if (argv.dimension !== undefined && argv.dimension < 0) {
+        throw createError(ErrorTypes.INVALID_ARGUMENT, "Dimension must be non-negative")
+    }
     const root = path.resolve(argv.input)
     if (!root || !(await fs.pathExists(root))) {
         throw createError(ErrorTypes.INVALID_ARGUMENT, `Invalid Input: ${root}`)
     }
     const testMode = !argv.doit
-    const logTag = chalk.green("FFConv")
     let startMs = Date.now()
-    log.show(logTag, t("ffmpeg.input", { path: root }))
+    log.logInfo(LOG_TAG, t("ffmpeg.input", { path: root }))
     // 解析单参数复合参数 ffargs
     // 简写 名称 等价别名
     // vb=video bitrate vbit vbk vbitrate
@@ -359,7 +370,7 @@ async function cmdConvert(argv) {
     // dm = dimension
     // fps = framerate
     argv.ffargs = argparser.parseArgs(argv.ffargs)
-    log.info(logTag, `ffargs:`, argv.ffargs)
+    log.info(LOG_TAG, `ffargs:`, argv.ffargs)
     // 解析Preset，根据argv参数修改preset，返回对象
     const preset = presets.createFromArgv(argv)
     if (!testMode) {
@@ -382,8 +393,8 @@ async function cmdConvert(argv) {
             if (st.isDirectory()) {
                 const dirFiles = await mf.walk(dirPath, walkOpts)
                 if (dirFiles.length > 0) {
-                    log.show(
-                        logTag,
+                    log.logInfo(
+                        LOG_TAG,
                         t("ffmpeg.add.files", { count: dirFiles.length, path: dirPath }),
                     )
                     fileEntries = fileEntries.concat(dirFiles)
@@ -391,46 +402,38 @@ async function cmdConvert(argv) {
             }
         }
     }
-    // 根据完整路径去重
     fileEntries = core.uniqueByFields(fileEntries, "path")
-    log.show(
-        logTag,
+    log.logInfo(
+        LOG_TAG,
         `Total ${fileEntries.length} files found [${preset.name}] (${helper.humanTime(startMs)})`,
     )
-    // 再根据preset过滤找到的文件
     if (preset.type === "video" || presets.isAudioExtract(preset)) {
-        // 视频转换模式，保留视频文件
-        // 提取音频模式，保留视频文件
         fileEntries = fileEntries.filter((e) => helper.isVideoFile(e.name))
     } else if (preset.type === "audio") {
-        // 音频转换模式，保留音频文件
         fileEntries = fileEntries.filter((e) => helper.isAudioFile(e.name))
     }
-    log.show(
-        logTag,
+    log.logInfo(
+        LOG_TAG,
         `Total ${fileEntries.length} files left [${preset.name}] (${helper.humanTime(startMs)})`,
     )
-    // 应用文件名过滤规则
     fileEntries = await applyFileNameRules(fileEntries, argv)
-    log.showYellow(logTag, t("ffmpeg.total.files", { count: fileEntries.length }))
+    log.logWarn(LOG_TAG, t("ffmpeg.total.files", { count: fileEntries.length }))
     if (fileEntries.length === 0) {
-        log.showYellow(logTag, t("ffmpeg.no.files.left"))
+        log.logWarn(LOG_TAG, t("ffmpeg.no.files.left"))
         return
     }
 
-    // 如果指定了start和count，截取列表部分
     fileEntries = fileEntries.slice(argv.start, argv.start + argv.count)
-    log.show(
-        logTag,
+    log.logInfo(
+        LOG_TAG,
         `Total ${fileEntries.length} files left in (${argv.start}-${argv.start + argv.count})`,
     )
 
-    // 仅显示视频文件参数，不进行转换操作
     if (argv.info) {
         for (const entry of fileEntries) {
-            log.showGreen(logTag, `${entry.path}`)
+            log.logSuccess(LOG_TAG, `${entry.path}`)
             const info = await getMediaInfo(entry.path)
-            log.show(logTag, info)
+            log.logInfo(LOG_TAG, info)
         }
         return
     }
@@ -446,7 +449,7 @@ async function cmdConvert(argv) {
             },
         ])
         if (!continueAnswer.yes) {
-            log.showYellow(t("common.aborted.by.user"))
+            log.logWarn(LOG_TAG, t("common.aborted.by.user"))
             return
         }
     }
@@ -456,17 +459,14 @@ async function cmdConvert(argv) {
         return {
             ...entry,
             argv: structuredClone(argv),
-            preset: structuredClone(preset),
-            // startMs: startMs,
-            // index: index,
-            // total: fileEntries.length,
+            preset,
             errorFile: argv.errorFile,
             testMode: testMode,
         }
     })
 
-    log.show(logTag, "ARGV:", argv)
-    log.show(logTag, "PRESET:", preset)
+    log.logInfo(LOG_TAG, "ARGV:", argv)
+    log.logInfo(LOG_TAG, "PRESET:", preset)
     const prepareAnswer = await inquirer.prompt([
         {
             type: "confirm",
@@ -476,17 +476,15 @@ async function cmdConvert(argv) {
         },
     ])
     if (!prepareAnswer.yes) {
-        log.showYellow(t("common.aborted.by.user"))
+        log.logWarn(LOG_TAG, t("common.aborted.by.user"))
         return
     }
-    log.showGreen(logTag, t("ffmpeg.preparing.tasks"))
+    log.logSuccess(LOG_TAG, t("ffmpeg.preparing.tasks"))
     let tasks = await pMap(fileEntries, prepareFFmpegCmd, {
-        concurrency: argv.jobs || (core.isUNCPath(root) ? 4 : cpus().length - 2),
+        concurrency: argv.jobs || Math.max(1, core.isUNCPath(root) ? 4 : cpus().length - 2),
     })
 
-    // 如果选择了清理源文件
     if (argv.deleteSourceFiles) {
-        // 删除目标文件已存在的源文件
         let dstExitsTasks = tasks.filter((t) => t && t.dstExists && !t.fileDst)
         if (dstExitsTasks.length > 0) {
             const answer = await inquirer.prompt([
@@ -505,12 +503,12 @@ async function cmdConvert(argv) {
                     dstExitsTasks,
                     async (entry) => {
                         await helper.safeRemove(entry.path)
-                        log.showYellow(
-                            logTag,
+                        log.logWarn(
+                            LOG_TAG,
                             `SafeDel ${entry.index}/${entry.total} ${entry.path}`,
                         )
                     },
-                    { concurrency: cpus().length * 2 },
+                    { concurrency: Math.max(1, cpus().length * 2) },
                 )
             }
         }
@@ -518,19 +516,19 @@ async function cmdConvert(argv) {
 
     tasks = tasks.filter((t) => t && t.fileDst)
     if (tasks.length === 0) {
-        log.showYellow(logTag, t("ffmpeg.all.skipped"))
+        log.logWarn(LOG_TAG, t("ffmpeg.all.skipped"))
         return
     }
     const lastTask = tasks.slice(-1)[0]
     const lastFFArgs = createFFmpegArgs(lastTask, true, false)
-    !testMode && log.fileLog(`ffmpegArgs:`, lastFFArgs?.flat(), "FFConv")
+    !testMode && log.fileLog(`ffmpegArgs:`, lastFFArgs?.flat(), LOG_TAG)
     log.info("-----------------------------------------------------------")
-    log.info(logTag, chalk.cyan("PRESET:"), lastTask.debugPreset)
-    log.info(logTag, chalk.cyan("CMD:"), "ffmpeg", lastFFArgs?.flat().join(" "))
+    log.info(LOG_TAG, chalk.cyan("PRESET:"), lastTask.debugPreset)
+    log.info(LOG_TAG, chalk.cyan("CMD:"), "ffmpeg", lastFFArgs?.flat().join(" "))
     const totalDuration = tasks.reduce((acc, t) => acc + t.info?.duration || 0, 0)
     log.info("-----------------------------------------------------------")
-    testMode && log.showYellow("++++++++++ " + t("ffmpeg.test.mode") + " ++++++++++")
-    log.showYellow(logTag, t("ffmpeg.check.details"))
+    testMode && log.logWarn(LOG_TAG, `++++++++++ ${t("ffmpeg.test.mode")} ++++++++++`)
+    log.logWarn(LOG_TAG, t("ffmpeg.check.details"))
     const answer = await inquirer.prompt([
         {
             type: "confirm",
@@ -546,22 +544,17 @@ async function cmdConvert(argv) {
         },
     ])
     if (!answer.yes) {
-        log.showYellow(t("common.aborted.by.user"))
+        log.logWarn(LOG_TAG, t("common.aborted.by.user"))
         return
     }
-    // 检查ffmpeg可执行文件是否存在
     const ffmpegPath = await which("ffmpeg", { nothrow: true })
     if (!ffmpegPath) {
         throw createError(ErrorTypes.FFMPEG_ERROR, t("ffmpeg.not.found"))
     }
-    // 记录开始时间
     startMs = Date.now()
     addEntryProps(tasks)
-    // 先写入一次LOG
     await log.flushFileLog()
-    // 并发数视频1，音频4，或者参数指定
     const jobCount = argv.jobs || (preset.type === "video" ? 1 : 4)
-    // 测试模式只取若干样本数据展示
     if (testMode && tasks.length > 20) {
         tasks = core.takeEveryNth(tasks, Math.floor(tasks.length / 10))
     }
@@ -579,9 +572,8 @@ async function cmdConvert(argv) {
         ])
         if (answer.yes) {
             for (const ft of failedTasks) {
-                log.showYellow(logTag, `Retrying task: ${ft.path}`)
+                log.logWarn(LOG_TAG, `Retrying task: ${ft.path}`)
                 let newFT = core.omit(ft, "ffmpegArgs", "info")
-                // 强制使用CPU解码f
                 newFT.argv.decodeMode = "cpu"
                 newFT.retryOnFailed = true
                 const task = await prepareFFmpegCmd(newFT)
@@ -593,12 +585,11 @@ async function cmdConvert(argv) {
         }
     }
 
-    // const results = await core.asyncMapGroup(tasks, runFFmpegCmd, jobCount)
-    testMode && log.showYellow(logTag, t("common.test.mode.note"))
+    testMode && log.logWarn(LOG_TAG, t("common.test.mode.note"))
     const okResults = results.filter((r) => r && r.ok)
     !testMode &&
-        log.showGreen(
-            logTag,
+        log.logSuccess(
+            LOG_TAG,
             t("ffmpeg.total.processed", {
                 count: okResults.length + rOKCount,
                 time: helper.humanTime(startMs),
@@ -636,9 +627,10 @@ async function runFFmpegCmd(entry) {
     if (entry.retryOnFailed) {
         logTag += chalk.red("(R)")
     }
-    log.show(
-        logTag,
-        chalk.yellow(ipx),
+    log.logTask(
+        LOG_TAG,
+        entry.index + 1,
+        entry.total,
         chalk.cyan(`Processing`),
         `${helper.pathShort(entry.path, 72)}`,
         helper.humanSize(entry.size),
@@ -647,16 +639,12 @@ async function runFFmpegCmd(entry) {
         helper.humanTime(entry.startMs),
     )
 
-    // 每10个输出一次ffmpeg详细信息，避免干扰
-    // if (entry.index % 10 === 0) {
-    log.showGray(logTag, ipx, getEntryShowInfo(entry))
-    log.showGray(logTag, ipx, `ffmpeg`, entry.ffmpegArgs.flat().join(" "))
-    // }
+    log.logDebug(LOG_TAG, ipx, getEntryShowInfo(entry))
+    log.logDebug(LOG_TAG, ipx, `ffmpeg`, entry.ffmpegArgs.flat().join(" "))
     const exePath = await which("ffmpeg")
     if (entry.testMode) {
-        // 测试模式跳过
-        log.show(
-            logTag,
+        log.logInfo(
+            LOG_TAG,
             `${ipx} Skipped ${entry.path} (${helper.humanSize(entry.size)}) [TestMode]`,
         )
         return
@@ -788,22 +776,28 @@ function getCommentArgs(entry) {
  */
 async function writeErrorFile(entry, error) {
     if (entry.errorFile) {
-        const useJson = entry.errorFile === "json"
-        const fileExt = useJson ? ".json" : ".txt"
-        const nowStr = dayjs().format("YYYYMMDDHHmmss")
-        const errorFile = path.join(
-            entry.fileDstDir,
-            `${path.parse(entry.name).name}_${entry.preset.name}_error_${nowStr}${fileExt}`,
-        )
-        const errorObj = {
-            ...entry,
-            error: error,
-            date: Date.now(),
+        try {
+            const useJson = entry.errorFile === "json"
+            const fileExt = useJson ? ".json" : ".txt"
+            const nowStr = dayjs().format("YYYYMMDDHHmmss")
+            // 确保输出目录存在，避免写入错误日志失败
+            await fs.ensureDir(entry.fileDstDir)
+            const errorFile = path.join(
+                entry.fileDstDir,
+                `${path.parse(entry.name).name}_${entry.preset.name}_error_${nowStr}${fileExt}`,
+            )
+            const errorObj = {
+                ...entry,
+                error: error,
+                date: Date.now(),
+            }
+            const errData = Object.entries(errorObj)
+                .map(([key, value]) => `${key} =: ${value}`)
+                .join("\n")
+            await fs.writeFile(errorFile, useJson ? JSON.stringify(errorObj, null, 4) : errData)
+        } catch (e) {
+            log.error("writeErrorFile", "Failed to write error file", e.message)
         }
-        const errData = Object.entries(errorObj)
-            .map(([key, value]) => `${key} =: ${value}`)
-            .join("\n")
-        await fs.writeFile(errorFile, useJson ? JSON.stringify(errorObj, null, 4) : errData)
     }
 }
 
@@ -987,6 +981,9 @@ async function prepareFFmpegCmd(entry) {
             }
         }
 
+        // 提前定义 ivideo 和 iaudio，避免在后续引用时 undefined
+        const ivideo = newEntry.info?.video
+        const iaudio = newEntry.info?.audio
         const duration = newEntry.info?.duration || ivideo?.duration || iaudio?.duration || 0
         // 跳过过短的文件
         if (duration < 4) {
@@ -997,8 +994,6 @@ async function prepareFFmpegCmd(entry) {
             return false
         }
 
-        const ivideo = newEntry.info?.video
-        const iaudio = newEntry.info?.audio
         if (isVideo) {
             switch (argv.decodeMode) {
                 case "cpu":
@@ -1040,6 +1035,8 @@ async function prepareFFmpegCmd(entry) {
                 subtitles.push(sub2)
             }
         }
+        // 从字幕列表中优先选择中文字幕，不行就选第一个
+        const selectedSubtitle = selectPreferredSubtitle(subtitles)
         const codecInfo = isAudio
             ? `${iaudio?.format}(${iaudio?.sampleRate},${iaudio?.bitrate},${iaudio.duration})`
             : `${ivideo?.format}(${ivideo?.profile}@${ivideo?.level},${ivideo?.bitDepth})`
@@ -1048,7 +1045,7 @@ async function prepareFFmpegCmd(entry) {
             chalk.cyan(`${ipx} SRC`),
             chalk.yellow(newEntry.useCPUDecode ? `SW` : `HW`),
             `"${helper.pathShort(entry.path, 80)}"`,
-            subtitles.length > 0 ? "(SUBS)" : "",
+            selectedSubtitle ? `(SUB:${path.basename(selectedSubtitle)})` : "",
             codecInfo,
             helper.humanSize(entry.size),
             chalk.yellow(entry.preset.name),
@@ -1063,6 +1060,7 @@ async function prepareFFmpegCmd(entry) {
             fileDst,
             fileDstTemp,
             subtitles,
+            selectedSubtitle,
         }
         // newEntry.ffmpegArgs = createFFmpegArgs(newEntry)
         // log.info(logTag, "ffmpeg", newEntry.ffmpegArgs.flat().join(" "))
@@ -1223,6 +1221,45 @@ async function readMusicMeta(entry) {
             error.message,
         )
     }
+}
+
+/**
+ * 从字幕文件路径列表中优先选择中文字幕
+ * 中文识别规则：路径包含 chinese、chinese simp、chs、zh、zhcn、chi、简体 等关键词
+ * 如果没有中文字幕则返回第一个字幕文件
+ * @param {string[]} subtitles - 字幕文件路径数组
+ * @returns {string|null} 优先选择的中文字幕路径，如果没有则返回第一个或null
+ */
+function selectPreferredSubtitle(subtitles) {
+    if (!subtitles || subtitles.length === 0) {
+        return null
+    }
+    if (subtitles.length === 1) {
+        return subtitles[0]
+    }
+    // 中文字幕关键词列表
+    const chineseKeywords = [
+        "chinese",
+        "chinese simp",
+        "chs",
+        "zh",
+        "zhcn",
+        "chi",
+        "简体",
+        "简中",
+        "gb",
+        "chs",
+    ]
+    for (const sub of subtitles) {
+        const lowerSub = sub.toLowerCase()
+        for (const keyword of chineseKeywords) {
+            if (lowerSub.includes(keyword)) {
+                return sub
+            }
+        }
+    }
+    // 没有找到中文字幕，返回第一个
+    return subtitles[0]
 }
 
 // 音频码率映射表
@@ -1535,14 +1572,11 @@ function createFFmpegArgs(entry, useCUDA = false, forDisplay = false) {
     }
     inputArgs.push("-i")
     inputArgs.push(forDisplay ? "input.mkv" : `"${entry.path}"`)
-    // 添加MP4内嵌字幕文件，支持多个字幕文件
-    if (entry.subtitles?.length > 0) {
-        // 用于显示和调试
-        tempPreset.subtitles = entry.subtitles.map((item) => path.basename(item))
-        entry.subtitles.forEach((item) => {
-            inputArgs.push("-i")
-            inputArgs.push(`"${item}"`)
-        })
+    // 添加MP4内嵌字幕文件，只添加一个优先选择的字幕文件
+    // 优先取中文字幕，不行就取第一个
+    if (entry.selectedSubtitle) {
+        inputArgs.push("-i")
+        inputArgs.push(`"${entry.selectedSubtitle}"`)
         const subArgs = "-c:s mov_text -metadata:s:s:0 language=chi -disposition:s:0 default"
         inputArgs = inputArgs.concat(subArgs.split(" "))
         // 使用提供的字幕，忽略MKV内置字幕文件
@@ -1790,10 +1824,15 @@ function parseTimeToSeconds(timeStr) {
 
 /**
  * 检测CUDA解码器支持情况
+ * 使用缓存避免对同一路径重复探测
  * @param {string} inputPath - 输入文件路径
  * @returns {Promise<boolean>} 是否支持CUDA解码
  */
 async function canUseCUDADecoder(inputPath) {
+    // 先检查缓存
+    if (cudaDecoderCache.has(inputPath)) {
+        return cudaDecoderCache.get(inputPath)
+    }
     try {
         // 探测命令
         const { stderr } = await execa(
@@ -1820,16 +1859,22 @@ async function canUseCUDADecoder(inputPath) {
             },
         )
         // console.error("stderr", stderr)
+        let canUse = true
         if (!stderr) {
-            return true
+            canUse = true
+        } else {
+            // 只要 stderr 包含这些关键字，就判定为硬件解码无法处理
+            canUse = !(
+                stderr.includes("CUDA_ERROR_INVALID_VALUE") ||
+                stderr.includes("Failed setup for format cuda")
+            )
         }
-        // 只要 stderr 包含这些关键字，就判定为硬件解码无法处理
-        return !(
-            stderr.includes("CUDA_ERROR_INVALID_VALUE") ||
-            stderr.includes("Failed setup for format cuda")
-        )
+        // 缓存结果
+        cudaDecoderCache.set(inputPath, canUse)
+        return canUse
     } catch (error) {
         // console.error("catch error", error)
+        cudaDecoderCache.set(inputPath, false)
         return false
     }
 }

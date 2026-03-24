@@ -64,6 +64,71 @@ mediac <command> --help
 | `zipu`     | `zipunicode` | **Smart Unzip** detecting filename encoding automatically.                        |
 | `decode`   | `dc`         | **Decode text** containing messy or invalid characters.                           |
 
+## Decode Command Detailed Usage
+
+The `decode` command is used to identify and fix encoding issues in text, particularly for filenames or text content that appears garbled due to encoding mismatches.
+
+### Usage
+
+```bash
+mediac decode [strings...] [options]
+```
+
+### Options
+
+| Option        | Alias | Type    | Description                                  |
+| ------------- | ----- | ------- | -------------------------------------------- |
+| `--from-enc`  | `-f`  | string  | Source encoding to try first                 |
+| `--to-enc`    | `-t`  | string  | Target encoding to convert to                |
+| `--files`     | `-i`  | array   | Files to process (supports wildcards)        |
+| `--recursive` | `-r`  | boolean | Recursively process files in subdirectories  |
+
+### Examples
+
+1. **Decode a single garbled string:**
+   ```bash
+   mediac decode "乱码字符串"
+   ```
+
+2. **Decode multiple strings:**
+   ```bash
+   mediac decode "乱码1" "乱码2" "乱码3"
+   ```
+
+3. **Decode with specific encoding settings:**
+   ```bash
+   mediac decode --from-enc gbk --to-enc utf8 "乱码字符串"
+   ```
+
+4. **Decode files:**
+   ```bash
+   mediac decode --files *.txt
+   ```
+
+5. **Recursively decode files in subdirectories:**
+   ```bash
+   mediac decode --files **/*.txt --recursive
+   ```
+
+### Supported Encodings
+
+The decode command supports a wide range of encodings, including:
+- UTF-8, UTF-16, UTF-32
+- GBK, BIG5
+- SHIFT_JIS, EUC-JP
+- EUC-KR, CP949
+- ISO-8859-1, ISO-8859-2
+
+### How It Works
+
+The decode command uses an intelligent approach to detect and fix encoding issues:
+1. It first analyzes the input text to identify potential encoding problems
+2. It then tries different encoding combinations to find the best match
+3. It evaluates the quality of each decoding attempt
+4. It returns the best decoding result with confidence scores
+
+This makes it particularly effective for fixing filenames that were encoded in one encoding and displayed in another, a common issue when transferring files between different systems.
+
 ## Development
 
 ### Prerequisites
