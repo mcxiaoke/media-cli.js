@@ -76,12 +76,12 @@ const builder = function addOptions(ya, helpOrVersionSet) {
         .option("log", {
             alias: "l",
             type: "string",
-            description: "Export operation log to specified file",
+            description: t("dcim.option.log"),
         })
         .option("backup-dir", {
             alias: "bd",
             type: "string",
-            description: "Backup original files to specified directory",
+            description: t("dcim.option.backupDir"),
         })
 }
 

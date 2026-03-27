@@ -275,7 +275,7 @@ async function prepareMove(entries, argv) {
     for (const [status, count] of Object.entries(countByStatus(tasks))) {
         log.show(
             chalk.green(t("operation.move") + "[Check]"),
-            `${t("status")}: ${status} => ${count} ${t("files")}`,
+            `${t("common.status")}: ${status} => ${count} ${t("common.files")}`,
         )
     }
 
@@ -323,14 +323,14 @@ const handler = async function cmdMove(argv) {
         return
     }
     log.show(logTag, argv)
-    log.show(logTag, `${t("move.total.entries.found")} ${entries.length} ${t("files")}`)
+    log.show(logTag, `${t("move.total.entries.found")} ${entries.length} ${t("common.files")}`)
     // 应用文件名过滤规则
     entries = await applyFileNameRules(entries, argv)
     if (entries.length === 0) {
         log.showYellow(logTag, t("move.no.files.left.after.rules"))
         return
     }
-    log.show(logTag, `${t("move.total.entries.left.after.rules")} ${entries.length} ${t("files")}`)
+    log.show(logTag, `${t("move.total.entries.left.after.rules")} ${entries.length} ${t("common.files")}`)
 
     for (const e of entries) {
         log.info(logTag, `${t("move.found")}: ${e.path}`)
@@ -341,11 +341,11 @@ const handler = async function cmdMove(argv) {
     const taskGroups = groupByMonth(tasks)
     const fCount = entries.length
     const tCount = tasks.length
-    log.showYellow(logTag, `${t("move.total.files.skipped")} ${fCount - tCount} ${t("files")}`)
+    log.showYellow(logTag, `${t("move.total.files.skipped")} ${fCount - tCount} ${t("common.files")}`)
     if (tasks.length > 0) {
         log.showGreen(
             logTag,
-            `${t("move.total.files.ready.to.move")} ${tasks.length} ${t("files")}`,
+            `${t("move.total.files.ready.to.move")} ${tasks.length} ${t("common.files")}`,
         )
     } else {
         log.showYellow(logTag, t("common.nothing.to.do"))
@@ -354,7 +354,7 @@ const handler = async function cmdMove(argv) {
 
     for (const { monthStr, entries, count } of taskGroups) {
         const destDir = path.join(output, monthStr)
-        log.show(logTag, `${destDir} <<== ${count} ${t("files")} | ${t("move.sample.files")}:`)
+        log.show(logTag, `${destDir} <<== ${count} ${t("common.files")} | ${t("move.sample.files")}:`)
         for (const e of core.pickRandom(entries, 3)) {
             log.showGray(logTag, `--${e.fileSrc}`)
         }

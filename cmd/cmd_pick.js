@@ -166,16 +166,16 @@ const builder = (ya) =>
             alias: "c",
             type: "boolean",
             default: true,
-            describe: "启用哈希缓存（加速多次运行）",
+            describe: t("option.pick.cache"),
         })
         .option("cache-file", {
             type: "string",
-            describe: "指定缓存文件路径（默认在输出目录）",
+            describe: t("option.pick.cacheFile"),
         })
         .option("no-cache", {
             type: "boolean",
             default: false,
-            describe: "禁用缓存，重新计算所有特征",
+            describe: t("option.pick.noCache"),
         })
 
 const handler = cmdPick

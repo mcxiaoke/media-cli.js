@@ -331,6 +331,7 @@ const handler = cmdConvert
  * @returns {Promise<void>}
  */
 async function cmdConvert(argv) {
+    console.log("ARGV:", argv)
     // 显示预设列表
     if (argv.showPresets) {
         for (const [key, value] of presets.getAllPresets()) {
@@ -341,17 +342,17 @@ async function cmdConvert(argv) {
     }
     // 参数验证
     if (argv.jobs !== undefined && argv.jobs <= 0) {
-        throw createError(ErrorTypes.INVALID_ARGUMENT, "Jobs must be a positive number")
+        throw createError(ErrorTypes.INVALID_ARGUMENT, t("ffmpeg.error.jobs"))
     }
-    if (argv.speed !== undefined && (argv.speed < 0.25 || argv.speed > 4.0)) {
-        throw createError(ErrorTypes.INVALID_ARGUMENT, "Speed must be between 0.25 and 4.0")
+    if (argv.speed !== undefined && (argv.speed < 0 || argv.speed > 4.0)) {
+        throw createError(ErrorTypes.INVALID_ARGUMENT, t("ffmpeg.error.speed"))
     }
     if (argv.dimension !== undefined && argv.dimension < 0) {
-        throw createError(ErrorTypes.INVALID_ARGUMENT, "Dimension must be non-negative")
+        throw createError(ErrorTypes.INVALID_ARGUMENT, t("ffmpeg.error.dimension"))
     }
     const root = path.resolve(argv.input)
     if (!root || !(await fs.pathExists(root))) {
-        throw createError(ErrorTypes.INVALID_ARGUMENT, `Invalid Input: ${root}`)
+        throw createError(ErrorTypes.INVALID_ARGUMENT, t("ffmpeg.error.invalidInput", { path: root }))
     }
     const testMode = !argv.doit
     let startMs = Date.now()
@@ -503,10 +504,7 @@ async function cmdConvert(argv) {
                     dstExitsTasks,
                     async (entry) => {
                         await helper.safeRemove(entry.path)
-                        log.logWarn(
-                            LOG_TAG,
-                            `SafeDel ${entry.index}/${entry.total} ${entry.path}`,
-                        )
+                        log.logWarn(LOG_TAG, `SafeDel ${entry.index}/${entry.total} ${entry.path}`)
                     },
                     { concurrency: Math.max(1, cpus().length * 2) },
                 )
@@ -847,7 +845,7 @@ async function prepareFFmpegCmd(entry) {
             default:
                 throw createError(
                     ErrorTypes.INVALID_ARGUMENT,
-                    `Unknown output mode: ${argv.outputMode}`,
+                    t("ffmpeg.error.unknownOutputMode", { mode: argv.outputMode }),
                 )
         }
     } else {

@@ -331,7 +331,7 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             .option("output", {
                 alias: "o",
                 type: "string",
-                description: t("option.remove.output"),
+                description: t("remove.output"),
             })
             // 保持源文件目录结构
             .option("output-tree", {
