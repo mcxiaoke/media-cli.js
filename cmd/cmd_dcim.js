@@ -19,6 +19,7 @@ import { ErrorTypes, createError, handleError } from "../lib/errors.js"
 import * as exif from "../lib/exif.js"
 import * as helper from "../lib/helper.js"
 import { t } from "../lib/i18n.js"
+import { confirmAction, confirmDangerousAction, abortIfCancelled } from "../lib/command_utils.js"
 
 const LOG_TAG = "DcimR"
 
@@ -189,22 +190,13 @@ const handler = async function cmdRename(argv) {
         return
     }
     
-    const confirmFiles = await inquirer.prompt([
-        {
-            type: "confirm",
-            name: "yes",
-            default: false,
-            message: chalk.bold.green(t("common.continue.processing")),
-        },
-    ])
+    const confirmFiles = await confirmAction(t("common.continue.processing"))
     
-    if (!confirmFiles.yes) {
-        const abortedMsg = t("common.aborted.by.user")
-        log.logWarn(LOG_TAG, abortedMsg)
+    if (await abortIfCancelled(confirmFiles, LOG_TAG)) {
         operationLog.push({
             timestamp: new Date().toISOString(),
             action: "ABORTED",
-            message: abortedMsg,
+            message: t("common.aborted.by.user"),
         })
         
         if (argv.log) {
@@ -277,21 +269,12 @@ const handler = async function cmdRename(argv) {
 
     testMode && log.logWarn(LOG_TAG, `++++++++++ ${t("ffmpeg.test.mode")} ++++++++++`)
     
-    // 询问用户是否确认重命名
-    const answer = await inquirer.prompt([
-        {
-            type: "confirm",
-            name: "yes",
-            default: false,
-            message: chalk.bold.red(
-                t("dcim.rename.confirm", { count: allFiles.length }) +
-                    (fastMode ? " (" + t("mode.fast") + ")" : ""),
-            ),
-        },
-    ])
+    const answer = await confirmDangerousAction(
+        t("dcim.rename.confirm", { count: allFiles.length }) +
+            (fastMode ? " (" + t("mode.fast") + ")" : ""),
+    )
     
-    // 如果用户确认重命名
-    if (answer.yes) {
+    if (answer) {
         if (testMode) {
             const testModeMsg = t("common.test.mode.note", { count: allFiles.length })
             log.logWarn(LOG_TAG, testModeMsg)

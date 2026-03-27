@@ -64,6 +64,7 @@ import {
     saveHashCache,
     computeImageFeaturesWithCache,
 } from "../lib/image_hash.js"
+import { confirmAction, abortIfCancelled } from "../lib/command_utils.js"
 
 const LOG_TAG = "Pick"
 
@@ -542,17 +543,8 @@ async function copyPickedFiles(files, root, argv) {
     let copyIndex = 0
     const copyTotal = files.length
 
-    const questions = [
-        {
-            type: "confirm",
-            name: "doCopy",
-            message: t("pick.copy.confirm", { count: files.length, dir: outDir }),
-            default: false,
-        },
-    ]
-
-    const answers = await inquirer.prompt(questions)
-    if (!answers.doCopy) {
+    const doCopy = await confirmAction(t("pick.copy.confirm", { count: files.length, dir: outDir }))
+    if (!doCopy) {
         log.logWarn(LOG_TAG, t("common.aborted.by.user"))
         return
     }

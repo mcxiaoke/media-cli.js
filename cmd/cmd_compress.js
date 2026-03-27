@@ -24,6 +24,7 @@ import * as helper from "../lib/helper.js"
 import { t } from "../lib/i18n.js"
 import { parseImageParams } from "../lib/query_parser.js"
 import { applyFileNameRules, calculateScale, compressImage } from "./cmd_shared.js"
+import { confirmAction, confirmDangerousAction, abortIfCancelled } from "../lib/command_utils.js"
 
 const LOG_TAG = "Compress"
 export { aliases, builder, command, describe, handler }
@@ -368,16 +369,8 @@ async function cmdCompress(argv) {
         await updateConfig(argv)
     }
 
-    const confirmFiles = await inquirer.prompt([
-        {
-            type: "confirm",
-            name: "yes",
-            default: false,
-            message: chalk.bold.green(t("common.continue.processing")),
-        },
-    ])
-    if (!confirmFiles.yes) {
-        log.logWarn(LOG_TAG, t("common.aborted.by.user"))
+    const confirmFiles = await confirmAction(t("common.continue.processing"))
+    if (await abortIfCancelled(confirmFiles, LOG_TAG)) {
         return
     }
     log.logSuccess(LOG_TAG, t("compress.preparing"))
@@ -419,24 +412,16 @@ async function cmdCompress(argv) {
     log.info(LOG_TAG, argv)
     testMode && log.logWarn(LOG_TAG, `++++++++++ ${t("ffmpeg.test.mode")} ++++++++++`)
 
-    const answer = await inquirer.prompt([
-        {
-            type: "confirm",
-            name: "yes",
-            default: false,
-            message: chalk.bold.red(
-                t("compress.confirm", {
-                    count: tasks.length,
-                    sizeK: minFileSize / 1024,
-                    maxWidth: maxWidth,
-                    note: purgeSource ? t("compress.warning.delete") : t("compress.warning.keep"),
-                }),
-            ),
-        },
-    ])
+    const answer = await confirmDangerousAction(
+        t("compress.confirm", {
+            count: tasks.length,
+            sizeK: minFileSize / 1024,
+            maxWidth: maxWidth,
+            note: purgeSource ? t("compress.warning.delete") : t("compress.warning.keep"),
+        }),
+    )
 
-    if (!answer.yes) {
-        log.logWarn(LOG_TAG, t("common.aborted.by.user"))
+    if (await abortIfCancelled(answer, LOG_TAG)) {
         return
     }
 
@@ -554,16 +539,8 @@ async function purgeSrcFiles(results) {
     if (total <= 0) {
         return
     }
-    const answer = await inquirer.prompt([
-        {
-            type: "confirm",
-            name: "yes",
-            default: false,
-            message: chalk.bold.red(t("compress.delete.confirm", { count: total })),
-        },
-    ])
-    if (!answer.yes) {
-        log.logWarn(LOG_TAG, t("common.aborted.by.user"))
+    const answer = await confirmDangerousAction(t("compress.delete.confirm", { count: total }))
+    if (await abortIfCancelled(answer, LOG_TAG)) {
         return
     }
     const deletecFunc = async (td, index) => {

@@ -29,6 +29,7 @@ import * as helper from "../lib/helper.js"
 import { t } from "../lib/i18n.js"
 import { getMediaInfo, getSimpleInfo } from "../lib/mediainfo.js"
 import { addEntryProps, applyFileNameRules, calculateScale } from "./cmd_shared.js"
+import { confirmAction, confirmDangerousAction, abortIfCancelled } from "../lib/command_utils.js"
 
 const LOG_TAG = "FFConv"
 // CUDA 探测结果缓存，避免对同一路径重复探测
@@ -442,18 +443,10 @@ async function cmdConvert(argv) {
         return
     }
     if (fileEntries.length > 1000) {
-        const continueAnswer = await inquirer.prompt([
-            {
-                type: "confirm",
-                name: "yes",
-                default: false,
-                message: chalk.bold.red(
-                    t("ffmpeg.confirm.continue", { count: fileEntries.length }),
-                ),
-            },
-        ])
-        if (!continueAnswer.yes) {
-            log.logWarn(LOG_TAG, t("common.aborted.by.user"))
+        const continueAnswer = await confirmDangerousAction(
+            t("ffmpeg.confirm.continue", { count: fileEntries.length }),
+        )
+        if (await abortIfCancelled(continueAnswer, LOG_TAG)) {
             return
         }
     }
@@ -471,16 +464,10 @@ async function cmdConvert(argv) {
 
     log.logInfo(LOG_TAG, "ARGV:", argv)
     log.logInfo(LOG_TAG, "PRESET:", preset)
-    const prepareAnswer = await inquirer.prompt([
-        {
-            type: "confirm",
-            name: "yes",
-            default: false,
-            message: chalk.bold.red(t("ffmpeg.confirm.check", { preset: preset.name })),
-        },
-    ])
-    if (!prepareAnswer.yes) {
-        log.logWarn(LOG_TAG, t("common.aborted.by.user"))
+    const prepareAnswer = await confirmDangerousAction(
+        t("ffmpeg.confirm.check", { preset: preset.name }),
+    )
+    if (await abortIfCancelled(prepareAnswer, LOG_TAG)) {
         return
     }
     log.logSuccess(LOG_TAG, t("ffmpeg.preparing.tasks"))
@@ -491,17 +478,10 @@ async function cmdConvert(argv) {
     if (argv.deleteSourceFiles) {
         let dstExitsTasks = tasks.filter((t) => t && t.dstExists && !t.fileDst)
         if (dstExitsTasks.length > 0) {
-            const answer = await inquirer.prompt([
-                {
-                    type: "confirm",
-                    name: "yes",
-                    default: false,
-                    message: chalk.bold.red(
-                        t("ffmpeg.confirm.delete.source", { count: dstExitsTasks.length }),
-                    ),
-                },
-            ])
-            if (answer.yes) {
+            const answer = await confirmDangerousAction(
+                t("ffmpeg.confirm.delete.source", { count: dstExitsTasks.length }),
+            )
+            if (answer) {
                 addEntryProps(dstExitsTasks)
                 await pMap(
                     dstExitsTasks,
@@ -530,22 +510,14 @@ async function cmdConvert(argv) {
     log.info("-----------------------------------------------------------")
     testMode && log.logWarn(LOG_TAG, `++++++++++ ${t("ffmpeg.test.mode")} ++++++++++`)
     log.logWarn(LOG_TAG, t("ffmpeg.check.details"))
-    const answer = await inquirer.prompt([
-        {
-            type: "confirm",
-            name: "yes",
-            default: false,
-            message: chalk.bold.red(
-                t("ffmpeg.confirm.process", {
-                    count: tasks.length,
-                    preset: preset.name,
-                    duration: helper.humanSeconds(totalDuration),
-                }),
-            ),
-        },
-    ])
-    if (!answer.yes) {
-        log.logWarn(LOG_TAG, t("common.aborted.by.user"))
+    const answer = await confirmDangerousAction(
+        t("ffmpeg.confirm.process", {
+            count: tasks.length,
+            preset: preset.name,
+            duration: helper.humanSeconds(totalDuration),
+        }),
+    )
+    if (await abortIfCancelled(answer, LOG_TAG)) {
         return
     }
     const ffmpegPath = await which("ffmpeg", { nothrow: true })
@@ -563,15 +535,10 @@ async function cmdConvert(argv) {
     let failedTasks = results.filter((r) => r && r.ffmpegFailed && !r.retryOnFailed)
     let rOKCount = 0
     if (failedTasks.length > 0) {
-        const answer = await inquirer.prompt([
-            {
-                type: "confirm",
-                name: "yes",
-                default: false,
-                message: chalk.bold.red(t("ffmpeg.confirm.retry", { count: failedTasks.length })),
-            },
-        ])
-        if (answer.yes) {
+        const answer = await confirmDangerousAction(
+            t("ffmpeg.confirm.retry", { count: failedTasks.length }),
+        )
+        if (answer) {
             for (const ft of failedTasks) {
                 log.logWarn(LOG_TAG, `Retrying task: ${ft.path}`)
                 let newFT = core.omit(ft, "ffmpegArgs", "info")
