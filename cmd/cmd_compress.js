@@ -22,7 +22,7 @@ import * as log from "../lib/debug.js"
 import * as mf from "../lib/file.js"
 import * as helper from "../lib/helper.js"
 import { t } from "../lib/i18n.js"
-import { parseImageParams } from "../lib/query_parser.mjs"
+import { parseImageParams } from "../lib/query_parser.js"
 import { applyFileNameRules, calculateScale, compressImage } from "./cmd_shared.js"
 
 const LOG_TAG = "Compress"
@@ -517,7 +517,13 @@ async function preCompress(f, onProgress = null) {
 
     const { dstWidth, dstHeight } = calculateScale(im.width, im.height, maxWidth)
     if (f.total < 1000 || f.index > f.total - 1000) {
-        log.logTask(LOG_TAG, f.index, f.total, helper.pathShort(fileSrc), `${im.width}x${im.height}=>${dstWidth}x${dstHeight} ${im.format || im.type} ${helper.humanSize(f.size)}`)
+        log.logTask(
+            LOG_TAG,
+            f.index,
+            f.total,
+            helper.pathShort(fileSrc),
+            `${im.width}x${im.height}=>${dstWidth}x${dstHeight} ${im.format || im.type} ${helper.humanSize(f.size)}`,
+        )
         log.showGray(LOG_TAG, `${f.index}/${f.total} DST:`, fileDst)
     }
     log.fileLog(

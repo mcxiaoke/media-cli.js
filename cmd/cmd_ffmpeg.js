@@ -17,7 +17,7 @@ import { cpus } from "os"
 import pMap from "p-map"
 import path from "path"
 import which from "which"
-import argparser from "../lib/argparser.js"
+import argparser from "../lib/arg_parser.js"
 import * as core from "../lib/core.js"
 import { asyncFilter, formatArgs } from "../lib/core.js"
 import * as log from "../lib/debug.js"
@@ -352,7 +352,10 @@ async function cmdConvert(argv) {
     }
     const root = path.resolve(argv.input)
     if (!root || !(await fs.pathExists(root))) {
-        throw createError(ErrorTypes.INVALID_ARGUMENT, t("ffmpeg.error.invalidInput", { path: root }))
+        throw createError(
+            ErrorTypes.INVALID_ARGUMENT,
+            t("ffmpeg.error.invalidInput", { path: root }),
+        )
     }
     const testMode = !argv.doit
     let startMs = Date.now()

@@ -14,7 +14,7 @@ import inquirer from "inquirer"
 import { cpus } from "os"
 import pMap from "p-map"
 import path from "path"
-import argparser from "../lib/argparser.js"
+import argparser from "../lib/arg_parser.js"
 import * as core from "../lib/core.js"
 import * as log from "../lib/debug.js"
 import * as enc from "../lib/encoding.js"
@@ -32,11 +32,11 @@ const MEDIA_ASSOCIATED_EXTS = [".jpg", ".png", ".ass", ".srt", ".nfo", ".txt"]
 
 /**
  * 使用 dayjs 格式化日期模板
- * 
+ *
  * 支持两种格式语法：
  * 1. 占位符格式（花括号）：{yyyy}-{mm}-{dd} => 2024-03-24
  * 2. dayjs 原生格式：YYYY-MM-DD => 2024-03-24
- * 
+ *
  * 占位符格式映射：
  * - 年份: {yyyy}(2024), {yy}(24)
  * - 月份: {mm}(01-12), {m}(1-12)
@@ -46,34 +46,34 @@ const MEDIA_ASSOCIATED_EXTS = [".jpg", ".png", ".ass", ".srt", ".nfo", ".txt"]
  * - 秒: {ss}(00-59), {s}(0-59)
  * - 月份名: {MMMM}(January), {MMM}(Jan)
  * - 星期名: {dddd}(Monday), {ddd}(Mon)
- * 
+ *
  * 示例：
  * - "{yyyy}-{mm}-{dd}" => "2024-03-24"
  * - "YYYYMMDD-HHmmss" => "20240324-153045"（dayjs 原生）
  * - "{yyyy}年{mm}月{dd}日" => "2024年03月24日"
- * 
+ *
  * @param {string} template - 日期格式模板字符串
  * @param {Date|string|number} [date=new Date()] - 要格式化的日期对象
  * @returns {string} 格式化后的日期字符串
  */
 function formatDateTemplate(template, date = new Date()) {
     const dayjsTemplate = template
-        .replace(/\{yyyy\}/g, 'YYYY')
-        .replace(/\{yy\}/g, 'YY')
-        .replace(/\{mm\}/g, 'MM')
-        .replace(/\{m\}/g, 'M')
-        .replace(/\{dd\}/g, 'DD')
-        .replace(/\{d\}/g, 'D')
-        .replace(/\{hh\}/g, 'HH')
-        .replace(/\{h\}/g, 'H')
-        .replace(/\{ii\}/g, 'mm')
-        .replace(/\{i\}/g, 'm')
-        .replace(/\{ss\}/g, 'ss')
-        .replace(/\{s\}/g, 's')
-        .replace(/\{MMMM\}/g, 'MMMM')
-        .replace(/\{MMM\}/g, 'MMM')
-        .replace(/\{dddd\}/g, 'dddd')
-        .replace(/\{ddd\}/g, 'ddd')
+        .replace(/\{yyyy\}/g, "YYYY")
+        .replace(/\{yy\}/g, "YY")
+        .replace(/\{mm\}/g, "MM")
+        .replace(/\{m\}/g, "M")
+        .replace(/\{dd\}/g, "DD")
+        .replace(/\{d\}/g, "D")
+        .replace(/\{hh\}/g, "HH")
+        .replace(/\{h\}/g, "H")
+        .replace(/\{ii\}/g, "mm")
+        .replace(/\{i\}/g, "m")
+        .replace(/\{ss\}/g, "ss")
+        .replace(/\{s\}/g, "s")
+        .replace(/\{MMMM\}/g, "MMMM")
+        .replace(/\{MMM\}/g, "MMM")
+        .replace(/\{dddd\}/g, "dddd")
+        .replace(/\{ddd\}/g, "ddd")
     return dayjs(date).format(dayjsTemplate)
 }
 
@@ -295,7 +295,7 @@ async function cmdRename(argv) {
     log.show(logTag, `${t("path.input")}:`, root)
     argv.cargs = argparser.parseArgs(argv.cargs)
     log.show(logTag, `cargs:`, argv.cargs)
-    
+
     if (argv.mode) {
         const modeFlags = {
             clean: { clean: true },
@@ -312,7 +312,7 @@ async function cmdRename(argv) {
             log.show(logTag, `Mode: ${argv.mode} =>`, flags)
         }
     }
-    
+
     if (
         !(
             argv.complexArgs ||
@@ -373,30 +373,36 @@ async function cmdRename(argv) {
         }
     })
     const fCount = entries.length
-    
+
     const progressBar = new cliProgress.SingleBar({
-        format: `${chalk.cyan('{bar}')} {percentage}% | {value}/{total} | {filename}`,
-        barCompleteChar: '\u2588',
-        barIncompleteChar: '\u2591',
+        format: `${chalk.cyan("{bar}")} {percentage}% | {value}/{total} | {filename}`,
+        barCompleteChar: "\u2588",
+        barIncompleteChar: "\u2591",
         hideCursor: true,
     })
-    progressBar.start(fCount, 0, { filename: '' })
-    
+    progressBar.start(fCount, 0, { filename: "" })
+
     const errors = []
-    let tasks = await pMap(entries, async (entry) => {
-        try {
-            const result = await preRename(entry)
-            progressBar.increment(1, { filename: path.basename(entry.path).substring(0, 30) })
-            return result
-        } catch (error) {
-            errors.push({ entry, error })
-            progressBar.increment(1, { filename: `[ERR] ${path.basename(entry.path).substring(0, 25)}` })
-            return null
-        }
-    }, { concurrency: argv.jobs || cpus().length * 4 })
-    
+    let tasks = await pMap(
+        entries,
+        async (entry) => {
+            try {
+                const result = await preRename(entry)
+                progressBar.increment(1, { filename: path.basename(entry.path).substring(0, 30) })
+                return result
+            } catch (error) {
+                errors.push({ entry, error })
+                progressBar.increment(1, {
+                    filename: `[ERR] ${path.basename(entry.path).substring(0, 25)}`,
+                })
+                return null
+            }
+        },
+        { concurrency: argv.jobs || cpus().length * 4 },
+    )
+
     progressBar.stop()
-    
+
     tasks = tasks.filter((entry) => entry && (entry.outPath || entry.outName))
     log.show(logTag, argv)
     const tCount = tasks.length
@@ -415,7 +421,10 @@ async function cmdRename(argv) {
     }
     log.showYellow(logTag, t("rename.files.skipped", { count: fCount - tCount, type: entryType }))
     if (tasks.length > 0) {
-        log.showGreen(logTag, t("rename.files.ready.to.rename", { count: tasks.length, type: entryType }))
+        log.showGreen(
+            logTag,
+            t("rename.files.ready.to.rename", { count: tasks.length, type: entryType }),
+        )
     } else {
         log.showYellow(logTag, t("rename.nothing.to.do", { type: entryType }))
         return
@@ -424,15 +433,19 @@ async function cmdRename(argv) {
     if (argv.preview) {
         log.showYellow(logTag, "++++++++++ PREVIEW MODE ++++++++++")
         let previewContent = ""
-        
+
         switch (argv.previewFormat) {
-            case 'json':
-                previewContent = JSON.stringify(tasks.map((task) => ({
-                    source: task.path,
-                    destination: task.outPath
-                })), null, 2)
+            case "json":
+                previewContent = JSON.stringify(
+                    tasks.map((task) => ({
+                        source: task.path,
+                        destination: task.outPath,
+                    })),
+                    null,
+                    2,
+                )
                 break
-            case 'csv':
+            case "csv":
                 previewContent = "Source,Destination\n"
                 tasks.forEach((task) => {
                     previewContent += `"${task.path}","${task.outPath}"\n`
@@ -444,12 +457,12 @@ async function cmdRename(argv) {
                     previewContent += `${helper.pathShort(task.path)} -> ${helper.pathShort(task.outPath)}\n`
                 })
         }
-        
+
         console.log(previewContent)
-        
+
         if (argv.previewOutput) {
             try {
-                await fs.writeFile(argv.previewOutput, previewContent, 'utf8')
+                await fs.writeFile(argv.previewOutput, previewContent, "utf8")
                 log.showGreen(logTag, `Preview saved to: ${argv.previewOutput}`)
             } catch (error) {
                 log.showRed(logTag, `Failed to save preview: ${error.message}`)
@@ -464,15 +477,23 @@ async function cmdRename(argv) {
             type: "confirm",
             name: "yes",
             default: false,
-            message: chalk.bold.red(t("rename.confirm.rename", { count: tasks.length, type: entryType })),
+            message: chalk.bold.red(
+                t("rename.confirm.rename", { count: tasks.length, type: entryType }),
+            ),
         },
     ])
     if (answer.yes) {
         if (testMode) {
-            log.showYellow(logTag, t("common.test.mode.note", { count: tasks.length, type: entryType }))
+            log.showYellow(
+                logTag,
+                t("common.test.mode.note", { count: tasks.length, type: entryType }),
+            )
         } else {
             const results = await renameFiles(tasks, true)
-            log.showGreen(logTag, t("rename.all.files.renamed", { count: results.length, type: entryType }))
+            log.showGreen(
+                logTag,
+                t("rename.all.files.renamed", { count: results.length, type: entryType }),
+            )
         }
     } else {
         log.showYellow(logTag, t("operation.cancelled"))
@@ -511,7 +532,7 @@ function combinePath(oldDir, ...parts) {
 function fixEncoding({ oldPath, oldDir, oldBase, ext, logTag, progress }) {
     let pendingDir = null
     let pendingBase = null
-    
+
     let [fs, ft] = enc.decodeText(oldBase)
     pendingBase = fs.trim()
     const dirNamesFixed = oldDir.split(path.sep).map((s) => {
@@ -526,7 +547,7 @@ function fixEncoding({ oldPath, oldDir, oldBase, ext, logTag, progress }) {
         log.showGray(logTag, `BadDST:${encodingErrorCount} ${strNewPath} `)
         log.fileLog(`BadEnc:${progress} <${oldPath}>`, logTag)
     }
-    
+
     return { pendingDir, pendingBase }
 }
 
@@ -537,10 +558,10 @@ function fixEncoding({ oldPath, oldDir, oldBase, ext, logTag, progress }) {
  */
 function wildcardToRegex(pattern) {
     const regexPattern = pattern
-        .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-        .replace(/\*/g, '.*')
-        .replace(/\?/g, '.')
-    return new RegExp(regexPattern, 'ugi')
+        .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+        .replace(/\*/g, ".*")
+        .replace(/\?/g, ".")
+    return new RegExp(regexPattern, "ugi")
 }
 
 /**
@@ -557,15 +578,15 @@ function wildcardToRegex(pattern) {
 function replaceStrings({ oldPath, oldDir, oldBase, ext, argv, logTag }) {
     let pendingDir = null
     let pendingBase = null
-    
+
     let matchMode = argv.regex ? "regex" : "str"
     let pattern = argv.regex ? new RegExp(argv.replace[0], "ugi") : argv.replace[0]
-    
-    if (!argv.regex && (argv.replace[0].includes('*') || argv.replace[0].includes('?'))) {
+
+    if (!argv.regex && (argv.replace[0].includes("*") || argv.replace[0].includes("?"))) {
         pattern = wildcardToRegex(argv.replace[0])
         matchMode = "wildcard"
     }
-    
+
     const replacement = argv.replace[1] || ""
     const flags = argv.replaceFlags
     log.info(logTag, `Replace: ${oldDir} = ${oldBase} P=${pattern} F=${flags}`)
@@ -592,7 +613,7 @@ function replaceStrings({ oldPath, oldDir, oldBase, ext, argv, logTag }) {
         log.info(logTag, `Replace: pattern=${pattern} replacement=${replacement} mode=${matchMode}`)
         log.info(logTag, `Replace: "${oldPath}"=>"${pendingPath}" (${matchMode})`)
     }
-    
+
     return { pendingDir, pendingBase }
 }
 
@@ -607,7 +628,7 @@ function replaceStrings({ oldPath, oldDir, oldBase, ext, argv, logTag }) {
 function cleanFileNameHandler({ oldBase, argv, oldDir }) {
     let pendingDir = null
     let pendingBase = null
-    
+
     if (!oldBase.toLowerCase().includes("shana")) {
         pendingBase = cleanFileName(oldBase, {
             separator: argv.separator,
@@ -616,7 +637,7 @@ function cleanFileNameHandler({ oldBase, argv, oldDir }) {
         })
         pendingDir = oldDir
     }
-    
+
     return { pendingDir, pendingBase }
 }
 
@@ -632,7 +653,7 @@ function cleanFileNameHandler({ oldBase, argv, oldDir }) {
 function convertToZhCn({ pendingBase, pendingDir, oldBase, oldDir }) {
     const newBase = sify(pendingBase || oldBase)
     const newDir = sify(pendingDir || oldDir)
-    
+
     return { pendingDir: newDir, pendingBase: newBase }
 }
 
@@ -649,7 +670,7 @@ function convertToZhCn({ pendingBase, pendingDir, oldBase, oldDir }) {
 async function addMediaPrefixSuffix({ oldPath, oldDir, oldBase, argv, logTag }) {
     let pendingBase = oldBase
     const associatedExts = []
-    
+
     if (helper.isMediaFile(oldPath) && (argv.suffixMedia || argv.prefixMedia)) {
         try {
             const isAudio = helper.isAudioFile(oldPath)
@@ -672,9 +693,12 @@ async function addMediaPrefixSuffix({ oldPath, oldDir, oldBase, argv, logTag }) 
                 log.showYellow(logTag, `PrefixSuffix: No valid media info found for ${oldPath}`)
             }
         } catch (error) {
-            log.showYellow(logTag, `PrefixSuffix: Error getting media info for ${oldPath}: ${error.message}`)
+            log.showYellow(
+                logTag,
+                `PrefixSuffix: Error getting media info for ${oldPath}: ${error.message}`,
+            )
         }
-        
+
         if (pendingBase !== oldBase) {
             try {
                 for (const ext of MEDIA_ASSOCIATED_EXTS) {
@@ -684,11 +708,14 @@ async function addMediaPrefixSuffix({ oldPath, oldDir, oldBase, argv, logTag }) 
                     }
                 }
             } catch (error) {
-                log.showYellow(logTag, `PrefixSuffix: Error checking extra files for ${oldPath}: ${error.message}`)
+                log.showYellow(
+                    logTag,
+                    `PrefixSuffix: Error checking extra files for ${oldPath}: ${error.message}`,
+                )
             }
         }
     }
-    
+
     return { pendingBase, associatedExts }
 }
 
@@ -705,16 +732,16 @@ async function addMediaPrefixSuffix({ oldPath, oldDir, oldBase, argv, logTag }) 
 async function ensureUniquePath(basePath, baseName, ext, existsCheck, logTag, logPrefix) {
     let newPath = path.resolve(path.join(basePath, baseName + ext))
     let dupCount = 0
-    
+
     while (await existsCheck(newPath)) {
         const newName = baseName + `_${++dupCount}` + ext
         newPath = path.resolve(path.join(basePath, newName))
     }
-    
+
     if (dupCount > 0) {
         log.showGray(logTag, `${logPrefix}: ${helper.pathShort(newPath)}`)
     }
-    
+
     return newPath
 }
 
@@ -734,14 +761,27 @@ async function handlePathConflicts({ oldPath, newPath, pendingBase, ext, newDir,
         log.info(logTag, `Skip Same: ${helper.pathShort(oldPath)}`)
         return { newPath, skipped: true }
     }
-    
+
     if (await fs.pathExists(newPath)) {
-        newPath = await ensureUniquePath(newDir, pendingBase, ext, fs.pathExists, logTag, `NewPath[EXIST]`)
-    } 
-    else if (seenPaths.has(newPath)) {
-        newPath = await ensureUniquePath(newDir, pendingBase, ext, (p) => seenPaths.has(p), logTag, `NewPath[DUP]`)
+        newPath = await ensureUniquePath(
+            newDir,
+            pendingBase,
+            ext,
+            fs.pathExists,
+            logTag,
+            `NewPath[EXIST]`,
+        )
+    } else if (seenPaths.has(newPath)) {
+        newPath = await ensureUniquePath(
+            newDir,
+            pendingBase,
+            ext,
+            (p) => seenPaths.has(p),
+            logTag,
+            `NewPath[DUP]`,
+        )
     }
-    
+
     return { newPath, skipped: false }
 }
 
@@ -801,35 +841,41 @@ async function preRename(entry) {
         pendingBase = result.pendingBase
     }
 
-    const mediaResult = await addMediaPrefixSuffix({ oldPath, oldDir, oldBase: pendingBase || oldBase, argv, logTag })
+    const mediaResult = await addMediaPrefixSuffix({
+        oldPath,
+        oldDir,
+        oldBase: pendingBase || oldBase,
+        argv,
+        logTag,
+    })
     pendingBase = mediaResult.pendingBase
     associatedExts = mediaResult.associatedExts
-    
+
     if (argv.suffixDate) {
         const now = new Date()
         let dateStr = ""
-        
-        if (argv.suffixDate.includes('{')) {
+
+        if (argv.suffixDate.includes("{")) {
             dateStr = formatDateTemplate(argv.suffixDate, now)
         } else {
             switch (argv.suffixDate.toLowerCase()) {
                 case "yyyy-mm-dd":
-                    dateStr = now.toISOString().split('T')[0]
+                    dateStr = now.toISOString().split("T")[0]
                     break
                 case "yyyymmdd":
-                    dateStr = now.toISOString().split('T')[0].replace(/-/g, '')
+                    dateStr = now.toISOString().split("T")[0].replace(/-/g, "")
                     break
                 case "yyyymmdd-hhmmss":
-                    dateStr = now.toISOString().replace(/[-:]/g, '').split('.')[0]
+                    dateStr = now.toISOString().replace(/[-:]/g, "").split(".")[0]
                     break
                 case "yyyy-mm-dd-hhmmss":
-                    dateStr = now.toISOString().replace('T', '-').split('.')[0]
+                    dateStr = now.toISOString().replace("T", "-").split(".")[0]
                     break
                 default:
-                    dateStr = now.toISOString().split('T')[0]
+                    dateStr = now.toISOString().split("T")[0]
             }
         }
-        
+
         pendingBase = `${pendingBase}_${dateStr}`
         log.info(logTag, `SuffixDate: ${pendingBase || oldBase} => ${pendingBase}`)
     }
@@ -837,18 +883,18 @@ async function preRename(entry) {
     if (argv.template) {
         const now = new Date()
         let templateStr = argv.template
-        
-        if (templateStr.includes('{')) {
+
+        if (templateStr.includes("{")) {
             templateStr = formatDateTemplate(templateStr, now)
         }
-        
+
         templateStr = templateStr.replace(/\{name\}/g, pendingBase || oldBase)
         templateStr = templateStr.replace(/\{original\}/g, oldBase)
-        
+
         pendingBase = templateStr
         log.info(logTag, `Template: ${oldBase} => ${pendingBase}`)
     }
-    
+
     if (argv.videoDimension && helper.isVideoFile(oldPath)) {
         try {
             const info = await getMediaInfo(oldPath)
@@ -860,13 +906,19 @@ async function preRename(entry) {
                     pendingDir = dimensionDir
                     log.info(logTag, `VideoDimension: ${oldPath} => ${dimensionDir}`)
                 } else {
-                    log.showYellow(logTag, `VideoDimension: No valid resolution found for ${oldPath}`)
+                    log.showYellow(
+                        logTag,
+                        `VideoDimension: No valid resolution found for ${oldPath}`,
+                    )
                 }
             } else {
                 log.showYellow(logTag, `VideoDimension: No video info found for ${oldPath}`)
             }
         } catch (error) {
-            log.showYellow(logTag, `VideoDimension: Error getting media info for ${oldPath}: ${error.message}`)
+            log.showYellow(
+                logTag,
+                `VideoDimension: Error getting media info for ${oldPath}: ${error.message}`,
+            )
         }
     }
 
@@ -878,7 +930,7 @@ async function preRename(entry) {
         if (match) {
             const nPattern = match[1]
             const padLength = nPattern.length
-            const formattedCounter = counter.toString().padStart(padLength, '0')
+            const formattedCounter = counter.toString().padStart(padLength, "0")
             counterStr = format.replace(`{${nPattern}}`, formattedCounter)
         }
         pendingBase = (pendingBase || oldBase) + counterStr
@@ -888,16 +940,19 @@ async function preRename(entry) {
     if (argv.case) {
         let base = pendingBase || oldBase
         switch (argv.case.toLowerCase()) {
-            case 'upper':
+            case "upper":
                 base = base.toUpperCase()
                 break
-            case 'lower':
+            case "lower":
                 base = base.toLowerCase()
                 break
-            case 'title':
-                base = base.replace(/\w\S*/g, (txt) => txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase())
+            case "title":
+                base = base.replace(
+                    /\w\S*/g,
+                    (txt) => txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase(),
+                )
                 break
-            case 'sentence':
+            case "sentence":
                 base = base.charAt(0).toUpperCase() + base.substr(1).toLowerCase()
                 break
         }
@@ -907,7 +962,7 @@ async function preRename(entry) {
 
     if (argv.truncate) {
         const maxLength = argv.truncate
-        const suffix = argv.truncateSuffix || '...'
+        const suffix = argv.truncateSuffix || "..."
         let base = pendingBase || oldBase
         if (base.length > maxLength) {
             const availableLength = maxLength - suffix.length
@@ -941,26 +996,26 @@ async function preRename(entry) {
     let newBase = pendingBase
     let newDir = pendingDir || oldDir
     let finalExt = ext
-    
+
     if (argv.changeExt && !isDir) {
         let newExt = argv.changeExt
-        if (!newExt.startsWith('.')) {
-            newExt = '.' + newExt
+        if (!newExt.startsWith(".")) {
+            newExt = "." + newExt
         }
         finalExt = newExt
         log.info(logTag, `ChangeExt: ${ext} => ${finalExt}`)
     }
-    
+
     if (argv.lowerExt && !isDir) {
         finalExt = finalExt.toLowerCase()
         log.info(logTag, `LowerExt: ${ext} => ${finalExt}`)
     }
-    
+
     if (argv.upperExt && !isDir) {
         finalExt = finalExt.toUpperCase()
         log.info(logTag, `UpperExt: ${ext} => ${finalExt}`)
     }
-    
+
     let newName = newBase + finalExt
     let newPath = path.resolve(path.join(newDir, newName))
 
@@ -974,7 +1029,7 @@ async function preRename(entry) {
         pendingBase,
         ext: finalExt,
         newDir,
-        logTag
+        logTag,
     })
     newPath = conflictResult.newPath
     entry.skipped = conflictResult.skipped
