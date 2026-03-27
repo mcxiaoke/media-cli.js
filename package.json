@@ -91,6 +91,7 @@
         "image-size": "^1.1.1",
         "inquirer": "^9.2.19",
         "js-xxhash": "^3.0.1",
+        "js-yaml": "^4.1.1",
         "loglevel": "^1.9.1",
         "loglevel-plugin-prefix": "^0.8.4",
         "mediainfo.js": "^0.2.2",

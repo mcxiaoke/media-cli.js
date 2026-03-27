@@ -1,0 +1,388 @@
+# ===========================================
+# MediaCli FFmpeg 预设配置文件
+# ===========================================
+#
+# 预设命名规则:
+#   - 视频预设: hevc_*, h264_*
+#   - 音频预设: aac_*, audio_*
+#   - 后缀含义: _2k(1920p), _4k(3840p), _high/medium/low(质量等级)
+#
+# 参数说明:
+#   format       - 输出格式 (.mp4, .m4a 等)
+#   type         - 类型 (video, audio)
+#   prefix       - 文件名前缀
+#   suffix       - 文件名后缀 (支持模板变量)
+#   videoArgs    - 视频编码参数
+#   audioArgs    - 音频编码参数
+#   filters      - 视频滤镜 (scale 等)
+#   complexFilter - 复杂滤镜 (与 filters 互斥)
+#   videoBitrate - 视频码率 (单位: bps)
+#   videoQuality - 视频质量 (CQ/CRF 值)
+#   audioBitrate - 音频码率 (单位: bps)
+#   audioQuality - 音频质量 (VBR 等级 1-5)
+#   dimension    - 视频最大尺寸 (长边)
+#   framerate    - 帧率 (0 表示保持原帧率)
+#   speed        - 视频速度 (1.0 = 正常)
+#   smartBitrate - 是否启用智能码率计算
+#
+# 模板变量:
+#   {videoBitrateK}  - 视频码率 (Kbps)
+#   {audioBitrateK}  - 音频码率 (Kbps)
+#   {videoQuality}   - 视频质量值
+#   {audioQuality}   - 音频质量值
+#   {dimension}      - 视频尺寸
+#   {framerate}      - 帧率
+#   {speed}          - 速度倍率
+#   {preset}         - 预设名称
+# ===========================================
+
+# ===========================================
+# 基础预设 (作为模板，不会被直接使用)
+# ===========================================
+
+# H.264/AVC 基础预设 (NVIDIA NVENC 硬件编码)
+_base_h264:
+  format: ".mp4"
+  type: video
+  prefix: "[SHANA] "
+  suffix: "_{preset}"
+  smartBitrate: true
+  dimension: 3840
+  framerate: 0
+  speed: 0
+  # NVENC H.264 编码器参数
+  # -cq: 恒定质量模式 (越小质量越高)
+  # -bufsize/-maxrate: 码率缓冲和最大码率
+  videoArgs: "-c:v h264_nvenc -rc vbr -tune hq -cq {videoQuality} -bufsize {videoBitrateK} -maxrate {videoBitrateK}"
+  # AAC 音频编码
+  audioArgs: "-c:a libfdk_aac -b:a {audioBitrateK}"
+  # CUDA 加速缩放滤镜
+  filters: "scale_cuda=w={dimension}:h={dimension}:force_original_aspect_ratio=decrease:interp_algo=lanczos,format=cuda"
+  inputArgs: ""
+  streamArgs: "-map_metadata 0 -map_metadata:s:v 0:s:v"
+  outputArgs: "-movflags +faststart -movflags use_metadata_tags"
+
+# H.265/HEVC 基础预设 (NVIDIA NVENC 硬件编码)
+_base_hevc:
+  format: ".mp4"
+  type: video
+  prefix: "[SHANA] "
+  suffix: "_{preset}"
+  smartBitrate: true
+  dimension: 3840
+  framerate: 0
+  speed: 0
+  # NVENC HEVC 编码器参数
+  # -cq: 恒定质量模式
+  # -rc-lookahead: 前向预测帧数
+  # -spatial-aq/-temporal-aq: 空间/时间自适应量化
+  videoArgs: "-c:v hevc_nvenc -rc vbr -tune hq -rc-lookahead 24 -spatial-aq 1 -temporal-aq 1 -cq {videoQuality} -bufsize {videoBitrateK} -maxrate {videoBitrateK}"
+  audioArgs: "-c:a libfdk_aac -b:a {audioBitrateK}"
+  filters: "scale_cuda=w={dimension}:h={dimension}:force_original_aspect_ratio=decrease:interp_algo=lanczos,format=cuda"
+  inputArgs: ""
+  streamArgs: "-map_metadata 0 -map_metadata:s:v 0:s:v"
+  outputArgs: "-movflags +faststart -movflags use_metadata_tags"
+
+# HEVC QSV 基础预设 (Intel QuickSync 硬件编码)
+_base_hevc_qsv:
+  format: ".mp4"
+  type: video
+  prefix: "[SHANA] "
+  suffix: "_{preset}"
+  smartBitrate: true
+  dimension: 3840
+  framerate: 0
+  speed: 0
+  # Intel QSV 编码器参数
+  # -global_quality: 全局质量 (类似 CQ)
+  videoArgs: "-c:v hevc_qsv -look_ahead 1 -global_quality {videoQuality} -bufsize {videoBitrateK} -maxrate {videoBitrateK}"
+  audioArgs: "-c:a libfdk_aac -b:a {audioBitrateK}"
+  filters: "scale_qsv='if(gte(iw,ih),min({dimension},iw),-2)':'if(lt(iw,ih),min({dimension},ih),-2)'"
+  inputArgs: ""
+  streamArgs: "-map_metadata 0 -map_metadata:s:v 0:s:v"
+  outputArgs: "-movflags +faststart -movflags use_metadata_tags"
+
+# AAC CBR 基础预设
+_base_aac_cbr:
+  format: ".m4a"
+  type: audio
+  prefix: ""
+  suffix: "_{audioBitrateK}"
+  smartBitrate: true
+  videoArgs: ""
+  audioArgs: "-map 0:a -c:a libfdk_aac -b:a {audioBitrateK}"
+  inputArgs: ""
+  streamArgs: "-vn -map_metadata 0 -map_metadata:s:a 0:s:a"
+  outputArgs: "-movflags +faststart -movflags use_metadata_tags"
+
+# AAC VBR 基础预设
+_base_aac_vbr:
+  format: ".m4a"
+  type: audio
+  prefix: ""
+  suffix: "_q{audioQuality}"
+  smartBitrate: false
+  videoArgs: ""
+  # VBR 质量等级: 1(最低) - 5(最高)
+  # 1: 20-32 kbps/channel (HE-AAC)
+  # 2: 32-40 kbps/channel (HE-AAC)
+  # 3: 48-56 kbps/channel (HE-AAC)
+  # 4: 64-72 kbps/channel (LC-AAC)
+  # 5: 96-112 kbps/channel (LC-AAC)
+  audioArgs: "-map 0:a -c:a libfdk_aac -vbr {audioQuality}"
+  inputArgs: ""
+  streamArgs: "-vn -map_metadata 0 -map_metadata:s:a 0:s:a"
+  outputArgs: "-movflags +faststart -movflags use_metadata_tags"
+
+# ===========================================
+# H.264 视频预设
+# ===========================================
+
+# 2K 标准 (1920p, 质量24, 码率4M)
+h264_2k:
+  extends: _base_h264
+  videoQuality: 24
+  videoBitrate: 4000000      # 4 Mbps
+  audioBitrate: 192000       # 192 Kbps
+  dimension: 1920
+
+# 2K 中等 (1920p, 质量26, 码率2M)
+h264_2km:
+  extends: _base_h264
+  videoQuality: 26
+  videoBitrate: 2000000      # 2 Mbps
+  audioBitrate: 128000       # 128 Kbps
+  dimension: 1920
+
+# 2K 低质量 (1920p, 质量26, 码率1.6M)
+h264_2kl:
+  extends: _base_h264
+  videoQuality: 26
+  videoBitrate: 1600000      # 1.6 Mbps
+  audioBitrate: 96000        # 96 Kbps
+  dimension: 1920
+
+# ===========================================
+# HEVC 视频预设 (NVIDIA NVENC)
+# ===========================================
+
+# 4K 超高质量 (3840p, 质量20, 码率16M)
+hevc_4ku:
+  extends: _base_hevc
+  videoQuality: 20
+  videoBitrate: 16000000     # 16 Mbps
+  audioBitrate: 256000       # 256 Kbps
+  dimension: 3840
+
+# 4K 高质量 (3840p, 质量22, 码率10M)
+hevc_4k:
+  extends: _base_hevc
+  videoQuality: 22
+  videoBitrate: 10000000     # 10 Mbps
+  audioBitrate: 256000       # 256 Kbps
+  dimension: 3840
+
+# 4K 中等 (3840p, 质量24, 码率6M)
+hevc_4kl:
+  extends: _base_hevc
+  videoQuality: 24
+  videoBitrate: 6000000      # 6 Mbps
+  audioBitrate: 256000       # 256 Kbps
+  dimension: 3840
+
+# 4K 低质量 (3840p, 质量26, 码率4M)
+hevc_4kt:
+  extends: _base_hevc
+  videoQuality: 26
+  videoBitrate: 4000000      # 4 Mbps
+  audioBitrate: 192000       # 192 Kbps
+  dimension: 3840
+
+# 2K 超高质量 (1920p, 质量22, 码率8M)
+hevc_2ku:
+  extends: _base_hevc
+  videoQuality: 22
+  videoBitrate: 8000000      # 8 Mbps
+  audioBitrate: 256000       # 256 Kbps
+  dimension: 1920
+
+# 2K 高质量 (1920p, 质量22, 码率6M)
+hevc_2kh:
+  extends: _base_hevc
+  videoQuality: 22
+  videoBitrate: 6000000      # 6 Mbps
+  audioBitrate: 256000       # 256 Kbps
+  dimension: 1920
+
+# 2K 标准 (1920p, 质量24, 码率4M) - 默认推荐
+hevc_2k:
+  extends: _base_hevc
+  videoQuality: 24
+  videoBitrate: 4000000      # 4 Mbps
+  audioBitrate: 192000       # 192 Kbps
+  dimension: 1920
+
+# 2K 中等 (1920p, 质量26, 码率2M)
+hevc_2km:
+  extends: _base_hevc
+  videoQuality: 26
+  videoBitrate: 2000000      # 2 Mbps
+  audioBitrate: 128000       # 128 Kbps
+  dimension: 1920
+
+# 2K 低质量 (1920p, 质量26, 码率1.6M)
+hevc_2kl:
+  extends: _base_hevc
+  videoQuality: 26
+  videoBitrate: 1600000      # 1.6 Mbps
+  audioBitrate: 128000       # 128 Kbps
+  dimension: 1920
+
+# 2K 极低 (1920p, 质量28, 码率1.2M, 30fps)
+hevc_2kt:
+  extends: _base_hevc
+  videoQuality: 28
+  videoBitrate: 1200000      # 1.2 Mbps
+  audioBitrate: 96000        # 96 Kbps
+  dimension: 1920
+  framerate: 30
+  smartBitrate: false
+
+# ===========================================
+# HEVC QSV 视频预设 (Intel QuickSync)
+# ===========================================
+
+# QSV 2K 标准
+hevc_qsv2k:
+  extends: _base_hevc_qsv
+  videoQuality: 26
+  videoBitrate: 4000000
+  audioBitrate: 192000
+  dimension: 1920
+
+# QSV 2K 中等
+hevc_qsv2km:
+  extends: _base_hevc_qsv
+  videoQuality: 28
+  videoBitrate: 2000000
+  audioBitrate: 128000
+  dimension: 1920
+
+# ===========================================
+# 特殊视频预设
+# ===========================================
+
+# 极速模式 - 适用于视频教程/演讲
+# 支持变速播放，低码率，小文件
+hevc_speed:
+  extends: _base_hevc
+  videoQuality: 30
+  videoBitrate: 500000       # 500 Kbps
+  audioQuality: 1            # HE-AAC VBR 1
+  audioBitrate: 48000        # 48 Kbps
+  dimension: 1920
+  speed: 1.5
+  framerate: 25
+  smartBitrate: false
+  suffix: "_{speed}x"
+  # HE-AAC 编码，更低码率
+  audioArgs: "-c:a libfdk_aac -profile:a aac_he -vbr {audioQuality} -b:a {audioBitrateK}"
+  # 使用复杂滤镜实现变速
+  filters: ""
+  complexFilter: "[0:v]setpts=PTS/{speed},scale_cuda='if(gte(iw,ih),min({dimension},iw),-2)':'if(lt(iw,ih),min({dimension},ih),-2)':interp_algo=lanczos,fps={framerate}[v];[0:a]atempo={speed}[a]"
+  streamArgs: "-map [v] -map [a]"
+
+# ===========================================
+# 音频预设
+# ===========================================
+
+# 从视频中提取音频 (复制音频流)
+audio_extract:
+  extends: _base_aac_cbr
+  prefix: ""
+  suffix: "_audio"
+  audioBitrate: 192000
+  audioArgs: "-c:a copy"
+  streamArgs: "-vn -map 0:a:0 -map_metadata 0 -map_metadata:s:a 0:s:a"
+
+# AAC 高码率 (320 Kbps)
+aac_high:
+  extends: _base_aac_cbr
+  audioBitrate: 320000
+
+# AAC 中码率 (192 Kbps)
+aac_medium:
+  extends: _base_aac_cbr
+  audioBitrate: 192000
+
+# AAC 低码率 (128 Kbps)
+aac_low:
+  extends: _base_aac_cbr
+  audioBitrate: 128000
+
+# AAC HE (高效编码，适合低码率)
+aac_he:
+  extends: _base_aac_cbr
+  smartBitrate: false
+  audioQuality: 2
+  audioBitrate: 72000        # 72 Kbps
+  audioArgs: "-map 0:a -c:a libfdk_aac -profile:a aac_he -vbr {audioQuality} -b:a {audioBitrateK}"
+
+# AAC VBR (可变码率)
+aac_vbr:
+  extends: _base_aac_vbr
+  audioQuality: 4
+
+# AAC 人声 (极低码率，适合语音)
+aac_voice:
+  extends: _base_aac_cbr
+  smartBitrate: false
+  audioQuality: 1
+  audioBitrate: 48000        # 48 Kbps
+  audioArgs: "-map 0:a -c:a libfdk_aac -profile:a aac_he -vbr {audioQuality} -b:a {audioBitrateK}"
+
+# ===========================================
+# 码率参考表
+# ===========================================
+#
+# YouTube 推荐视频码率 (SDR):
+# ┌─────────┬───────────────┬────────────────┐
+# │ 分辨率  │ 标准码率      │ 高质量码率     │
+# ├─────────┼───────────────┼────────────────┤
+# │ 8K      │ 80-160 Mbps   │ 120-240 Mbps   │
+# │ 4K      │ 35-45 Mbps    │ 53-68 Mbps     │
+# │ 1440p   │ 16 Mbps       │ 24 Mbps        │
+# │ 1080p   │ 8 Mbps        │ 12 Mbps        │
+# │ 720p    │ 5 Mbps        │ 7.5 Mbps       │
+# │ 480p    │ 2.5 Mbps      │ 4 Mbps         │
+# │ 360p    │ 1 Mbps        │ 1.5 Mbps       │
+# └─────────┴───────────────┴────────────────┘
+#
+# HEVC NVENC CQ 模式码率参考:
+# ┌───────┬──────────┐
+# │ CQ值  │ 码率     │
+# ├───────┼──────────┤
+# │ 22    │ ~16 Mbps │
+# │ 24    │ ~12 Mbps │
+# │ 26    │ ~9 Mbps  │
+# │ 28    │ ~6 Mbps  │
+# │ 30    │ ~5 Mbps  │
+# │ 32    │ ~4 Mbps  │
+# │ 34    │ ~3 Mbps  │
+# │ 36    │ ~2 Mbps  │
+# │ 38    │ ~1.5 Mbps│
+# │ 40    │ ~1.3 Mbps│
+# │ 42    │ ~1 Mbps  │
+# │ 50    │ ~600 Kbps│
+# └───────┴──────────┘
+#
+# AAC VBR 质量等级:
+# ┌─────┬────────────────┬─────────────────┐
+# │ VBR │ kbps/channel   │ 编码类型        │
+# ├─────┼────────────────┼─────────────────┤
+# │ 1   │ 20-32          │ LC, HE, HEv2    │
+# │ 2   │ 32-40          │ LC, HE, HEv2    │
+# │ 3   │ 48-56          │ LC, HE, HEv2    │
+# │ 4   │ 64-72          │ LC              │
+# │ 5   │ 96-112         │ LC              │
+# └─────┴────────────────┴─────────────────┘

@@ -374,10 +374,12 @@ async function cmdConvert(argv) {
     // sp = speed
     // dm = dimension
     // fps = framerate
-    argv.ffargs = argparser.parseArgs(argv.ffargs)
-    log.info(LOG_TAG, `ffargs:`, argv.ffargs)
+    const ffargs = argparser.parseArgs(argv.ffargs)
+    log.info(LOG_TAG, `ffargs:`, ffargs)
+    // 合并 ffargs 到 argv (ffargs 优先级低于命令行单独参数)
+    const mergedArgv = presets.applyFfargs(argv, ffargs)
     // 解析Preset，根据argv参数修改preset，返回对象
-    const preset = presets.createFromArgv(argv)
+    const preset = presets.createFromArgv(mergedArgv)
     if (!testMode) {
         log.fileLog(`Root: ${root}`, "FFConv")
         log.fileLog(`Argv: ${JSON.stringify(argv)}`, "FFConv")
