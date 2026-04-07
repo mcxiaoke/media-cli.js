@@ -27,9 +27,9 @@ const LOG_TAG = "DcimR"
 export { aliases, builder, command, describe, handler }
 
 // 命令定义
-const command = "dcimr <input...> [options]"  // 命令格式，支持多个输入目录
-const aliases = ["dm", "dcim"]             // 命令别名
-const describe = t("dcim.description")      // 命令描述
+const command = "dcimr <input...> [options]" // 命令格式，支持多个输入目录
+const aliases = ["dm", "dcim"] // 命令别名
+const describe = t("dcim.description") // 命令描述
 
 /**
  * 添加命令选项
@@ -53,7 +53,7 @@ const builder = function addOptions(ya, helpOrVersionSet) {
         .option("prefix", {
             alias: "p",
             type: "string",
-            default: "IMG_/DSC_/VID_",
+            default: "",
             description: t("dcim.prefix"),
         })
         .option("suffix", {
@@ -105,13 +105,13 @@ const builder = function addOptions(ya, helpOrVersionSet) {
  */
 const handler = async function cmdRename(argv) {
     log.logInfo(LOG_TAG, argv)
-    
+
     const inputDirs = Array.isArray(argv.input) ? argv.input : [argv.input]
     const testMode = !argv.doit
     const fastMode = argv.fast || false
     const startMs = Date.now()
     const operationLog = []
-    
+
     operationLog.push({
         timestamp: new Date().toISOString(),
         action: "START",
@@ -125,20 +125,20 @@ const handler = async function cmdRename(argv) {
             template: argv.template,
         },
     })
-    
+
     let allFiles = []
     let totalFileCount = 0
-    
+
     for (const input of inputDirs) {
         const root = path.resolve(input)
         log.logInfo(LOG_TAG, `${t("path.input")}: ${root}`)
-        
+
         operationLog.push({
             timestamp: new Date().toISOString(),
             action: "PROCESS_DIR",
             message: `处理目录: ${root}`,
         })
-        
+
         if (!(await fs.pathExists(root))) {
             const errorMsg = `Invalid Input: '${root}'`
             log.logError(LOG_TAG, errorMsg)
@@ -149,7 +149,7 @@ const handler = async function cmdRename(argv) {
             })
             throw createError(ErrorTypes.INVALID_ARGUMENT, errorMsg)
         }
-        
+
         try {
             const files = await exif.listMedia(root)
             totalFileCount += files.length
@@ -174,7 +174,7 @@ const handler = async function cmdRename(argv) {
             throw createError(ErrorTypes.PROCESS_ERROR, errorMsg)
         }
     }
-    
+
     if (allFiles.length === 0) {
         const noFilesMsg = t("dcim.no.files.found")
         log.logWarn(LOG_TAG, noFilesMsg)
@@ -183,28 +183,28 @@ const handler = async function cmdRename(argv) {
             action: "NO_FILES",
             message: noFilesMsg,
         })
-        
+
         if (argv.log) {
             await exportLog(argv.log, operationLog)
         }
         return
     }
-    
+
     const confirmFiles = await confirmAction(t("common.continue.processing"))
-    
+
     if (await abortIfCancelled(confirmFiles, LOG_TAG)) {
         operationLog.push({
             timestamp: new Date().toISOString(),
             action: "ABORTED",
             message: t("common.aborted.by.user"),
         })
-        
+
         if (argv.log) {
             await exportLog(argv.log, operationLog)
         }
         return
     }
-    
+
     log.logInfo(LOG_TAG, t("dcim.processing.exif"))
     try {
         allFiles = await exif.parseFiles(allFiles, { fastMode })
@@ -268,12 +268,12 @@ const handler = async function cmdRename(argv) {
     log.info(LOG_TAG, argv)
 
     testMode && log.logWarn(LOG_TAG, `++++++++++ ${t("ffmpeg.test.mode")} ++++++++++`)
-    
+
     const answer = await confirmDangerousAction(
         t("dcim.rename.confirm", { count: allFiles.length }) +
             (fastMode ? " (" + t("mode.fast") + ")" : ""),
     )
-    
+
     if (answer) {
         if (testMode) {
             const testModeMsg = t("common.test.mode.note", { count: allFiles.length })
@@ -295,9 +295,9 @@ const handler = async function cmdRename(argv) {
                         message: `开始备份文件到: ${backupDir}`,
                         count: allFiles.length,
                     })
-                    
+
                     await backupFiles(allFiles, backupDir)
-                    
+
                     operationLog.push({
                         timestamp: new Date().toISOString(),
                         action: "BACKUP_COMPLETE",
@@ -305,7 +305,7 @@ const handler = async function cmdRename(argv) {
                         directory: backupDir,
                     })
                 }
-                
+
                 const results = await renameFiles(allFiles, false)
                 const renamedMsg = t("dcim.files.renamed", { count: results.length })
                 log.logSuccess(LOG_TAG, renamedMsg)
@@ -323,11 +323,11 @@ const handler = async function cmdRename(argv) {
                     action: "ERROR",
                     message: errorMsg,
                 })
-                
+
                 if (argv.log) {
                     await exportLog(argv.log, operationLog)
                 }
-                
+
                 throw createError(ErrorTypes.PROCESS_ERROR, errorMsg)
             }
         }
@@ -340,14 +340,14 @@ const handler = async function cmdRename(argv) {
             message: abortedMsg,
         })
     }
-    
+
     operationLog.push({
         timestamp: new Date().toISOString(),
         action: "COMPLETE",
         message: "DCIM 重命名操作完成",
         time: helper.humanTime(startMs),
     })
-    
+
     if (argv.log) {
         await exportLog(argv.log, operationLog)
     }
@@ -372,21 +372,21 @@ async function backupFiles(files, backupDir) {
         if (!(await fs.pathExists(backupDir))) {
             await fs.mkdirs(backupDir)
         }
-        
+
         const backedUpFiles = []
-        
+
         for (const file of files) {
             const srcPath = file.path
             const fileName = path.basename(srcPath)
             const dstPath = path.join(backupDir, fileName)
-            
+
             if (await fs.pathExists(dstPath)) {
                 const timestamp = dayjs().format("YYYYMMDD_HHmmss")
                 const ext = path.extname(fileName)
                 const baseName = path.basename(fileName, ext)
                 const newFileName = `${baseName}_${timestamp}${ext}`
                 const newDstPath = path.join(backupDir, newFileName)
-                
+
                 await fs.copy(srcPath, newDstPath)
                 backedUpFiles.push({ ...file, backupPath: newDstPath })
             } else {
@@ -394,7 +394,7 @@ async function backupFiles(files, backupDir) {
                 backedUpFiles.push({ ...file, backupPath: dstPath })
             }
         }
-        
+
         log.logSuccess(LOG_TAG, `Backed up ${backedUpFiles.length} files to: ${backupDir}`)
         return backedUpFiles
     } catch (error) {
