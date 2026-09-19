@@ -59,7 +59,7 @@ import {
     CACHE_CONFIG,
     clusterByEvents,
     calculateQualityScores,
-    computeHashDedup,
+    dedupByHashes,
     loadHashCache,
     saveHashCache,
     computeImageFeatures,
@@ -1205,38 +1205,8 @@ async function processImageHashDedup(daySelections, threshold = CONFIG.IMAGE_HAS
         qualityScores = computed.qualityScores
     }
 
-    const validHashes = hashResults.filter((r) => r.pHash !== null)
-    const toRemove = new Set()
-
-    for (let i = 0; i < validHashes.length; i++) {
-        if (toRemove.has(validHashes[i].file.path)) continue
-
-        for (let j = i + 1; j < validHashes.length; j++) {
-            if (toRemove.has(validHashes[j].file.path)) continue
-
-            const aHashDist = hammingDistance(validHashes[i].aHash, validHashes[j].aHash)
-            if (aHashDist > threshold * 2) continue
-
-            const pHashDist = hammingDistance(validHashes[i].pHash, validHashes[j].pHash)
-
-            if (pHashDist <= threshold) {
-                const scoreI = qualityScores.get(validHashes[i].file.path) || 0
-                const scoreJ = qualityScores.get(validHashes[j].file.path) || 0
-
-                const sizeI = validHashes[i].file.size || 0
-                const sizeJ = validHashes[j].file.size || 0
-
-                const keepI = scoreI > scoreJ || (scoreI === scoreJ && sizeI >= sizeJ)
-
-                if (keepI) {
-                    toRemove.add(validHashes[j].file.path)
-                } else {
-                    toRemove.add(validHashes[i].file.path)
-                    break
-                }
-            }
-        }
-    }
+    // 复用 lib/image_hash.js 中的唯一去重实现，避免两套同构代码各自漂移
+    const toRemove = dedupByHashes(hashResults, threshold, qualityScores)
 
     let removedCount = 0
     for (const [day, files] of daySelections) {
@@ -1249,24 +1219,7 @@ async function processImageHashDedup(daySelections, threshold = CONFIG.IMAGE_HAS
     return { removedCount, cacheEntries }
 }
 
-/**
- * 计算汉明距离
- */
-function hammingDistance(hash1, hash2) {
-    if (!hash1 || !hash2) return 64
 
-    const h1 = BigInt("0x" + hash1)
-    const h2 = BigInt("0x" + hash2)
-    const xor = h1 ^ h2
-
-    let distance = 0
-    let n = xor
-    while (n) {
-        distance += Number(n & BigInt(1))
-        n >>= BigInt(1)
-    }
-    return distance
-}
 
 /**
  * 过滤包含 .nomedia 或 .gitignore 的目录

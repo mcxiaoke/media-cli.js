@@ -741,7 +741,7 @@ function getCommentArgs(entry) {
         .flat()
         .join(" ")
         .replaceAll(/['"]/gi, " ")
-    return ["-metadata", `comment="${ffmpegArgsText}"`]
+    return ["-metadata", `comment=${ffmpegArgsText}`]
 }
 
 /**
@@ -1551,12 +1551,12 @@ function createFFmpegArgs(entry, useCUDA = false, forDisplay = false) {
         inputArgs = inputArgs.concat(tempPreset.inputArgs.split(" "))
     }
     inputArgs.push("-i")
-    inputArgs.push(forDisplay ? "input.mkv" : `"${entry.path}"`)
+    inputArgs.push(forDisplay ? "input.mkv" : entry.path)
     // 添加MP4内嵌字幕文件，只添加一个优先选择的字幕文件
     // 优先取中文字幕，不行就取第一个
     if (entry.selectedSubtitle) {
         inputArgs.push("-i")
-        inputArgs.push(`"${entry.selectedSubtitle}"`)
+        inputArgs.push(entry.selectedSubtitle)
         const subArgs = "-c:s mov_text -metadata:s:s:0 language=chi -disposition:s:0 default"
         inputArgs = inputArgs.concat(subArgs.split(" "))
         // 使用提供的字幕，忽略MKV内置字幕文件
@@ -1592,7 +1592,7 @@ function createFFmpegArgs(entry, useCUDA = false, forDisplay = false) {
     // complexFilter 和 filters 不能同时存在
     if (tempPreset.complexFilter?.length > 0) {
         middleArgs.push("-filter_complex")
-        middleArgs.push(`"${formatArgs(tempPreset.complexFilter, tempPreset)}"`)
+        middleArgs.push(formatArgs(tempPreset.complexFilter, tempPreset))
     } else if (tempPreset.filters?.length > 0) {
         // 只有需要缩放时才加 scale filter
         if (entry.dstArgs.scaled) {
@@ -1646,10 +1646,10 @@ function createFFmpegArgs(entry, useCUDA = false, forDisplay = false) {
     descArgs.push(getEntryShowInfo(entry))
     const dateText = dayjs().format("YYYY-MM-DD HH:mm:ss.SSS Z")
     const descArgsText = descArgs.join("|")
-    metaArgs.push(`-metadata`, `description="${descArgsText}"`)
+    metaArgs.push(`-metadata`, `description=${descArgsText}`)
     metaArgs.push(
         `-metadata`,
-        `copyright="mediac ffmpeg --preset ${tempPreset.name} --date ${dateText}"`,
+        `copyright=mediac ffmpeg --preset ${tempPreset.name} --date ${dateText}`,
     )
     // 音频文件才添加元数据
     // 检查源文件元数据
@@ -1672,19 +1672,20 @@ function createFFmpegArgs(entry, useCUDA = false, forDisplay = false) {
             }
         }
         metaArgs = metaArgs.concat(
-            ...Object.entries(validTags).map(([key, value]) => [`-metadata`, `${key}="${value}"`]),
+            ...Object.entries(validTags).map(([key, value]) => [`-metadata`, `${key}=${value}`]),
         )
     } else {
-        metaArgs.push(`-metadata`, `title="${entry.name}"`)
+        metaArgs.push(`-metadata`, `title=${entry.name}`)
     }
     // 显示console信息时，不需要这些
-    // 元数据放到 extraArgs 这里
+    // 元数据放到 extraArgs 这里（字符串形式仅供展示）
     if (!forDisplay) {
         tempPreset.extraArgs = metaArgs.join(" ")
     }
-    // 不要漏掉 extraArgs
-    if (tempPreset.extraArgs?.length > 0) {
-        middleArgs = middleArgs.concat(tempPreset.extraArgs.split(" "))
+    // 注意：这里直接使用 metaArgs 数组，不能再 join(" ") 后再 split(" ")——
+    // 那个往返会把含空格的值（如 title=My Movie）拆成多个 argv。
+    if (metaArgs.length > 0) {
+        middleArgs = middleArgs.concat(metaArgs)
     }
     // 流参数 streamArgs -map xxx 等
     if (tempPreset.streamArgs?.length > 0) {
@@ -1698,7 +1699,7 @@ function createFFmpegArgs(entry, useCUDA = false, forDisplay = false) {
     // 输出参数部分，只有一个输出文件路径
     //===============================================================
     // 显示数据时用最终路径，实际使用时用临时文件路径
-    const outputArgs = [forDisplay ? "output.mp4" : `"${entry.fileDstTemp}"`]
+    const outputArgs = [forDisplay ? "output.mp4" : entry.fileDstTemp]
 
     // 仅用于展示
     entry.debugPreset = core.formatObjectArgs(tempPreset, tempPreset)
@@ -1725,12 +1726,19 @@ async function executeFFmpeg(args, entry, progressBar = null) {
     const { signal } = controller
 
     // 2. 启动子进程
-    // shell: true 是必须的，因为参数包含复杂引号
+    //
+    // 不使用 shell:true。原因（已用含中日韩/空格/&/全角符号的真实视频实测）：
+    //   - shell:true 会把参数拼成命令行交给 cmd.exe，含空格或 & ! % 等元字符的
+    //     文件名会被截断或触发变量展开，导致 "No such file or directory"；
+    //   - 参数本身以数组形式传递时，ffmpeg 能正确解析含空格、逗号、引号的值
+    //     （滤镜里的单引号由 ffmpeg 自己处理，与 shell 无关）。
+    // 同时已移除所有手工嵌入的引号（路径、滤镜、元数据值），
+    // 改为数组直传，避免引号被当作字面值写入元数据。
     const subprocess = execa("ffmpeg", args, {
         stdin: "pipe",
         stdout: "pipe",
         stderr: "pipe",
-        shell: true,
+        shell: false,
         encoding: "latin1",
         cancelSignal: signal,
         forceKillAfterDelay: 1000,
