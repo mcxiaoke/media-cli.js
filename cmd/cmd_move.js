@@ -389,9 +389,14 @@ const handler = async function cmdMove(argv) {
                     log.showYellow(logTag, `${t("status.skipped")}:`, fileDst)
                     continue
                 }
-                !testMode && (await fs.move(fileSrc, fileDst))
-                movedCount++
-                log.info(logTag, `${t("file.moved")}:`, fileSrc, "to", fileDst)
+                if (testMode) {
+                    // dry-run：不移动文件，也不计入已移动数量
+                    log.info(logTag, `${t("file.moved")} [DryRun]:`, fileSrc, "to", fileDst)
+                } else {
+                    await fs.move(fileSrc, fileDst)
+                    movedCount++
+                    log.info(logTag, `${t("file.moved")}:`, fileSrc, "to", fileDst)
+                }
             }
         } catch (error) {
             log.error(logTag, `${t("file.failed")}:`, error, "to", destDir)

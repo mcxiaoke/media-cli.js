@@ -477,7 +477,7 @@ async function preCompress(f, onProgress = null) {
         return
     }
 
-    if (await fs.pathExists(fileDst)) {
+    if ((await fs.pathExists(fileDst)) && !f.overwrite) {
         log.info(LOG_TAG, "exists:", fileDst)
         return {
             ...f,

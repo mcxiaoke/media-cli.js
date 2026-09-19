@@ -160,6 +160,24 @@ describe('helper.js - File System Utilities', () => {
     const dir = helper.getSafeDeletedDir(testFile1)
     assert.ok(dir.includes('Deleted_By_Mediac'))
   })
+
+  // 回归测试：曾因字符类中写成 \\s（字面反斜杠+s）导致所有小写字母 s 被删除
+  it('should keep lowercase letter s in filenames', () => {
+    assert.strictEqual(helper.filenameSafe('test.jpg'), 'test.jpg')
+    assert.strictEqual(helper.filenameSafe('Personal Notes.txt'), 'PersonalNotes.txt')
+    assert.strictEqual(helper.filenameSafe('photos/album.jpg'), 'photosalbum.jpg')
+  })
+
+  it('should still strip illegal filename characters', () => {
+    assert.strictEqual(helper.filenameSafe('a<b>c.jpg'), 'abc.jpg')
+    assert.strictEqual(helper.filenameSafe('a:b*c?.jpg'), 'abc.jpg')
+  })
+
+  // 回归测试：曾因 slice(limit) 反向截断返回 24 位
+  it('should truncate md5 hash to requested length', () => {
+    const short = helper.textHashMD5('abc', 'md5', 8)
+    assert.strictEqual(short.length, 8)
+  })
 })
 
 console.log('\n✅ All helper.js tests passed!')

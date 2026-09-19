@@ -93,6 +93,8 @@ async function cmdLRMove(argv) {
 
     if (answer.yes) {
         // 错误处理装饰器工厂函数
+        // 返回值约定：f=成功移动，SKIPPED=目标已存在跳过，null=失败
+        const SKIPPED = Symbol("skipped")
         const createMoveFileHandler = (file) =>
             withErrorHandling(
                 async (f) => {
@@ -102,7 +104,7 @@ async function cmdLRMove(argv) {
                     // 检查目标文件是否已存在
                     if (await fs.pathExists(f.fileDst)) {
                         log.showYellow(t("commands.lrmove.skip.exists", { dst: f.fileDst }))
-                        return null
+                        return SKIPPED
                     }
 
                     await fs.move(f.fileSrc, f.fileDst)
@@ -113,18 +115,24 @@ async function cmdLRMove(argv) {
             )
 
         let successCount = 0
+        let skipCount = 0
         let errorCount = 0
 
         for (const f of files) {
             const result = await createMoveFileHandler(f)(f)
-            if (result) {
+            if (result === SKIPPED) {
+                skipCount++
+            } else if (result) {
                 successCount++
             } else {
                 errorCount++
             }
         }
 
-        log.showCyan(t("operation.completed", { success: successCount, error: errorCount }))
+        log.showCyan(
+            `${t("operation.completed", { success: successCount, error: errorCount })}` +
+                (skipCount > 0 ? ` (skipped: ${skipCount})` : ""),
+        )
     } else {
         log.showYellow(t("operation.cancelled"))
     }

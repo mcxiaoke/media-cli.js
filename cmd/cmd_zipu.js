@@ -200,7 +200,9 @@ async function cmdZipUnicode(argv) {
         }
 
         const purgeResults = results.filter((r) => r && (r.done || r.skipped))
-        if (argv.purge && purgeResults?.length > 0) {
+        // testMode 下必须跳过 purge：旧实现仅靠 UnzipOneFile 提前返回 undefined
+        // 使 r.done/r.skipped 均不成立来"侥幸"安全，属依赖副作用。
+        if (!testMode && argv.purge && purgeResults?.length > 0) {
             // 是否要删除原ZIP文件，谨慎操作
             const purgeConfirm = await inquirer.prompt([
                 {
@@ -208,7 +210,7 @@ async function cmdZipUnicode(argv) {
                     name: "yes",
                     default: false,
                     message: chalk.bold.red(
-                        `Are you sure to DELETE ${okResults?.length + skippedResults.length}  zip files after unzipped?`,
+                        `Are you sure to DELETE ${purgeResults.length} zip files after unzipped?`,
                     ),
                 },
             ])

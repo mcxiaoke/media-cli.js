@@ -267,6 +267,64 @@ async function checkAudioParams(fileSrc, audioParams, ipx, fileName) {
     }
 }
 
+// 检查视频文件参数（与 checkAudioParams 同构，供 --video 使用）
+async function checkVideoParams(fileSrc, videoParams, ipx, fileName) {
+    if (!Object.keys(videoParams).length) {
+        return { matches: false, description: "" }
+    }
+
+    try {
+        const videoInfo = await getCachedVideoInfo(fileSrc)
+        if (!videoInfo) {
+            return { matches: false, description: " Video=Invalid" }
+        }
+
+        const hasDuration = "duration" in videoParams
+        const hasBitrate = "bitrate" in videoParams
+        const hasWidth = "width" in videoParams
+        const hasHeight = "height" in videoParams
+
+        let matches = true
+        let description = " Video="
+
+        if (hasDuration) {
+            const duration = videoInfo.duration || 0
+            matches = matches && duration <= videoParams.duration
+            description += `D=${duration.toFixed(1)}s`
+        }
+
+        if (hasBitrate) {
+            const bitrate = videoInfo.bitrate || 0
+            matches = matches && bitrate <= videoParams.bitrate
+            description += `B=${bitrate}`
+        }
+
+        if (hasWidth) {
+            const width = videoInfo.width || 0
+            matches = matches && width <= videoParams.width
+            description += `W=${width}`
+        }
+
+        if (hasHeight) {
+            const height = videoInfo.height || 0
+            matches = matches && height <= videoParams.height
+            description += `H=${height}`
+        }
+
+        if (matches) {
+            log.info(
+                "preRemove[Video]:",
+                `${ipx} ${fileName} ${description} [${JSON.stringify(videoParams)}]`,
+            )
+        }
+
+        return { matches, description }
+    } catch (error) {
+        log.logWarn(LOG_TAG, `preRemove[VideoCheckError]: ${ipx} ${fileSrc} - ${error.message}`)
+        return { matches: false, description: " Video=Error" }
+    }
+}
+
 // 检查文件时间参数
 function checkTimeParams(fileSrc, mtimeDiff, ctimeDiff, ipx, fileName) {
     if (!mtimeDiff && !ctimeDiff) {
@@ -514,16 +572,31 @@ async function cmdRemove(argv) {
         throw createError(ErrorTypes.INVALID_ARGUMENT, `Invalid Input: ${root} - Path does not exist or is not accessible`)
     }
     const reMeasure = /^\d+[x*,|]\d+$/
+    // 数值型条件必须为有限正数：NaN 参与 == 比较恒为 false，
+    // 旧写法会让 `--width abc`（NaN）绕过必需条件校验后以空条件继续执行。
+    const posNum = (v) => Number.isFinite(Number(v)) && Number(v) > 0
+    const hasWidthOrHeight = posNum(argv.width) || posNum(argv.height)
+    const hasMeasure = Boolean(argv.measure && reMeasure.test(argv.measure))
+    const hasSize = posNum(argv.sizel) || posNum(argv.sizer)
+    const hasAudio = Boolean(argv.audio && argv.audio.length > 0)
+    const hasVideo = Boolean(argv.video && argv.video.length > 0)
+    const hasTime = Boolean(argv.mtime || argv.ctime)
+    const hasName = Boolean(argv.pattern)
+    const hasList = Boolean(argv.list)
+    const hasCorrupted = Boolean(argv.corrupted)
+    const hasBadChars = Boolean(argv.badchars)
+
     if (
-        argv.width == 0 &&
-        argv.height == 0 &&
-        argv.sizel == 0 &&
-        argv.sizer == 0 &&
-        !(argv.measure && reMeasure.test(argv.measure)) &&
-        !argv.pattern &&
-        !argv.list &&
-        !argv.corrupted &&
-        !argv.badchars
+        !hasWidthOrHeight &&
+        !hasMeasure &&
+        !hasSize &&
+        !hasAudio &&
+        !hasVideo &&
+        !hasTime &&
+        !hasName &&
+        !hasList &&
+        !hasCorrupted &&
+        !hasBadChars
     ) {
         log.logInfo(LOG_TAG, argv)
         log.logError(LOG_TAG, t("remove.required.conditions"))
@@ -637,6 +710,37 @@ async function cmdRemove(argv) {
         }
     }
 
+    // 视频元数据条件：duration,dimension(width,height),bitrate
+    // 旧实现声明了 --video 但从未读取，属死选项；此处补齐解析
+    let videoParams = {}
+    if (argv.video) {
+        const videoArgs = argv.video.split(',').map((arg) => arg.trim())
+        for (const arg of videoArgs) {
+            const [key, value] = arg.split('=').map((item) => item.trim())
+            if (key && value) {
+                switch (key) {
+                    case 'du':
+                    case 'duration':
+                        videoParams.duration = parseFloat(value)
+                        break
+                    case 'bit':
+                    case 'bitrate':
+                        videoParams.bitrate = parseFloat(value)
+                        break
+                    case 'w':
+                    case 'width':
+                    case 'dm':
+                        videoParams.width = parseFloat(value)
+                        break
+                    case 'h':
+                    case 'height':
+                        videoParams.height = parseFloat(value)
+                        break
+                }
+            }
+        }
+    }
+
     function parseTimeParam(timeStr) {
         if (!timeStr) return null
         const timeRegex = /^(\d+)([dwmy])$/
@@ -669,11 +773,14 @@ async function cmdRemove(argv) {
         sizeRight: argv.sizer || 0,
         pattern: argv.pattern,
         notMatch: argv.notMatch,
+        // 显式传递 --regex 开关，供 checkNamePattern 决定是否按正则解释
+        useRegex: argv.regex !== false,
         names: cNames || new Set(),
         reverse: argv.reverse || false,
         purge: argv.deletePermanently || false,
         testMode,
         audio: audioParams,
+        video: videoParams,
         mtime: mtimeDiff,
         ctime: ctimeDiff,
     }
@@ -1021,26 +1128,39 @@ function checkBadCharsInFileName(fileName, ipx, fileSrc, itemSize) {
  * @param {number} itemSize - 文件大小
  * @returns {Promise<{matches: boolean, description: string}>}
  */
-function checkNamePattern(fileName, cPattern, cNotMatch, ipx, fileSrc, itemSize) {
+function checkNamePattern(fileName, cPattern, cNotMatch, ipx, fileSrc, itemSize, useRegex = true) {
     const itemCount = 1
     const fName = fileName.toLowerCase()
-    const rp = new RegExp(cPattern, "ui")
-    const description = ` P=${cPattern}`
-    
-    // 开头匹配，或末尾匹配，或正则匹配
-    const pMatched = fName.startsWith(cPattern) || fName.endsWith(cPattern) || rp.test(fName)
+    const lowerPattern = cPattern.toLowerCase()
+
+    // 只在启用正则时构造 RegExp；非法正则不再抛错（旧实现会抛 SyntaxError
+    // 被上层 catch 后该文件被静默跳过），而是降级为纯字符串匹配。
+    let rp = null
+    if (useRegex) {
+        try {
+            rp = new RegExp(cPattern, "ui")
+        } catch (error) {
+            log.logWarn(LOG_TAG, `preRemove[BadRegex]: ${ipx} ${cPattern} - ${error.message}`)
+            rp = null
+        }
+    }
+    const description = ` P=${cPattern}${rp ? "" : "(literal)"}`
+
+    // 开头匹配，或末尾匹配，或（启用正则且合法时）正则匹配
+    const pMatched =
+        fName.startsWith(lowerPattern) || fName.endsWith(lowerPattern) || (rp ? rp.test(fName) : false)
     // 条件反转判断
     const matches = cNotMatch ? !pMatched : pMatched
-    
+
     if (matches) {
         log.info(
             "preRemove[Name]:",
-            `${ipx} ${helper.pathShort(fileSrc)} [P=${rp}] (${helper.humanSize(itemSize)},${itemCount})`,
+            `${ipx} ${helper.pathShort(fileSrc)} [P=${rp || cPattern}] (${helper.humanSize(itemSize)},${itemCount})`,
         )
     } else {
-        log.debug("preRemove[Name]:", `${ipx} ${fileName} [P=${rp}]`)
+        log.debug("preRemove[Name]:", `${ipx} ${fileName} [P=${rp || cPattern}]`)
     }
-    
+
     return { matches, description }
 }
 
@@ -1139,121 +1259,39 @@ async function checkFileDimensions(fileSrc, isImageExt, isVideoExt, maxWidth, ma
 
 /**
  * 检查删除条件
- * @param {boolean} hasName - 是否有名称匹配条件
- * @param {boolean} hasSize - 是否有大小匹配条件
- * @param {boolean} hasMeasure - 是否有宽高匹配条件
- * @param {boolean} hasAudio - 是否有音频参数条件
- * @param {boolean} hasTime - 是否有时间参数条件
- * @param {boolean} testPattern - 名称匹配结果
- * @param {boolean} testSize - 大小匹配结果
- * @param {boolean} testMeasure - 宽高匹配结果
- * @param {boolean} testAudio - 音频参数匹配结果
- * @param {boolean} testTime - 时间参数匹配结果
- * @returns {boolean} 是否满足删除条件
+ * 语义：所有"已启用"的条件都必须满足（AND）。
+ * 原实现用 5 个布尔值穷举 32 种组合、约 90 行分支表达同一语义，
+ * 新增条件需再补 16 个分支，极易漏改；此处等价重构为条件列表 + every()。
+ *
+ * @param {Object} cond - 条件启用标记与对应匹配结果
+ * @param {boolean} cond.hasName - 是否有名称匹配条件
+ * @param {boolean} cond.hasSize - 是否有大小匹配条件
+ * @param {boolean} cond.hasMeasure - 是否有宽高匹配条件
+ * @param {boolean} cond.hasAudio - 是否有音频参数条件
+ * @param {boolean} cond.hasVideo - 是否有视频参数条件
+ * @param {boolean} cond.hasTime - 是否有时间参数条件
+ * @param {boolean} cond.testPattern - 名称匹配结果
+ * @param {boolean} cond.testSize - 大小匹配结果
+ * @param {boolean} cond.testMeasure - 宽高匹配结果
+ * @param {boolean} cond.testAudio - 音频参数匹配结果
+ * @param {boolean} cond.testVideo - 视频参数匹配结果
+ * @param {boolean} cond.testTime - 时间参数匹配结果
+ * @returns {boolean} 是否满足删除条件（无任何条件时返回 false）
  */
-function checkConditions(hasName, hasSize, hasMeasure, hasAudio, hasTime, testPattern, testSize, testMeasure, testAudio, testTime) {
-    // 当所有条件都为真时
-    if (hasName && hasSize && hasMeasure && hasAudio && hasTime) {
-        return testPattern && testSize && testMeasure && testAudio && testTime
-    }
-    // 四个条件为真时
-    else if (hasName && hasSize && hasMeasure && hasAudio && !hasTime) {
-        return testPattern && testSize && testMeasure && testAudio
-    }
-    else if (hasName && hasSize && hasMeasure && !hasAudio && hasTime) {
-        return testPattern && testSize && testMeasure && testTime
-    }
-    else if (hasName && hasSize && !hasMeasure && hasAudio && hasTime) {
-        return testPattern && testSize && testAudio && testTime
-    }
-    else if (hasName && !hasSize && hasMeasure && hasAudio && hasTime) {
-        return testPattern && testMeasure && testAudio && testTime
-    }
-    else if (!hasName && hasSize && hasMeasure && hasAudio && hasTime) {
-        return testSize && testMeasure && testAudio && testTime
-    }
-    // 三个条件为真时
-    else if (hasName && hasSize && hasMeasure && !hasAudio && !hasTime) {
-        return testPattern && testSize && testMeasure
-    }
-    else if (hasName && hasSize && !hasMeasure && hasAudio && !hasTime) {
-        return testPattern && testSize && testAudio
-    }
-    else if (hasName && hasSize && !hasMeasure && !hasAudio && hasTime) {
-        return testPattern && testSize && testTime
-    }
-    else if (hasName && !hasSize && hasMeasure && hasAudio && !hasTime) {
-        return testPattern && testMeasure && testAudio
-    }
-    else if (hasName && !hasSize && hasMeasure && !hasAudio && hasTime) {
-        return testPattern && testMeasure && testTime
-    }
-    else if (hasName && !hasSize && !hasMeasure && hasAudio && hasTime) {
-        return testPattern && testAudio && testTime
-    }
-    else if (!hasName && hasSize && hasMeasure && hasAudio && !hasTime) {
-        return testSize && testMeasure && testAudio
-    }
-    else if (!hasName && hasSize && hasMeasure && !hasAudio && hasTime) {
-        return testSize && testMeasure && testTime
-    }
-    else if (!hasName && hasSize && !hasMeasure && hasAudio && hasTime) {
-        return testSize && testAudio && testTime
-    }
-    else if (!hasName && !hasSize && hasMeasure && hasAudio && hasTime) {
-        return testMeasure && testAudio && testTime
-    }
-    // 两个条件为真时
-    else if (hasName && hasSize && !hasMeasure && !hasAudio && !hasTime) {
-        return testPattern && testSize
-    }
-    else if (hasName && !hasSize && hasMeasure && !hasAudio && !hasTime) {
-        return testPattern && testMeasure
-    }
-    else if (hasName && !hasSize && !hasMeasure && hasAudio && !hasTime) {
-        return testPattern && testAudio
-    }
-    else if (hasName && !hasSize && !hasMeasure && !hasAudio && hasTime) {
-        return testPattern && testTime
-    }
-    else if (!hasName && hasSize && hasMeasure && !hasAudio && !hasTime) {
-        return testSize && testMeasure
-    }
-    else if (!hasName && hasSize && !hasMeasure && hasAudio && !hasTime) {
-        return testSize && testAudio
-    }
-    else if (!hasName && hasSize && !hasMeasure && !hasAudio && hasTime) {
-        return testSize && testTime
-    }
-    else if (!hasName && !hasSize && hasMeasure && hasAudio && !hasTime) {
-        return testMeasure && testAudio
-    }
-    else if (!hasName && !hasSize && hasMeasure && !hasAudio && hasTime) {
-        return testMeasure && testTime
-    }
-    else if (!hasName && !hasSize && !hasMeasure && hasAudio && hasTime) {
-        return testAudio && testTime
-    }
-    // 只有一个条件为真时
-    else if (hasName) {
-        return testPattern
-    }
-    else if (hasSize) {
-        return testSize
-    }
-    else if (hasMeasure) {
-        return testMeasure
-    }
-    else if (hasAudio) {
-        return testAudio
-    }
-    else if (hasTime) {
-        return testTime
-    }
-    // 没有条件时
-    else {
+function checkConditions(cond) {
+    const pairs = [
+        [cond.hasName, cond.testPattern],
+        [cond.hasSize, cond.testSize],
+        [cond.hasMeasure, cond.testMeasure],
+        [cond.hasAudio, cond.testAudio],
+        [cond.hasVideo, cond.testVideo],
+        [cond.hasTime, cond.testTime],
+    ]
+    const enabled = pairs.filter(([has]) => has)
+    if (enabled.length === 0) {
         return false
     }
+    return enabled.every(([, test]) => Boolean(test))
 }
 
 /**
@@ -1422,7 +1460,15 @@ async function preRemoveArgs(f) {
 
         if (!testCorrupted && hasName) {
             try {
-                const { matches, description } = checkNamePattern(fileName, cPattern, cNotMatch, ipx, fileSrc, itemSize)
+                const { matches, description } = checkNamePattern(
+                    fileName,
+                    cPattern,
+                    cNotMatch,
+                    ipx,
+                    fileSrc,
+                    itemSize,
+                    c.useRegex !== false,
+                )
                 testPattern = matches
                 itemDesc += description
             } catch (error) {
@@ -1465,6 +1511,20 @@ async function preRemoveArgs(f) {
             }
         }
 
+        const hasVideo = Object.keys(c.video || {}).length > 0
+        let testVideo = false
+        if (!testCorrupted && hasVideo && f.isFile) {
+            try {
+                if (isVideoExt) {
+                    const { matches, description } = await checkVideoParams(fileSrc, c.video, ipx, fileName)
+                    testVideo = matches
+                    itemDesc += description
+                }
+            } catch (error) {
+                log.logWarn(LOG_TAG, `preRemove[VideoCheckError]: ${ipx} ${fileSrc} - ${error.message}`)
+            }
+        }
+
         const hasTime = c.mtime || c.ctime
         let testTime = false
         if (!testCorrupted && hasTime) {
@@ -1484,19 +1544,42 @@ async function preRemoveArgs(f) {
         } else {
             if (hasLoose) {
                 // 宽松模式：满足任一条件
-                shouldRemove = testPattern || testSize || testMeasure || testAudio || testTime
+                shouldRemove =
+                    testPattern || testSize || testMeasure || testAudio || testVideo || testTime
             } else {
-                // 严格模式：满足所有条件
+                // 严格模式：满足所有已启用的条件
                 log.debug(
                     "PreRemove ",
-                    `${ipx} ${helper.pathShort(fileSrc)} hasName=${hasName}-${testPattern} hasSize=${hasSize}-${testSize} hasMeasure=${hasMeasure}-${testMeasure} hasAudio=${hasAudio}-${testAudio} hasTime=${hasTime}-${testTime} testCorrupted=${testCorrupted},testBadChars=${testBadChars},flag=${flag}`,
+                    `${ipx} ${helper.pathShort(fileSrc)} hasName=${hasName}-${testPattern} hasSize=${hasSize}-${testSize} hasMeasure=${hasMeasure}-${testMeasure} hasAudio=${hasAudio}-${testAudio} hasVideo=${hasVideo}-${testVideo} hasTime=${hasTime}-${testTime} testCorrupted=${testCorrupted},testBadChars=${testBadChars},flag=${flag}`,
                 )
-                shouldRemove = checkConditions(hasName, hasSize, hasMeasure, hasAudio, hasTime, testPattern, testSize, testMeasure, testAudio, testTime)
+                shouldRemove = checkConditions({
+                    hasName,
+                    hasSize,
+                    hasMeasure,
+                    hasAudio,
+                    hasVideo,
+                    hasTime,
+                    testPattern,
+                    testSize,
+                    testMeasure,
+                    testAudio,
+                    testVideo,
+                    testTime,
+                })
             }
         }
 
         // 构建项目描述
-        const fullItemDesc = buildItemDescription(testCorrupted, testBadChars, testPattern, testSize, testMeasure, testAudio, testTime, c)
+        const fullItemDesc = buildItemDescription(
+            testCorrupted,
+            testBadChars,
+            testPattern,
+            testSize,
+            testMeasure,
+            testAudio,
+            testTime,
+            c,
+        )
         
         logRemoveStatus(shouldRemove, fileSrc, itemSize, flag, ipx, testCorrupted, fullItemDesc, itemCount)
         return buildRemoveArgs(f.index, fullItemDesc, shouldRemove, fileSrc, itemSize)

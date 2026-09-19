@@ -84,6 +84,12 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             type: "string",
             description: t("dcim.option.backupDir"),
         })
+        .option("check-date", {
+            alias: "cd",
+            type: "boolean",
+            default: false,
+            description: t("dcim.option.checkDate"),
+        })
 }
 
 /**
@@ -171,7 +177,7 @@ const handler = async function cmdRename(argv) {
                 action: "ERROR",
                 message: errorMsg,
             })
-            throw createError(ErrorTypes.PROCESS_ERROR, errorMsg)
+            throw createError(ErrorTypes.PROCESSING_FAILED, errorMsg)
         }
     }
 
@@ -215,7 +221,7 @@ const handler = async function cmdRename(argv) {
         )
     } catch (error) {
         log.logError(LOG_TAG, `Error parsing EXIF data: ${error.message}`)
-        throw createError(ErrorTypes.PROCESS_ERROR, `Error parsing EXIF data: ${error.message}`)
+        throw createError(ErrorTypes.PROCESSING_FAILED, `Error parsing EXIF data: ${error.message}`)
     }
 
     allFiles = allFiles.map((f) => {
@@ -227,7 +233,7 @@ const handler = async function cmdRename(argv) {
 
     allFiles = exif.buildNames(allFiles)
 
-    const [validFiles, skippedBySize, skippedByDate] = exif.checkFiles(allFiles)
+    const [validFiles, skippedBySize, skippedByDate] = exif.checkFiles(allFiles, argv.checkDate)
     allFiles = validFiles
 
     if (totalFileCount - allFiles.length > 0) {
@@ -328,7 +334,7 @@ const handler = async function cmdRename(argv) {
                     await exportLog(argv.log, operationLog)
                 }
 
-                throw createError(ErrorTypes.PROCESS_ERROR, errorMsg)
+                throw createError(ErrorTypes.PROCESSING_FAILED, errorMsg)
             }
         }
     } else {

@@ -4,6 +4,9 @@
     "type": "module",
     "description": "MediaCli is a multimedia file processing tool that utilizes ffmpeg and exiftool, among others, to compress/convert/rename/delete/organize media files, including images, videos, and audio.",
     "main": "index.js",
+    "engines": {
+        "node": ">=22"
+    },
     "scripts": {
         "test": "node --test test/test_encoding.js test/test_helper.js test/test_file.js",
         "start": "node index.js",
@@ -17,7 +20,8 @@
         "scripts",
         "lib",
         "cmd",
-        "assets"
+        "assets",
+        "presets.yaml"
     ],
     "bin": {
         "mediac": "./index.js"

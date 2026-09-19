@@ -18,6 +18,7 @@ import pMap from "p-map"
 import path from "path"
 import which from "which"
 import argparser from "../lib/arg_parser.js"
+import { abortIfCancelled, confirmAction, confirmDangerousAction } from "../lib/command_utils.js"
 import * as core from "../lib/core.js"
 import { asyncFilter, formatArgs } from "../lib/core.js"
 import * as log from "../lib/debug.js"
@@ -29,7 +30,6 @@ import * as helper from "../lib/helper.js"
 import { t } from "../lib/i18n.js"
 import { getMediaInfo, getSimpleInfo } from "../lib/mediainfo.js"
 import { addEntryProps, applyFileNameRules, calculateScale } from "./cmd_shared.js"
-import { confirmAction, confirmDangerousAction, abortIfCancelled } from "../lib/command_utils.js"
 
 const LOG_TAG = "FFConv"
 // CUDA 探测结果缓存，避免对同一路径重复探测
@@ -115,7 +115,6 @@ const builder = function addOptions(ya, helpOrVersionSet) {
             .option("preset", {
                 type: "choices",
                 choices: presets.getAllNames(),
-                default: "hevc_2k",
                 describe: t("ffmpeg.preset"),
             })
             // 显示预设名字列表
@@ -342,6 +341,10 @@ async function cmdConvert(argv) {
         return
     }
     // 参数验证
+    if (!argv.preset || !presets.getPreset(argv.preset)) {
+        log.error(LOG_TAG, t("ffmpeg.error.preset"))
+        return
+    }
     if (argv.jobs !== undefined && argv.jobs <= 0) {
         throw createError(ErrorTypes.INVALID_ARGUMENT, t("ffmpeg.error.jobs"))
     }
@@ -375,9 +378,10 @@ async function cmdConvert(argv) {
     // dm = dimension
     // fps = framerate
     const ffargs = argparser.parseArgs(argv.ffargs)
-    log.info(LOG_TAG, `ffargs:`, ffargs)
+    console.log("FFARGS:", ffargs)
     // 合并 ffargs 到 argv (ffargs 优先级低于命令行单独参数)
     const mergedArgv = presets.applyFfargs(argv, ffargs)
+    console.log("MERGED ARGV:", mergedArgv)
     // 解析Preset，根据argv参数修改preset，返回对象
     const preset = presets.createFromArgv(mergedArgv)
     if (!testMode) {
@@ -508,7 +512,9 @@ async function cmdConvert(argv) {
     log.info("-----------------------------------------------------------")
     log.info(LOG_TAG, chalk.cyan("PRESET:"), lastTask.debugPreset)
     log.info(LOG_TAG, chalk.cyan("CMD:"), "ffmpeg", lastFFArgs?.flat().join(" "))
-    const totalDuration = tasks.reduce((acc, t) => acc + t.info?.duration || 0, 0)
+    // 注意运算符优先级：`acc + t.info?.duration || 0` 会因 + 高于 || 而
+    // 在任一条 duration 缺失时把整个累计值清零，必须显式括号。
+    const totalDuration = tasks.reduce((acc, t) => acc + (t.info?.duration || 0), 0)
     log.info("-----------------------------------------------------------")
     testMode && log.logWarn(LOG_TAG, `++++++++++ ${t("ffmpeg.test.mode")} ++++++++++`)
     log.logWarn(LOG_TAG, t("ffmpeg.check.details"))
@@ -1634,7 +1640,7 @@ function createFFmpegArgs(entry, useCUDA = false, forDisplay = false) {
     //description, comment, copyright
     const descArgs = []
     descArgs.push(getEntryShowInfo(entry))
-    const dateText = dayjs().format("YYYY-MM-DD hh:mm:ss.SSS Z")
+    const dateText = dayjs().format("YYYY-MM-DD HH:mm:ss.SSS Z")
     const descArgsText = descArgs.join("|")
     metaArgs.push(`-metadata`, `description="${descArgsText}"`)
     metaArgs.push(
