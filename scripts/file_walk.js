@@ -1,7 +1,6 @@
 // fileManager.js
 import fs from "fs-extra"
 import path from "path"
-import { argv } from "process"
 
 // 默认图片扩展名
 const DEFAULT_IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".svg"]
@@ -155,8 +154,8 @@ export async function main() {
         const inputDir = path.resolve(argv[0])
         const outputDir = path.resolve(argv[1] || "./output")
 
-        // 扫描所有图片文件
-        const fileList = await scanAndSaveFileList(inputDir, outputDir)
+        // 扫描所有图片文件并保存列表
+        await scanAndSaveFileList(inputDir, outputDir)
 
         // 示例2：从JSON加载文件列表
         const loadedList = await loadFileList(path.join(outputDir, "filelist.json"))

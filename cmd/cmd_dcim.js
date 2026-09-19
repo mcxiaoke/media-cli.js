@@ -7,15 +7,13 @@
  */
 
 // 导入必要的库和模块
-import chalk from "chalk"
 import dayjs from "dayjs"
 import fs from "fs-extra"
-import inquirer from "inquirer"
 import path from "path"
 
 import { addEntryProps, renameFiles } from "./cmd_shared.js"
 import * as log from "../lib/debug.js"
-import { ErrorTypes, createError, handleError } from "../lib/errors.js"
+import { ErrorTypes, createError } from "../lib/errors.js"
 import * as exif from "../lib/exif.js"
 import * as helper from "../lib/helper.js"
 import { t } from "../lib/i18n.js"
@@ -37,7 +35,7 @@ const describe = t("dcim.description") // 命令描述
  * @param {boolean} helpOrVersionSet - 是否设置了帮助或版本选项
  * @returns {Object} 配置后的 yargs 实例
  */
-const builder = function addOptions(ya, helpOrVersionSet) {
+const builder = function addOptions(ya) {
     return ya
         .option("backup", {
             alias: "b",

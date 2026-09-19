@@ -133,7 +133,7 @@ This makes it particularly effective for fixing filenames that were encoded in o
 
 ### Prerequisites
 
-- Node.js (v18+)
+- Node.js (v20+，见 `package.json` 的 `engines`)
 - Tools: `ffmpeg`, `ffprobe`, `exiftool` must be installed and available in PATH for full
   functionality.
 

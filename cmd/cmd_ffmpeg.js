@@ -10,25 +10,23 @@ import * as cliProgress from "cli-progress"
 import dayjs from "dayjs"
 import { execa } from "execa"
 import fs from "fs-extra"
-import iconv from "iconv-lite"
-import inquirer from "inquirer"
 import mm from "music-metadata"
 import { cpus } from "os"
 import pMap from "p-map"
 import path from "path"
 import which from "which"
 import argparser from "../lib/arg_parser.js"
-import { abortIfCancelled, confirmAction, confirmDangerousAction } from "../lib/command_utils.js"
+import { abortIfCancelled, confirmDangerousAction } from "../lib/command_utils.js"
 import * as core from "../lib/core.js"
-import { asyncFilter, formatArgs } from "../lib/core.js"
+import { formatArgs } from "../lib/core.js"
 import * as log from "../lib/debug.js"
 import * as enc from "../lib/encoding.js"
-import { ErrorTypes, createError, handleError } from "../lib/errors.js"
+import { ErrorTypes, createError } from "../lib/errors.js"
 import presets from "../lib/ffmpeg_presets.js"
 import * as mf from "../lib/file.js"
 import * as helper from "../lib/helper.js"
 import { t } from "../lib/i18n.js"
-import { getMediaInfo, getSimpleInfo } from "../lib/mediainfo.js"
+import { getMediaInfo } from "../lib/mediainfo.js"
 import { addEntryProps, applyFileNameRules, calculateScale } from "./cmd_shared.js"
 
 const LOG_TAG = "FFConv"
@@ -44,7 +42,7 @@ const command = "ffmpeg <input>"
 const aliases = ["transcode", "aconv", "vconv", "avconv"]
 const describe = t("ffmpeg.description")
 
-const builder = function addOptions(ya, helpOrVersionSet) {
+const builder = function addOptions(ya) {
     return (
         ya
             // 输入目录，根目录
@@ -334,7 +332,7 @@ async function cmdConvert(argv) {
     log.logDebug(LOG_TAG, "ARGV:", argv)
     // 显示预设列表
     if (argv.showPresets) {
-        for (const [key, value] of presets.getAllPresets()) {
+        for (const [, value] of presets.getAllPresets()) {
             const data = core.pick(value, "name", "type", "format", "videoBitrate", "dimension")
             log.show(JSON.stringify(data))
         }
@@ -456,9 +454,8 @@ async function cmdConvert(argv) {
             return
         }
     }
-    startMs = Date.now()
     addEntryProps(fileEntries)
-    fileEntries = fileEntries.map((entry, index) => {
+    fileEntries = fileEntries.map((entry) => {
         return {
             ...entry,
             argv: structuredClone(argv),
@@ -617,7 +614,6 @@ async function runFFmpegCmd(entry) {
 
     log.logDebug(LOG_TAG, ipx, getEntryShowInfo(entry))
     log.logDebug(LOG_TAG, ipx, `ffmpeg`, entry.ffmpegArgs.flat().join(" "))
-    const exePath = await which("ffmpeg")
     if (entry.testMode) {
         log.logInfo(
             LOG_TAG,
@@ -874,15 +870,6 @@ async function prepareFFmpegCmd(entry) {
             }
         } else {
             // 检查目标宽高和原始文件宽高，不放大
-            const reqDimension = argv.dimension || preset.dimension
-            const sw = entry.info?.video?.width || 0
-            const sh = entry.info?.video?.height || 0
-            // if (sw < reqDimension && sh < reqDimension) {
-            //     // 忽略
-            //     log.showYellow(logTag, `${ipx} Skip[Dimension]: (${sw}x${sh},${reqDimension}) ${entry.path}`)
-            //     log.fileLog(`${ipx} Skip[Dimension]: (${sw}x${sh}) <${entry.path}>`, 'Prepare')
-            //     return false
-            // }
         }
         // 获取原始音频码率，计算目标音频码率
         // vp9视频和opus音频无法获取码率
@@ -985,7 +972,6 @@ async function prepareFFmpegCmd(entry) {
                         // H264 10Bit Nvidia和Intel都不支持硬解，直接跳过
                         // H264 High L5以上可能也不支持
                         const isH264 = ivideo?.format === "h264" || ivideo?.format === "avc"
-                        const isHigh50 = ivideo?.profile?.includes("High") && ivideo?.level > 4.2
                         if (isH264 && ivideo?.bitDepth === 10) {
                             // 添加标志，使用软解，替换解码参数
                             // 在组装ffmpeg参数时判断和替换
@@ -1298,12 +1284,12 @@ function calculateDstArgs(entry) {
 
     // eg. '-map a:0 -c:a libfdk_aac -b:a {bitrate}'
     let srcAudioBitrate = 0
-    let dstAudioBitrate = 0
+    let dstAudioBitrate
     let srcVideoBitrate = 0
     let dstVideoBitrate = 0
 
-    let srcFrameRate = 0
-    let dstFrameRate = 0
+    let srcFrameRate
+    let dstFrameRate
     let dstWidth = 0
     let dstHeight = 0
 
@@ -1366,7 +1352,6 @@ function calculateDstArgs(entry) {
         dstHeight = dstWH.dstHeight
         const bigSideDst = Math.max(dstWidth, dstHeight)
         const bigSideSrc = Math.max(srcWidth, srcHeight)
-        const srcPixels = srcWidth * srcHeight
         const dstPixels = dstWidth * dstHeight
         // 这个是文件整体码率，如果是是视频文件，等于是视频和音频的码率相加
         const fileBitrate = info?.bitrate || 0
@@ -1379,7 +1364,7 @@ function calculateDstArgs(entry) {
         // 音频和视频码率都不能高于原码率
         dstAudioBitrate = minNoZero(srcAudioBitrate, reqAudioBitrate)
         // 如果源文件不是1080p，这里码率需要考虑分辨率
-        let pixelsScale = 1
+        let pixelsScale
         if (dstDimension > bigSideDst) {
             // 如果使用4KPreset压缩1080P视频，需要缩放码率
             // 4K60 ~= 1080P60 * (1.5,2)
@@ -1616,7 +1601,6 @@ function createFFmpegArgs(entry, useCUDA = false, forDisplay = false) {
         // 直接复制音频流或者重新编码
         // audioArgsCopy: '-c:a copy',
         // audioArgsEncode: '-c:a libfdk_aac -b:a {audioBitrate}k',
-        let audioArgsPreset = tempPreset.audioArgs
         if (presets.isAudioExtract(tempPreset)) {
             if (entry.srcAudioCodec === "aac") {
                 tempPreset.audioArgs = "-c:a copy"
@@ -1717,7 +1701,6 @@ function createFFmpegArgs(entry, useCUDA = false, forDisplay = false) {
  * @returns {Promise<void>}
  */
 async function executeFFmpeg(args, entry, progressBar = null) {
-    const ipx = `${entry.index + 1}/${entry.total}`
     const logTag = chalk.green("FFCMD") + chalk.cyanBright(entry.useCUDA ? "[HW]" : "[SW]")
     const srcDuration = entry.dstArgs?.srcDuration || entry.info?.duration || 0
 

@@ -8,23 +8,18 @@
 
 import chalk from "chalk"
 import dayjs from "dayjs"
-import { sify } from "chinese-conv"
 import fs from "fs-extra"
 import inquirer from "inquirer"
-import { cpus } from "os"
-import pMap from "p-map"
 import path from "path"
 import { asyncFilter } from "../lib/core.js"
 import * as log from "../lib/debug.js"
-import { ErrorTypes, createError, handleError } from "../lib/errors.js"
+import { ErrorTypes, createError } from "../lib/errors.js"
 import * as mf from "../lib/file.js"
 import * as helper from "../lib/helper.js"
 import { t } from "../lib/i18n.js"
 import {
     RE_MEDIA_DIR_NAME,
     RE_ONLY_NUMBER,
-    RE_UGLY_CHARS,
-    RE_UGLY_CHARS_BORDER,
     cleanFileName,
     cleanNameEx,
     renameFiles,
@@ -49,7 +44,7 @@ export { aliases, builder, command, describe, handler }
 const command = "prefix <input>"
 const aliases = ["pf", "px"]
 const describe = t("prefix.description")
-const builder = function addOptions(ya, helpOrVersionSet) {
+const builder = function addOptions(ya) {
     return (
         ya
             .option("length", {
@@ -240,7 +235,6 @@ async function createNewNameByMode(f) {
     const nameLength = mode === MODE_MEDIA || mode === MODE_CLEAN ? 200 : argv.length || NAME_LENGTH
     const nameSlice = nameLength * -1
     const [dir, base, ext] = helper.pathSplit(f.path)
-    const oldName = path.basename(f.path)
     const dirParts = dir.split(path.sep).slice(-3)
     const dirName = path.basename(dir)
     const logTag = `Prefix::${mode.toUpperCase()[0]}`
@@ -251,8 +245,8 @@ async function createNewNameByMode(f) {
     }
     const ipx = `${f.index}/${f.total}`
     log.info(logTag, `Processing ${ipx} ${f.path}`)
-    let sep = "_"
-    let prefix = argv.prefix
+    let sep
+    let prefix
     let oldBase = base
 
     switch (mode) {

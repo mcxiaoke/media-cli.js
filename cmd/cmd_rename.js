@@ -18,7 +18,7 @@ import argparser from "../lib/arg_parser.js"
 import * as core from "../lib/core.js"
 import * as log from "../lib/debug.js"
 import * as enc from "../lib/encoding.js"
-import { ErrorTypes, createError, handleError } from "../lib/errors.js"
+import { ErrorTypes, createError } from "../lib/errors.js"
 import * as mf from "../lib/file.js"
 import * as helper from "../lib/helper.js"
 import { t } from "../lib/i18n.js"
@@ -82,7 +82,7 @@ const command = "rename <input>"
 const aliases = ["fn", "fxn"]
 const describe = t("rename.description")
 
-const builder = function addOptions(ya, helpOrVersionSet) {
+const builder = function addOptions(ya) {
     return (
         ya
             .positional("input", {
@@ -291,7 +291,6 @@ async function cmdRename(argv) {
         log.fileLog(`Root: ${root}`, logTag)
         log.fileLog(`Argv: ${JSON.stringify(argv)}`, logTag)
     }
-    const startMs = Date.now()
     log.show(logTag, `${t("path.input")}:`, root)
     argv.cargs = argparser.parseArgs(argv.cargs)
     log.show(logTag, `cargs:`, argv.cargs)
@@ -530,13 +529,13 @@ function combinePath(oldDir, ...parts) {
  * @returns {Object} 包含新目录和新文件名的对象
  */
 function fixEncoding({ oldPath, oldDir, oldBase, ext, logTag, progress }) {
-    let pendingDir = null
-    let pendingBase = null
+    let pendingDir
+    let pendingBase
 
-    let [fs, ft] = enc.decodeText(oldBase)
+    let [fs] = enc.decodeText(oldBase)
     pendingBase = fs.trim()
     const dirNamesFixed = oldDir.split(path.sep).map((s) => {
-        let [rs, rt] = enc.decodeText(s)
+        let [rs] = enc.decodeText(s)
         return rs.trim()
     })
     pendingDir = combinePath(oldDir, ...dirNamesFixed)
@@ -593,14 +592,14 @@ function replaceStrings({ oldPath, oldDir, oldBase, ext, argv, logTag }) {
 
     const replaceBaseName = flags.includes("f")
     const replaceDirName = flags.includes("d")
-    let tempBase = oldBase
+    let tempBase
     if (replaceBaseName) {
         tempBase = oldBase.replaceAll(pattern, replacement)
         if (tempBase !== oldBase) {
             pendingBase = tempBase
         }
     }
-    let tempDir = oldDir
+    let tempDir
     if (replaceDirName) {
         let parts = oldDir.split(path.sep).map((s) => s.replaceAll(pattern, replacement).trim())
         tempDir = combinePath(oldDir, ...parts.filter(Boolean))
@@ -808,18 +807,11 @@ async function preRename(entry) {
     const ext = isDir ? "" : pathParts.ext
     let pendingDir = null
     let pendingBase = null
-    let associatedExts = []
+    let associatedExts
 
     const pathDepth = oldPath.split(path.sep).length
     log.info(logTag, `Processing "${oldPath} [${typeFlag}]"`)
 
-    function makePath(...parts) {
-        let joinedPath = path.join(...parts)
-        if (core.isUNCPath(oldDir)) {
-            joinedPath = "\\\\" + joinedPath
-        }
-        return joinedPath
-    }
     if (argv.fixenc) {
         const result = fixEncoding({ oldPath, oldDir, oldBase, ext, logTag, progress })
         pendingDir = result.pendingDir
@@ -853,7 +845,7 @@ async function preRename(entry) {
 
     if (argv.suffixDate) {
         const now = new Date()
-        let dateStr = ""
+        let dateStr
 
         if (argv.suffixDate.includes("{")) {
             dateStr = formatDateTemplate(argv.suffixDate, now)

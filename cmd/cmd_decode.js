@@ -8,7 +8,6 @@
  */
 
 import fs from "fs"
-import path from "path"
 import { glob } from "glob"
 import pMap from "p-map"
 import chalk from "chalk"
@@ -16,9 +15,8 @@ import cliProgress from "cli-progress"
 import chardet from "chardet"
 import * as log from "../lib/debug.js"
 import * as enc from "../lib/encoding.js"
-import { ErrorTypes, createError, handleError } from "../lib/errors.js"
+import { ErrorTypes, createError } from "../lib/errors.js"
 import { t } from "../lib/i18n.js"
-import * as unicode from "../lib/unicode.js"
 import config from "../lib/config.js"
 
 // 从配置文件获取默认编码列表
@@ -29,7 +27,7 @@ const command = "decode [strings...]"
 const aliases = ["dc"]
 const describe = t("decode.description")
 
-const builder = function addOptions(ya, helpOrVersionSet) {
+const builder = function addOptions(ya) {
     return (
         ya
             .positional("strings", {
@@ -141,7 +139,7 @@ async function processFiles(files, recursive, fromEnc, toEnc, threhold) {
     for (const filePattern of files) {
         // glob v13 已移除回调形式（回调永不触发 → Promise 永不 resolve → 进程挂起），
         // 必须使用其 Promise API。此处即此前 `decode --files` 会卡死的根因。
-        let matchedFiles = []
+        let matchedFiles
         try {
             matchedFiles = await glob(filePattern, {
                 recursive,

@@ -15,7 +15,6 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
 import * as mf from '../lib/file.js'
-import * as helper from '../lib/helper.js'
 
 describe('file.js - Constants', () => {
   it('should have correct size constants', () => {

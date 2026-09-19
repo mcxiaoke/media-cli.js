@@ -5,20 +5,7 @@
  * Author: mcxiaoke (github@mcxiaoke.com)
  * License: Apache License 2.0
  */
-import chalk from "chalk"
-import * as cliProgress from "cli-progress"
-import dayjs from "dayjs"
-import { $, execa } from "execa"
-import fs from "fs-extra"
-import inquirer from "inquirer"
-import { cpus } from "os"
-import pMap from "p-map"
-import path from "path"
-import sharp from "sharp"
-import * as core from "../lib/core.js"
 import * as log from "../lib/debug.js"
-import * as exif from "../lib/exif.js"
-import * as mf from "../lib/file.js"
 import * as helper from "../lib/helper.js"
 import { t } from "../lib/i18n.js"
 
@@ -29,7 +16,7 @@ const command = "execute [input]"
 const aliases = ["run"]
 const describe = t("run.description")
 
-const builder = function addOptions(ya, helpOrVersionSet) {
+const builder = function addOptions(ya) {
     return (
         ya
             // 输出目录，默认输出文件与原文件同目录
@@ -72,15 +59,6 @@ const handler = cmdRunTask
 async function cmdRunTask(argv) {
     const logTag = "cmdRunTask"
     const root = await helper.validateInput(argv.input)
-    log.show(logTag, argv)
-    const walkOpts = {
-        needStats: true,
-        entryFilter: (f) => f.isFile && helper.isImageFile(f.path),
-    }
-    // log.showGreen(logTag, `Walking files ...`)
-    // let files = await mf.walk(root, walkOpts)
-    // if (!files || files.length === 0) {
-    //     log.showYellow(logTag, "no files found, abort.")
-    //     return
-    // }
+    log.show(logTag, `${t("path.input")}:`, root)
+    log.showYellow(logTag, t("run.not_implemented"))
 }

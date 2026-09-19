@@ -104,7 +104,6 @@ async function main() {
     let skippedCount = 0
 
     // 记录已经处理过的文件，防止一个文件在报告里出现多次导致重复移动报错
-    const processedFiles = new Set()
 
     console.log(`🚀 开始处理 ${reportData.length} 对相似记录...\n`)
 
@@ -128,7 +127,7 @@ async function main() {
         const fileToKeep = fileToMove === file1 ? file2 : file1
 
         try {
-            const finalDest = safeMoveFile(fileToMove, trashDir)
+            safeMoveFile(fileToMove, trashDir)
             movedCount++
             console.log(`✅ [移走] ${path.basename(fileToMove)}`)
             console.log(`   [保留] ${path.basename(fileToKeep)}\n`)

@@ -9,15 +9,42 @@
 import chalk from "chalk"
 import EventEmitter from "events"
 import fs from "fs-extra"
-import { cpus } from "os"
+import { createRequire } from "module"
 import path from "path"
 import yargs from "yargs"
 import * as log from "./lib/debug.js"
-import { errorHandler, handleError } from "./lib/errors.js"
-import * as exif from "./lib/exif.js"
-import * as mf from "./lib/file.js"
-import * as helper from "./lib/helper.js"
-import { i18n, t } from "./lib/i18n.js"
+import { t } from "./lib/i18n.js"
+
+// 最低支持的 Node 版本，与 package.json 的 engines 保持一致。
+// 下限由依赖决定：exiftool-vendored@35 要求 >=20，glob@13 要求 18||20||>=22。
+// 说明：此前代码使用 `using` 声明式资源管理（需 Node >= 24），
+// 已改为共享单例 + 进程退出时释放，因此不再需要 24。
+const MIN_NODE_MAJOR = 20
+
+// yargs 的 .version() 需要从 cwd 向上查找 package.json，
+// 全局安装（bin 指向 index.js）时查找会失败并输出 "unknown"。
+// 这里直接从本模块所在位置读取，保证 --version 始终可用。
+const require = createRequire(import.meta.url)
+const { version: APP_VERSION } = require("./package.json")
+
+// 版本前置校验：把"解析阶段 SyntaxError 裸堆栈"变成一条可读提示。
+// 校验必须在任何业务模块 import 之前完成——ESM 的 import 是静态提升的，
+// 因此这里用独立函数 + 顶部调用，不改 import 顺序也能先于依赖加载报错。
+function checkNodeVersion() {
+    const major = Number.parseInt(process.versions.node.split(".")[0], 10)
+    if (Number.isNaN(major) || major < MIN_NODE_MAJOR) {
+        process.stderr.write(
+            [
+                chalk.red(`MediaCli 需要 Node.js >= ${MIN_NODE_MAJOR}，当前为 ${process.versions.node}。`),
+                "请升级 Node.js 后重试：https://nodejs.org/",
+                "",
+            ].join("\n"),
+        )
+        process.exit(1)
+    }
+}
+
+checkNodeVersion()
 
 // fix max listeners
 EventEmitter.defaultMaxListeners = 1000
@@ -33,7 +60,6 @@ process.on("unhandledRejection", (reason) => {
     process.exitCode = 1
 })
 
-const cpuCount = cpus().length
 // 配置调试等级
 const configCli = (argv) => {
     // 太冗长了删掉
@@ -60,7 +86,7 @@ async function main() {
         .command(
             ["test", "tt", "$0"],
             "Test command, do nothing",
-            (ya) => {
+            () => {
                 // yargs.option("output", {
                 //   alias: "o",
                 //   type: "string",
@@ -68,7 +94,7 @@ async function main() {
                 //   description: "Output folder",
                 // });
             },
-            (argv) => {
+            () => {
                 ya.showHelp()
             },
         )
@@ -112,7 +138,7 @@ async function main() {
         .epilog(`${t("app.description")}.\n${t("app.copyright")}`)
         .demandCommand(1, chalk.red("缺少要执行的子命令!"))
         .showHelpOnFail(true)
-        .version()
+        .version(APP_VERSION)
         .help()
         .middleware([configCli])
     const logFilePath = log.fileLogPath()

@@ -41,7 +41,6 @@
 
 import dayjs from "dayjs"
 import fs from "fs-extra"
-import inquirer from "inquirer"
 import os, { cpus } from "os"
 import pFilter from "p-filter"
 import pMap from "p-map"
@@ -65,7 +64,7 @@ import {
     computeImageFeatures,
     computeImageFeaturesWithCache,
 } from "../lib/image_hash.js"
-import { confirmAction, abortIfCancelled } from "../lib/command_utils.js"
+import { confirmAction } from "../lib/command_utils.js"
 
 const LOG_TAG = "Pick"
 
@@ -225,7 +224,7 @@ async function findValidFileListCache(outputDir, rootPath) {
 export async function cmdPick(argv) {
     log.logInfo(LOG_TAG, argv)
 
-    let entries = []
+    let entries
     let root = argv.input
 
     const outDir = argv.output || "output"
@@ -240,7 +239,7 @@ export async function cmdPick(argv) {
         }
         const fileListExt = helper.pathExt(argv.fileList, true)
         const content = await fs.readFile(argv.fileList, "utf8")
-        let rawList = []
+        let rawList
 
         if (fileListExt === ".json") {
             try {
@@ -482,7 +481,7 @@ export async function cmdPick(argv) {
     const jsonName = path.join(outDir, `picked_${nowTag}.json`)
     await fs.writeJson(jsonName, outputData, { spaces: 2 })
 
-    printConsoleStats(pickedFiles.length, selectedStats, sourceStats, jsonName)
+    printConsoleStats(pickedFiles.length, selectedStats, sourceStats)
     log.logSuccess(LOG_TAG, t("pick.result.saved", { path: jsonName }))
 
     if (pickedFiles.length === 0) {
@@ -677,8 +676,6 @@ function calculateSourceStats(parsed) {
  * 构建 JSON 输出数据结构
  */
 function buildJsonOutput(daySelections, srcStats, selStats) {
-    const filesByYear = new Map()
-    const statsByYear = new Map()
 
     const allYears = Array.from(srcStats.years.keys()).sort()
 
@@ -829,7 +826,7 @@ async function processDailySelections(parsed, argv = {}) {
         files.sort((a, b) => a.date - b.date)
 
         const total = files.length
-        let targetCount = 0
+        let targetCount
 
         if (total < CONFIG.MIN_FILES_KEEP_ALL) {
             targetCount = total
@@ -1178,8 +1175,8 @@ async function processImageHashDedup(daySelections, threshold = CONFIG.IMAGE_HAS
 
     log.logInfo(LOG_TAG, `Computing perceptual hash for ${allFiles.length} files...`)
 
-    let hashResults = []
-    let qualityScores = new Map()
+    let hashResults
+    let qualityScores
     let cacheEntries = {}
 
     if (useCache && cache && rootPath) {
@@ -1291,7 +1288,7 @@ async function filterIgnoredDirs(entries, root) {
 /**
  * 打印控制台统计信息
  */
-function printConsoleStats(total, stats, srcStats, jsonFile) {
+function printConsoleStats(total, stats, srcStats) {
     console.log(`Total selected: ${total}`)
 
     console.log("By Year:")

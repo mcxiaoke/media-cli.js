@@ -47,7 +47,7 @@ function getBaseFileName(filePath) {
 // ========== 3. 单个图片处理任务（不用改） ==========
 async function processImageTask(task) {
     const { inputFile, outputFile, q, type } = task
-    let commandArgs = []
+    let commandArgs
     let outputPathWithParams = outputFile
 
     try {

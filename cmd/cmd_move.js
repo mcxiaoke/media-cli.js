@@ -17,7 +17,7 @@ import pMap from "p-map"
 import path from "path"
 import * as core from "../lib/core.js"
 import * as log from "../lib/debug.js"
-import { ErrorTypes, createError, handleError } from "../lib/errors.js"
+import { ErrorTypes, createError } from "../lib/errors.js"
 import * as mf from "../lib/file.js"
 import * as helper from "../lib/helper.js"
 import { t } from "../lib/i18n.js"
@@ -129,7 +129,7 @@ const command = "move <input> [output]"
 const aliases = ["md"]
 const describe = t("move.description")
 
-const builder = function addOptions(ya, helpOrVersionSet) {
+const builder = function addOptions(ya) {
     return (
         ya // 仅处理符合指定条件的文件，包含文件名规则
             .positional("input", {
@@ -352,9 +352,9 @@ const handler = async function cmdMove(argv) {
         return
     }
 
-    for (const { monthStr, entries, count } of taskGroups) {
+    for (const { monthStr, entries } of taskGroups) {
         const destDir = path.join(output, monthStr)
-        log.show(logTag, `${destDir} <<== ${count} ${t("common.files")} | ${t("move.sample.files")}:`)
+        log.show(logTag, `${destDir} <<== ${entries.length} ${t("common.files")} | ${t("move.sample.files")}:`)
         for (const e of core.pickRandom(entries, 3)) {
             log.showGray(logTag, `--${e.fileSrc}`)
         }
@@ -379,7 +379,7 @@ const handler = async function cmdMove(argv) {
         return
     }
 
-    for (const { monthStr, entries, count } of taskGroups) {
+    for (const { monthStr, entries } of taskGroups) {
         const destDir = path.join(output, monthStr)
         await fs.ensureDir(destDir)
         let movedCount = 0

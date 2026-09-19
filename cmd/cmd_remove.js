@@ -6,7 +6,6 @@
  * License: Apache License 2.0
  */
 
-import assert from "assert"
 import chalk from "chalk"
 import dayjs from "dayjs"
 import { fileTypeFromFile } from "file-type"
@@ -16,19 +15,18 @@ import inquirer from "inquirer"
 import { cpus } from "os"
 import pMap from "p-map"
 import path from "path"
-import { argv } from "process"
 import { promisify } from "util"
 import cliProgress from "cli-progress"
 import * as mm from "music-metadata"
 import { comparePathSmartBy, uniqueByFields } from "../lib/core.js"
 import * as log from "../lib/debug.js"
 import * as enc from "../lib/encoding.js"
-import { ErrorTypes, createError, handleError } from "../lib/errors.js"
+import { ErrorTypes, createError } from "../lib/errors.js"
 import * as mf from "../lib/file.js"
 import * as helper from "../lib/helper.js"
 import { t } from "../lib/i18n.js"
 import { getMediaInfo, getVideoInfo } from "../lib/mediainfo.js"
-import { addEntryProps, applyFileNameRules } from "./cmd_shared.js"
+import { applyFileNameRules } from "./cmd_shared.js"
 
 const LOG_TAG = "Remove"
 
@@ -375,7 +373,7 @@ const command = "remove <input>"
 const aliases = ["rm", "rmf"]
 const describe = t("remove.description")
 
-const builder = function addOptions(ya, helpOrVersionSet) {
+const builder = function addOptions(ya) {
     return (
         ya
             .option("loose", {
@@ -1241,7 +1239,7 @@ function checkFileSize(fileSize, sizeLeft, sizeRight, fileName, ipx) {
     const sizeRightBytes = sizeRight * 1000
     const description = ` S=${helper.humanSize(fileSize)} (${sizeLeft}K,${sizeRight}K)`
     
-    let matches = false
+    let matches
     if (sizeRight > 0) {
         matches = fileSize > sizeLeftBytes && fileSize < sizeRightBytes
     } else {
@@ -1449,7 +1447,7 @@ function logRemoveStatus(shouldRemove, fileSrc, itemSize, flag, ipx, testCorrupt
 async function preRemoveArgs(f) {
     const fileSrc = path.resolve(f.path)
     const fileName = path.basename(fileSrc)
-    const [dir, base, ext] = helper.pathSplit(fileSrc)
+    const [, base] = helper.pathSplit(fileSrc)
     const flag = f.isDir ? "D" : "F"
     const c = f.conditions || {}
     const ipx = `${f.index}/${f.total}`
@@ -1492,7 +1490,6 @@ async function preRemoveArgs(f) {
     let testPattern = false
     let testSize = false
     let testMeasure = false
-    let itemDesc = ""
 
     const isImageExt = helper.isImageFile(fileSrc)
     const isVideoExt = helper.isVideoFile(fileSrc)
@@ -1502,9 +1499,8 @@ async function preRemoveArgs(f) {
     try {
         if (hasCorrupted && f.isFile) {
             try {
-                const { isCorrupted, description } = await checkCorruptedFile(fileSrc, fileName, ipx)
+                const { isCorrupted } = await checkCorruptedFile(fileSrc, fileName, ipx)
                 testCorrupted = isCorrupted
-                itemDesc += description
             } catch (error) {
                 log.logWarn(LOG_TAG, `preRemove[CorruptedCheckError]: ${ipx} ${fileSrc} - ${error.message}`)
             }
@@ -1512,9 +1508,8 @@ async function preRemoveArgs(f) {
 
         if (hasBadChars) {
             try {
-                const { hasBadChars: badChars, description } = checkBadCharsInFileName(fileName, ipx, fileSrc, itemSize)
+                const { hasBadChars: badChars } = checkBadCharsInFileName(fileName, ipx, fileSrc, itemSize)
                 testBadChars = badChars
-                itemDesc += description
             } catch (error) {
                 log.logWarn(LOG_TAG, `preRemove[BadCharsCheckError]: ${ipx} ${fileSrc} - ${error.message}`)
             }
@@ -1522,7 +1517,7 @@ async function preRemoveArgs(f) {
 
         if (!testCorrupted && hasName) {
             try {
-                const { matches, description } = checkNamePattern(
+                const { matches } = checkNamePattern(
                     fileName,
                     cPattern,
                     cNotMatch,
@@ -1532,7 +1527,6 @@ async function preRemoveArgs(f) {
                     c.useRegex !== false,
                 )
                 testPattern = matches
-                itemDesc += description
             } catch (error) {
                 log.logWarn(LOG_TAG, `preRemove[NameCheckError]: ${ipx} ${fileSrc} - ${error.message}`)
             }
@@ -1540,9 +1534,8 @@ async function preRemoveArgs(f) {
 
         if (!testCorrupted && hasSize && f.isFile) {
             try {
-                const { matches, description } = checkFileSize(f.size, c.sizeLeft, c.sizeRight, fileName, ipx)
+                const { matches } = checkFileSize(f.size, c.sizeLeft, c.sizeRight, fileName, ipx)
                 testSize = matches
-                itemDesc += description
             } catch (error) {
                 log.logWarn(LOG_TAG, `preRemove[SizeCheckError]: ${ipx} ${fileSrc} - ${error.message}`)
             }
@@ -1550,9 +1543,8 @@ async function preRemoveArgs(f) {
 
         if (!testCorrupted && hasMeasure && f.isFile) {
             try {
-                const { matches, description } = await checkFileDimensions(fileSrc, isImageExt, isVideoExt, cWidth, cHeight, fileName, ipx)
+                const { matches } = await checkFileDimensions(fileSrc, isImageExt, isVideoExt, cWidth, cHeight, fileName, ipx)
                 testMeasure = matches
-                itemDesc += description
             } catch (error) {
                 log.logWarn(LOG_TAG, `preRemove[DimensionsCheckError]: ${ipx} ${fileSrc} - ${error.message}`)
             }
@@ -1564,9 +1556,8 @@ async function preRemoveArgs(f) {
             try {
                 const isAudioExt = helper.isAudioFile(fileName)
                 if (isAudioExt) {
-                    const { matches, description } = await checkAudioParams(fileSrc, c.audio, ipx, fileName)
+                    const { matches } = await checkAudioParams(fileSrc, c.audio, ipx, fileName)
                     testAudio = matches
-                    itemDesc += description
                 }
             } catch (error) {
                 log.logWarn(LOG_TAG, `preRemove[AudioCheckError]: ${ipx} ${fileSrc} - ${error.message}`)
@@ -1578,9 +1569,8 @@ async function preRemoveArgs(f) {
         if (!testCorrupted && hasVideo && f.isFile) {
             try {
                 if (isVideoExt) {
-                    const { matches, description } = await checkVideoParams(fileSrc, c.video, ipx, fileName)
+                    const { matches } = await checkVideoParams(fileSrc, c.video, ipx, fileName)
                     testVideo = matches
-                    itemDesc += description
                 }
             } catch (error) {
                 log.logWarn(LOG_TAG, `preRemove[VideoCheckError]: ${ipx} ${fileSrc} - ${error.message}`)
@@ -1591,9 +1581,8 @@ async function preRemoveArgs(f) {
         let testTime = false
         if (!testCorrupted && hasTime) {
             try {
-                const { matches, description } = checkTimeParams(fileSrc, c.mtime, c.ctime, ipx, fileName)
+                const { matches } = checkTimeParams(fileSrc, c.mtime, c.ctime, ipx, fileName)
                 testTime = matches
-                itemDesc += description
             } catch (error) {
                 log.logWarn(LOG_TAG, `preRemove[TimeCheckError]: ${ipx} ${fileSrc} - ${error.message}`)
             }

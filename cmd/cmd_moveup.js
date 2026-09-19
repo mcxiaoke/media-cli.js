@@ -30,7 +30,7 @@ const MODE_PREFIX = "prefix"
 const MODE_MEDIA = "media"
 const MODE_CLEAN = "clean"
 
-const builder = function addOptions(ya, helpOrVersionSet) {
+const builder = function addOptions(ya) {
     return (
         ya
             // 输出文件名名称
@@ -159,7 +159,7 @@ async function processDirectory(root, subDirN, toRoot, flatMode, outDirNames, te
     log.info(logTag, "processing files in ", subDirPath)
     
     let curDir = toRoot ? root : subDirPath
-    let files = []
+    let files
     try {
         files = await mf.walk(subDirPath, {
             needStats: true,
@@ -203,7 +203,7 @@ async function processDirectory(root, subDirN, toRoot, flatMode, outDirNames, te
     const moveResults = await pMap(files, async (f, index) => {
         const currentDupCount = index + 1
         const fileSrc = f.path
-        const [srcDir, srcBase, srcExt] = helper.pathSplit(fileSrc)
+        const [srcDir, , srcExt] = helper.pathSplit(fileSrc)
         const srcDirName = path.basename(srcDir)
         const fileType = helper.getFileTypeByExt(fileSrc)
         

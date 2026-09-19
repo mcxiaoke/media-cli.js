@@ -6,8 +6,6 @@
  * License: Apache License 2.0
  */
 
-import AdmZip from "adm-zip"
-import { writeFile as writeFileAtomic } from "atomically"
 import chalk from "chalk"
 import chardet from "chardet"
 import fs from "fs-extra"
@@ -16,7 +14,7 @@ import inquirer from "inquirer"
 import path from "path"
 import { asyncMap, compareSmartBy, countAndSort } from "../lib/core.js"
 import * as log from "../lib/debug.js"
-import { ErrorTypes, createError, handleError } from "../lib/errors.js"
+import { ErrorTypes, createError } from "../lib/errors.js"
 import * as mf from "../lib/file.js"
 import * as helper from "../lib/helper.js"
 import { t } from "../lib/i18n.js"
@@ -27,7 +25,6 @@ import * as unzipper from "unzipper"
 
 import { finished } from "stream/promises"
 
-import os from "os"
 
 const FALLBACK_ENCODING = "GBK"
 const INOGRE_ENCODING = ["Big5", "windows-1251", "ISO-8859-1"]
@@ -40,12 +37,56 @@ const TRY_ENCODING = [
     // 'EUC-KR'
 ]
 
+/**
+ * 把 ZIP 内的条目名解析为「必须落在解压目录内」的安全目标路径
+ *
+ * ZIP 包里的条目名来自包内字节，完全不可信：可以是 `../../evil.txt`、
+ * `/etc/passwd`、`C:\Windows\...`，甚至 `..\\..\\` 的 Windows 变体。
+ * 而 `path.join(zipDir, "..", "..", "x")` 会把 `..` 归一化掉，
+ * 使落点跑到解压目录之外——即 Zip Slip（路径穿越）漏洞。
+ *
+ * 这里做三层处理：
+ *   1. 统一分隔符并剥离绝对路径 / 盘符 / UNC 前缀；
+ *   2. 逐段丢弃 `.` 与 `..`（而不是交给 path.join 去"抵消"）；
+ *   3. 用 path.relative 复核最终路径确实位于 baseDir 内，越界则抛错。
+ *
+ * @param {string} baseDir - 解压根目录（可信）
+ * @param {string} entryName - ZIP 条目名（不可信）
+ * @returns {string} 位于 baseDir 内的绝对路径
+ * @throws {Error} 条目名无法安全落盘时抛出
+ */
+function resolveSafeEntryPath(baseDir, entryName) {
+    const root = path.resolve(baseDir)
+    // 统一为正斜杠，去掉盘符（C:）与 UNC 前缀（\\server\share）
+    let normalized = String(entryName ?? "")
+        .replace(/\\/g, "/")
+        .replace(/^[A-Za-z]:/, "")
+        .replace(/^\/+/, "")
+    const kept = []
+    for (const seg of normalized.split("/")) {
+        if (seg === "" || seg === ".") continue
+        // 关键：直接丢弃 ".."，避免它抵消掉前面的正常目录
+        if (seg === "..") continue
+        kept.push(seg)
+    }
+    if (kept.length === 0) {
+        throw createError(ErrorTypes.INVALID_PATH, `BadName: empty entry name <${entryName}>`)
+    }
+    const target = path.resolve(root, ...kept)
+    const rel = path.relative(root, target)
+    // rel 为空表示 target === root（不允许覆盖解压根目录本身）
+    if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) {
+        throw createError(ErrorTypes.INVALID_PATH, `BadName: path traversal <${entryName}>`)
+    }
+    return target
+}
+
 export { aliases, builder, command, describe, handler }
 const command = "zipu <input> [output]"
 const aliases = ["zipunicode"]
 const describe = t("zipu.description")
 
-const builder = function addOptions(ya, helpOrVersionSet) {
+const builder = function addOptions(ya) {
     return (
         ya // 仅处理符合指定条件的文件，包含文件名规则
             // 修复文件名乱码
@@ -299,94 +340,6 @@ async function UnzipOneFile(f) {
 
     return await unzipFileUseUnzipper(f, useEncoding)
 }
-
-/**
- * 使用adm-zip库解压文件
- * @param {Object} f - 文件对象
- * @param {string} f.path - ZIP文件路径
- * @param {number} f.index - 文件索引
- * @param {number} f.total - 总文件数
- * @param {string} useEncoding - 使用的编码
- * @returns {Promise<Object>} 处理结果对象
- */
-async function unzipFileUseAdmZip(f, useEncoding) {
-    const logTag = "ZipU"
-    const ipx = `${f.index + 1}/${f.total}`
-    const zipFilePath = f.path
-
-    // adm-zip有内存泄漏，内存不足直接退出
-    if (os.freemem() < mf.FILE_SIZE_1G * 4) {
-        log.error(logTag, `Not enough memory to unzip ${zipFilePath}`)
-        throw createError(
-            ErrorTypes.INSUFFICIENT_MEMORY,
-            `Not enough memory to unzip ${zipFilePath}`,
-        )
-    }
-    const parts = path.parse(zipFilePath)
-    const zipDir = path.join(parts.dir, parts.name)
-    try {
-        const zip = new AdmZip(zipFilePath)
-        const zipEntries = zip.getEntries()
-
-        let unzippedCount = 0
-        const unzippedFiles = []
-        const entryCount = zipEntries.length
-        for (const entry of zipEntries) {
-            if (entry.isDirectory) {
-                continue
-            }
-
-            // 解码后的文件名，确保无乱码
-            // const { fileName, encoding, badName } = decodeNameSmart(entry.rawEntryName, bestEncoding)
-            // const { fileName, encoding } = decodedNameMap.get(entry.rawEntryName)
-            // 直接使用之前找到的最佳文件名编码，不再重复调用decodeNameSmart
-            const fileName = iconv.decode(entry.rawEntryName, useEncoding)
-            const fileNameParts = path.parse(fileName)
-            const dstDir = path.join(zipDir, fileNameParts.dir)
-            const dstFile = path.join(dstDir, fileNameParts.base)
-            if (!(await fs.pathExists(dstDir))) {
-                await fs.mkdir(dstDir, { recursive: true })
-            }
-            if (await fs.pathExists(dstFile)) {
-                const dstSize = (await fs.stat(dstFile)).size || 0
-                if (dstSize === entry.header.size) {
-                    log.info(logTag, `Skip: <${helper.pathShort(dstFile)}> [${useEncoding}]`)
-                    continue
-                }
-            }
-            ++unzippedCount
-            const epx = `${unzippedCount}/${entryCount}`
-            log.debug(logTag, `DstDir: ${epx} <${dstDir}>`)
-            log.debug(logTag, `DstFile: ${epx} <${dstFile}>`)
-            const data = entry.getData()
-            await writeFileAtomic(dstFile, data)
-            unzippedFiles.push(dstFile)
-            log.info(
-                logTag,
-                `Entry: ${epx} <${helper.pathShort(dstFile)}> [${useEncoding}] ${helper.humanSize(entry.header.size)}`,
-            )
-        }
-        if (unzippedCount === unzippedFiles.length) {
-            f.done = true
-            f.unzipped = unzippedFiles
-            log.info(logTag, `Done ${ipx} <${zipFilePath}> ${useEncoding}`)
-            log.showGreen(logTag, `Done ${ipx} <${helper.pathShort(zipDir)}> ${useEncoding}`)
-            // log.fileLog(`Unzipped ${ipx} <${zipFilePath}> ${useEncoding}`, logTag)
-            return f
-        } else {
-            // 解压失败，删除解压目录
-            await helper.safeRemove(zipDir)
-            log.showRed(logTag, `Failed ${ipx} <${helper.pathShort(zipFilePath)}> ${useEncoding}`)
-            log.fileLog(`Failed ${ipx} <${zipFilePath}> ${useEncoding}`, logTag)
-            f.error = "Some entries unzip failed."
-            return f
-        }
-    } catch (error) {
-        log.error(logTag, zipFilePath, error)
-        log.fileLog(`Error ${ipx} <${zipFilePath}> ${useEncoding} [${error}]`, logTag)
-    }
-}
-
 /**
  * 生成临时文件名
  * @returns {string} 临时文件名
@@ -427,7 +380,7 @@ async function unzipFileUseUnzipper(f, useEncoding) {
 
             // 乱码文件名二次确认，再次解码测试
             if (hasBadChars(entryName, true)) {
-                const { fileName, encoding, badName } = decodeNameSmart(
+                const { fileName } = decodeNameSmart(
                     entry.props.pathBuffer,
                     entryEnc,
                 )
@@ -445,10 +398,18 @@ async function unzipFileUseUnzipper(f, useEncoding) {
                 }
             }
 
-            const fileNameParts = path.parse(entryName)
-            const dstDir = path.join(zipDir, fileNameParts.dir)
-            const dstFile = path.join(dstDir, fileNameParts.base)
-            const tmpDstFile = path.join(dstDir, `${getTempFileName()}${fileNameParts.ext}`)
+            // 路径穿越防护：条目名不可信，必须解析为 zipDir 内的路径
+            let dstFile
+            try {
+                dstFile = resolveSafeEntryPath(zipDir, entryName)
+            } catch (error) {
+                // 无法安全落盘的条目：丢弃内容并跳过，绝不能写出到解压目录之外
+                entry.autodrain()
+                log.showRed(logTag, `${ipx} Skip[BadName]: <${zipFilePath}> ${error.message}`)
+                continue
+            }
+            const dstDir = path.dirname(dstFile)
+            const tmpDstFile = path.join(dstDir, `${getTempFileName()}${path.extname(dstFile)}`)
 
             if (entry.type === "Directory") {
                 log.info(logTag, `SkipDir1: <${dstFile}> ${entry.type}`)
@@ -462,10 +423,8 @@ async function unzipFileUseUnzipper(f, useEncoding) {
             // 如果没有扩展名且大小为0，假定为目录
             // 文件名中间有. 会导致扩展名识别错误，需要处理
             // eg .mp4, .flac, .001, .accurip
-            const hasExtensions =
-                fileNameParts.ext &&
-                fileNameParts.ext.length <= 10 &&
-                /^\.[A-Za-z0-9]+$/.test(fileNameParts.ext)
+            const dstExt = path.extname(dstFile)
+            const hasExtensions = dstExt && dstExt.length <= 10 && /^\.[A-Za-z0-9]+$/.test(dstExt)
             if (!hasExtensions && entry.vars.uncompressedSize === 0) {
                 log.info(logTag, `SkipDir2: <${dstFile}> ${entry.type}`)
                 // 文件大小为0，移除
@@ -530,50 +489,6 @@ async function unzipFileUseUnzipper(f, useEncoding) {
         log.fileLog(`Error ${error.message}`, logTag)
     }
 }
-
-/**
- * 使用adm-zip库猜测ZIP文件的编码
- * @param {Object} f - 文件对象
- * @param {string} f.path - ZIP文件路径
- * @param {string} f.encoding - 用户指定的编码（可选）
- * @returns {string|null} 猜测的编码
- */
-function guessEncodingUseAdmZip(f) {
-    const logTag = "guessEncoding"
-    const zipFilePath = f.path
-    const zipFileName = path.basename(zipFilePath)
-    const decodedNameMap = new Map()
-    const tryEncodings = []
-    try {
-        const zip = new AdmZip(zipFilePath)
-        const zipEntries = zip.getEntries()
-
-        for (const entry of zipEntries) {
-            if (entry.isDirectory) {
-                continue
-            }
-            const nameBuf = entry.rawEntryName
-            // 解码后的文件名，确保无乱码
-            const { fileName, encoding, badName } = decodeNameSmart(nameBuf, f.encoding)
-            if (badName) {
-                log.info(logTag, `BadName: <${zipFileName}> <${fileName}> [${encoding}]`)
-                return
-            } else {
-                tryEncodings.push(encoding)
-                decodedNameMap.set(nameBuf, { fileName, encoding })
-            }
-        }
-
-        let [useEncoding, allEncodings] = countAndSort(tryEncodings, ["ASCII"])
-        let encoding = useEncoding || FALLBACK_ENCODING
-        log.info(logTag, `Try Encoding:`, allEncodings)
-        log.showGray(logTag, `Use ${encoding} for ${helper.pathShort(zipFileName)}`)
-        return encoding
-    } catch (error) {
-        log.error(logTag, zipFilePath, error)
-    }
-}
-
 /**
  * 使用unzipper库猜测ZIP文件的编码（推荐使用）
  * @param {Object} f - 文件对象
@@ -649,7 +564,6 @@ function decodeNameSmart(fileNameRaw, userEncoding = null) {
     log.debug("ZipU", encoding, userEncoding, ca)
     let fileName = iconv.decode(buf, encoding)
     let badName = hasBadChars(fileName, false)
-    let betterNameFound = false
     if (badName) {
         log.debug(
             "ZipU",
@@ -665,23 +579,17 @@ function decodeNameSmart(fileNameRaw, userEncoding = null) {
             const invalidName2 = hasBadChars(tryName, false)
             log.info("ZipU", "tryName:", tryName, charEncoding, invalidName, invalidName2)
             if (!invalidName2) {
-                if (!betterNameFound) {
-                    betterNameFound = true
-                    fileName = tryName
-                    encoding = charEncoding
-                    badName = false
-                    log.info("ZipU", "bestName:".padEnd(10, " "), fileName, encoding, badName)
-                    break
-                }
+                fileName = tryName
+                encoding = charEncoding
+                badName = false
+                log.info("ZipU", "bestName:".padEnd(10, " "), fileName, encoding, badName)
+                break
             } else if (!invalidName) {
-                if (!betterNameFound) {
-                    betterNameFound = true
-                    fileName = tryName
-                    encoding = charEncoding
-                    badName = false
-                    log.info("ZipU", "goodName:".padEnd(10, " "), fileName, encoding, badName)
-                    continue
-                }
+                fileName = tryName
+                encoding = charEncoding
+                badName = false
+                log.info("ZipU", "goodName:".padEnd(10, " "), fileName, encoding, badName)
+                continue
             }
         }
     } else {

@@ -10,7 +10,6 @@ import chalk from "chalk"
 import * as cliProgress from "cli-progress"
 import dayjs from "dayjs"
 import fs from "fs-extra"
-import inquirer from "inquirer"
 import os, { cpus } from "os"
 import pMap from "p-map"
 import path from "path"
@@ -43,7 +42,7 @@ const SIZE_DEFAULT = 2048 // in kbytes
 const WIDTH_DEFAULT = 6000
 const SUFFIX_DEFAULT = "_Z4K"
 
-const builder = function addOptions(ya, helpOrVersionSet) {
+const builder = function addOptions(ya) {
     return (
         ya
             // 核心压缩参数
@@ -315,7 +314,7 @@ async function runCompression(tasks, opts, logTag, startMs) {
  * @param {string} logTag - 日志标签
  * @returns {Promise<void>}
  */
-async function writeFailedLog(failedTasks, root, logTag) {
+async function writeFailedLog(failedTasks, root) {
     if (failedTasks.length === 0) {
         return
     }
@@ -374,7 +373,7 @@ async function cmdCompress(argv) {
     }
 
     if (!purgeOnly) {
-        await updateConfig(argv)
+        await updateConfig()
     }
 
     const confirmFiles = await confirmAction(t("common.continue.processing"))
@@ -450,7 +449,7 @@ async function cmdCompress(argv) {
             LOG_TAG,
             compressStartMs,
         )
-        await writeFailedLog(failedTasks, root, LOG_TAG)
+        await writeFailedLog(failedTasks, root)
         if (purgeSource) {
             await purgeSrcFiles(doneTasks)
         }
@@ -574,7 +573,7 @@ async function purgeSrcFiles(results) {
     log.logSuccess(LOG_TAG, t("compress.safely.removed", { count: deleted.filter(Boolean).length }))
 }
 
-async function updateConfig(argv) {
+async function updateConfig() {
     // 检测是否有nconvert
     // 检测sharp是否支持heic2jpg
     // 使用一张测试图片转换试试

@@ -10,18 +10,16 @@ import { sify } from "chinese-conv"
 import dayjs from "dayjs"
 import { $, execa } from "execa"
 import fs from "fs-extra"
-import iconv from "iconv-lite"
 import * as emoji from "node-emoji"
 import { cpus } from "os"
 import pMap from "p-map"
 import path from "path"
 import sharp from "sharp"
-import which from "which"
 import config from "../lib/config.js"
 import * as core from "../lib/core.js"
 import { asyncFilter, copyFields } from "../lib/core.js"
 import * as log from "../lib/debug.js"
-import { ErrorTypes, createError, handleError } from "../lib/errors.js"
+import { ErrorTypes, createError } from "../lib/errors.js"
 import * as exif from "../lib/exif.js"
 import { fixMetadata } from "../lib/fixmetadata.js"
 import * as helper from "../lib/helper.js"
@@ -214,11 +212,7 @@ async function renameFilesTwoPhase(files) {
  * @param {string} str - 要修复编码的字符串，默认为空字符串
  * @returns {string} 修复编码后的字符串
  */
-function fixEncoding(str = "") {
-    return iconv.decode(Buffer.from(str, "binary"), "cp936")
-}
 // 需要使用外部程序压缩的格式
-const fixedOkStr = iconv.decode(Buffer.from("OK"), "utf8")
 /**
  * 使用外部工具nconvert压缩图片
  * @param {Object} t - 压缩任务对象
@@ -236,7 +230,7 @@ async function useNConvert(t) {
     // 使用临时文件
     const dstName = path.resolve(t.tmpDst)
     try {
-        const { stdout, stderr } = await $({
+        await $({
             encoding: "latin1",
         })`${config.NCONVERT_BIN_PATH} -quiet -overwrite -opthuff -keep_icc -no_auto_ext -out jpeg -o ${dstName} -q ${t.quality} -resize longest ${t.width} ${fileSrc}`
         // 检查压缩是否成功
@@ -304,7 +298,7 @@ async function useVipsConvert(t) {
         "srgb",
     ]
     try {
-        const { stdout, stderr } = await execa(config.VIPS_BIN_PATH, args, { encoding: "latin1" })
+        const { stderr } = await execa(config.VIPS_BIN_PATH, args, { encoding: "latin1" })
         // 检查压缩是否成功
         if (!stderr && (await fs.pathExists(dstName))) {
             log.info(
@@ -419,7 +413,8 @@ async function checkMetadata(t) {
     if (srcExt === ".heic" || srcExt === ".heif") {
         // heic转换为jpg格式，可能需要手动复制元数据
         try {
-            using etl = exif.createExif()
+            // 复用共享 ExifTool 单例（进程退出时统一释放）
+            const etl = exif.getSharedExifTool()
             const dstMetadata = await etl.read(t.tmpDst)
             const dstKeys = Object.keys(dstMetadata || {})
             const hasDate = dstMetadata?.DateTimeOriginal || dstMetadata?.CreateDate
