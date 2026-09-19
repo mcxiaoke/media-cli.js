@@ -331,7 +331,7 @@ const handler = cmdConvert
  * @returns {Promise<void>}
  */
 async function cmdConvert(argv) {
-    console.log("ARGV:", argv)
+    log.logDebug(LOG_TAG, "ARGV:", argv)
     // 显示预设列表
     if (argv.showPresets) {
         for (const [key, value] of presets.getAllPresets()) {
@@ -378,10 +378,10 @@ async function cmdConvert(argv) {
     // dm = dimension
     // fps = framerate
     const ffargs = argparser.parseArgs(argv.ffargs)
-    console.log("FFARGS:", ffargs)
+    log.logDebug(LOG_TAG, "FFARGS:", ffargs)
     // 合并 ffargs 到 argv (ffargs 优先级低于命令行单独参数)
     const mergedArgv = presets.applyFfargs(argv, ffargs)
-    console.log("MERGED ARGV:", mergedArgv)
+    log.logDebug(LOG_TAG, "MERGED ARGV:", mergedArgv)
     // 解析Preset，根据argv参数修改preset，返回对象
     const preset = presets.createFromArgv(mergedArgv)
     if (!testMode) {
@@ -1042,8 +1042,12 @@ async function prepareFFmpegCmd(entry) {
         // log.info(logTag, "ffmpeg", newEntry.ffmpegArgs.flat().join(" "))
         return newEntry
     } catch (error) {
-        log.error(logTag, `${ipx} Skip[Error]: ${entry.path}`, error)
-        throw error
+        // 单个文件解析失败不应中断整批任务：目录里混入一个坏文件时，
+        // 旧实现会 rethrow 导致 pMap 整体失败，几十个正常文件全部不处理。
+        // 这里改为记录后跳过（与日志文案 "Skip[Error]" 的意图一致）。
+        log.error(logTag, `${ipx} Skip[Error]: ${entry.path}`, error?.message || error)
+        log.fileLog(`${ipx} Skip[Error]: <${entry.path}> ${error?.message || error}`, "Prepare")
+        return false
     }
 }
 

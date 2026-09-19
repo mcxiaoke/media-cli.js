@@ -139,12 +139,18 @@ async function processFiles(files, recursive, fromEnc, toEnc, threhold) {
     const logTag = "processFiles"
 
     for (const filePattern of files) {
-        const matchedFiles = await new Promise((resolve, reject) => {
-            glob(filePattern, { recursive, windowsPathsNoEscape: true }, (err, matches) => {
-                if (err) reject(err)
-                else resolve(matches)
+        // glob v13 已移除回调形式（回调永不触发 → Promise 永不 resolve → 进程挂起），
+        // 必须使用其 Promise API。此处即此前 `decode --files` 会卡死的根因。
+        let matchedFiles = []
+        try {
+            matchedFiles = await glob(filePattern, {
+                recursive,
+                windowsPathsNoEscape: true,
             })
-        })
+        } catch (error) {
+            log.error(chalk.red(logTag), `glob failed: ${filePattern} - ${error.message}`)
+            continue
+        }
 
         const filesToProcess = matchedFiles.filter(filePath => {
             try {
@@ -178,7 +184,12 @@ async function processFiles(files, recursive, fromEnc, toEnc, threhold) {
             try {
                 log.show(chalk.yellow(logTag), chalk.cyan(t("decode.processing.file") + ":"), chalk.green(filePath))
 
-                const fileContent = fs.readFileSync(filePath, "utf8")
+                // 乱码文件不能用 UTF-8 读取：那会在读入阶段就把字节替换为
+                // U+FFFD，导致后续检测判定"无乱码"或输出仍是乱码。
+                // 改为按 latin1（binary）读取，完整保留原始字节，
+                // 交由 decodeText 做编码猜测与转换。
+                const rawBuffer = fs.readFileSync(filePath)
+                const fileContent = rawBuffer.toString("latin1")
 
                 const results = decodeText(fileContent, fromEnc, toEnc, threhold)
 

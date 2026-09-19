@@ -396,10 +396,10 @@ async function createNewNameByMode(f) {
             f.skipped = true
         } else {
             // 大小不相等，文件名添加后缀
-            // 找到一个不重复的新文件名
+            // 找到一个不重复的新文件名（保持与主路径同一输出目录）
             do {
                 newName = `${fullBase}${sep}D${++nameDupIndex}${ext}`
-                newPath = path.resolve(path.join(dir, newName))
+                newPath = path.resolve(path.join(outputDir, newName))
             } while (nameDupSet.has(newPath))
             log.info(logTag, `NewName: ${ipx} ${helper.pathShort(newPath)}`)
         }
@@ -484,9 +484,14 @@ const handler = async function cmdPrefix(argv) {
         }
     })
     const fCount = files.length
-    //const tasks = files.map(f => createNewNameByMode(f, argv)).filter(f => f?.outName)
-    const jobCount = argv.jobs || cpus().length * 4
-    let tasks = await pMap(files, createNewNameByMode, { concurrency: jobCount })
+    // 命名规划必须串行：createNewNameByMode 内部读写模块级 nameDupSet /
+    // nameDupIndex 来检测与规避重名，并发调用会因竞态生成重复文件名。
+    // 该阶段为纯路径计算（无 IO 重活），串行开销可忽略；
+    // 真正的重命名执行仍在 renameFiles 中并发完成。
+    let tasks = []
+    for (const f of files) {
+        tasks.push(await createNewNameByMode(f))
+    }
     tasks = tasks.filter((f) => f?.outName)
 
     tasks = tasks.map((f, i) => {

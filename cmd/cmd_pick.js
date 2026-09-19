@@ -62,6 +62,7 @@ import {
     computeHashDedup,
     loadHashCache,
     saveHashCache,
+    computeImageFeatures,
     computeImageFeaturesWithCache,
 } from "../lib/image_hash.js"
 import { confirmAction, abortIfCancelled } from "../lib/command_utils.js"
@@ -503,7 +504,7 @@ export async function cmdPick(argv) {
         const date = dayjs(f.date)
         const year = date.format("YYYY")
         const month = date.format("YYYYMM")
-        const destRel = path.join(year, month, path.basename(f.path))
+        const destRel = buildPickDestRel(f, root, year, month)
         const dest = path.join(outDir, destRel)
         return !(await fs.pathExists(dest))
     }
@@ -527,6 +528,32 @@ export async function cmdPick(argv) {
     }
 
     await copyPickedFiles(finalFiles, root, argv)
+}
+
+/**
+ * 构建 pick 复制目标相对路径
+ *
+ * 仅用 basename 时，不同源目录下的同名文件（IMG_0001.jpg 极常见）
+ * 会映射到同一目标并互相覆盖，导致输出结果静默少图。
+ * 此处保留源目录相对层级，仅在出现重复层级时回退为 basename。
+ *
+ * @param {Object} f - 文件对象（含 path）
+ * @param {string} root - 源根目录
+ * @param {string} year - 年份目录
+ * @param {string} month - 年月目录
+ * @returns {string} 相对输出路径
+ */
+function buildPickDestRel(f, root, year, month) {
+    const base = path.basename(f.path)
+    let rel = base
+    if (root) {
+        const srcRel = path.relative(root, f.path)
+        // 源目录层级 + 文件名，避免跨目录同名覆盖
+        if (srcRel && !srcRel.startsWith("..") && !path.isAbsolute(srcRel)) {
+            rel = srcRel
+        }
+    }
+    return path.join(year, month, rel)
 }
 
 /**
@@ -558,7 +585,7 @@ async function copyPickedFiles(files, root, argv) {
         const year = date.format("YYYY")
         const month = date.format("YYYYMM")
 
-        const destRel = path.join(year, month, path.basename(f.path))
+        const destRel = buildPickDestRel(f, root, year, month)
         const dest = path.join(outDir, destRel)
 
         const sizeStr = (f.size / 1024 / 1024).toFixed(2) + " MB"
@@ -1166,14 +1193,16 @@ async function processImageHashDedup(daySelections, threshold = CONFIG.IMAGE_HAS
 
         log.logInfo(LOG_TAG, `Cache: ${result.cacheHits} hits, ${result.cacheMisses} misses`)
     } else {
-        const results = await computeHashDedup(allFiles, threshold, {
-            qualityScores: null,
+        // 冷路径：自行计算哈希与质量分，不能丢弃结果。
+        // 旧实现在此处把 computeHashDedup 的返回值赋给未使用的局部变量，
+        // 随后将 hashResults 全量置为 {aHash:null,pHash:null}，
+        // 导致 validHashes 恒为空、去重循环一次都不执行（--hash-dedup 静默失效）。
+        const computed = await computeImageFeatures(allFiles, {
+            concurrency: CONFIG.IMAGE_HASH.PARALLEL,
+            qualityConfig: CONFIG.IMAGE_QUALITY,
         })
-        hashResults = allFiles.map((f, i) => ({
-            file: f,
-            aHash: null,
-            pHash: null,
-        }))
+        hashResults = computed.hashResults
+        qualityScores = computed.qualityScores
     }
 
     const validHashes = hashResults.filter((r) => r.pHash !== null)

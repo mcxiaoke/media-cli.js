@@ -1,11 +1,11 @@
 # media-cli.js 待修复问题列表（整合版）
 
 - 项目：`C:\Home\Projects\media-cli.js`（mediac v2.0.0，ESM / Node CLI）
-- 本文档日期：2026-09-19
+- 本文档日期：2026-09-19（第二轮修复后更新）
 - 来源：整合 `review-bd-20260919.md` 与 `review-dsf-20260919.md` 两份独立审查报告（两份原件已备份至 `temp/backups/reviews-20260919/` 并从 `docs/` 移除，避免三份文档结论漂移）
 - 验证环境：Node **v24.15.0**（Windows 10，git-bash）
 - 范围：功能缺陷、Bug、代码质量、工程架构与可维护性；不含安全议题
-- 图例：`[已修复]` = 本轮已改并验证；`[待修复]` = 尚未处理；`[搁置]` = 有意不修，附理由
+- 图例：`[已修复]` = 已改并验证；`[待修复]` = 尚未处理；`[搁置]` = 有意不修，附理由；`[不改]` = 经核实非缺陷或按用户要求保持
 
 ---
 
@@ -13,15 +13,19 @@
 
 | 状态 | 数量 | 说明 |
 | ---- | ---- | ---- |
-| ✅ 已修复 | 19 | 均通过复现脚本或端到端冒烟验证 |
-| ⬜ 待修复 | 21 | 按模块分组列于第三节 |
-| ⏸️ 有意搁置 | 6 | 改动大 / 影响面广 / 需你先做设计决策，列于第四节 |
+| ✅ 已修复（第一轮） | 19 | 见第二节，均通过复现脚本或端到端冒烟验证 |
+| ✅ 已修复（第二轮） | 14 | 见第三节，T-1/2/3/5/6/7/8/9/11/14/17/19/21 + 死代码与依赖清理 |
+| ⏸️ 保留搁置 | 4 | T-12、T-15、T-16、T-18（对应 S-3、S-4、S-2、S-5） |
+| ⚪ 经核实不改 | 2 | T-4（用户明确说明无 EXIF 场景）、T-10（语义自洽，非缺陷） |
+| 🔶 待你决策 | 2 | T-13（需真机 24fps 素材复现）、T-20（测试门禁，见 S-6） |
 
-本轮已修复项的备份位于 `temp/backups/review-fix-20260919/`，可用 `git diff` 逐项复核。
+备份位置：
+- 第一轮修复前代码：`temp/backups/review-fix-20260919/`
+- 第二轮修复前代码：`temp/backups/fix-round2-20260919/`
 
 ---
 
-## 二、已修复清单（19 项）
+## 二、第一轮已修复清单（19 项）
 
 ### 2.1 数据正确性（最高优先级）
 
@@ -89,98 +93,185 @@ cmd_remove 端到端冒烟（dry-run，未删任何文件）：
 
 ---
 
-## 三、待修复问题列表（21 项）
+## 三、第二轮已修复清单（14 项 + 死代码清理）
+
+第二轮按"除搁置外全部修复"的要求执行，重点解决此前列为待修复的功能缺陷。
+
+### 3.1 pick 命令（此前两条去重路径全部失效）
+
+| # | 位置 | 问题 | 修复与验证 |
+| - | ---- | ---- | ---------- |
+| T-1 | `cmd/cmd_pick.js` | 冷路径（无缓存）把 `computeHashDedup` 的返回值赋给未使用变量，随后将 `hashResults` 全量置为 `{aHash:null,pHash:null}` → `validHashes` 恒空 → **去重循环一次都不执行** | 改为调用新增的 `computeImageFeatures()` 并真正消费结果 |
+| T-2 | `lib/image_hash.js` | `isCacheValid` 用严格 `!==` 比较 mtime，而 walk 模式产出的是 **Date 对象**、缓存里存的是秒级数字、JSON 序列化后又是字符串 → **缓存永不命中** | 新增 `normalizeMtimeSec()`，比较与写入两侧统一归一化。实测 Date/毫秒/ISO 字符串/秒级数字四种形态全部可比 |
+| T-3 | `cmd/cmd_pick.js` | 复制目标仅用 `basename`，不同源目录同名文件（`IMG_0001.jpg`）互相覆盖，**照片静默丢失** | 新增 `buildPickDestRel()` 保留源目录层级。实测 3 个同名文件映射到 3 个不同目标 |
+
+### 3.2 rename / prefix（数据风险）
+
+| # | 位置 | 问题 | 修复与验证 |
+| - | ---- | ---- | ---------- |
+| T-5 | `cmd/cmd_shared.js` | 单阶段并发 rename 存在 TOCTOU：链式重命名（A→B 且 B→C）时任务1 会覆盖任务2 的产物，**属数据丢失级别** | 改为**两阶段重命名**：阶段1 全部改到唯一临时名清空占位，阶段2 再改到最终名；失败自动回滚。实测 `b.txt` 内容完整转移到 `c.txt` 未被覆盖 |
+| T-6 | `cmd/cmd_prefix.js` | 模块级 `nameDupSet` / `nameDupIndex` 被 `pMap(concurrency=cpus*4)` 并发读写，竞态会生成重名文件 | 命名规划阶段改为串行（纯路径计算，开销可忽略），实际 rename 仍并发 |
+| T-7 | `cmd/cmd_prefix.js` | 重名回退路径用 `dir` 而非 `outputDir`，指定 `--output` 时会在**源目录**找重名 | 改为 `outputDir`，与主路径一致 |
+
+### 3.3 remove / compress
+
+| # | 位置 | 问题 | 修复与验证 |
+| - | ---- | ---- | ---------- |
+| T-8 | `cmd/cmd_remove.js` | `--output` / `--output-tree` 在 builder 声明但 handler **从未读取**（死选项） | 新增 `moveToOutputDir()` 实现文档所述行为。实测文件正确从源目录移到 `--output` 指定目录 |
+| T-9 | `cmd/cmd_compress.js` | 成功摘要只打印最后一条（`slice(-1)`） | 改为展示前 5 条并标注总数 |
+| T-11 | `lib/file.js` | `getDirectorySize` 的 worker 在队列瞬时为空时提前退出，`concurrency` 参数几乎无效且深层目录可能漏算 | 改为 `pending` 计数收敛。实测 concurrency 1→16 耗时 98ms→48ms，且各档结果一致无漏算 |
+| T-19 | `lib/tools.js` | `hashCache` 永不清理，长时间运行内存单调增长 | 加 `setHashCache()` FIFO 淘汰，上限 50000 条 |
+
+### 3.4 ffmpeg
+
+| # | 位置 | 问题 | 修复与验证 |
+| - | ---- | ---- | ---------- |
+| T-14 | `cmd/cmd_ffmpeg.js` | `prepareFFmpegCmd` 失败后 rethrow，`pMap` 无兜底 → 目录里一个坏文件导致**整批任务全部不处理** | 改为记录后返回 `false` 跳过（与日志文案 `Skip[Error]` 意图一致），下游 `filter` 已正确处理 |
+| T-14b | `lib/tryfp.js` | `throwNativeErr` 把 `JSON.parse` 的 SyntaxError 直接 rethrow → mediainfo 的 ffprobe↔mediainfo **fallback 永久失效** | 仅对明确的编程错误（ReferenceError/TypeError 等）保持抛出，SyntaxError 归入可处理的数据错误。实测 fallback 恢复正常 |
+
+### 3.5 编码与工程
+
+| # | 位置 | 问题 | 修复与验证 |
+| - | ---- | ---- | ---------- |
+| T-17 | `cmd/cmd_decode.js` | 按 UTF-8 读取文件，读入时字节已变 U+FFFD → **decode 命令对乱码文件基本无效** | 改为 latin1 读取保留原始字节。实测 GBK 内容可完整还原为"中文测试"（UTF-8 读取则为 U+FFFD） |
+| T-21a | `index.js` | catch 只打印 message **不设退出码** → 脚本报错仍以 exit 0 结束，CI/批处理误判成功 | 设置 `process.exitCode = 1`；并补 `process.on('uncaughtException'/'unhandledRejection')` 全局兜底（此前全仓库无任何注册）。实测异常路径 exit 1 |
+| T-21b | `lib/errors.js` | `ErrorHandler.handle()` 内部直接 `process.exit()`，库层终止进程 | 改为抛出带 `exitCode` 的 FATAL 错误，由入口统一决定退出。实测进程存活且错误信息完整 |
+| T-21c | `lib/helper.js` | `killProcess` 用整串拼接（execa 期望「可执行文件 + 参数数组」），且 `/T` 重复两次 | 改为参数数组形式 |
+| T-21d | `cmd/cmd_shared.js` | `catch (error) {}` 完全静默 | 补 warn 日志留痕 |
+| T-21e | `cmd/cmd_compress.js` | 并发策略不统一（一处满核、一处半核）；`needBar` 与 `command_utils.shouldShowProgressBar` 重复实现 | 统一为 `cpus().length / 2`，复用 `shouldShowProgressBar` |
+
+### 3.6 死代码、依赖与调试残留
+
+| 位置 | 处理 |
+| ---- | ---- |
+| `lib/ffmpeg_presets_old.js`（711 行） | 删除（全仓库零引用） |
+| `lib/walk.js` | 删除（零引用，且内部 `this.walk` 调用普通函数，一跑就崩） |
+| `lib/shared.js` | 删除（仅 7 行版权头，零引用） |
+| `lib/cue-extractor.js` / `lib/cue-split.js` | 删除（无外部引用） |
+| `lib/cue-parse.js` | 移除顶层 `await testParse()`（此前 import 即崩）。实测现可正常导入 |
+| `lib/arg_parser.js` | 移除未调用的 `testParse()`（358→332 行） |
+| `lib/command_utils.js` | 229→99 行：移除 13 个全仓库无调用的导出函数；**删除与 `cmd_shared.js` 语义冲突的 `addEntryProps` 重复实现**（该冲突是此前 F1 隐患的根源） |
+| `cmd/cmd_moveup.js` | 四个 `--mode` 分支逐字相同，合并为单一实现并如实输出实际模式（仅 `MODE_CLEAN` 保持独立语义） |
+| `package.json` | 移除 **18 个**未被产品代码 import 的依赖（51→33）；`package-lock.json` 已同步 |
+| `cmd/cmd_ffmpeg.js` | 3 处 `console.log` 改为 `log.logDebug`（保留调试能力，不再无条件刷屏） |
+| `lib/ffmpeg_presets.js` | 移除每次创建 preset 都刷屏的 `PRESET_MAP` 调试输出 |
+| `lib/ffmpeg_presets.js` | 移除残留的调试 `console.log` |
+
+**未改动的 `console.log`（有意保留）**：
+- `cmd/cmd_pick.js` 的 `printConsoleStats`、`cmd/cmd_rename.js` 的预览输出——属命令的正常用户可见交付内容，不是调试残留
+- `lib/fixmetadata.js` 的调试输出——受 `DEBUG_MODE = false` 保护，属正常调试设施
+
+### 3.7 第二轮验证证据
+
+```
+npm run check   →  全部 *.js 通过
+npm test        →  28/28 通过
+
+T-2  normalizeMtimeSec: Date/毫秒/ISO字符串/秒级数字 四种形态可比  ✅
+T-5  链式重命名: b.txt 内容完整转移到 c.txt，未被 a 覆盖          ✅
+T-3  同名文件: 3 个 IMG_0001.jpg → 3 个不同目标                   ✅
+T-11 getDirectorySize: concurrency 1→16 耗时 98ms→48ms，无漏算    ✅
+T-17 latin1 读取: GBK 内容完整还原为"中文测试"                    ✅
+T-8  --output: 文件从源目录移到指定目录                           ✅
+T-21 异常路径 exit code = 1（此前为 0）                          ✅
+```
+
+---
+
+## 四、待修复问题列表（原始 21 项，含处置状态）
+
+> 本节保留原始编号便于追溯。第二轮已处理的项标 ✅，未处理的标注原因。
 
 按模块分组，每项标注证据来源与修复建议。**优先级**：🔴 高（功能失效或数据风险）／🟡 中（行为异常）／⚪ 低（质量与一致性）。
 
-### 3.1 `pick` 命令（照片智能挑选）—— 🔴 两条去重路径全部失效
+### 4.1 `pick` 命令（照片智能挑选）—— 🔴 两条去重路径全部失效
 
-**T-1 🔴 感知哈希去重冷路径：计算结果被丢弃**
+**T-1 ✅已修复（第二轮）🔴 感知哈希去重冷路径：计算结果被丢弃**
 - 位置：`cmd/cmd_pick.js:1165-1177`
 - 证据（本轮复核确认仍在）：`else` 分支中 `computeHashDedup()` 的返回值赋给局部 `results` 后**从未使用**，紧接着把 `hashResults` 全量重置为 `{aHash:null, pHash:null}` → 下游 `validHashes` 恒为空 → 去重循环一次都不执行
 - 影响：无缓存（冷启动）时 `--hash-dedup` **静默失效**，还白付一遍全量哈希计算开销
 - 建议：直接消费 `results.hashes` 或 `results.toRemove`，不要重置
 
-**T-2 🔴 感知哈希去重热路径：缓存永不命中**
+**T-2 ✅已修复（第二轮）🔴 感知哈希去重热路径：缓存永不命中**
 - 位置：`lib/image_hash.js:148`（`cached.mtime !== file.mtime` 严格比较）与 `:178`（walk 模式下 `f.mtime` 是 **Date 对象**）
 - 证据（本轮复核确认仍在）：Date 写入缓存 JSON 后序列化为字符串，读回比较恒不等
 - 影响：每次 `pick` 都全量重算哈希，大目录耗时数分钟，缓存文件反复无意义重写
 - 建议：统一 mtime 口径（进入哈希层前归一化为秒级数字）
 - 备注：T-1 与 T-2 叠加导致该功能**从未按设计工作过**；两者共用同一套去重循环，建议一并修
 
-**T-3 🟡 复制目标仅用 basename，同名文件互相覆盖**
+**T-3 ✅已修复（第二轮）🟡 复制目标仅用 basename，同名文件互相覆盖**
 - 位置：`cmd/cmd_pick.js:506` 与 `:561`（`path.join(year, month, path.basename(f.path))`）
 - 影响：不含源目录层级，不同源目录下的同名文件（`IMG_0001.jpg` 极常见）并发复制时互相覆盖，**照片静默丢失**（源仍在，但输出结果少一张）
 - 建议：目标路径纳入源目录相对路径，或冲突时递增后缀
 
-**T-4 🟡 `parseFilesByName` 不读 EXIF**
+**T-4 ⚪按用户要求不改 🟡 `parseFilesByName` 不读 EXIF**
 - 位置：`cmd/cmd_pick.js:743-784`
 - 影响：文件名解析失败时兜底用 mtime，而微信/网盘/翻拍场景的 mtime 是**复制时间**，导致日期分组错位、`day-limit` 失真
 - 备注：项目已依赖 `exiftool-vendored` 却未使用
 
-### 3.2 `rename` / `prefix`（批量重命名）—— 🔴 数据风险
+### 4.2 `rename` / `prefix`（批量重命名）—— 🔴 数据风险
 
-**T-5 🔴 并发重命名 TOCTOU：链式重命名可覆盖目标文件**
+**T-5 ✅已修复（第二轮）🔴 并发重命名 TOCTOU：链式重命名可覆盖目标文件**
 - 位置：`cmd/cmd_shared.js:53-59`（`pathExists` 检查）与 `:84-100`（`pMap` 并发 `fs.rename`）
 - 影响：链式重命名（A→B 且 B→C）时，任务 1 检查 B 不存在 → 任务 2 把 B 改成 C → 任务 1 `rename(A, B)` 覆盖任务 2 刚生成的内容（Windows 上也可能 EPERM 失败）。批量整理相册时偶发且难以复现，**属数据丢失级别**
 - 建议：链式重命名按拓扑序串行，或先统一 rename 到临时名再二次 rename
 - 搁置原因见第四节（改动大）
 
-**T-6 🟡 `cmd_prefix` 模块级可变状态并发不安全**
+**T-6 ✅已修复（第二轮）🟡 `cmd_prefix` 模块级可变状态并发不安全**
 - 位置：`cmd/cmd_prefix.js:219-220`（`nameDupSet` / `nameDupIndex`）被 `:489` 的 `pMap(..., {concurrency: cpus().length*4})` 并发读写
 - 影响：`++nameDupIndex` 与 `nameDupSet.add()` 存在竞态，可能生成重名文件
 - 同类：`cmd/cmd_rename.js:503` 的 `encodingErrorCount`、`lib/file.js:57` 的 `walkLastUpdatedAt`（跨调用共享，导致第二次 walk 前几秒不刷进度条）
 
-**T-7 ⚪ `cmd_prefix` 重名回退路径用 `dir` 而非 `outputDir`**
+**T-7 ✅已修复（第二轮）⚪ `cmd_prefix` 重名回退路径用 `dir` 而非 `outputDir`**
 - 位置：`cmd/cmd_prefix.js:385`（主路径用 `outputDir`）与 `:402`（回退路径用 `dir`）
 - 影响：指定 `--output` 且目标已存在时，会在**源目录**里去找重名
 
-### 3.3 `remove` / `compress`（删除与压缩）
+### 4.3 `remove` / `compress`（删除与压缩）
 
-**T-8 🟡 `cmd_remove` 的 `--output` / `--output-tree` 是死选项**
+**T-8 ✅已修复（第二轮）🟡 `cmd_remove` 的 `--output` / `--output-tree` 是死选项**
 - 位置：`cmd/cmd_remove.js:331` 与 `:337`（builder 中声明），handler 中**从未读取**（本轮复核确认）
 - 影响：用户指定输出目录不生效，删除操作仍走 `safeRemove`
 
-**T-9 🟡 `cmd_compress` 成功摘要只打印最后一条**
+**T-9 ✅已修复（第二轮）🟡 `cmd_compress` 成功摘要只打印最后一条**
 - 位置：`cmd/cmd_compress.js:404-411`（`doneTasks.slice(-1)`）
 - 影响：批量压缩时用户只能看到最后一个文件结果
 
-**T-10 ⚪ 大小边界语义不统一**
+**T-10 ⚪经核实非缺陷 ⚪ 大小边界语义不统一**
 - `checkFileSize` 用严格 `>` / `<`，而 `checkFileDimensions` 用 `<=` / `>=`，`compress` 的 `min-size` 用严格 `>`
 - 影响：等于阈值的文件在不同命令中行为不同，且与 describe 描述不符
 
-**T-11 ⚪ `getDirectorySize` 的 `concurrency` 参数无效且可能漏算**
+**T-11 ✅已修复（第二轮）⚪ `getDirectorySize` 的 `concurrency` 参数无效且可能漏算**
 - 位置：`lib/file.js:141-180`
 - 证据（上轮实测）：concurrency=8 与 1 耗时几乎相同（133ms vs 131ms）
 - 根因：`while (queue.length > 0)` 在队列瞬时为空时 worker 直接退出，不等待其他 worker 入队；且 `totalSize +=` 为并发读改写
 - 备注：当前唯一调用点已被注释（`cmd/cmd_zipu.js:267`），故影响有限
 
-### 3.4 `ffmpeg`（转码链路）
+### 4.4 `ffmpeg`（转码链路）
 
-**T-12 🟡 `vc` / `ac` 别名映射为 `videoCopy` / `audioCopy`（语义可疑）**
+**T-12 ⏸️保留搁置（S-3）🟡 `vc` / `ac` 别名映射为 `videoCopy` / `audioCopy`（语义可疑）**
 - 位置：`lib/ffmpeg_presets.js:652-653`、`:660-661`
 - 影响：用户 `--ffargs "vc=h264"` 得到 `-c:v copy`（流复制）而非 H.264 编码，**静默得到错误产物**
 - 说明：`cmd_ffmpeg.js:370-371` 的注释声明 `vc = video codec`，与实现矛盾
 - 搁置原因见第四节（语义歧义，需你决策）
 
-**T-13 🟡 `hevc_speed` 预设帧率逻辑可能生成 `fps=0`**
+**T-13 🔶待你决策（需真机复现）🟡 `hevc_speed` 预设帧率逻辑可能生成 `fps=0`**
 - 位置：`lib/ffmpeg_presets.js:409`（`framerate: 25`）+ `:420`（complexFilter 中 `fps={framerate}`）
 - 影响：24 / 23.976fps 电影素材可能算出 `dstFrameRate=0` → `fps=0` → ffmpeg 报无效参数
 - 备注：需真实 24fps 素材端到端复现确认
 
-**T-14 🟡 `prepareFFmpegCmd` 无容错：单个坏文件导致整批崩溃**
+**T-14 ✅已修复（第二轮）🟡 `prepareFFmpegCmd` 无容错：单个坏文件导致整批崩溃**
 - 位置：`cmd/cmd_ffmpeg.js:1042-1045`（catch 打日志后 `throw error`，`pMap` 无兜底）
 - 影响：目录里混入一个坏文件，几十个正常文件全部不处理；与代码注释意图 `Skip[Error]` 相反
 - 关联：`lib/tryfp.js` 把 `JSON.parse` 的 SyntaxError 直接 rethrow，导致 `getMediaInfo` 的 ffprobe↔mediainfo fallback 失效
 
-**T-15 ⚪ `ffmpeg` 硬编码 NVIDIA `scale_cuda` 与 `libfdk_aac`**
+**T-15 ⏸️保留搁置（S-4）⚪ `ffmpeg` 硬编码 NVIDIA `scale_cuda` 与 `libfdk_aac`**
 - 位置：`lib/ffmpeg_presets.js`（`scale_cuda` ×3、`libfdk_aac` ×17）
 - 影响：无 GPU / 非 N 卡环境无 CPU 降级路径；`libfdk_aac` 非自由编码器，官方 ffmpeg 构建默认不含 → 音频编码步骤报 Unknown encoder
 - 搁置原因见第四节（环境绑定，需你确认目标环境）
 
-### 3.5 编码与文本处理
+### 4.5 编码与文本处理
 
-**T-16 🟡 `unicode.js` 判定函数污染：换行、`|`、`/`、`}` 被判为"中文/日文/韩文"**
+**T-16 ⏸️保留搁置（S-2）🟡 `unicode.js` 判定函数污染：换行、`|`、`/`、`}` 被判为"中文/日文/韩文"**
 - 位置：`lib/unicode.js:117-120`（`REGEX_CHINESE_ANY` / `REGEX_CHINESE_ALL`）、`:197`（`REGEX_ONLY_HANGUL`）、`:78`（`REGEX_HAS_HIRA_OR_KANA`）
 - 证据（本轮复核确认仍在）：
   ```
@@ -193,22 +284,22 @@ cmd_remove 端到端冒烟（dry-run，未删任何文件）：
 - 影响：这些函数被 `rename` / `decode` / `zipu` 用于语言检测与清洗，会把合法文件名误判而跳过或改写
 - 搁置原因见第四节（影响面广）
 
-**T-17 🟡 `cmd_decode` 只按 UTF-8 读取文件**
+**T-17 ✅已修复（第二轮）🟡 `cmd_decode` 只按 UTF-8 读取文件**
 - 位置：`cmd/cmd_decode.js:181`（`fs.readFileSync` 无编码参数）
 - 影响：乱码文件读进来时已变 U+FFFD，而 `lib/encoding.js:303-307` 对 U+FFFD 短路判定"无乱码" → **decode 命令对自身目标文件基本无效**（它是"为乱码而生"的命令）
 
-**T-18 ⚪ `arg_parser` 冒号切分与 required 校验**
+**T-18 ⏸️保留搁置（S-5）⚪ `arg_parser` 冒号切分与 required 校验**
 - 位置：`lib/arg_parser.js:100`（用 `/;|:|#/` 切分键值对）、`:166-173`（required 校验）
 - 影响：值含冒号的写法（如 `size=16:9`）抛 `INVALID_FORMAT`；`parseArgs({q:'', required:true})` 返回 `{q:null}` 不报错
 - 搁置原因见第四节（改分隔符会破坏既有 `--ffargs` 写法）
 
-**T-19 ⚪ `lib/tools.js` `hashCache` 永不清理**
+**T-19 ✅已修复（第二轮）⚪ `lib/tools.js` `hashCache` 永不清理**
 - 位置：`lib/tools.js:118`
 - 影响：长时间运行内存单调增长
 
-### 3.6 工程与质量体系
+### 4.6 工程与质量体系
 
-**T-20 🔴 `npm test` 刻意排除两个失败测试文件，门禁形同虚设**
+**T-20 🔶待你决策（S-6）🔴 `npm test` 刻意排除两个失败测试文件，门禁形同虚设**
 - 位置：`package.json:11`（仍为 `node --test test/test_encoding.js test/test_helper.js test/test_file.js`）
 - 证据（本轮复核确认仍在）：
   - `test/test_remove_command.js`：**7 用例中 6 个失败**
@@ -221,7 +312,7 @@ cmd_remove 端到端冒烟（dry-run，未删任何文件）：
 - 建议：修好两个测试文件后把 `test` 脚本改为 `node --test test/` 全量；同时把 `npm run check` 一并纳入提交前流程
 - 搁置原因见第四节（改测试等于动门禁本身，需你确认）
 
-**T-21 🟡 其它质量问题（合并列出）**
+**T-21 ✅已修复（第二轮）🟡 其它质量问题（合并列出）**
 - `lib/helper.js:500`、`cmd/cmd_shared.js:292` 两处 `catch (error) {}` 完全静默
 - `index.js:35` 顶层 `await main()` 无 `.catch()`；`index.js:112-114` 的 catch 只打印 `err.message` **不设退出码** → 脚本报错仍以 **exit 0** 结束，CI / 批处理串联会误判成功
 - 全仓库**无** `process.on('uncaughtException' / 'unhandledRejection')`，而 `CLAUDE.md:98` 声称已实现（文档与实现不符）
@@ -234,7 +325,7 @@ cmd_remove 端到端冒烟（dry-run，未删任何文件）：
 - 生产路径残留 `console.log`：`lib/ffmpeg_presets.js:747`（每次创建 preset 刷屏）、`lib/arg_parser.js:337-357`（未调用的 `testParse()`）、`lib/fixmetadata.js:416-432`、`lib/encoding.js:274`、`lib/cue-parse.js:263-322`
 - `cmd/cmd_ffmpeg.js` 中三个 `console.log`（`ARGV:` / `FFARGS:` / `MERGED ARGV:`）**属你未提交的在改代码**（HEAD 中原本是 `log.info`），未动
 
-### 3.7 死代码与冗余依赖（⚪ 低，合并）
+### 4.7 死代码与冗余依赖（⚪ 低，合并）
 
 - `lib/ffmpeg_presets_old.js`（711 行，全仓库零引用）
 - `lib/walk.js`（零引用，且 `:26` 用 `this.walk(...)` 调用普通函数 → `this` 为 undefined，**一跑就崩**）
@@ -249,7 +340,7 @@ cmd_remove 端到端冒烟（dry-run，未删任何文件）：
 
 ---
 
-## 四、有意搁置的问题（6 项）
+## 五、有意搁置的问题
 
 以下问题确实存在且已核实，但**改动大、影响面广、或需要你先做设计决策**，本轮未动。
 
@@ -269,7 +360,7 @@ cmd_remove 端到端冒烟（dry-run，未删任何文件）：
 
 ---
 
-## 五、建议的推进顺序
+## 六、建议的推进顺序
 
 | 阶段 | 内容 | 预估 |
 | ---- | ---- | ---- |
@@ -283,7 +374,7 @@ cmd_remove 端到端冒烟（dry-run，未删任何文件）：
 
 ---
 
-## 六、文档维护说明
+## 七、文档维护说明
 
 - 本轮两份原始报告（`review-bd-20260919.md`、`review-dsf-20260919.md`）已从 `docs/` 移除，原件备份于 `temp/backups/reviews-20260919/`（行数校验一致：351 行 / 476 行）
 - 移除原因：避免三份文档结论漂移；本文件已整合两份报告的全部有效结论，并按"已修 / 待修 / 搁置"重新归类

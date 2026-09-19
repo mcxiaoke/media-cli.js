@@ -778,6 +778,9 @@ async function cmdRemove(argv) {
         names: cNames || new Set(),
         reverse: argv.reverse || false,
         purge: argv.deletePermanently || false,
+        // --output 指定时移动文件到该目录，--output-tree 决定是否保留源目录层级
+        output: argv.output || "",
+        outputTree: argv.outputTree || false,
         testMode,
         audio: audioParams,
         video: videoParams,
@@ -895,6 +898,27 @@ async function cmdRemove(argv) {
                         `${t("operation.delete")}: ${task.index} <${task.src}> ${helper.humanSize(task.size)} ${flag}`,
                         LOG_TAG,
                     )
+                } else if (conditions.output) {
+                    // --output 指定时，把文件移动到该目录（而非默认的 Deleted_By_Mediac）
+                    const destPath = await moveToOutputDir(task.src, conditions.output, conditions.outputTree)
+                    operationLog.push({
+                        type: "move",
+                        src: originalPath,
+                        dest: destPath,
+                        size: task.size,
+                        timestamp,
+                        flag,
+                    })
+                    log.logTask(
+                        LOG_TAG,
+                        ++index,
+                        tasks.length,
+                        `${t("operation.move")} ${shortPath} ${helper.humanSize(task.size)} ${flag}`,
+                    )
+                    log.fileLog(
+                        `${t("operation.move")}: ${task.index} <${task.src}> ${helper.humanSize(task.size)} ${flag}`,
+                        LOG_TAG,
+                    )
                 } else {
                     const destPath = await helper.safeRemove(task.src)
                     
@@ -972,6 +996,44 @@ async function cmdRemove(argv) {
     
     clearCaches()
     log.logDebug(LOG_TAG, "Caches cleared")
+}
+
+/**
+ * 把文件移动到 --output 指定的目录
+ *
+ * 与 safeRemove 的区别：safeRemove 固定移动到磁盘根的 Deleted_By_Mediac，
+ * 本函数则移动到用户显式指定的目录，并按 --output-tree 决定是否保留源目录层级。
+ * 返回实际目标路径；失败时返回 undefined（与 safeRemove 语义一致）。
+ *
+ * @param {string} filepath - 源文件路径
+ * @param {string} outputDir - 目标目录
+ * @param {boolean} keepTree - 是否保留源文件的相对目录层级
+ * @returns {Promise<string|undefined>} 目标路径
+ */
+async function moveToOutputDir(filepath, outputDir, keepTree = false) {
+    try {
+        let destDir = path.resolve(outputDir)
+        if (keepTree) {
+            const parts = path.parse(filepath)
+            const dirOriginal = path.relative(parts.root, parts.dir)
+            destDir = path.join(destDir, dirOriginal)
+        }
+        await fs.ensureDir(destDir)
+        const baseName = path.basename(filepath)
+        let destPath = path.join(destDir, baseName)
+        // 同名冲突时递增后缀，避免覆盖既有文件
+        for (let i = 1; await fs.pathExists(destPath); i++) {
+            destPath = path.join(destDir, `${i}_${baseName}`)
+            if (i > 9999) {
+                throw new Error(`too many name conflicts in ${destDir}`)
+            }
+        }
+        await fs.move(filepath, destPath)
+        return destPath
+    } catch (error) {
+        console.error(`[moveToOutputDir] failed: ${filepath} - ${error?.message || error}`)
+        return undefined
+    }
 }
 
 /**

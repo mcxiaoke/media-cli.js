@@ -22,6 +22,17 @@ import { i18n, t } from "./lib/i18n.js"
 // fix max listeners
 EventEmitter.defaultMaxListeners = 1000
 
+// 全局兜底错误捕获：此前全仓库没有注册任何 process 级处理器，
+// 未捕获异常只会打印裸堆栈且退出码不确定，CLAUDE.md 的相关描述与实现不符。
+process.on("uncaughtException", (error) => {
+    log.showRed(`未捕获异常: ${error?.stack || error?.message || error}`)
+    process.exitCode = 1
+})
+process.on("unhandledRejection", (reason) => {
+    log.showRed(`未处理的 Promise 拒绝: ${reason?.stack || reason?.message || reason}`)
+    process.exitCode = 1
+})
+
 const cpuCount = cpus().length
 // 配置调试等级
 const configCli = (argv) => {
@@ -112,6 +123,9 @@ async function main() {
     } catch (err) {
         // await ya.getHelp()
         log.showRed(`${err.message}`)
+        // 必须设置非 0 退出码：否则脚本报错仍以 exit 0 结束，
+        // CI / 批处理串联会把失败误判为成功。
+        process.exitCode = 1
     } finally {
         await log.flushFileLog()
         if (await fs.pathExists(logFilePath)) {

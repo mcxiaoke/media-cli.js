@@ -86,7 +86,7 @@ export async function renameFiles(files, parallel = false) {
     log.show("Rename", `total ${files.length} files to rename. (parallel=${parallel})`)
     let results = []
     if (parallel) {
-        results = await pMap(files, renameOneFile, { concurrency: cpus().length })
+        results = await renameFilesTwoPhase(files)
     } else {
         for (const file of files) {
             results.push(await renameOneFile(file))
@@ -96,6 +96,116 @@ export async function renameFiles(files, parallel = false) {
     results = results.filter(Boolean)
     const okCount = results.length
     log.show("Rename", `total ${okCount}/${allCount} files renamed (parallel=${parallel})`)
+    return results
+}
+
+/**
+ * 两阶段并行重命名（消除链式重命名的 TOCTOU 竞态）
+ *
+ * 问题：单阶段并发 rename 时，若存在链式重命名（A→B 且 B→C），
+ * 任务1 检查 B 不存在 → 任务2 把 B 改成 C → 任务1 rename(A,B)
+ * 会覆盖任务2 刚产出的内容（Windows 上也可能随机 EPERM）。
+ *
+ * 方案：阶段1 把所有源文件并发改到同目录下的唯一临时名，
+ * 先清空全部原路径占位；阶段2 再把临时名并发改到最终名。
+ * 两阶段都无跨任务路径依赖，既保留并发性能又消除覆盖。
+ * 任一步失败则回滚该文件，绝不丢文件。
+ *
+ * @param {Array} files - 待重命名文件列表
+ * @returns {Promise<Array>} 成功重命名的文件列表
+ */
+async function renameFilesTwoPhase(files) {
+    const concurrency = cpus().length
+
+    // ---------- 阶段 1：源文件 → 唯一临时名 ----------
+    const plan = []
+    await pMap(
+        files,
+        async (f) => {
+            const outPath = f.outPath || path.join(path.dirname(f.path), f.outName)
+            if (!f.outName || f.path === outPath) {
+                return
+            }
+            const srcParts = path.parse(f.path)
+            const outDir = path.dirname(outPath)
+            try {
+                await fs.ensureDir(outDir)
+                // 临时名与源文件同目录，确保 rename 不跨卷
+                const tmpName = `.mediac_tmp_${core.randomString(12)}_${srcParts.base}`
+                const tmpPath = path.join(srcParts.dir, tmpName)
+                await fs.rename(f.path, tmpPath)
+
+                // 附加文件（字幕/封面）一并改到临时名
+                const extras = []
+                if (f.extraExts?.length > 0) {
+                    for (const ext of f.extraExts) {
+                        const eSrc = path.join(srcParts.dir, srcParts.name + ext)
+                        if (await fs.pathExists(eSrc)) {
+                            const eTmp = path.join(srcParts.dir, `.mediac_tmp_${core.randomString(12)}_${srcParts.name}${ext}`)
+                            await fs.rename(eSrc, eTmp)
+                            extras.push({ ext, tmp: eTmp })
+                        }
+                    }
+                }
+                plan.push({ f, outPath, outDir, srcParts, tmpPath, extras })
+            } catch (error) {
+                log.error("Rename", `Phase1 failed: <${f.path}> ${error.message}`)
+                log.fileLog(`Error: <${f.path}> ${error.message}`, "RenameP1")
+            }
+        },
+        { concurrency },
+    )
+
+    // ---------- 阶段 2：临时名 → 最终名 ----------
+    const results = await pMap(
+        plan,
+        async ({ f, outPath, outDir, srcParts, tmpPath, extras }) => {
+            const flag = f.stats?.isDirectory() ? "D" : "F"
+            const logTag = "Rename" + flag
+            try {
+                // 目标已存在则不覆盖，回滚到原名
+                if (await fs.pathExists(outPath)) {
+                    await fs.rename(tmpPath, f.path)
+                    log.showYellow(logTag, "SkipExists:", outPath, flag)
+                    return null
+                }
+                await fs.rename(tmpPath, outPath)
+                log.show(logTag, chalk.green(`OK:`), `${outPath} ${flag}`)
+                log.fileLog(`SRC: <${f.path}>`, logTag)
+                log.fileLog(`DST: <${outPath}>`, logTag)
+
+                for (const { ext, tmp } of extras) {
+                    const eDst = path.join(outDir, f.outBase + ext)
+                    if (await fs.pathExists(eDst)) {
+                        await fs.rename(tmp, path.join(srcParts.dir, srcParts.name + ext))
+                    } else {
+                        await fs.rename(tmp, eDst)
+                        log.show(logTag, chalk.yellow(`Extra:`), `${eDst}`)
+                    }
+                }
+                return f
+            } catch (error) {
+                // 回滚：尽量把文件恢复到原名，避免丢文件
+                try {
+                    if (await fs.pathExists(tmpPath)) {
+                        await fs.rename(tmpPath, f.path)
+                    }
+                    for (const { ext, tmp } of extras) {
+                        if (await fs.pathExists(tmp)) {
+                            await fs.rename(tmp, path.join(srcParts.dir, srcParts.name + ext))
+                        }
+                    }
+                } catch (rollbackError) {
+                    log.error(logTag, `Rollback failed: <${tmpPath}> ${rollbackError.message}`)
+                }
+                log.error(logTag, `Error: <${f.path}> => <${outPath}> ${error.message} ${flag}`)
+                log.fileLog(`Error: <${f.path}> ${error.message}`, logTag)
+                return null
+            }
+        },
+        { concurrency },
+    )
+
     return results
 }
 
@@ -289,7 +399,10 @@ export async function compressImage(t) {
             // 尝试删除已创建的目标文件，防止错误文件占用空间
             await fs.remove(t.tmpDst)
             await helper.safeRemove(t.dst)
-        } catch (error) {} // 忽略删除操作的错误，不进行额外处理
+        } catch (error) {
+            // 清理失败不影响主流程，但需留痕以便排查残留文件
+            log.warn(logTag, `cleanup failed: <${t.dst}> ${error?.message || error}`)
+        }
         t.errorFlag = true
         t.errorMessage = errMsg
         t.done = false

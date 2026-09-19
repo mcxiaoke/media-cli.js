@@ -24,7 +24,12 @@ import * as helper from "../lib/helper.js"
 import { t } from "../lib/i18n.js"
 import { parseImageParams } from "../lib/query_parser.js"
 import { applyFileNameRules, calculateScale, compressImage } from "./cmd_shared.js"
-import { confirmAction, confirmDangerousAction, abortIfCancelled } from "../lib/command_utils.js"
+import {
+    confirmAction,
+    confirmDangerousAction,
+    abortIfCancelled,
+    shouldShowProgressBar,
+} from "../lib/command_utils.js"
 
 const LOG_TAG = "Compress"
 export { aliases, builder, command, describe, handler }
@@ -236,7 +241,7 @@ async function buildCompressTasks(files, opts) {
         jobs,
         cfg,
     } = opts
-    const needBar = files.length > 9999 && !log.isVerbose()
+    const needBar = shouldShowProgressBar(files.length)
     const prepared = files.map((f, i) => ({
         ...f,
         force,
@@ -287,8 +292,11 @@ async function buildCompressTasks(files, opts) {
  */
 async function runCompression(tasks, opts, logTag, startMs) {
     tasks.forEach((f) => (f.startMs = startMs))
+    // 压缩为 CPU/IO 密集操作，统一使用 cpus().length / 2 作为默认并发，
+    // 避免与 buildCompressTasks 的默认值不一致（原实现一处用满核、一处用半核）。
+    const defaultJobs = Math.max(1, Math.floor(cpus().length / 2))
     const results = await pMap(tasks, compressImage, {
-        concurrency: opts.jobs || cpus().length / 2,
+        concurrency: opts.jobs || defaultJobs,
     })
     const okTasks = results.filter((f) => f?.done)
     const failedTasks = results.filter((f) => f?.errorFlag && !f.done)
@@ -406,9 +414,15 @@ async function cmdCompress(argv) {
         f.index = i
     })
     log.logInfo(LOG_TAG, `${t("compress.tasks.summary")} (${helper.humanTime(startMs)}):`)
-    tasks.slice(-1).forEach((f) => {
+    // 原实现只打印最后一个任务（slice(-1)），批量压缩时看不到整体情况。
+    // 改为最多展示前 5 条，并标注总数。
+    const previewCount = 5
+    tasks.slice(0, previewCount).forEach((f) => {
         log.show(core.omit(f, "stats"))
     })
+    if (tasks.length > previewCount) {
+        log.logInfo(LOG_TAG, `... and ${tasks.length - previewCount} more tasks (total ${tasks.length})`)
+    }
     log.info(LOG_TAG, argv)
     testMode && log.logWarn(LOG_TAG, `++++++++++ ${t("ffmpeg.test.mode")} ++++++++++`)
 

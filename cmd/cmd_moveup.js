@@ -402,48 +402,29 @@ const handler = async function cmdMoveUp(argv) {
     let movedCount = 0
     let totalCount = 0
     
-    // 根据不同模式执行不同的处理逻辑
-    switch (argv.mode) {
-        case MODE_DIR:
-            // 按目录名模式处理：使用子目录名作为前缀
-            log.show(logTag, "Using directory name mode")
-            for (const subDirN of subDirs) {
-                const result = await processDirectory(root, subDirN, toRoot, flatMode, outDirNames, testMode, keepDirList)
-                movedCount += result.moved
-                totalCount += result.total
-            }
-            break
-        case MODE_PREFIX:
-            // 按前缀模式处理：使用指定前缀
-            log.show(logTag, "Using prefix mode")
-            for (const subDirN of subDirs) {
-                const result = await processDirectory(root, subDirN, toRoot, flatMode, outDirNames, testMode, keepDirList)
-                movedCount += result.moved
-                totalCount += result.total
-            }
-            break
-        case MODE_MEDIA:
-            // 按媒体类型模式处理：仅处理媒体文件
-            log.show(logTag, "Using media mode")
-            for (const subDirN of subDirs) {
-                const result = await processDirectory(root, subDirN, toRoot, flatMode, outDirNames, testMode, keepDirList)
-                movedCount += result.moved
-                totalCount += result.total
-            }
-            break
-        case MODE_CLEAN:
-            // 仅清理模式：不移动文件，只清理空目录
-            log.show(logTag, "Using clean mode - only cleaning empty directories")
-            // 直接跳转到清理步骤
-            break
-        default:
-            // 自动模式：默认处理
-            log.show(logTag, "Using auto mode")
-            for (const subDirN of subDirs) {
-                const result = await processDirectory(root, subDirN, toRoot, flatMode, outDirNames, testMode, keepDirList)
-                movedCount += result.moved
-                totalCount += result.total
-            }
+    // 按模式执行处理逻辑
+    //
+    // 说明：MODE_DIR / MODE_PREFIX / MODE_MEDIA / MODE_AUTO 此前是四个
+    // 逐字相同的分支（都调用同一个 processDirectory），即 --mode 除 clean
+    // 外无任何行为差异。此处合并为单一实现，避免"看起来有四种策略"的误导；
+    // 仅 MODE_CLEAN 保持独立语义（只清理空目录，不移动文件）。
+    if (argv.mode === MODE_CLEAN) {
+        log.show(logTag, "Using clean mode - only cleaning empty directories")
+    } else {
+        log.show(logTag, `Using mode: ${argv.mode}`)
+        for (const subDirN of subDirs) {
+            const result = await processDirectory(
+                root,
+                subDirN,
+                toRoot,
+                flatMode,
+                outDirNames,
+                testMode,
+                keepDirList,
+            )
+            movedCount += result.moved
+            totalCount += result.total
+        }
     }
     
     log.showGreen(
