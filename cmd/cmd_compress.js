@@ -21,7 +21,8 @@ import * as mf from "../lib/file.js"
 import * as helper from "../lib/helper.js"
 import { t } from "../lib/i18n.js"
 import { parseImageParams } from "../lib/query_parser.js"
-import { applyFileNameRules, calculateScale, compressImage } from "./cmd_shared.js"
+import { applyFileNameRules } from "../lib/rename.js"
+import { calculateScale, compressImage } from "../lib/media-compress.js"
 import {
     confirmAction,
     confirmDangerousAction,

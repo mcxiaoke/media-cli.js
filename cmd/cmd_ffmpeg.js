@@ -27,7 +27,8 @@ import * as mf from "../lib/file.js"
 import * as helper from "../lib/helper.js"
 import { t } from "../lib/i18n.js"
 import { getMediaInfo } from "../lib/mediainfo.js"
-import { addEntryProps, applyFileNameRules, calculateScale } from "./cmd_shared.js"
+import { addEntryProps, applyFileNameRules } from "../lib/rename.js"
+import { calculateScale } from "../lib/media-compress.js"
 
 const LOG_TAG = "FFConv"
 // CUDA 探测结果缓存，避免对同一路径重复探测

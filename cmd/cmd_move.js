@@ -20,7 +20,7 @@ import * as mf from "../lib/file.js"
 import * as helper from "../lib/helper.js"
 import { t } from "../lib/i18n.js"
 import { isSameFileCached } from "../lib/tools.js"
-import { applyFileNameRules } from "./cmd_shared.js"
+import { applyFileNameRules } from "../lib/rename.js"
 
 
 // 按照文件名日期时间格式移动到对应目录，视频和图片分开，暂不支持其它格式

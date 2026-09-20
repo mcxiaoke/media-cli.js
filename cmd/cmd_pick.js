@@ -50,7 +50,7 @@ import * as log from "../lib/debug.js"
 import * as mf from "../lib/file.js"
 import * as helper from "../lib/helper.js"
 import { t } from "../lib/i18n.js"
-import { applyFileNameRules } from "./cmd_shared.js"
+import { applyFileNameRules } from "../lib/rename.js"
 import { ErrorTypes, MediaCliError } from "../lib/errors.js"
 import {
     HASH_CONFIG,

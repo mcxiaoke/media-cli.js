@@ -11,7 +11,7 @@ import dayjs from "dayjs"
 import fs from "fs-extra"
 import path from "path"
 
-import { addEntryProps, renameFiles } from "./cmd_shared.js"
+import { addEntryProps, renameFiles } from "../lib/rename.js"
 import * as log from "../lib/debug.js"
 import { ErrorTypes, createError } from "../lib/errors.js"
 import * as exif from "../lib/exif.js"

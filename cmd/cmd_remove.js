@@ -26,7 +26,7 @@ import * as mf from "../lib/file.js"
 import * as helper from "../lib/helper.js"
 import { t } from "../lib/i18n.js"
 import { getMediaInfo, getVideoInfo } from "../lib/mediainfo.js"
-import { applyFileNameRules } from "./cmd_shared.js"
+import { applyFileNameRules } from "../lib/rename.js"
 
 const LOG_TAG = "Remove"
 

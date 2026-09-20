@@ -24,7 +24,8 @@ import * as helper from "../lib/helper.js"
 import { t } from "../lib/i18n.js"
 import { getMediaInfo } from "../lib/mediainfo.js"
 import { mergePath } from "../lib/path-merge.js"
-import { applyFileNameRules, cleanFileName, renameFiles } from "./cmd_shared.js"
+import { applyFileNameRules, renameFiles } from "../lib/rename.js"
+import { cleanFileName } from "../lib/filename-rules.js"
 
 const ENTRY_TYPES = ["a", "f", "d"]
 const RENAME_MODES = ["clean", "zhcn", "replace", "fixenc", "mergedir", "suffix", "prefix"]

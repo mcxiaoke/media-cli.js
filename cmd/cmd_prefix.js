@@ -22,8 +22,8 @@ import {
     RE_ONLY_NUMBER,
     cleanFileName,
     cleanNameEx,
-    renameFiles,
-} from "./cmd_shared.js"
+} from "../lib/filename-rules.js"
+import { renameFiles } from "../lib/rename.js"
 
 const MODE_AUTO = "auto"
 const MODE_DIR = "dirname"
