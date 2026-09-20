@@ -1042,6 +1042,9 @@ async function preRename(entry) {
     entry.skipped = false
     entry.outPath = newPath
     entry.outName = newName
+    // 登记本次批量已占用的目标路径，供 handlePathConflicts 检测批内撞名
+    // （未落盘前 fs.pathExists 查不到，否则后一个文件会覆盖前一个）
+    seenPaths.add(newPath)
     entry.outBase = newBase
     entry.associatedExts = associatedExts
     log.showGray(logTag, `SRC: ${oldPath} ${pathDepth}`)

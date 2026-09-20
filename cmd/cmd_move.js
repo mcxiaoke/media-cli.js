@@ -383,10 +383,16 @@ const handler = async function cmdMove(argv) {
         const destDir = path.join(output, monthStr)
         await fs.ensureDir(destDir)
         let movedCount = 0
-        try {
-            for (const { fileSrc, fileDst } of entries) {
+        let skippedCount = 0
+        let failedCount = 0
+        for (const { fileSrc, fileDst } of entries) {
+            // try 必须下沉到逐文件：此前它包住整个循环，
+            // 任一个文件 fs.move 失败就会让当月剩余文件全部不再处理，
+            // 而这些"没处理"的文件最终被笼统计入 skipped，看不出是失败。
+            try {
                 if (await fs.pathExists(fileDst)) {
                     log.showYellow(logTag, `${t("status.skipped")}:`, fileDst)
+                    skippedCount++
                     continue
                 }
                 if (testMode) {
@@ -397,15 +403,21 @@ const handler = async function cmdMove(argv) {
                     movedCount++
                     log.info(logTag, `${t("file.moved")}:`, fileSrc, "to", fileDst)
                 }
+            } catch (error) {
+                failedCount++
+                log.error(logTag, `${t("file.failed")}:`, fileSrc, "->", fileDst, error?.message || error)
             }
-        } catch (error) {
-            log.error(logTag, `${t("file.failed")}:`, error, "to", destDir)
         }
-        const skippedCount = entries.length - movedCount
         if (skippedCount > 0) {
             log.show(
                 logTag,
                 `${t("move.files.skipped.in.dir", { count: skippedCount, dir: destDir })}`,
+            )
+        }
+        if (failedCount > 0) {
+            log.showRed(
+                logTag,
+                `Failed: ${failedCount} ${t("common.files")} -> ${destDir} (files left in place)`,
             )
         }
         if (movedCount > 0) {

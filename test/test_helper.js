@@ -7,6 +7,7 @@
 
 import assert from 'assert'
 import fs from 'fs-extra'
+import os from 'os'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import { describe, it, before, after } from 'node:test'
@@ -156,9 +157,23 @@ describe('helper.js - File System Utilities', () => {
     assert.ok(!different)
   })
 
-  it('should get safe deleted dir', () => {
+  // 回归测试：回收站必须位于用户目录下。
+  // 旧实现是「源文件所在磁盘的根目录」（如 C:\Deleted_By_Mediac），
+  // 非管理员账户在盘根建目录会 EACCES，进而触发"删除失败却计成功"的静默数据残留。
+  it('should place safe-deleted dir under user home', () => {
     const dir = helper.getSafeDeletedDir(testFile1)
-    assert.ok(dir.includes('Deleted_By_Mediac'))
+    const home = path.resolve(os.homedir())
+    assert.ok(dir.startsWith(home), `expected under ${home}, got ${dir}`)
+    assert.ok(!path.parse(dir).root.includes('Deleted_By_Mediac'))
+    // 路径中不应再出现盘根式的 Deleted_By_Mediac
+    assert.ok(!dir.includes('Deleted_By_Mediac'))
+  })
+
+  // 回归测试：safeRemove 失败必须返回 null（而非静默返回 undefined 被当成成功）
+  it('should return null when safeRemove fails', async () => {
+    const missing = path.join(testDir, 'does-not-exist.txt')
+    const result = await helper.safeRemove(missing)
+    assert.strictEqual(result, null)
   })
 
   // 回归测试：曾因字符类中写成 \\s（字面反斜杠+s）导致所有小写字母 s 被删除

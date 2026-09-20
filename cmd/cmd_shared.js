@@ -392,7 +392,11 @@ export async function compressImage(t) {
         try {
             // 尝试删除已创建的目标文件，防止错误文件占用空间
             await fs.remove(t.tmpDst)
-            await helper.safeRemove(t.dst)
+            const removed = await helper.safeRemove(t.dst)
+            // safeRemove 内部已吞掉异常并返回 null，这里补一条告警，避免"残留但无任何提示"
+            if (!removed) {
+                log.warn(logTag, `cleanup failed: <${t.dst}> still in place`)
+            }
         } catch (error) {
             // 清理失败不影响主流程，但需留痕以便排查残留文件
             log.warn(logTag, `cleanup failed: <${t.dst}> ${error?.message || error}`)
@@ -515,7 +519,14 @@ async function checkCompressResult(t, r) {
         }
         if ((await fs.pathExists(t.dst)) && t.overwrite) {
             // 如果覆盖原文件，先删除原文件，再重命名
-            await helper.safeRemove(t.dst)
+            // safeRemove 失败返回 null：此时目标仍占位，继续 rename 只会拿到
+            // 一个含义不明的 EEXIST/EPERM，不如就地报错并把原因说清楚。
+            const removed = await helper.safeRemove(t.dst)
+            if (!removed) {
+                log.showRed(logTag, `Overwrite failed: <${t.dst}> could not be removed, skip rename`)
+                log.fileLog(`Overwrite failed: <${t.dst}>`, logTag)
+                return
+            }
         }
         // 将临时文件重命名为最终目标文件
         await fs.rename(t.tmpDst, t.dst)
@@ -730,7 +741,19 @@ export function cleanFileName(nameString, options = {}) {
 function filterFileNames(fpath, pattern, useRegex = false) {
     const name = path.basename(fpath)
     if (useRegex) {
-        const rgx = new RegExp(pattern, "ui")
+        let rgx
+        try {
+            rgx = new RegExp(pattern, "ui")
+        } catch (error) {
+            // 非法正则（用户多打一个 `[` 就会触发）此前会一路冒泡终止整批任务，
+            // 且报错是底层 SyntaxError，不提示是哪个参数写错。
+            // 这里降级为字面匹配并告警，与 cmd_remove 的处理保持一致。
+            log.warn(
+                "NameRules",
+                `BadRegex: "${pattern}" (${error?.message || error}), fallback to literal match`,
+            )
+            return name.includes(pattern)
+        }
         return name.includes(pattern) || rgx.test(name)
     }
     return name.includes(pattern)
@@ -758,20 +781,23 @@ export async function applyFileNameRules(fileEntries, argv) {
         fileEntries = fileEntries.filter((entry) => extensions.includes(helper.pathExt(entry.name)))
         log.info(logTag, `${fileEntries.length} entries left by extension rules`)
     }
-    if (argv.exclude?.length > 0) {
-        // 处理exclude规则
-        // fileEntries = await asyncFilter(fileEntries, x => excludeFunc(x))
-        fileEntries = await asyncFilter(
-            fileEntries,
-            (x) => !filterFileNames(x.path, argv.exclude, argv.regex),
-        )
-        log.info(logTag, `${fileEntries.length} entries left by exclude rules`)
-    } else if (argv.include?.length > 0) {
+    // include 与 exclude 是"交集"关系（先收窄再剔除），不是互斥。
+    // 此前写成 if/else-if，而 --exclude 在多数命令里有非空默认值，
+    // 导致 else 分支永不进入 —— --include 事实上永远不生效。
+    if (argv.include?.length > 0) {
         // 处理include规则
         fileEntries = await asyncFilter(fileEntries, (x) =>
             filterFileNames(x.path, argv.include, argv.regex),
         )
         log.info(logTag, `${fileEntries.length} entries left by include rules`)
+    }
+    if (argv.exclude?.length > 0) {
+        // 处理exclude规则
+        fileEntries = await asyncFilter(
+            fileEntries,
+            (x) => !filterFileNames(x.path, argv.exclude, argv.regex),
+        )
+        log.info(logTag, `${fileEntries.length} entries left by exclude rules`)
     }
     const afterCount = fileEntries.length
     if (beforeCount - afterCount > 0) {

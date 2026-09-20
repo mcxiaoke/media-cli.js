@@ -276,9 +276,11 @@ async function processDirectory(root, subDirN, toRoot, flatMode, outDirNames, te
     // 计算成功移动的文件数量
     const movedCount = moveResults.filter(Boolean).length
     
+    // 汇总口径修正：此前用 totalCount（扫描到的文件数）而非实际移动成功数，
+    // 移动失败/跳过的文件也会被算进"已移动"，数字虚高
     log.showGreen(
         logTag,
-        `${totalCount} files in ${helper.pathShort(subDirPath)} are moved.`,
+        `${movedCount}/${totalCount} files in ${helper.pathShort(subDirPath)} are moved.`,
         testMode ? "[DRY RUN]" : "",
     )
     
@@ -302,13 +304,47 @@ async function cleanupEmptyDirs(root, keepDirList, testMode, autoConfirm = false
     subDirList = new Set([...subDirList].map((x) => path.resolve(x)))
     const toRemoveDirList = setDifference(subDirList, keepDirList)
 
+    // 删除前必须确认目录真的空了。此前仅凭「不在保留集合里」就整目录移入回收站：
+    // 移动失败的文件、以及未被扫描计入的非媒体文件（.txt/.nfo/.db 等）
+    // 会让非空目录被一并搬走，属静默数据丢失。
+    const nonEmptyDirs = []
+    const emptyDirList = new Set()
+    for (const dir of toRemoveDirList) {
+        let remaining
+        try {
+            remaining = await fs.readdir(dir)
+        } catch (error) {
+            // 读不了（权限/已消失）就保守保留，不删
+            nonEmptyDirs.push(dir)
+            log.showGray(logTag, `Skip[Unreadable]: <${helper.pathShort(dir)}>`)
+            continue
+        }
+        if (remaining.length === 0) {
+            emptyDirList.add(dir)
+        } else {
+            nonEmptyDirs.push(dir)
+        }
+    }
+    if (nonEmptyDirs.length > 0) {
+        log.showYellow(
+            logTag,
+            `Keep ${nonEmptyDirs.length} dir(s) that are not empty, samples:`,
+        )
+        log.show(nonEmptyDirs.slice(-10).map((d) => helper.pathShort(d)))
+    }
+
     log.show(logTag, `There are ${keepDirList.size} output dirs ${chalk.red("DO NOTHING")}`)
     log.show(keepDirList)
     log.showYellow(
         logTag,
-        `There are ${toRemoveDirList.size} unused dirs to ${chalk.red("DELETE")}, samples:`,
+        `There are ${emptyDirList.size} empty dirs to ${chalk.red("DELETE")}, samples:`,
     )
-    log.show([...toRemoveDirList].slice(-10))
+    log.show([...emptyDirList].slice(-10))
+
+    if (emptyDirList.size === 0) {
+        log.showYellow(logTag, "No empty dirs to clean up.")
+        return
+    }
     
     testMode && log.showYellow("++++++++++ TEST MODE (DRY RUN) ++++++++++")
     
@@ -319,11 +355,16 @@ async function cleanupEmptyDirs(root, keepDirList, testMode, autoConfirm = false
     }
     
     // 使用 p-map 并行处理目录清理
-    const results = await pMap([...toRemoveDirList], async (td) => {
+    const results = await pMap([...emptyDirList], async (td) => {
         if (!testMode) {
             try {
-                await helper.safeRemove(td)
-                log.fileLog(`SafeDel: <${td}>`, logTag)
+                // safeRemove 失败返回 null：目录没被移走，不能计入 delCount
+                const dest = await helper.safeRemove(td)
+                if (!dest) {
+                    log.error(logTag, "Failed to delete directory:", td)
+                    return false
+                }
+                log.fileLog(`SafeDel: <${td}> => <${dest}>`, logTag)
                 return true
             } catch (error) {
                 log.error(logTag, "Failed to delete directory:", error)

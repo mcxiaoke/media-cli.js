@@ -897,8 +897,13 @@ async function cmdRemove(argv) {
                         LOG_TAG,
                     )
                 } else if (conditions.output) {
-                    // --output 指定时，把文件移动到该目录（而非默认的 Deleted_By_Mediac）
+                    // --output 指定时，把文件移动到该目录（而非默认的回收站）
                     const destPath = await moveToOutputDir(task.src, conditions.output, conditions.outputTree)
+                    // moveToOutputDir 失败时返回 null：源文件仍在原处，
+                    // 绝不能记入操作日志（会破坏"撤销"能力）也不能计入成功数。
+                    if (!destPath) {
+                        throw new Error(`MoveFailed: <${task.src}> => <${conditions.output}>`)
+                    }
                     operationLog.push({
                         type: "move",
                         src: originalPath,
@@ -919,16 +924,19 @@ async function cmdRemove(argv) {
                     )
                 } else {
                     const destPath = await helper.safeRemove(task.src)
-                    
+                    // safeRemove 失败（如权限不足）返回 null，源文件仍在原处。
+                    // 此前无条件 push 日志并 ++removedCount，导致"未删却计成功"。
+                    if (!destPath) {
+                        throw new Error(`SafeRemoveFailed: <${task.src}>`)
+                    }
                     operationLog.push({
-                        type: 'move',
+                        type: "move",
                         src: originalPath,
                         dest: destPath,
                         size: task.size,
                         timestamp,
-                        flag
+                        flag,
                     })
-                    
                     log.logTask(
                         LOG_TAG,
                         ++index,
@@ -999,14 +1007,14 @@ async function cmdRemove(argv) {
 /**
  * 把文件移动到 --output 指定的目录
  *
- * 与 safeRemove 的区别：safeRemove 固定移动到磁盘根的 Deleted_By_Mediac，
+ * 与 safeRemove 的区别：safeRemove 固定移动到用户目录下的回收站，
  * 本函数则移动到用户显式指定的目录，并按 --output-tree 决定是否保留源目录层级。
- * 返回实际目标路径；失败时返回 undefined（与 safeRemove 语义一致）。
+ * 返回实际目标路径；失败时返回 null（与 safeRemove 语义一致，调用方必须判定）。
  *
  * @param {string} filepath - 源文件路径
  * @param {string} outputDir - 目标目录
  * @param {boolean} keepTree - 是否保留源文件的相对目录层级
- * @returns {Promise<string|undefined>} 目标路径
+ * @returns {Promise<string|null>} 目标路径
  */
 async function moveToOutputDir(filepath, outputDir, keepTree = false) {
     try {

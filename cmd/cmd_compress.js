@@ -473,7 +473,13 @@ async function preCompress(f, onProgress = null) {
     const maxWidth = f.maxWidth || 6000
     let fileSrc = path.resolve(f.path)
     const [fDir, base] = helper.pathSplit(fileSrc)
-    const suffix = f.suffix || "_Z4K"
+    // --suffix 直接拼进输出路径：若含 `../` 可把产物写到输出目录之外
+    // （cmd_ffmpeg.js 对同类参数已做 filenameSafe，此处此前漏了）
+    const rawSuffix = f.suffix || "_Z4K"
+    const suffix = helper.filenameSafe(rawSuffix)
+    if (suffix !== rawSuffix) {
+        log.logWarn(LOG_TAG, `Suffix sanitized: "${rawSuffix}" => "${suffix}"`)
+    }
     log.info(LOG_TAG, "Processing ", fileSrc, suffix)
 
     let fileDstDir = f.output ? helper.pathRewrite(f.root, fDir, f.output, f.keepRoot) : fDir
@@ -564,9 +570,14 @@ async function purgeSrcFiles(results) {
             return
         }
         td.tmpDst && (await fs.pathExists(td.tmpDst)) && (await fs.remove(td.tmpDst))
-        await helper.safeRemove(td.src)
+        // safeRemove 失败返回 null：源文件还在，不能计入"已安全删除"
+        const dest = await helper.safeRemove(td.src)
+        if (!dest) {
+            log.logError(LOG_TAG, `SafeDelFailed: ${index}/${total} ${helper.pathShort(td.src)}`)
+            return
+        }
         log.logWarn(LOG_TAG, `SafeDel: ${index}/${total} ${helper.pathShort(td.src)}`)
-        log.fileLog(`SafeDel: <${td.src}>`, LOG_TAG)
+        log.fileLog(`SafeDel: <${td.src}> => <${dest}>`, LOG_TAG)
         return td.src
     }
     const deleted = await pMap(toDelete, deletecFunc, { concurrency: cpus().length * 8 })

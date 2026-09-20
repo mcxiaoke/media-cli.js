@@ -81,7 +81,7 @@ function resolveSafeEntryPath(baseDir, entryName) {
     return target
 }
 
-export { aliases, builder, command, describe, handler }
+export { aliases, builder, command, describe, handler, resolveSafeEntryPath }
 const command = "zipu <input> [output]"
 const aliases = ["zipunicode"]
 const describe = t("zipu.description")
@@ -257,8 +257,14 @@ async function cmdZipUnicode(argv) {
             ])
             if (purgeConfirm.yes) {
                 for (const pr of purgeResults) {
-                    log.show(logTag, `Purge: SafeDel ${pr.path}`)
-                    await helper.safeRemove(pr.path)
+                    const dest = await helper.safeRemove(pr.path)
+                    // safeRemove 失败返回 null：zip 仍在原处，不能报已删除
+                    log.show(
+                        logTag,
+                        dest
+                            ? `Purge: SafeDel ${pr.path}`
+                            : `Purge: FAILED ${pr.path} (source file still in place)`,
+                    )
                 }
             }
         }
@@ -303,8 +309,20 @@ async function UnzipOneFile(f) {
     if (await fs.pathExists(zipDir)) {
         // 强制覆盖，删除旧目录
         if (f.override) {
+            // 此前是 fs.remove 硬删除：命令行一个 --override 就会不可恢复地抹掉
+            // 同名目录（可能是用户已有的文件夹，而不一定是上次解压的产物）。
+            // 改为移入回收目录，误操作可找回；失败则中止，绝不带着残留继续解压。
             log.showYellow(logTag, `OverrideExists: <${zipDir}>`)
-            !testMode && (await fs.remove(zipDir))
+            if (!testMode) {
+                const moved = await helper.safeRemove(zipDir)
+                if (!moved) {
+                    f.skipped = true
+                    f.error = "Failed to move existing dir to recycle"
+                    log.showRed(logTag, `Skip[OverrideFailed]: ${ipx} <${zipDir}>`)
+                    return f
+                }
+                log.showGray(logTag, `Recycled: <${zipDir}> => <${moved}>`)
+            }
         } else {
             // 注释掉，直接解压途中跳过已存在的文件更快
             // const zipDirSize = await mf.getDirectorySizeR(zipDir)
@@ -372,8 +390,21 @@ async function unzipFileUseUnzipper(f, useEncoding) {
         const stream = fs.createReadStream(zipFilePath)
         const zipEntries = stream.pipe(unzipper.Parse({ forceStream: true }))
 
-        let unzippedCount = 0
-        for await (const entry of zipEntries) {
+    const zipFileSize = f.size || 0
+    // Zip bomb 防护：条目声明的 uncompressedSize 来自包内头部，完全不可信，
+    // 几 KB 的 zip 可以声明出 TB 级解压体积。原先唯一的 2GB 保护已被注释掉，
+    // 这里改为「绝对上限 + 压缩比上限」双判据（取更严格的那个）。
+    const ZIP_MAX_TOTAL_BYTES = 20 * 1024 * 1024 * 1024 // 20GB
+    const ZIP_MAX_RATIO = 200
+    const ZIP_MIN_ALLOWED_BYTES = 100 * 1024 * 1024 // 小 zip 至少允许解出 100MB，避免误伤高压缩比文本文件
+    const totalCap = Math.min(
+        ZIP_MAX_TOTAL_BYTES,
+        Math.max(zipFileSize * ZIP_MAX_RATIO, ZIP_MIN_ALLOWED_BYTES),
+    )
+
+    let unzippedCount = 0
+    let totalUncompressed = 0
+    for await (const entry of zipEntries) {
             let entryEnc = useEncoding
             const isUnicode = entry.props.flags.isUnicode
             let entryName = isUnicode ? entry.path : iconv.decode(entry.props.pathBuffer, entryEnc)
@@ -444,6 +475,18 @@ async function unzipFileUseUnzipper(f, useEncoding) {
                 }
             }
             const epx = `${++unzippedCount}`
+
+            // 累计解压体积，超限即中止整个压缩包，避免写爆磁盘
+            totalUncompressed += entry.vars.uncompressedSize || 0
+            if (totalUncompressed > totalCap) {
+                entry.autodrain()
+                await fs.remove(tmpDstFile).catch(() => null)
+                throw createError(
+                    ErrorTypes.CORRUPTED_FILE,
+                    `ZipBomb: ${ipx} <${zipFilePath}> declared ${helper.humanSize(totalUncompressed)} > limit ${helper.humanSize(totalCap)} (zip ${helper.humanSize(zipFileSize)})`,
+                )
+            }
+
             log.info(logTag, `ProcessEntry: ${epx} <${dstFile}> ${entry.type}`)
             log.debug(logTag, `DstDir: ${epx} <${dstDir}>`)
             log.debug(logTag, `DstFile: ${epx} <${dstFile}>`)

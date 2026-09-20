@@ -328,8 +328,40 @@ const handler = cmdConvert
  * @param {boolean} argv.doit - 是否执行实际操作
  * @returns {Promise<void>}
  */
+/**
+ * 加载 YAML 预设（来自 presets.yaml 或 ~/.mediac/presets.yaml）
+ *
+ * `presets.yaml` 此前是**死配置**：`package.json` 的 files 白名单把它打进 npm 包，
+ * 但 `initPresetsAsync()` 全仓库没有任何调用点，用户改了 YAML 不会有任何效果，
+ * 实际生效的只有 `ffmpeg_presets.js` 里的硬编码常量。
+ *
+ * 必须在 `presets.getPreset(argv.preset)` 之前调用，否则 YAML 中新增的预设
+ * （如 hevc_qsv2k）永远无法被 `--preset` 识别。
+ *
+ * 加载失败不阻断：内置硬编码预设已经足够，YAML 只作为覆盖/扩展层。
+ */
+let yamlPresetsLoaded = false
+async function loadYamlPresets() {
+    if (yamlPresetsLoaded) {
+        return
+    }
+    yamlPresetsLoaded = true
+    const before = presets.getAllNames().length
+    try {
+        await presets.initPresetsAsync()
+        const after = presets.getAllNames().length
+        if (after > before) {
+            log.logInfo(LOG_TAG, `YAML presets applied: ${before} => ${after} presets`)
+        }
+    } catch (error) {
+        // 用户的自定义 YAML 写坏时不应该让整个转码命令不可用
+        log.logWarn(LOG_TAG, `YAML presets not applied, using built-ins: ${error?.message || error}`)
+    }
+}
+
 async function cmdConvert(argv) {
     log.logDebug(LOG_TAG, "ARGV:", argv)
+    await loadYamlPresets()
     // 显示预设列表
     if (argv.showPresets) {
         for (const [, value] of presets.getAllPresets()) {
@@ -479,21 +511,55 @@ async function cmdConvert(argv) {
     })
 
     if (argv.deleteSourceFiles) {
-        let dstExitsTasks = tasks.filter((t) => t && t.dstExists && !t.fileDst)
-        if (dstExitsTasks.length > 0) {
-            const answer = await confirmDangerousAction(
-                t("ffmpeg.confirm.delete.source", { count: dstExitsTasks.length }),
+        // 目标产物必须「存在且非空」才可删源：0 字节说明上次运行中断留下了坏文件，
+        // 此时删源等于用坏产物换掉好源文件，不可逆
+        const dstExitsTasks = tasks.filter((t) => t && t.dstExists && !t.fileDst && t.dstExistsSize > 0)
+        const badDstTasks = tasks.filter((t) => t && t.dstExists && !t.fileDst && !(t.dstExistsSize > 0))
+        if (badDstTasks.length > 0) {
+            log.logWarn(
+                LOG_TAG,
+                `Skip[BadDst]: ${badDstTasks.length} source file(s) kept, existing output is empty/corrupt`,
             )
-            if (answer) {
-                addEntryProps(dstExitsTasks)
-                await pMap(
-                    dstExitsTasks,
-                    async (entry) => {
-                        await helper.safeRemove(entry.path)
-                        log.logWarn(LOG_TAG, `SafeDel ${entry.index}/${entry.total} ${entry.path}`)
-                    },
-                    { concurrency: Math.max(1, cpus().length * 2) },
+            for (const bt of badDstTasks) {
+                log.logWarn(LOG_TAG, `  BadDst: ${helper.pathShort(bt.dstExistsPath || bt.path)}`)
+            }
+        }
+        if (dstExitsTasks.length > 0) {
+            // test 模式的契约是"只打印计划、不动文件"。
+            // 此前这一支缺少 testMode 守卫，dry-run 也会把源文件真实移进回收站。
+            if (testMode) {
+                log.logWarn(
+                    LOG_TAG,
+                    `${t("ffmpeg.confirm.delete.source", { count: dstExitsTasks.length })} [TestMode]`,
                 )
+            } else {
+                const answer = await confirmDangerousAction(
+                    t("ffmpeg.confirm.delete.source", { count: dstExitsTasks.length }),
+                )
+                if (answer) {
+                    addEntryProps(dstExitsTasks)
+                    const delResults = await pMap(
+                        dstExitsTasks,
+                        async (entry) => {
+                            // safeRemove 失败返回 null：源文件仍在原处，不能报 SafeDel
+                            const dest = await helper.safeRemove(entry.path)
+                            if (!dest) {
+                                log.logError(
+                                    LOG_TAG,
+                                    `SafeDelFailed ${entry.index}/${entry.total} ${entry.path}`,
+                                )
+                                return false
+                            }
+                            log.logWarn(LOG_TAG, `SafeDel ${entry.index}/${entry.total} ${entry.path}`)
+                            return true
+                        },
+                        { concurrency: Math.max(1, cpus().length * 2) },
+                    )
+                    const failedCount = delResults.filter((ok) => !ok).length
+                    if (failedCount > 0) {
+                        log.logWarn(LOG_TAG, `SafeDel: ${failedCount} source file(s) still in place`)
+                    }
+                }
             }
         }
     }
@@ -505,7 +571,9 @@ async function cmdConvert(argv) {
     }
     const lastTask = tasks.slice(-1)[0]
     const lastFFArgs = createFFmpegArgs(lastTask, true, false)
-    !testMode && log.fileLog(`ffmpegArgs:`, lastFFArgs?.flat(), LOG_TAG)
+    // fileLog 签名是 (logText, logTag, logFileName)：此前把参数数组当成了 tag、
+    // 把 LOG_TAG 当成了文件名，日志被写进独立的 FFConv_log_*.txt 且正文与标签颠倒。
+    !testMode && log.fileLog(`ffmpegArgs: ${lastFFArgs?.flat().join(" ")}`, LOG_TAG)
     log.info("-----------------------------------------------------------")
     log.info(LOG_TAG, chalk.cyan("PRESET:"), lastTask.debugPreset)
     log.info(LOG_TAG, chalk.cyan("CMD:"), "ffmpeg", lastFFArgs?.flat().join(" "))
@@ -571,6 +639,49 @@ async function cmdConvert(argv) {
 }
 
 /**
+ * ---------------------------------------------------------------------------
+ * 临时产物注册表 + 中断清理
+ * ---------------------------------------------------------------------------
+ * ffmpeg 的中间产物形如 `xxx_tmp@hash@tmp_.mp4`。此前只在 try/finally 里清理：
+ * Ctrl+C（SIGINT）或外部终止（SIGTERM）时 finally 不会执行，半截临时文件会永久
+ * 留在输出目录里。这里登记在途临时文件，并在信号与 exit 时统一清理
+ * （execa 已用 cleanup:true 负责杀死子进程，这里只负责文件）。
+ */
+const activeTempFiles = new Set()
+let tempCleanupHooked = false
+
+function cleanupTempFiles(reason) {
+    if (activeTempFiles.size === 0) {
+        return
+    }
+    let removed = 0
+    for (const file of activeTempFiles) {
+        try {
+            fs.removeSync(file)
+            removed++
+        } catch {
+            // 退出阶段不因单个文件失败而中断其余清理
+        }
+    }
+    log.logWarn(LOG_TAG, `Cleaned ${removed} temp file(s) [${reason}]`)
+    activeTempFiles.clear()
+}
+
+function installTempCleanupHooks() {
+    if (tempCleanupHooked) {
+        return
+    }
+    tempCleanupHooked = true
+    for (const sig of ["SIGINT", "SIGTERM"]) {
+        process.on(sig, () => {
+            cleanupTempFiles(sig)
+            process.exit(130)
+        })
+    }
+    process.on("exit", () => cleanupTempFiles("exit"))
+}
+
+/**
  * 执行FFmpeg命令处理单个媒体文件
  * @param {Object} entry - 文件对象
  * @param {string} entry.path - 文件路径
@@ -592,7 +703,12 @@ async function runFFmpegCmd(entry) {
     const ipx = `${entry.index + 1}/${entry.total}`
 
     // 检测CUDA解码器，可能耗时1秒左右
-    const useCUDA = await canUseCUDADecoder(entry.path)
+    //
+    // 必须尊重 --decode-mode / H264 10bit 规则：这些规则此前只写入
+    // entry.useCPUDecode 却从不参与参数生成，导致 --decode-mode cpu 时
+    // 日志显示 SW 而实际命令仍是 -hwaccel cuda（日志与实际行为相反）。
+    // 失败重试（retryOnFailed）会把 decodeMode 置为 cpu，也正是靠这里真正切换到软解。
+    const useCUDA = entry.useCPUDecode ? false : await canUseCUDADecoder(entry.path)
     entry.useCUDA = useCUDA
     entry.ffmpegArgs = createFFmpegArgs(entry, useCUDA, false)
 
@@ -625,6 +741,9 @@ async function runFFmpegCmd(entry) {
     // 创建输出目录
     await fs.mkdirp(entry.fileDstDir)
     await fs.remove(entry.fileDstTemp)
+    // 登记临时产物，确保 Ctrl+C / 外部终止时也会被清理
+    installTempCleanupHooks()
+    activeTempFiles.add(entry.fileDstTemp)
     const ffmpegStartMs = Date.now()
 
     const [inputArgs, middleArgs, outputArgs] = entry.ffmpegArgs
@@ -722,6 +841,7 @@ async function runFFmpegCmd(entry) {
     } finally {
         // 确保进度条被正确停止
         progressBar?.stop()
+        activeTempFiles.delete(entry.fileDstTemp)
         await fs.remove(entry.fileDstTemp)
     }
 }
@@ -919,28 +1039,43 @@ async function prepareFFmpegCmd(entry) {
         const fileDstSameDir = path.join(srcDir, `${fileDstName}`)
 
         if (await fs.pathExists(fileDst)) {
-            log.showYellow(
-                logTag,
-                `${ipx} Skip[Dst1]: ${entry.path} (${helper.humanSize(entry.size)})`,
-            )
-            return {
-                ...entry,
-                dstExists: true,
+            // 记录已存在产物的体积供 --delete-source-files 判定。
+            // 仅凭 pathExists 就删源是危险的：上次 Ctrl+C 中断残留的 0 字节/半截文件
+            // 同样满足存在性判断，会导致「源文件已删、产物却是坏的」的不可逆损失。
+            const existSt = await fs.stat(fileDst).catch(() => null)
+            const existSize = existSt?.size || 0
+            // --override 此前在 builder 中声明却从未被读取：目标存在时一律跳过，
+            // 用户加 --override 期望覆盖却拿到 Skip[Dst1]，属"参数撒谎"。
+            if (!argv.override) {
+                log.showYellow(
+                    logTag,
+                    `${ipx} Skip[Dst1]: ${entry.path} (${helper.humanSize(entry.size)})`,
+                )
+                return {
+                    ...entry,
+                    dstExists: true,
+                    dstExistsPath: fileDst,
+                    dstExistsSize: existSize,
+                }
             }
+            log.showGray(logTag, `${ipx} Override: <${helper.pathShort(fileDst)}>`)
         }
         // 文件名变了，带有前缀或后缀
         // 才需要判断同目录的文件是否存在
         if (prefix || suffix) {
             // if (fileDstName !== entry.name) {
             if (await fs.pathExists(fileDstSameDir)) {
-                log.showYellow(
-                    logTag,
-                    `${ipx} Skip[Dst2]: ${entry.path} (${helper.humanSize(entry.size)})`,
-                )
-                return {
-                    ...entry,
-                    dstExists: true,
+                if (!argv.override) {
+                    log.showYellow(
+                        logTag,
+                        `${ipx} Skip[Dst2]: ${entry.path} (${helper.humanSize(entry.size)})`,
+                    )
+                    return {
+                        ...entry,
+                        dstExists: true,
+                    }
                 }
+                log.showGray(logTag, `${ipx} Override: <${helper.pathShort(fileDstSameDir)}>`)
             }
         }
 
@@ -1045,21 +1180,22 @@ async function prepareFFmpegCmd(entry) {
  * @param {string} entry.preset.name - 预设名称
  * @param {string} entry.preset.prefix - 前缀模板
  * @param {string} entry.preset.suffix - 后缀模板
- * @param {Object} entry.dstValues - 目标值
- * @param {number} entry.audioBitrate - 音频码率
- * @param {number} entry.videoBitrate - 视频码率
+ * @param {Object} entry.dstArgs - 目标参数（模板变量来源，由 calculateDstArgs 产出）
  * @returns {Array} [fileDstBase, prefix, suffix] - 目标文件名基本名、前缀、后缀
  */
 function createDstBaseName(entry) {
     const srcBase = path.parse(entry.name).name
     // 模板参数变量，除了Preset的字段，有些需要替换
+    //
+    // 注意：模板变量（audioBitrateK / videoBitrateK / videoQuality / audioQuality /
+    // framerate / dimension / speed 等）由 calculateDstArgs 产出并挂在 entry.dstArgs 上。
+    // 此前这里展开的是 entry.dstValues——该字段全仓库从未被赋值，展开恒为空，
+    // 于是 formatArgs 找不到替换值会原样保留占位符，
+    // 直接落盘成 `s_{audioBitrateK}.m4a` 这类错误文件名。
     const replaceArgs = {
         preset: entry.preset.name,
         ...entry.preset,
-        ...entry.dstValues,
-        // 兼容字符串模板展示
-        audioBitrate: entry.audioBitrate,
-        videoBitrate: entry.videoBitrate,
+        ...entry.dstArgs,
     }
     // log.show(entry.preset)
     // 应用模板参数到前缀和后缀字符串模板
@@ -1519,17 +1655,27 @@ function createFFmpegArgs(entry, useCUDA = false, forDisplay = false) {
     inputArgs.push("-v", entry.argv.debug ? "repeat+level+info" : "error")
     // 输出视频时才需要cuda加速，音频用cpu就行
     if (tempPreset.type === "video") {
+        // -progress - 会输出 out_time=，是进度条的数据源；
+        // 音频分支此前推的是 -stats（只输出 time= 且走 stderr），
+        // 解析侧只认 ^out_time=，导致所有音频转码的进度条恒为 0%。
         inputArgs.push("-progress", "-", "-nostats")
         // 只能使用cuda缩放
         if (useCUDA) {
             // 使用cuda硬件解码
-            inputArgs.push("-hwaccel", "cuda", "-hwaccel_output_format", "cuda")
+            // --hwaccel 此前在 builder 中声明却零消费，实际永远写死 cuda。
+            // 这里让它真正生效；未指定时保持原有 cuda 行为。
+            const hw = entry.argv?.hwaccel || "cuda"
+            inputArgs.push("-hwaccel", hw)
+            // -hwaccel_output_format cuda 是 CUDA 专用，其它 hwaccel 不能带
+            if (hw === "cuda") {
+                inputArgs.push("-hwaccel_output_format", "cuda")
+            }
         } else {
             // 系统自动选择
             inputArgs.push("-hwaccel", "auto")
         }
     } else {
-        inputArgs.push("-stats")
+        inputArgs.push("-progress", "-", "-nostats")
     }
     // 输入参数在输入文件前面，顺序重要
     if (tempPreset.inputArgs?.length > 0) {
@@ -1579,11 +1725,17 @@ function createFFmpegArgs(entry, useCUDA = false, forDisplay = false) {
         middleArgs.push("-filter_complex")
         middleArgs.push(formatArgs(tempPreset.complexFilter, tempPreset))
     } else if (tempPreset.filters?.length > 0) {
-        // 只有需要缩放时才加 scale filter
-        if (entry.dstArgs.scaled) {
+        // 只有「需要缩放」或「需要改帧率」时才输出 -vf。
+        //
+        // 此前条件只有 entry.dstArgs.scaled：对分辨率已达标（无需缩放）的文件，
+        // --fps 追加的 fps 滤镜会被整段丢弃，命令里根本没有 -vf，
+        // 而日志仍显示 "fps:25=>10" —— 用户以为生效，实际产物帧率未变。
+        if (entry.dstArgs.scaled || tempPreset.framerate > 0) {
             let tempFilters = tempPreset.filters
-            // 使用软解时，需要传输数据道GPU
-            if (!useCUDA) {
+            // 使用软解时，需要把系统内存中的帧上传给GPU
+            // 但仅当滤镜链确实含 CUDA 滤镜（scale_cuda 等）时才有意义：
+            // 无条件前置 hwupload_cuda 会给纯 CPU 滤镜链（scale=...）插入无效节点而直接失败
+            if (!useCUDA && /_cuda\b/.test(tempFilters)) {
                 tempFilters = "hwupload_cuda," + tempFilters
             }
             middleArgs.push("-vf")
