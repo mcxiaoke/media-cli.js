@@ -22,6 +22,7 @@ import * as log from "../lib/debug.js"
 import { ErrorTypes, createError } from "../lib/errors.js"
 import * as exif from "../lib/exif.js"
 import { fixMetadata } from "../lib/fixmetadata.js"
+import { moveSafe } from "../lib/file.js"
 import * as helper from "../lib/helper.js"
 
 // https://day.js.org/docs/zh-CN/display/format
@@ -54,7 +55,7 @@ async function renameOneFile(f) {
         }
 
         // 使用 fs 模块的 rename 方法重命名文件，并等待操作完成
-        await fs.rename(f.path, outPath)
+        await moveSafe(f.path, outPath)
         // 打印重命名成功的日志信息，显示输出文件的路径
         log.show(logTag, chalk.green(`OK:`), `${outPath} ${flag}`)
         log.fileLog(`SRC: <${f.path}>`, logTag)
@@ -65,7 +66,7 @@ async function renameOneFile(f) {
                 const eSrc = path.join(srcParts.dir, srcParts.name + ext)
                 const eDst = path.join(outDir, f.outBase + ext)
                 if (await fs.pathExists(eSrc)) {
-                    await fs.rename(eSrc, eDst)
+                    await moveSafe(eSrc, eDst)
                     log.show(logTag, chalk.yellow(`Extra:`), `${eDst}`)
                 }
             }
@@ -131,7 +132,7 @@ async function renameFilesTwoPhase(files) {
                 // 临时名与源文件同目录，确保 rename 不跨卷
                 const tmpName = `.mediac_tmp_${core.randomString(12)}_${srcParts.base}`
                 const tmpPath = path.join(srcParts.dir, tmpName)
-                await fs.rename(f.path, tmpPath)
+                await moveSafe(f.path, tmpPath)
 
                 // 附加文件（字幕/封面）一并改到临时名
                 const extras = []
@@ -140,7 +141,7 @@ async function renameFilesTwoPhase(files) {
                         const eSrc = path.join(srcParts.dir, srcParts.name + ext)
                         if (await fs.pathExists(eSrc)) {
                             const eTmp = path.join(srcParts.dir, `.mediac_tmp_${core.randomString(12)}_${srcParts.name}${ext}`)
-                            await fs.rename(eSrc, eTmp)
+                            await moveSafe(eSrc, eTmp)
                             extras.push({ ext, tmp: eTmp })
                         }
                     }
@@ -163,11 +164,11 @@ async function renameFilesTwoPhase(files) {
             try {
                 // 目标已存在则不覆盖，回滚到原名
                 if (await fs.pathExists(outPath)) {
-                    await fs.rename(tmpPath, f.path)
+                    await moveSafe(tmpPath, f.path)
                     log.showYellow(logTag, "SkipExists:", outPath, flag)
                     return null
                 }
-                await fs.rename(tmpPath, outPath)
+                await moveSafe(tmpPath, outPath)
                 log.show(logTag, chalk.green(`OK:`), `${outPath} ${flag}`)
                 log.fileLog(`SRC: <${f.path}>`, logTag)
                 log.fileLog(`DST: <${outPath}>`, logTag)
@@ -175,9 +176,9 @@ async function renameFilesTwoPhase(files) {
                 for (const { ext, tmp } of extras) {
                     const eDst = path.join(outDir, f.outBase + ext)
                     if (await fs.pathExists(eDst)) {
-                        await fs.rename(tmp, path.join(srcParts.dir, srcParts.name + ext))
+                        await moveSafe(tmp, path.join(srcParts.dir, srcParts.name + ext))
                     } else {
-                        await fs.rename(tmp, eDst)
+                        await moveSafe(tmp, eDst)
                         log.show(logTag, chalk.yellow(`Extra:`), `${eDst}`)
                     }
                 }
@@ -186,11 +187,11 @@ async function renameFilesTwoPhase(files) {
                 // 回滚：尽量把文件恢复到原名，避免丢文件
                 try {
                     if (await fs.pathExists(tmpPath)) {
-                        await fs.rename(tmpPath, f.path)
+                        await moveSafe(tmpPath, f.path)
                     }
                     for (const { ext, tmp } of extras) {
                         if (await fs.pathExists(tmp)) {
-                            await fs.rename(tmp, path.join(srcParts.dir, srcParts.name + ext))
+                            await moveSafe(tmp, path.join(srcParts.dir, srcParts.name + ext))
                         }
                     }
                 } catch (rollbackError) {
@@ -529,7 +530,7 @@ async function checkCompressResult(t, r) {
             }
         }
         // 将临时文件重命名为最终目标文件
-        await fs.rename(t.tmpDst, t.dst)
+        await moveSafe(t.tmpDst, t.dst)
         t.dstExists = await fs.pathExists(t.dst)
         if (!t.dstExists) {
             return

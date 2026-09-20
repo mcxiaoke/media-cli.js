@@ -16,6 +16,7 @@ import path from "path"
 import { describe, it, before, after } from "node:test"
 
 import * as core from "../lib/core.js"
+import * as file from "../lib/file.js"
 import * as helper from "../lib/helper.js"
 import * as tools from "../lib/tools.js"
 
@@ -122,6 +123,55 @@ describe("P2 regressions", () => {
                 `expected under ${home}, got ${dir}`,
             )
             assert.ok(dir.includes("deleted"))
+        })
+    })
+
+    describe("filenameSafe", () => {
+        it("still strips illegal characters but keeps lowercase s", () => {
+            assert.strictEqual(helper.filenameSafe("test.jpg"), "test.jpg")
+            assert.strictEqual(helper.filenameSafe("abc.psd"), "abc.psd")
+            assert.strictEqual(helper.filenameSafe("a<b>c:d.jpg"), "abcd.jpg")
+        })
+
+        it("escapes Windows reserved device names", () => {
+            for (const name of ["CON", "con", "NUL", "COM1.mp4", "LPT9"]) {
+                assert.ok(helper.isReservedWindowsName(name), `${name} should be reserved`)
+                assert.strictEqual(helper.filenameSafe(name), `_${name}`)
+            }
+        })
+
+        it("does not treat names merely starting with a reserved word as reserved", () => {
+            for (const name of ["CONTENT.txt", "CONSOLE.log", "NULLABLE.js"]) {
+                assert.strictEqual(helper.isReservedWindowsName(name), false)
+                assert.strictEqual(helper.filenameSafe(name), name)
+            }
+        })
+
+        it("normalizes NFD input to NFC so macOS/camera names match", () => {
+            const nfd = "Cafe\u0301.jpg" // e + U+0301 combining acute
+            const nfc = "Caf\u00e9.jpg"
+            assert.strictEqual(helper.filenameSafe(nfd), nfc)
+        })
+    })
+
+    describe("moveSafe", () => {
+        it("moves a file (fast path stays a rename) and reports the destination", async () => {
+            const src = path.join(TMP_DIR, "mv_src.txt")
+            const dst = path.join(TMP_DIR, "mv_dst.txt")
+            await fsp.writeFile(src, "payload")
+            const out = await file.moveSafe(src, dst)
+            assert.strictEqual(out, dst)
+            assert.strictEqual(await fsp.readFile(dst, "utf8"), "payload")
+            await assert.rejects(() => fsp.stat(src))
+        })
+
+        it("propagates non-EXDEV errors instead of silently copying", async () => {
+            const missing = path.join(TMP_DIR, "does-not-exist.txt")
+            const dst = path.join(TMP_DIR, "whatever.txt")
+            await assert.rejects(
+                () => file.moveSafe(missing, dst),
+                (err) => err instanceof Error && /ENOENT/.test(err.message),
+            )
         })
     })
 })
