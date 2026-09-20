@@ -382,11 +382,13 @@ async function cmdRename(argv) {
     progressBar.start(fCount, 0, { filename: "" })
 
     const errors = []
+    // 每次命令执行独立持有的批处理状态（避免模块级可变状态跨调用共享）
+    const renameState = { seenPaths: new Set(), encodingErrorCount: 0 }
     let tasks = await pMap(
         entries,
         async (entry) => {
             try {
-                const result = await preRename(entry)
+                const result = await preRename(entry, renameState)
                 progressBar.increment(1, { filename: path.basename(entry.path).substring(0, 30) })
                 return result
             } catch (error) {
@@ -499,9 +501,6 @@ async function cmdRename(argv) {
     }
 }
 
-let encodingErrorCount = 0
-const seenPaths = new Set()
-
 /**
  * 重新组合修复后的目录路径
  * @param {string} oldDir - 原始目录路径
@@ -528,7 +527,7 @@ function combinePath(oldDir, ...parts) {
  * @param {string} params.progress - 索引/总数
  * @returns {Object} 包含新目录和新文件名的对象
  */
-function fixEncoding({ oldPath, oldDir, oldBase, ext, logTag, progress }) {
+function fixEncoding({ oldPath, oldDir, oldBase, ext, logTag, progress, state }) {
     let pendingDir
     let pendingBase
 
@@ -542,8 +541,8 @@ function fixEncoding({ oldPath, oldDir, oldBase, ext, logTag, progress }) {
     const strPath = oldPath.split(path.sep).join("")
     const strNewPath = combinePath(oldDir, pendingDir, pendingBase + ext)
     if (enc.hasBadUnicode(strPath, true)) {
-        log.showGray(logTag, `BadSRC:${++encodingErrorCount} ${oldPath} `)
-        log.showGray(logTag, `BadDST:${encodingErrorCount} ${strNewPath} `)
+        log.showGray(logTag, `BadSRC:${++state.encodingErrorCount} ${oldPath} `)
+        log.showGray(logTag, `BadDST:${state.encodingErrorCount} ${strNewPath} `)
         log.fileLog(`BadEnc:${progress} <${oldPath}>`, logTag)
     }
 
@@ -769,7 +768,15 @@ function conflictKey(p) {
     return CASE_INSENSITIVE_FS ? p.toLowerCase() : p
 }
 
-async function handlePathConflicts({ oldPath, newPath, pendingBase, ext, newDir, logTag }) {
+async function handlePathConflicts({
+    oldPath,
+    newPath,
+    pendingBase,
+    ext,
+    newDir,
+    logTag,
+    seenPaths,
+}) {
     if (newPath === oldPath) {
         log.info(logTag, `Skip Same: ${helper.pathShort(oldPath)}`)
         return { newPath, skipped: true }
@@ -779,10 +786,7 @@ async function handlePathConflicts({ oldPath, newPath, pendingBase, ext, newDir,
     // 字符串不相等，但磁盘上是同一个文件，fs.pathExists(newPath) 命中的正是自己。
     // 若按冲突处理会生成 ABC_1.txt，用户想要的大小写修正反而没生效。
     if (conflictKey(newPath) === conflictKey(oldPath)) {
-        log.info(
-            logTag,
-            `CaseRename: ${helper.pathShort(oldPath)} => ${path.basename(newPath)}`,
-        )
+        log.info(logTag, `CaseRename: ${helper.pathShort(oldPath)} => ${path.basename(newPath)}`)
         return { newPath, skipped: false }
     }
 
@@ -819,7 +823,7 @@ async function handlePathConflicts({ oldPath, newPath, pendingBase, ext, newDir,
  * @param {Object} entry.argv - 命令行参数
  * @returns {Promise<Object|null>} 处理后的文件对象，包含新路径信息
  */
-async function preRename(entry) {
+async function preRename(entry, state = {}) {
     const isDir = entry.isDir
     const typeFlag = isDir ? "D" : "F"
     const argv = entry.argv
@@ -838,7 +842,7 @@ async function preRename(entry) {
     log.info(logTag, `Processing "${oldPath} [${typeFlag}]"`)
 
     if (argv.fixenc) {
-        const result = fixEncoding({ oldPath, oldDir, oldBase, ext, logTag, progress })
+        const result = fixEncoding({ oldPath, oldDir, oldBase, ext, logTag, progress, state })
         pendingDir = result.pendingDir
         pendingBase = result.pendingBase
     }
@@ -1047,11 +1051,12 @@ async function preRename(entry) {
         ext: finalExt,
         newDir,
         logTag,
+        seenPaths: state.seenPaths,
     })
     newPath = conflictResult.newPath
     entry.skipped = conflictResult.skipped
     if (entry.fixenc && enc.hasBadUnicode(newPath, true)) {
-        const count = ++encodingErrorCount
+        const count = ++state.encodingErrorCount
         log.showGray(logTag, `BadEncFR:${count}`, oldPath)
         log.show(logTag, `BadEncTO:${count}`, newPath)
         log.fileLog(`BadEncFR: <${oldPath}>`, logTag)
@@ -1069,7 +1074,7 @@ async function preRename(entry) {
     entry.outName = newName
     // 登记本次批量已占用的目标路径，供 handlePathConflicts 检测批内撞名
     // （未落盘前 fs.pathExists 查不到，否则后一个文件会覆盖前一个）
-    seenPaths.add(conflictKey(newPath))
+    state.seenPaths.add(conflictKey(newPath))
     entry.outBase = newBase
     entry.associatedExts = associatedExts
     log.showGray(logTag, `SRC: ${oldPath} ${pathDepth}`)
