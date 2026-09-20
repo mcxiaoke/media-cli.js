@@ -7,14 +7,12 @@
  */
 
 import chalk from "chalk"
-import dayjs from "dayjs"
-import timezone from "dayjs/plugin/timezone.js"
-import utc from "dayjs/plugin/utc.js"
 import fs from "fs-extra"
 import inquirer from "inquirer"
 import { cpus } from "os"
 import pMap from "p-map"
 import path from "path"
+import { parseDateFromName } from "../lib/date_parse.js"
 import * as core from "../lib/core.js"
 import * as log from "../lib/debug.js"
 import { ErrorTypes, createError } from "../lib/errors.js"
@@ -24,8 +22,6 @@ import { t } from "../lib/i18n.js"
 import { isSameFileCached } from "../lib/tools.js"
 import { applyFileNameRules } from "./cmd_shared.js"
 
-dayjs.extend(utc)
-dayjs.extend(timezone)
 
 // 按照文件名日期时间格式移动到对应目录，视频和图片分开，暂不支持其它格式
 // const filename_samples = [
@@ -48,52 +44,25 @@ dayjs.extend(timezone)
 // ]
 
 /**
- * 从文件名中提取日期时间（带合法性校验，Asia/Shanghai）
+ * 从文件名中提取日期时间
+ *
+ * 实现已抽到 `lib/date_parse.js` 的 `parseDateFromName()`，与 `cmd_pick`
+ * 共用同一份正则与时区约定。此处保留同名导出仅为兼容既有调用点。
+ *
  * @param {string} filename
  * @returns {null|{
  *   date: string,        // YYYYMMDD
  *   time: string,        // HHMMSS
- *   monthStr: string,    // YYYY-MM
+ *   monthStr: string,    // YYYYMM
  *   iso: string,         // YYYY-MM-DDTHH:mm:ss
  *   tz: string,          // Asia/Shanghai
  *   jsDate: Date,
- *   dayjs: dayjs.Dayjs
+ *   dayjs: dayjs.Dayjs,
+ *   dayKey: string,      // YYYY-MM-DD
  * }}
  */
 export function extractDate(filename) {
-    const base = filename.split(/[\\/]/).pop()
-
-    const regex = /(?:^|[^0-9])(\d{4})(\d{2})(\d{2})[_-](\d{2})(\d{2})(\d{2})(?:[_-].*)?\./
-
-    const m = base.match(regex)
-    if (!m) return null
-
-    const [, yearStr, monthStr, dayStr, hh, mm, ss] = m
-
-    const year = Number(yearStr)
-    const month = Number(monthStr)
-    const day = Number(dayStr)
-
-    // 年份限制 2000-2050
-    if (year < 2000 || year > 2050) return null
-    if (month < 1 || month > 12) return null
-
-    // 使用 dayjs 校验日是否合法（自动判断每月天数 + 闰年）
-    const dateCheck = dayjs(`${year}-${month}-${day}`, "YYYY-M-D", true) // 严格模式
-    if (!dateCheck.isValid()) return null
-
-    // 时间部分不校验越界（默认 00-23, 00-59, 00-59）
-    const d = dayjs.tz(`${year}-${monthStr}-${dayStr} ${hh}:${mm}:${ss}`, "Asia/Shanghai")
-
-    return {
-        date: `${yearStr}${monthStr}${dayStr}`,
-        time: `${hh}${mm}${ss}`,
-        monthStr: `${yearStr}${monthStr}`,
-        iso: d.format("YYYY-MM-DDTHH:mm:ss"),
-        tz: "Asia/Shanghai",
-        jsDate: d.toDate(),
-        dayjs: d,
-    }
+    return parseDateFromName(filename)
 }
 
 /**

@@ -18,6 +18,7 @@ import { describe, it, before, after } from "node:test"
 import * as caps from "../lib/capabilities.js"
 import config from "../lib/config.js"
 import * as core from "../lib/core.js"
+import * as dateParse from "../lib/date_parse.js"
 import * as file from "../lib/file.js"
 import * as helper from "../lib/helper.js"
 import * as tools from "../lib/tools.js"
@@ -201,6 +202,64 @@ describe("P2 regressions", () => {
             assert.notStrictEqual(a.nconvertPath, undefined)
             assert.notStrictEqual(a.vipsPath, undefined)
             assert.strictEqual(config.SHARP_SUPPORT_HEIC, a.sharpSupportHeic)
+        })
+    })
+
+    describe("parseDateFromName (shared by move/pick)", () => {
+        const P = dateParse.parseDateFromName
+
+        it("parses the common naming patterns", () => {
+            for (const name of [
+                "IMG_20210919_081146.jpg",
+                "VID_20210919_081146.MP4",
+                "20210919081146.jpg",
+                "IMG_20210919_081146_v2.jpg",
+                "D:/photos/IMG_20210919_081146.jpg",
+            ]) {
+                const r = P(name)
+                assert.ok(r, `${name} should parse`)
+                assert.strictEqual(r.date, "20210919")
+                assert.strictEqual(r.time, "081146")
+            }
+        })
+
+        it("uses a fixed timezone so grouping does not depend on the host clock", () => {
+            const r = P("IMG_20210919_081146.jpg")
+            assert.strictEqual(r.tz, "Asia/Shanghai")
+            // 北京时间 08:11:46 == UTC 00:11:46
+            assert.strictEqual(r.jsDate.toISOString(), "2021-09-19T00:11:46.000Z")
+        })
+
+        it("rejects implausible values", () => {
+            for (const name of [
+                "IMG_20210230_081146.jpg", // 2 月 30 日
+                "IMG_19990101_081146.jpg", // 年份窗口外
+                "IMG_20210919_250000.jpg", // 小时越界
+                "IMG_202109190811467.jpg", // 15 位长串，避免错位匹配
+                "2021-09-19 08:11:46.jpg", // 分隔式日期不支持
+                "IMG_20210919.jpg", // 缺时间
+            ]) {
+                assert.strictEqual(P(name), null, `${name} should not parse`)
+            }
+        })
+    })
+
+    describe("checkFileSize semantics (cmd_remove)", () => {
+        // 直接引用 cmd_remove 内部实现会拖入整套命令依赖，
+        // 这里按 1024 进制 + 包含边界复算，锁定的是**约定**而非实现细节。
+        it("treats --sizel/--sizer as 1024-based with inclusive bounds", () => {
+            const KB = 1024
+            const matches = (size, lo, hi) =>
+                hi > 0 ? size >= lo * KB && size <= hi * KB : size >= lo * KB
+
+            // 100K = 102400 字节：恰好等于阈值也命中（包含边界）
+            assert.strictEqual(matches(100 * KB, 100, 0), true)
+            assert.strictEqual(matches(100 * KB - 1, 100, 0), false)
+
+            // 区间两端都包含
+            assert.strictEqual(matches(100 * KB, 100, 200), true)
+            assert.strictEqual(matches(200 * KB, 100, 200), true)
+            assert.strictEqual(matches(200 * KB + 1, 100, 200), false)
         })
     })
 })

@@ -45,6 +45,7 @@ import os, { cpus } from "os"
 import pFilter from "p-filter"
 import pMap from "p-map"
 import path from "path"
+import { parseDateFromName } from "../lib/date_parse.js"
 import * as log from "../lib/debug.js"
 import * as mf from "../lib/file.js"
 import * as helper from "../lib/helper.js"
@@ -782,44 +783,25 @@ function buildJsonOutput(daySelections, srcStats, selStats) {
 
 /**
  * 从文件名解析日期时间
+ *
+ * 已抽到 `lib/date_parse.js` 的 `parseDateFromName()`，与 `cmd_move` 共用。
+ * 此前这里用的是**本机时区**（dayjs 默认），而 cmd_move 固定 Asia/Shanghai：
+ * 同一份文件名在本机 GMT+8 时结果一致，时区一变，同批文件会被分到不同月份/日期。
  */
 async function parseFilesByName(entries) {
     const mapper = async (e) => {
-        const re = /(\d{4})(\d{2})(\d{2})[_-]?(\d{2})(\d{2})(\d{2})/
-        const name = path.basename(e.path)
-        const m = name.match(re)
-        if (!m) return null
-
-        const Y = parseInt(m[1], 10)
-        const M = parseInt(m[2], 10)
-        const D = parseInt(m[3], 10)
-        const h = parseInt(m[4], 10)
-        const m_ = parseInt(m[5], 10)
-        const s = parseInt(m[6], 10)
-
-        if (Y < 2000 || Y > 2050) return null
-        if (M < 1 || M > 12) return null
-        if (D < 1 || D > 31) return null
-        if (h > 23) return null
-        if (m_ > 59) return null
-        if (s > 59) return null
-
-        const dateStr = `${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}:${m[6]}`
-        const date = dayjs(dateStr)
-
-        if (date.isValid()) {
-            if (date.year() !== Y || date.month() + 1 !== M || date.date() !== D) {
-                return null
-            }
-            return {
-                name: e.name,
-                path: e.path,
-                size: e.size || (e.stats && e.stats.size) || 0,
-                date: date.toDate(),
-                dayKey: date.format("YYYY-MM-DD"),
-            }
+        const parsed = parseDateFromName(e.path)
+        if (!parsed) {
+            return null
         }
-        return null
+
+        return {
+            name: e.name,
+            path: e.path,
+            size: e.size || (e.stats && e.stats.size) || 0,
+            date: parsed.jsDate,
+            dayKey: parsed.dayKey,
+        }
     }
 
     const results = await pMap(entries, mapper, { concurrency: cpus().length })

@@ -1242,16 +1242,21 @@ function checkNamePattern(fileName, cPattern, cNotMatch, ipx, fileSrc, itemSize,
  * @returns {Promise<{matches: boolean, description: string}>}
  */
 function checkFileSize(fileSize, sizeLeft, sizeRight, fileName, ipx) {
-    // 命令行参数单位为K，这里修正为字节
-    const sizeLeftBytes = sizeLeft * 1000
-    const sizeRightBytes = sizeRight * 1000
+    // 命令行参数单位为 K，按 **1024** 进制换算为字节。
+    //
+    // 此前用的是 1000，与项目内其它地方（`FILE_SIZE_1K = 1024`）不一致：
+    // `--sizel 100` 实际是 100000 字节而非 102400，用户按 KB 理解会偏小 2.4%。
+    const sizeLeftBytes = sizeLeft * mf.FILE_SIZE_1K
+    const sizeRightBytes = sizeRight * mf.FILE_SIZE_1K
     const description = ` S=${helper.humanSize(fileSize)} (${sizeLeft}K,${sizeRight}K)`
-    
+
     let matches
+    // 边界取包含（>= / <=），与 checkFileDimensions 的 <= 口径统一。
+    // 此前是严格 > / <，恰好等于阈值的文件会被两个命令区别对待。
     if (sizeRight > 0) {
-        matches = fileSize > sizeLeftBytes && fileSize < sizeRightBytes
+        matches = fileSize >= sizeLeftBytes && fileSize <= sizeRightBytes
     } else {
-        matches = fileSize > sizeLeftBytes
+        matches = fileSize >= sizeLeftBytes
     }
     
     log.info(

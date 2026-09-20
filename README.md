@@ -48,21 +48,25 @@ mediac <command> --help
 
 ### Commands
 
-| Command    | Aliases      | Description                                                                       |
-| ---------- | ------------ | --------------------------------------------------------------------------------- |
-| `compress` | `cs`, `cps`  | **Compress images** to target size/quality while preserving metadata.             |
-| `dcimr`    | `dm`, `dcim` | **Rename media files** based on EXIF Date/Time or file attributes.                |
-| `organize` | `oz`         | **Organize files** into date-based folder structures (e.g., 2023/10).             |
-| `ffmpeg`   | `transcode`  | **Convert video/audio** using FFmpeg presets.                                     |
-| `pick`     | -            | **Smart photo selection** for photo journals (filters by time/date distribution). |
-| `lrmove`   | `lv`         | **Move JPEG files** that have matching RAW files to a separate folder.            |
-| `remove`   | `rm`         | **Delete files** matching specific size, resolution, or name patterns.            |
-| `moveup`   | `mp`         | **Flatten directories** by moving files to parent/top folders.                    |
-| `move`     | `md`         | **Move files** to folders based on date patterns in filenames.                    |
-| `prefix`   | `pf`         | **Batch rename** by prepending directory names or custom strings.                 |
-| `rename`   | `fn`         | **Advanced rename** (fix encoding, regex replace, char cleanup, TC to SC).        |
-| `zipu`     | `zipunicode` | **Smart Unzip** detecting filename encoding automatically.                        |
-| `decode`   | `dc`         | **Decode text** containing messy or invalid characters.                           |
+> This table is generated from the registered yargs commands (`node mediac --help`).
+> The previously listed `organize` / `oz` command does not exist.
+
+| Command              | Aliases                              | Description                                                                       |
+| -------------------- | ------------------------------------ | --------------------------------------------------------------------------------- |
+| `compress`           | `cs`, `cps`                          | **Compress images** to target size/quality while preserving metadata.             |
+| `dcimr`              | `dm`, `dcim`                         | **Rename media files** based on EXIF Date/Time or file attributes.                |
+| `decode`             | `dc`                                 | **Decode text** containing messy or invalid characters.                           |
+| `execute [input]`    | `run`                                | **Run standalone tasks** — registered as a placeholder, not implemented yet.      |
+| `ffmpeg`             | `transcode`, `aconv`, `vconv`, `avconv` | **Convert video/audio** using FFmpeg presets.                                  |
+| `lrmove`             | `lv`                                 | **Move JPEG files** that have matching RAW files to a separate folder.            |
+| `move`               | `md`                                 | **Move files** to folders based on date patterns in filenames.                    |
+| `moveup`             | `mp`                                 | **Flatten directories** by moving files to parent/top folders.                    |
+| `pick`               | `pk`                                 | **Smart photo selection** for photo journals (filters by time/date distribution). |
+| `prefix`             | `pf`, `px`                           | **Batch rename** by prepending directory names or custom strings.                 |
+| `remove`             | `rm`, `rmf`                          | **Delete files** matching specific size, resolution, or name patterns.            |
+| `rename`             | `fn`, `fxn`                          | **Advanced rename** (fix encoding, regex replace, char cleanup, TC to SC).        |
+| `test` *(default)*   | `tt`                                 | No-op command used to smoke-test the CLI.                                         |
+| `zipu`               | `zipunicode`                         | **Smart Unzip** detecting filename encoding automatically.                        |
 
 ## Decode Command Detailed Usage
 
