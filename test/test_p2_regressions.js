@@ -15,6 +15,8 @@ import os from "os"
 import path from "path"
 import { describe, it, before, after } from "node:test"
 
+import * as caps from "../lib/capabilities.js"
+import config from "../lib/config.js"
 import * as core from "../lib/core.js"
 import * as file from "../lib/file.js"
 import * as helper from "../lib/helper.js"
@@ -172,6 +174,33 @@ describe("P2 regressions", () => {
                 () => file.moveSafe(missing, dst),
                 (err) => err instanceof Error && /ENOENT/.test(err.message),
             )
+        })
+    })
+
+    describe("concurrency policy (config.JOBS)", () => {
+        it("exposes named, positive job counts instead of ad-hoc cpus() math", () => {
+            for (const [name, fn] of Object.entries(config.JOBS)) {
+                const n = fn()
+                assert.ok(Number.isInteger(n) && n >= 1, `${name}() should be a positive int, got ${n}`)
+            }
+        })
+
+        it("keeps CPU-heavy work below IO-bound work", () => {
+            assert.ok(config.JOBS.cpuIntensive() <= config.JOBS.ioBound())
+        })
+    })
+
+    describe("image capabilities probe", () => {
+        it("is memoized and always leaves config fully populated (no partial state)", async () => {
+            const a = await caps.ensureImageCapabilities()
+            const b = await caps.ensureImageCapabilities()
+            assert.strictEqual(a, b, "probe should run once and be reused")
+
+            // 三个字段必须都落到具体值（null 也算明确），不能停在 undefined
+            assert.strictEqual(typeof a.sharpSupportHeic, "boolean")
+            assert.notStrictEqual(a.nconvertPath, undefined)
+            assert.notStrictEqual(a.vipsPath, undefined)
+            assert.strictEqual(config.SHARP_SUPPORT_HEIC, a.sharpSupportHeic)
         })
     })
 })

@@ -16,6 +16,7 @@ import pMap from "p-map"
 import path from "path"
 import sharp from "sharp"
 import config from "../lib/config.js"
+import { ensureImageCapabilities } from "../lib/capabilities.js"
 import * as core from "../lib/core.js"
 import { asyncFilter, copyFields } from "../lib/core.js"
 import * as log from "../lib/debug.js"
@@ -345,7 +346,12 @@ function createExtraMetadata(t) {
 // 这是一个异步函数，用于创建缩略图
 export async function compressImage(t) {
     const logTag = "Compress"
-    const resizeFunc = config.VIPS_BIN_PATH ? useVipsConvert : useNConvert
+    // 不再隐式依赖「compress 命令先跑过 updateConfig()」：
+    // 这里按需触发能力探测（memo 化，只有第一次真正探测）。
+    // 否则 resizeFunc 会选到 nconvert、而它的路径同样是 undefined，
+    // HEIC 分支会静默走一条不可用的路径。
+    const caps = await ensureImageCapabilities()
+    const resizeFunc = caps.vipsPath ? useVipsConvert : useNConvert
     // 试图确保目标文件目录存在，如果不存在则创建
     try {
         await fs.ensureDir(path.dirname(t.dst))
@@ -355,7 +361,7 @@ export async function compressImage(t) {
         }
 
         const isFileHeic = [".heic", ".heif"].includes(helper.pathExt(t.src))
-        const supportHeic = config.SHARP_SUPPORT_HEIC
+        const supportHeic = caps.sharpSupportHeic
         let r = null
         // 性能测试 340张照片，N 1m22s V 1m16s WSL 1m43s
         // 如果是heic文件且sharp不支持，则使用外部工具压缩

@@ -10,11 +10,10 @@ import chalk from "chalk"
 import * as cliProgress from "cli-progress"
 import dayjs from "dayjs"
 import fs from "fs-extra"
-import os, { cpus } from "os"
 import pMap from "p-map"
 import path from "path"
 import sharp from "sharp"
-import which from "which"
+import { ensureImageCapabilities } from "../lib/capabilities.js"
 import config from "../lib/config.js"
 import * as core from "../lib/core.js"
 import * as log from "../lib/debug.js"
@@ -272,7 +271,7 @@ async function buildCompressTasks(files, opts) {
         bar.start(prepared.length, 0)
     }
     const tasks = await pMap(prepared, (f) => preCompress(f, onProgress), {
-        concurrency: jobs || cpus().length,
+        concurrency: jobs || config.JOBS.cpuIntensive(),
     })
     if (needBar) {
         bar.update(prepared.length)
@@ -293,7 +292,7 @@ async function runCompression(tasks, opts, logTag, startMs) {
     tasks.forEach((f) => (f.startMs = startMs))
     // 压缩为 CPU/IO 密集操作，统一使用 cpus().length / 2 作为默认并发，
     // 避免与 buildCompressTasks 的默认值不一致（原实现一处用满核、一处用半核）。
-    const defaultJobs = Math.max(1, Math.floor(cpus().length / 2))
+    const defaultJobs = config.JOBS.cpuIntensive()
     const results = await pMap(tasks, compressImage, {
         concurrency: opts.jobs || defaultJobs,
     })
@@ -580,39 +579,19 @@ async function purgeSrcFiles(results) {
         log.fileLog(`SafeDel: <${td.src}> => <${dest}>`, LOG_TAG)
         return td.src
     }
-    const deleted = await pMap(toDelete, deletecFunc, { concurrency: cpus().length * 8 })
+    const deleted = await pMap(toDelete, deletecFunc, { concurrency: config.JOBS.ioBound() })
     log.logSuccess(LOG_TAG, t("compress.safely.removed", { count: deleted.filter(Boolean).length }))
 }
 
 async function updateConfig() {
-    // 检测是否有nconvert
-    // 检测sharp是否支持heic2jpg
-    // 使用一张测试图片转换试试
-    try {
-        const testPic = await helper.resolveAssetPath("assets/test.heic")
-        const testTmp = path.join(os.tmpdir(), `mediac_test_${Date.now()}.jpg`)
-        const s = sharp(testPic)
-        const testOk = await s
-            .jpeg({ quality: 70 })
-            .toFile(testTmp)
-            .then(
-                () => true,
-                () => false,
-            )
-        // 清理临时测试文件，无论成功与否
-        await fs.remove(testTmp).catch(() => {})
-
-        log.show(
-            testOk
-                ? chalk.greenBright("Sharp support HEIC")
-                : chalk.redBright("Sharp do not support HEIC"),
-        )
-        // 更新全局变量，后面压缩图片时要用到
-        config.SHARP_SUPPORT_HEIC = testOk
-        config.NCONVERT_BIN_PATH = await which("nconvert", { nothrow: true })
-        config.VIPS_BIN_PATH = await which("vips", { nothrow: true })
-    } catch (error) {
-        // 如果测试过程中发生错误，记录日志并继续执行
-        log.error("cmdCompress", "Error update config:", error)
-    }
+    // 检测是否有 nconvert
+    // 检测 sharp 是否支持 heic2jpg
+    // 探测逻辑已抽到 lib/capabilities.js：结果 memo 化、幂等，
+    // 这样 compressImage 不再依赖「compress 命令必须先跑过」这一隐式前提。
+    const caps = await ensureImageCapabilities()
+    log.show(
+        caps.sharpSupportHeic
+            ? chalk.greenBright("Sharp support HEIC")
+            : chalk.redBright("Sharp do not support HEIC"),
+    )
 }

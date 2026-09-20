@@ -11,12 +11,12 @@ import dayjs from "dayjs"
 import { execa } from "execa"
 import fs from "fs-extra"
 import mm from "music-metadata"
-import { cpus } from "os"
 import pMap from "p-map"
 import path from "path"
 import which from "which"
 import argparser from "../lib/arg_parser.js"
 import { abortIfCancelled, confirmDangerousAction } from "../lib/command_utils.js"
+import config from "../lib/config.js"
 import * as core from "../lib/core.js"
 import { formatArgs } from "../lib/core.js"
 import * as log from "../lib/debug.js"
@@ -507,7 +507,8 @@ async function cmdConvert(argv) {
     }
     log.logSuccess(LOG_TAG, t("ffmpeg.preparing.tasks"))
     let tasks = await pMap(fileEntries, prepareFFmpegCmd, {
-        concurrency: argv.jobs || Math.max(1, core.isUNCPath(root) ? 4 : cpus().length - 2),
+        concurrency:
+            argv.jobs || (core.isUNCPath(root) ? 4 : config.JOBS.externalTool()),
     })
 
     if (argv.deleteSourceFiles) {
@@ -553,7 +554,7 @@ async function cmdConvert(argv) {
                             log.logWarn(LOG_TAG, `SafeDel ${entry.index}/${entry.total} ${entry.path}`)
                             return true
                         },
-                        { concurrency: Math.max(1, cpus().length * 2) },
+                        { concurrency: config.JOBS.ioBound() },
                     )
                     const failedCount = delResults.filter((ok) => !ok).length
                     if (failedCount > 0) {
