@@ -136,8 +136,21 @@ const builder = (ya) =>
         .option("dry-run", {
             alias: "n",
             type: "boolean",
-            default: false,
+            // 保持与 --doit 的语义兼容：--dry-run 是显式要求预览，默认即预览
+            default: undefined,
             describe: t("option.common.dryRun"),
+        })
+        // 与其它命令（remove/move/moveup/rename...）保持一致：默认只预览，
+        // 必须显式 --doit 才真的复制。此前 pick 是唯一「默认就真写盘」的命令：
+        // 用户敲 `mediac pick .` 以为在看计划，实际已经复制了几千个文件。
+        // 与其它命令（remove/move/moveup/rename...）保持一致：默认只预览，
+        // 必须显式 --doit 才真的复制。此前 pick 是唯一「默认就真写盘」的命令：
+        // 用户敲 `mediac pick .` 以为在看计划，实际已经复制了几千个文件。
+        // 不设短别名：-d 已被 --day-limit 占用，-n 归 --dry-run。
+        .option("doit", {
+            type: "boolean",
+            default: false,
+            describe: t("option.common.doit"),
         })
         .option("jobs", {
             alias: "j",
@@ -223,6 +236,12 @@ async function findValidFileListCache(outputDir, rootPath) {
 
 export async function cmdPick(argv) {
     log.logInfo(LOG_TAG, argv)
+
+    // 破坏性/写入类操作的默认值统一为「只预览」：
+    // pick 此前是唯一默认就真写盘的命令（--dry-run 默认 false），
+    // 与 remove/move/moveup/rename 的 --doit 约定相反。
+    // 现统一为：默认预览；--doit 才真复制；--dry-run 仍可显式要求预览。
+    argv.dryRun = argv.dryRun ?? !argv.doit
 
     let entries
     let root = argv.input

@@ -755,10 +755,35 @@ async function ensureUniquePath(basePath, baseName, ext, existsCheck, logTag, lo
  * @param {string} params.logTag - 日志标签
  * @returns {Promise<Object>} 处理后的新路径和跳过状态
  */
+/**
+ * 冲突判定用的键
+ *
+ * Windows / macOS 的默认文件系统**大小写不敏感**：`abc.txt` 与 `ABC.txt` 是同一个文件。
+ * 若直接用字符串比较，大小写归一化类的重命名会被判成撞名。
+ *
+ * @param {string} p - 路径
+ * @returns {string} 用于冲突比较的键
+ */
+const CASE_INSENSITIVE_FS = process.platform === "win32" || process.platform === "darwin"
+function conflictKey(p) {
+    return CASE_INSENSITIVE_FS ? p.toLowerCase() : p
+}
+
 async function handlePathConflicts({ oldPath, newPath, pendingBase, ext, newDir, logTag }) {
     if (newPath === oldPath) {
         log.info(logTag, `Skip Same: ${helper.pathShort(oldPath)}`)
         return { newPath, skipped: true }
+    }
+
+    // 「仅大小写变化」的重命名（abc.txt -> ABC.txt）：
+    // 字符串不相等，但磁盘上是同一个文件，fs.pathExists(newPath) 命中的正是自己。
+    // 若按冲突处理会生成 ABC_1.txt，用户想要的大小写修正反而没生效。
+    if (conflictKey(newPath) === conflictKey(oldPath)) {
+        log.info(
+            logTag,
+            `CaseRename: ${helper.pathShort(oldPath)} => ${path.basename(newPath)}`,
+        )
+        return { newPath, skipped: false }
     }
 
     if (await fs.pathExists(newPath)) {
@@ -770,7 +795,7 @@ async function handlePathConflicts({ oldPath, newPath, pendingBase, ext, newDir,
             logTag,
             `NewPath[EXIST]`,
         )
-    } else if (seenPaths.has(newPath)) {
+    } else if (seenPaths.has(conflictKey(newPath))) {
         newPath = await ensureUniquePath(
             newDir,
             pendingBase,
@@ -1044,7 +1069,7 @@ async function preRename(entry) {
     entry.outName = newName
     // 登记本次批量已占用的目标路径，供 handlePathConflicts 检测批内撞名
     // （未落盘前 fs.pathExists 查不到，否则后一个文件会覆盖前一个）
-    seenPaths.add(newPath)
+    seenPaths.add(conflictKey(newPath))
     entry.outBase = newBase
     entry.associatedExts = associatedExts
     log.showGray(logTag, `SRC: ${oldPath} ${pathDepth}`)
