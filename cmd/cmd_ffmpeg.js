@@ -29,10 +29,21 @@ import { t } from "../lib/i18n.js"
 import { getMediaInfo } from "../lib/mediainfo.js"
 import { addEntryProps, applyFileNameRules } from "../lib/rename.js"
 import { calculateScale } from "../lib/media-compress.js"
+import { detectHardwareCapabilities } from "../lib/hwdetect.js"
+import {
+    DecodeMode,
+    TIERS,
+    buildVideoFilters,
+    buildEncoderArgs,
+    calcLongEdge,
+    codecFamilyOfPreset,
+    selectTier,
+    validateSpeed,
+} from "../lib/hwaccel.js"
 
 const LOG_TAG = "FFConv"
-// CUDA 探测结果缓存，避免对同一路径重复探测
-const cudaDecoderCache = new Map()
+// ffmpeg 可执行文件路径（模块级缓存，供硬件探测复用）
+let ffmpegPath = null
 // ===========================================
 // 命令内容执行
 // ===========================================
@@ -356,7 +367,10 @@ async function loadYamlPresets() {
         }
     } catch (error) {
         // 用户的自定义 YAML 写坏时不应该让整个转码命令不可用
-        log.logWarn(LOG_TAG, `YAML presets not applied, using built-ins: ${error?.message || error}`)
+        log.logWarn(
+            LOG_TAG,
+            `YAML presets not applied, using built-ins: ${error?.message || error}`,
+        )
     }
 }
 
@@ -508,15 +522,18 @@ async function cmdConvert(argv) {
     }
     log.logSuccess(LOG_TAG, t("ffmpeg.preparing.tasks"))
     let tasks = await pMap(fileEntries, prepareFFmpegCmd, {
-        concurrency:
-            argv.jobs || (core.isUNCPath(root) ? 4 : config.JOBS.externalTool()),
+        concurrency: argv.jobs || (core.isUNCPath(root) ? 4 : config.JOBS.externalTool()),
     })
 
     if (argv.deleteSourceFiles) {
         // 目标产物必须「存在且非空」才可删源：0 字节说明上次运行中断留下了坏文件，
         // 此时删源等于用坏产物换掉好源文件，不可逆
-        const dstExitsTasks = tasks.filter((t) => t && t.dstExists && !t.fileDst && t.dstExistsSize > 0)
-        const badDstTasks = tasks.filter((t) => t && t.dstExists && !t.fileDst && !(t.dstExistsSize > 0))
+        const dstExitsTasks = tasks.filter(
+            (t) => t && t.dstExists && !t.fileDst && t.dstExistsSize > 0,
+        )
+        const badDstTasks = tasks.filter(
+            (t) => t && t.dstExists && !t.fileDst && !(t.dstExistsSize > 0),
+        )
         if (badDstTasks.length > 0) {
             log.logWarn(
                 LOG_TAG,
@@ -552,14 +569,20 @@ async function cmdConvert(argv) {
                                 )
                                 return false
                             }
-                            log.logWarn(LOG_TAG, `SafeDel ${entry.index}/${entry.total} ${entry.path}`)
+                            log.logWarn(
+                                LOG_TAG,
+                                `SafeDel ${entry.index}/${entry.total} ${entry.path}`,
+                            )
                             return true
                         },
                         { concurrency: config.JOBS.ioBound() },
                     )
                     const failedCount = delResults.filter((ok) => !ok).length
                     if (failedCount > 0) {
-                        log.logWarn(LOG_TAG, `SafeDel: ${failedCount} source file(s) still in place`)
+                        log.logWarn(
+                            LOG_TAG,
+                            `SafeDel: ${failedCount} source file(s) still in place`,
+                        )
                     }
                 }
             }
@@ -572,7 +595,16 @@ async function cmdConvert(argv) {
         return
     }
     const lastTask = tasks.slice(-1)[0]
-    const lastFFArgs = createFFmpegArgs(lastTask, true, false)
+    // ⚠️ 此处 hwPlan 尚未生成（分层决策在 runFFmpegCmd 内按文件进行），
+    // 传 null 会让 buildScaleFiltersFromPlan 走兜底分支返回 preset.filters，
+    // 而 preset.filters 是 "{scaleFilter}" 占位符 → 日志里会打印未替换的字面量。
+    // 修复：预览时用 buildLayerArgs 生成一份「示意参数」（cpu 层 + 该 preset 的
+    // codec 族），让日志反映真实命令结构，而不是泄漏占位符。
+    const previewPlan = {
+        tier: TIERS.find((t) => t.name === "cpu"),
+        size: null,
+    }
+    const lastFFArgs = createFFmpegArgs(lastTask, previewPlan, false)
     // fileLog 签名是 (logText, logTag, logFileName)：此前把参数数组当成了 tag、
     // 把 LOG_TAG 当成了文件名，日志被写进独立的 FFConv_log_*.txt 且正文与标签颠倒。
     !testMode && log.fileLog(`ffmpegArgs: ${lastFFArgs?.flat().join(" ")}`, LOG_TAG)
@@ -595,7 +627,7 @@ async function cmdConvert(argv) {
     if (await abortIfCancelled(answer, LOG_TAG)) {
         return
     }
-    const ffmpegPath = await which("ffmpeg", { nothrow: true })
+    ffmpegPath = await which("ffmpeg", { nothrow: true })
     if (!ffmpegPath) {
         throw createError(ErrorTypes.FFMPEG_ERROR, t("ffmpeg.not.found"))
     }
@@ -704,20 +736,55 @@ function installTempCleanupHooks() {
 async function runFFmpegCmd(entry) {
     const ipx = `${entry.index + 1}/${entry.total}`
 
-    // 检测CUDA解码器，可能耗时1秒左右
+    // ================================================================
+    // 硬件加速分层决策（S-4 方案）
     //
-    // 必须尊重 --decode-mode / H264 10bit 规则：这些规则此前只写入
-    // entry.useCPUDecode 却从不参与参数生成，导致 --decode-mode cpu 时
-    // 日志显示 SW 而实际命令仍是 -hwaccel cuda（日志与实际行为相反）。
-    // 失败重试（retryOnFailed）会把 decodeMode 置为 cpu，也正是靠这里真正切换到软解。
-    const useCUDA = entry.useCPUDecode ? false : await canUseCUDADecoder(entry.path)
-    entry.useCUDA = useCUDA
-    entry.ffmpegArgs = createFFmpegArgs(entry, useCUDA, false)
-
-    let logTag = chalk.green("FFCMD") + chalk.cyanBright(useCUDA ? "[HW]" : "[SW]")
+    // 双层决策：
+    //   第一层 硬件检测 —— detectHardwareCapabilities() 回答「这台机器有哪些层」
+    //                      （进程内缓存，只跑一次）
+    //   第二层 文件探测 —— selectTier() 逐层干跑，回答「哪个层能吃下这个文件」
+    //                      （按 层|编码|位深|像素格式|尺寸 缓存）
+    //
+    // 决策顺序由 decodeMode 决定：
+    //   auto（默认）: 厂商专属层 → d3d → cpu，逐层降级
+    //   gpu（手动）  : 只用 --hwaccel 指定的层，失败即硬失败（不降级）
+    //   cpu         : 直接 cpu 层，不探测
+    //
+    // 历史缺陷修复：
+    //   1) 旧 canUseCUDADecoder 探测只覆盖解码，真实命令还含滤镜与编码器
+    //      → ffv1 等无硬解素材被漏判（探测 rc=0，真实命令 rc≠0）
+    //   2) 旧判定只匹配两个错误串，其它错误串一律算「可用」
+    //   3) 旧缓存按 inputPath，1000 个文件 = 1000 次探测
+    // ================================================================
+    // ⚠️ logTag 必须在 try 之外定义：catch 块要用它记录错误日志
+    let logTag = chalk.green("FFCMD") + chalk.cyanBright("[SW]")
     if (entry.retryOnFailed) {
         logTag += chalk.red("(R)")
     }
+
+    try {
+        // 分层决策必须在 try 内：否则单文件异常会冒泡到 pMap，
+        // 导致整体中断且日志不落盘（曾发生，见下方 catch 说明）
+        const hwPlan = await resolveHwPlan(entry)
+        entry.hwPlan = hwPlan
+        entry.useCUDA = hwPlan.tier.name === "cuda"
+        entry.ffmpegArgs = createFFmpegArgs(entry, hwPlan, false)
+        logTag =
+            chalk.green("FFCMD") + chalk.cyanBright(hwPlan.tier.name === "cpu" ? "[SW]" : "[HW]")
+        if (entry.retryOnFailed) {
+            logTag += chalk.red("(R)")
+        }
+    } catch (error) {
+        // 分层决策失败也要走正常失败流程，不能让整体中断
+        const errMsg = extractFFmpegError(error, 200)
+        log.showRed(logTag, `Plan(${ipx}) <${entry.path}>`, errMsg)
+        log.fileLog(`Plan(${ipx}) <${entry.path}> [${entry.preset.name}] ${errMsg}`, "FFCMD")
+        entry.ffmpegFailed = true
+        entry.ffmpegError = `plan: ${errMsg}`
+        await writeErrorFile(entry, error).catch(() => {})
+        return entry
+    }
+
     log.logTask(
         LOG_TAG,
         entry.index + 1,
@@ -827,7 +894,7 @@ async function runFFmpegCmd(entry) {
             "FFCMD",
         )
     } catch (error) {
-        const errMsg = (error.stderr || error.message || "[Unknown]").substring(0, 160)
+        const errMsg = extractFFmpegError(error, 160)
         log.showRed(logTag, `Error(${ipx}) <${entry.path}>`, errMsg)
         log.showYellow(
             logTag,
@@ -849,13 +916,67 @@ async function runFFmpegCmd(entry) {
 }
 
 /**
+ * 从 ffmpeg 的 stderr 中提取「有意义的错误行」
+ *
+ * ⚠️ 直接取 stderr 前 N 字符是错的：`--debug` 时 -v 级别是 `repeat+level+info`，
+ * stderr 开头是 "Input #0, matroska,webm, from ..." 这类正常 info 输出，
+ * 真正的错误被挤到后面 → 用户看到的错误信息毫无价值（曾发生）。
+ *
+ * ffmpeg 在 `-v repeat+level+info` 下会给每行加级别前缀：
+ *   [info]  ...                                   ← 正常输出
+ *   [error] Impossible to convert between ...      ← 真正的错误（第一条最有信息量）
+ *   [error] Link 'xxx' -> 'yyy':                   ← 后续是上下文/像素格式清单
+ *   [error]     dst: cuda
+ *   [info] Conversion failed!                      ← 尾部总结（无信息量）
+ *
+ * 策略：**从前往后**找第一条 `[error]` 行（错误块的头部才是根因）。
+ * 取最后一条会抓到 "dst: cuda" 这类清单噪声。
+ *
+ * @param {Error|string} error
+ * @param {number} maxLen
+ * @returns {string}
+ */
+function extractFFmpegError(error, maxLen = 200) {
+    const raw = (error && (error.stderr || error.message)) || ""
+    if (!raw) return "[Unknown]"
+    const lines = String(raw)
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .filter(Boolean)
+    if (lines.length === 0) return "[Unknown]"
+
+    const strip = (s) => s.replace(/^\[[a-z]+\]\s*/i, "")
+
+    // 1) 从前往后找第一条 [error] 行（错误块头部 = 根因）
+    for (let i = 0; i < lines.length; i++) {
+        if (/\[error\]/i.test(lines[i])) {
+            const body = strip(lines[i])
+            // 跳过纯上下文的噪声行（"Link '...'", "Pixel formats:", "src:", "dst:"）
+            if (/^(link\s|pixel formats|src:|dst:)/i.test(body)) continue
+            return body.substring(0, maxLen)
+        }
+    }
+    // 2) 无 [error] 标记时，找含错误特征词的行（排除无信息量的尾部总结）
+    const errRe =
+        /error|invalid|failed|cannot|could not|unable|unsupported|not supported|no such|denied|corrupt|missing|out of range|exceed|truncat/i
+    const noise = /^conversion failed!?$/i
+    for (let i = 0; i < lines.length; i++) {
+        const body = strip(lines[i])
+        if (noise.test(body)) continue
+        if (errRe.test(body)) return body.substring(0, maxLen)
+    }
+    // 3) 兜底：最后一条（去掉级别前缀）
+    return strip(lines[lines.length - 1]).substring(0, maxLen)
+}
+
+/**
  * 生成FFmpeg元数据注释参数
  * @param {Object} entry - 文件对象
  * @returns {string[]} FFmpeg元数据参数数组
  */
 function getCommentArgs(entry) {
     // 将所有ffmpeg参数放到comment
-    const ffmpegArgsText = createFFmpegArgs(entry, entry.useCUDA, true)
+    const ffmpegArgsText = createFFmpegArgs(entry, entry.hwPlan || null, true)
         .flat()
         .join(" ")
         .replaceAll(/['"]/gi, " ")
@@ -1085,8 +1206,8 @@ async function prepareFFmpegCmd(entry) {
         const ivideo = newEntry.info?.video
         const iaudio = newEntry.info?.audio
         const duration = newEntry.info?.duration || ivideo?.duration || iaudio?.duration || 0
-        // 跳过过短的文件
-        if (duration < 4) {
+        // 跳过过短的文件，比如短于1秒的
+        if (duration < 1) {
             log.showYellow(
                 logTag,
                 `${ipx} Skip[Short]: ${entry.path} (${helper.humanSize(entry.size)}) Duration=${duration}s)`,
@@ -1606,13 +1727,98 @@ function calculateDstArgs(entry) {
 }
 
 /**
+ * 从 hwPlan 取层名（无 plan 时按 cpu 处理）
+ */
+function tierName(hwPlan) {
+    return hwPlan?.tier?.name || "cpu"
+}
+
+/**
+ * 依据 hwPlan 生成缩放滤镜串（S-4 方案）
+ *
+ * 关键设计：尺寸由 calcLongEdge 在脚本层预计算为**显式偶数**，
+ * 不依赖滤镜自身的保比例能力。原因（实测）：
+ *   - h=-2 在 scale_cuda/scale_qsv 上存在格式协商冲突
+ *   - force_original_aspect_ratio 在 scale_qsv / vpp_amf 上不存在
+ *   - 各滤镜参数名不统一（scale_d3d11 用 width/height）
+ *
+ * @returns {string} 如 "scale_cuda=w=1920:h=1080:interp_algo=lanczos,format=cuda"
+ */
+function buildScaleFiltersFromPlan(entry, hwPlan, tempPreset) {
+    const tier = hwPlan?.tier
+    const size = hwPlan?.size
+    // ⚠️ 无 tier 时（如日志预览阶段）不能回退到 preset.filters ——
+    // 那是 "{scaleFilter}" 占位符，会以字面量泄漏到日志/命令里。
+    // 改为用该 preset 的目标尺寸现算一份示意滤镜。
+    if (!tier) {
+        return tempPreset.filters && !/\{scaleFilter\}/.test(tempPreset.filters)
+            ? tempPreset.filters
+            : ""
+    }
+    const speed = validateSpeed(tempPreset.speed)
+    const framerate = tempPreset.framerate > 0 ? tempPreset.framerate : 0
+
+    // size 缺失时（预览阶段）用 preset.dimension 现算
+    const effectiveSize =
+        size ||
+        calcLongEdge(
+            entry.info?.video?.width || 0,
+            entry.info?.video?.height || 0,
+            tempPreset.dimension || entry.preset?.dimension || 0,
+        )
+    if (!effectiveSize || !effectiveSize.w || !effectiveSize.h) {
+        return ""
+    }
+
+    // 用 lib/hwaccel.js 的构建器生成，保证与探测命令同构
+    return buildVideoFilters({ tier, size: effectiveSize, speed, framerate })
+}
+
+/**
+ * 依据 hwPlan 生成视频编码参数块
+ *
+ * ⚠️ 必须整段替换而非只换编码器名：
+ *   nvenc 的 -rc vbr -tune hq -spatial-aq 等参数 QSV/AMF 不接受
+ * ⚠️ 质量参数不通用（实测）：
+ *   qsv 的 -cq/-global_quality 会被静默忽略，必须用 -q:v
+ *
+ * @returns {string[]|null} 参数数组；无 plan 时返回 null（保持预设原值）
+ */
+function buildVideoArgsFromPlan(entry, hwPlan, tempPreset) {
+    const tier = hwPlan?.tier
+    if (!tier) return null
+    // ⚠️ 职责划分（S-4 重构）：
+    //   tier   → 出「编码器 + 编码器专属调优」（decoder/encoder 成对，同厂商）
+    //   preset → 出「输出 codec 族 + 质量/码率」，不关心硬件实现
+    //
+    // 所以这里是两段拼接：tier 的编码器参数 + preset 的质量参数。
+    // 不能再「整段替换」，否则 preset.videoArgs 里的质量参数会被丢弃。
+    const codecFamily = codecFamilyOfPreset(tempPreset)
+    const quality = tempPreset.videoQuality || entry.preset?.videoQuality || 24
+    const bitrateK = tempPreset.videoBitrateK || undefined
+    // pixFmt 用于 10bit + qsv 的质量钳制（hevc_qsv 在 10bit 源上低 -q:v 会失效）
+    const pixFmt = entry.info?.video?.pixelFormat || ""
+    const encArgs = buildEncoderArgs(tier.name, { quality, bitrateK, codecFamily, pixFmt })
+
+    // preset.videoArgs 保留为「额外的硬件无关参数」槽位，默认空。
+    // 但若用户通过 --video-args 或旧式 preset 显式给了 -c:v，
+    // 则完全以用户值为准（返回 null 让调用方走原路径）。
+    const presetVa = tempPreset.videoArgs || ""
+    if (/-c:v/.test(presetVa)) {
+        return null
+    }
+    const extra = presetVa ? formatArgs(presetVa, tempPreset).split(" ").filter(Boolean) : []
+    return [...encArgs, ...extra]
+}
+
+/**
  * 组合各种参数，替换模板参数，输出最终的ffmpeg命令行参数
  * @param {Object} entry - 文件对象
- * @param {boolean} useCUDA - 是否使用CUDA加速
+ * @param {Object} hwPlan - resolveHwPlan 的结果（含 tier / size）
  * @param {boolean} forDisplay - 是否仅用于显示
  * @returns {Array} [inputArgs, middleArgs, outputArgs] - 输入参数、中间参数、输出参数
  */
-function createFFmpegArgs(entry, useCUDA = false, forDisplay = false) {
+function createFFmpegArgs(entry, hwPlan = null, forDisplay = false) {
     // 不要使用 entry.perset，下面复制一份针对每个entry
     const tempPreset = { ...entry.preset, ...entry.dstArgs }
 
@@ -1655,26 +1861,22 @@ function createFFmpegArgs(entry, useCUDA = false, forDisplay = false) {
     inputArgs.push("-hide_banner", "-n")
     // 是否启用调试参数
     inputArgs.push("-v", entry.argv.debug ? "repeat+level+info" : "error")
-    // 输出视频时才需要cuda加速，音频用cpu就行
+    // 输出视频时才需要硬件加速，音频用cpu就行
     if (tempPreset.type === "video") {
         // -progress - 会输出 out_time=，是进度条的数据源；
         // 音频分支此前推的是 -stats（只输出 time= 且走 stderr），
         // 解析侧只认 ^out_time=，导致所有音频转码的进度条恒为 0%。
         inputArgs.push("-progress", "-", "-nostats")
-        // 只能使用cuda缩放
-        if (useCUDA) {
-            // 使用cuda硬件解码
-            // --hwaccel 此前在 builder 中声明却零消费，实际永远写死 cuda。
-            // 这里让它真正生效；未指定时保持原有 cuda 行为。
-            const hw = entry.argv?.hwaccel || "cuda"
-            inputArgs.push("-hwaccel", hw)
-            // -hwaccel_output_format cuda 是 CUDA 专用，其它 hwaccel 不能带
-            if (hw === "cuda") {
-                inputArgs.push("-hwaccel_output_format", "cuda")
+        // 输入侧硬件加速参数由 hwPlan.tier 决定（S-4 方案分层）
+        const tier = hwPlan?.tier
+        if (tier?.hwaccel) {
+            inputArgs.push("-hwaccel", tier.hwaccel)
+            if (tier.hwFormat) {
+                inputArgs.push("-hwaccel_output_format", tier.hwFormat)
             }
         } else {
-            // 系统自动选择
-            inputArgs.push("-hwaccel", "auto")
+            // cpu 层：不加 -hwaccel，避免 ffmpeg 9 的 auto 在无硬解素材上挂死
+            // （实测 -hwaccel auto 对 ffv1 会 VK_ERROR_DEVICE_LOST 超时）
         }
     } else {
         inputArgs.push("-progress", "-", "-nostats")
@@ -1726,18 +1928,18 @@ function createFFmpegArgs(entry, useCUDA = false, forDisplay = false) {
     if (tempPreset.complexFilter?.length > 0) {
         middleArgs.push("-filter_complex")
         middleArgs.push(formatArgs(tempPreset.complexFilter, tempPreset))
-    } else if (tempPreset.filters?.length > 0) {
+    } else if (tempPreset.filters?.length > 0 || hwPlan?.size) {
         // 只有「需要缩放」或「需要改帧率」时才输出 -vf。
         //
         // 此前条件只有 entry.dstArgs.scaled：对分辨率已达标（无需缩放）的文件，
         // --fps 追加的 fps 滤镜会被整段丢弃，命令里根本没有 -vf，
         // 而日志仍显示 "fps:25=>10" —— 用户以为生效，实际产物帧率未变。
         if (entry.dstArgs.scaled || tempPreset.framerate > 0) {
-            let tempFilters = tempPreset.filters
+            let tempFilters = buildScaleFiltersFromPlan(entry, hwPlan, tempPreset)
             // 使用软解时，需要把系统内存中的帧上传给GPU
             // 但仅当滤镜链确实含 CUDA 滤镜（scale_cuda 等）时才有意义：
             // 无条件前置 hwupload_cuda 会给纯 CPU 滤镜链（scale=...）插入无效节点而直接失败
-            if (!useCUDA && /_cuda\b/.test(tempFilters)) {
+            if (tierName(hwPlan) === "cpu" && /_cuda\b/.test(tempFilters)) {
                 tempFilters = "hwupload_cuda," + tempFilters
             }
             middleArgs.push("-vf")
@@ -1745,7 +1947,11 @@ function createFFmpegArgs(entry, useCUDA = false, forDisplay = false) {
         }
     }
     // 视频参数
-    if (tempPreset.videoArgs?.length > 0) {
+    // S-4：优先用 hwPlan 生成的编码器参数块（整段替换，含正确的质量参数写法）
+    const planVideoArgs = buildVideoArgsFromPlan(entry, hwPlan, tempPreset)
+    if (planVideoArgs) {
+        middleArgs = middleArgs.concat(planVideoArgs)
+    } else if (tempPreset.videoArgs?.length > 0) {
         const va = formatArgs(tempPreset.videoArgs, tempPreset)
         middleArgs = middleArgs.concat(va.split(" "))
     }
@@ -1855,7 +2061,8 @@ function createFFmpegArgs(entry, useCUDA = false, forDisplay = false) {
  * @returns {Promise<void>}
  */
 async function executeFFmpeg(args, entry, progressBar = null) {
-    const logTag = chalk.green("FFCMD") + chalk.cyanBright(entry.useCUDA ? "[HW]" : "[SW]")
+    const logTag =
+        chalk.green("FFCMD") + chalk.cyanBright(tierName(entry.hwPlan) === "cpu" ? "[SW]" : "[HW]")
     const srcDuration = entry.dstArgs?.srcDuration || entry.info?.duration || 0
 
     // 1. 创建控制器
@@ -1948,58 +2155,70 @@ function parseTimeToSeconds(timeStr) {
 }
 
 /**
- * 检测CUDA解码器支持情况
- * 使用缓存避免对同一路径重复探测
- * @param {string} inputPath - 输入文件路径
- * @returns {Promise<boolean>} 是否支持CUDA解码
+ * 硬件加速分层决策（S-4 方案核心）
+ *
+ * 双层：
+ *   第一层 硬件检测 —— detectHardwareCapabilities()（进程内缓存，只跑一次）
+ *                     回答「这台机器有哪些可用的层」
+ *   第二层 文件探测 —— selectTier() 逐层干跑（按组合缓存）
+ *                     回答「哪个层能吃下这个文件」
+ *
+ * @param {object} entry 文件条目（需 info.video / dstArgs）
+ * @returns {Promise<object>} { tier, size, degraded, tried, reason, caps }
  */
-async function canUseCUDADecoder(inputPath) {
-    // 先检查缓存
-    if (cudaDecoderCache.has(inputPath)) {
-        return cudaDecoderCache.get(inputPath)
+async function resolveHwPlan(entry) {
+    const argv = entry.argv || {}
+    const ivideo = entry.info?.video
+    const iaudio = entry.info?.audio
+
+    // 音频文件不做视频分层，直接给 cpu 层占位
+    if (helper.isAudioFile(entry.path)) {
+        const cpuTier = TIERS.find((t) => t.name === "cpu")
+        return { tier: cpuTier, size: null, degraded: false, tried: ["cpu"], reason: "audio file" }
     }
+
+    // ---- 第一层：硬件检测（进程内缓存）----
+    const caps = await detectHardwareCapabilities({ ffmpegPath: ffmpegPath })
+
+    // 失败重试（retryOnFailed）会把 decodeMode 置为 cpu，这里必须真正生效
+    const decodeMode = entry.useCPUDecode ? DecodeMode.CPU : argv.decodeMode || DecodeMode.AUTO
+
+    // ---- 第二层：文件探测 ----
+    const srcW = ivideo?.width || 0
+    const srcH = ivideo?.height || 0
+    const pixFmt = ivideo?.pixelFormat || ""
+    const codec = ivideo?.format || ""
+    // 输出 codec 族（决定探测时用什么编码器，必须与真实命令一致）
+    const codecFamily = codecFamilyOfPreset(entry.preset)
+
+    // 尺寸由 selectTier 内部按长边规则计算（禁止放大 + 偶数对齐）
+    const dimension = entry.dstArgs?.dimension || entry.preset?.dimension || 0
+
     try {
-        // 探测命令
-        const { stderr } = await execa(
-            "ffmpeg",
-            [
-                "-v",
-                "error",
-                "-hwaccel",
-                "cuda",
-                "-hwaccel_output_format",
-                "cuda",
-                "-i",
-                inputPath,
-                "-frames:v",
-                "1",
-                "-f",
-                "null",
-                "-",
-            ],
-            {
-                // shell: true,
-                // encoding: "latin1",
-                cleanup: true,
-            },
-        )
-        // console.error("stderr", stderr)
-        let canUse = true
-        if (!stderr) {
-            canUse = true
-        } else {
-            // 只要 stderr 包含这些关键字，就判定为硬件解码无法处理
-            canUse = !(
-                stderr.includes("CUDA_ERROR_INVALID_VALUE") ||
-                stderr.includes("Failed setup for format cuda")
-            )
+        const plan = await selectTier({
+            caps,
+            ffmpegPath: ffmpegPath,
+            inputPath: entry.path,
+            srcW,
+            srcH,
+            pixFmt,
+            codec,
+            codecFamily,
+            dimension: dimension || Math.max(srcW, srcH),
+            speed: entry.dstArgs?.speed,
+            framerate: entry.dstArgs?.framerate,
+            hasAudio: !!iaudio,
+            quality: entry.dstArgs?.videoQuality || entry.preset?.videoQuality || 24,
+            decodeMode,
+            hwaccel: argv.hwaccel,
+        })
+        return { ...plan, caps, decodeMode }
+    } catch (err) {
+        // gpu 模式硬失败：直接抛出，让上层报错（符合「手动模式必须硬失败」）
+        if (decodeMode === DecodeMode.GPU) {
+            throw err
         }
-        // 缓存结果
-        cudaDecoderCache.set(inputPath, canUse)
-        return canUse
-    } catch (error) {
-        // console.error("catch error", error)
-        cudaDecoderCache.set(inputPath, false)
-        return false
+        // auto 模式下连 cpu 都失败属异常，也抛出
+        throw err
     }
 }
