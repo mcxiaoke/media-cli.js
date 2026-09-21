@@ -3,6 +3,14 @@
 > 版本基准：硬件编解码器清单、profile/level/pix_fmt 矩阵均来自本机 `F:\Temp\ffmpeg\ffmpeg-9-nonfree`（`N-126689-gb894a6f7c-2026-09-19`，libavcodec 63.14.100）的 `-encoders`、`-decoders`、`-h encoder=xxx`、`-h muxer=xxx` 实测枚举；能力演进与限制说明来自官方文档（`hwaccelintro-ffmpeg.md`、`hardware-quicksync-ffmpeg.md`、`hardware-amf-ffmpeg.md`、`support-matrix-nvidia.md`、`ffmpeg-formats.md`）。
 > **重要提示**：**硬件能力取决于具体 GPU 代际与驱动版本**。本文矩阵标注了「FFmpeg 构建支持」（本机可枚举）与「硬件实际可用」（需对应 GPU）的区别——前者是命令能否被解析，后者是能否真正编码。
 > 本文与《FFmpeg 硬件加速与质量对比指南》（`ffmpeg-guide-hwaccel.md`）互补：**那篇讲参数与流程，这篇讲兼容性与选型**。
+>
+> 📌 **本机实测数据（2026-09-21，RTX 4070 + UHD 750，master/8.1.2/7.1.1 三版本）**见
+> [FFmpeg 硬解支持矩阵与混合链实测报告](./ffmpeg-hwaccel-support-matrix-20260921.md)，要点：
+> 1. **`-hwaccel` 硬解失败会静默软解且退出码 0** → 判定不能看退出码（§8.1 有专项陷阱）；
+> 2. **位置一致性**：硬解可用就走全 GPU（0 拷贝，实测 39.1x vs 17.4x）；硬解不可用就整链留在内存 + 硬编（27.7x vs libx264 10.9x），**不要半吊子指定 `-hwaccel` 却做 CPU filter**；
+> 3. **cuda 不行 ≠ 别的也不行**：cuda 覆盖面最宽（VP8/MPEG-1/MPEG-4/MJPEG 仅 cuda 支持），替代通道补位增量≈0；反过来 cuda 失败时有 78% 概率其它通道也失败，只有 VP9（4:4:4、奇数分辨率）QSV 能救；
+> 4. **`scale_d3d11` 本机不可用**（对照文件也失败，工具链级）；d3d 层必须用 CPU `scale=`；
+> 5. **7.x 的 QSV 完全不可用**（`Error initializing an MFX session: -3`），主力应用 8.x/master。
 
 ---
 
@@ -953,6 +961,15 @@ ffmpeg -hwaccel vaapi -hwaccel_output_format vaapi -i in.mp4 \
 | **`-quality` 方向搞反** | MF 输出质量极差 | MF `-quality` **越大越好**；其他平台越小越好 |
 | **AV1 转码缺硬件帧** | AMF 报错 | 加 `-extra_hw_frames 10` |
 | **跨平台 hwmap 失败** | `Failed to map frame` | 设备必须同源（同一块卡）；否则用 hwdownload/hwupload |
+| **`-hwaccel X` 遇不支持的 profile → 静默软解** | 退出码 0，看似成功，实际全程软解（例：`-hwaccel cuda` + h264 High 10） | 硬解初始化失败**不报错**（`Failed setup for format cuda` 只在 warning/verbose 可见）。判定必须靠能力预检，或显式 `-hwaccel_output_format <hwfmt>` 让硬件帧成为硬性要求 |
+| **硬解却把帧下载回来做 CPU filter** | 比干脆软解还慢（720p→360p 实测 17.1x vs 25.1x） | 位置一致性：帧在哪解码，filter 就放哪。硬解不可用时**不要**指定 `-hwaccel`，整链留在内存 + 硬编 |
+| **软解链路里指望 `scale_cuda` 自动上传** | `Impossible to convert between the formats supported by the filter` | **不会自动插入 hwupload**：必须显式 `hwupload_cuda,` 前缀（自带设备）或 `-init_hw_device cuda=cu -filter_hw_device cu` + `hwupload`；且软解路径下 GPU scale 实测不划算（多一次上传） |
+| **`scale_cuda`/`scale_vulkan` 不给 `format=`** | 硬件编码器报 `Invalid argument` | 必须显式 `format=nv12`（8bit）/ `format=p010le`（10bit）；**不要**用 `-pix_fmt` 对接硬件帧（等价于强制下载 → 失败） |
+| **`hwdownload` 不给 `format=`** | `Invalid output format monow for hwframe download` | 显式给，且同时匹配位深与色度：420→`nv12`/`p010`/`p012`；422→`yuv422p`/`p210`；444→`yuv444p`/`yuv444p10le` |
+| **`scale_d3d11`** | `Could not create the texture (80070057)`，**对照文件同样失败** | 本机 D3D11 硬 scale 链路整体不可用（工具链级，与素材无关）→ d3d 层用 CPU `scale=`；`scale_d3d12` 可用 |
+| **`h264_nvenc` 收 10bit 输入** | `Error while opening encoder` / `Nothing was written into output file` | `-h encoder=h264_nvenc` 虽列出 `p010le`，但**实测不支持**。硬件帧链路用 scale 的**选项** `scale_cuda=w=W:h=H:format=nv12`（**0 拷贝**，位深转换在 GPU 内）；软解链路用 `-pix_fmt yuv420p` / `format=yuv420p`。注意 `,format=nv12`（逗号）是独立滤镜 → 会要求出显存而失败；`:format=cuda` 则是非法选项值。10bit 输出用 `hevc_nvenc`（可直接吃 p010） |
+| **ffmpeg 7.x 的 QSV** | `Error initializing an MFX session: -3`（连 8bit h264 也失败） | libmfx legacy 与本机 oneVPL 2.15 不兼容；7.x 上 QSV 完全不可用，主力用 8.x / master。另：7.x 无 `d3d12va`、无 `scale_d3d11/scale_d3d12/scale_vulkan`，vulkan 解 hevc 10bit 会挂死 |
+| **指望 d3d/vulkan 兜住 cuda 解不了的 codec** | qsv/d3d11va/d3d12va/vulkan 全部无法硬解 | **VP8 / MPEG-1 / MPEG-4 / MJPEG 只有 cuda（NVDEC）支持**；cuda 覆盖面最宽，d3d/vulkan 是它的子集。唯一反向例外是 VP9（QSV 更宽：支持 4:4:4 与奇数分辨率） |
 
 ### 8.2 能力探测命令
 
