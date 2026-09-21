@@ -49,14 +49,29 @@ checkNodeVersion()
 
 // 全局兜底错误捕获：此前全仓库没有注册任何 process 级处理器，
 // 未捕获异常只会打印裸堆栈且退出码不确定，CLAUDE.md 的相关描述与实现不符。
+// 这里在记录错误的同时同步落盘文件日志：异常发生时事件循环即将终止，
+// 异步 flush 可能来不及完成，必须用同步版本保证已产生的日志可见。
 process.on("uncaughtException", (error) => {
     log.showRed(`未捕获异常: ${error?.stack || error?.message || error}`)
+    log.flushFileLogSync()
     process.exitCode = 1
 })
 process.on("unhandledRejection", (reason) => {
     log.showRed(`未处理的 Promise 拒绝: ${reason?.stack || reason?.message || reason}`)
+    log.flushFileLogSync()
     process.exitCode = 1
 })
+
+// 信号中断兜底：SIGINT(Ctrl+C)/SIGTERM 直接终止进程时不会触发 'exit' 事件，
+// 若没有 handler 转换，剩余缓存日志会全部丢失。在这里先同步落盘再退出；
+// ffmpeg_run.js 的 installTempCleanupHooks 也会监听同一信号做临时文件清理，
+// 二者 handler 都会执行、互不冲突，'exit' 事件兜底仍是幂等双保险。
+for (const sig of ["SIGINT", "SIGTERM"]) {
+    process.on(sig, () => {
+        log.flushFileLogSync()
+        process.exit(130)
+    })
+}
 
 // 配置调试等级
 const configCli = (argv) => {

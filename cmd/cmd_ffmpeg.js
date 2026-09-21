@@ -446,11 +446,11 @@ async function planFFmpegTasks(argv) {
     log.logDebug(LOG_TAG, "MERGED ARGV:", mergedArgv)
     // 解析Preset，根据argv参数修改preset，返回对象
     const preset = presets.createFromArgv(mergedArgv)
-    if (!testMode) {
-        log.fileLog(`Root: ${root}`, "FFConv")
-        log.fileLog(`Argv: ${JSON.stringify(argv)}`, "FFConv")
-        log.fileLog(`Preset: ${JSON.stringify(preset)}`, "FFConv")
-    }
+    // dry-run 也全量落盘，日志行统一带 [TestMode] 前缀以示区分
+    const tmTag = testMode ? "[TestMode] " : ""
+    log.fileLog(`${tmTag}Root: ${root}`, "FFConv")
+    log.fileLog(`${tmTag}Argv: ${JSON.stringify(argv)}`, "FFConv")
+    log.fileLog(`${tmTag}Preset: ${JSON.stringify(preset)}`, "FFConv")
     // 首先找到所有的视频和音频文件
     const walkOpts = {
         withFiles: true,
@@ -640,7 +640,7 @@ async function planFFmpegTasks(argv) {
     const lastFFPlan = createFFmpegArgs(lastTask, previewPlan)
     // fileLog 签名是 (logText, logTag, logFileName)：此前把参数数组当成了 tag、
     // 把 LOG_TAG 当成了文件名，日志被写进独立的 FFConv_log_*.txt 且正文与标签颠倒。
-    !testMode && log.fileLog(`ffmpegArgs: ${flattenFFArgs(lastFFPlan.args)}`, LOG_TAG)
+    log.fileLog(`${tmTag}ffmpegArgs: ${flattenFFArgs(lastFFPlan.args)}`, LOG_TAG)
     log.info("-----------------------------------------------------------")
     log.info(LOG_TAG, chalk.cyan("PRESET:"), lastFFPlan.debugPreset)
     log.info(LOG_TAG, chalk.cyan("CMD:"), "ffmpeg", flattenFFArgs(lastFFPlan.args))
@@ -675,6 +675,7 @@ async function planFFmpegTasks(argv) {
  */
 async function runFFmpegTasks({ tasks, testMode, preset, jobs }) {
     let startMs = Date.now()
+    const tmTag = testMode ? "[TestMode] " : ""
     addEntryProps(tasks)
     await log.flushFileLog()
     const jobCount = jobs || (preset.type === "video" ? 1 : 4)
@@ -682,7 +683,14 @@ async function runFFmpegTasks({ tasks, testMode, preset, jobs }) {
     // 改用每文件一行（Processing/Done/Failed 日志已有），串行才保留进度条。
     const showBar = jobCount <= 1
     if (testMode && tasks.length > 20) {
-        tasks = core.takeEveryNth(tasks, Math.floor(tasks.length / 10))
+        const totalBefore = tasks.length
+        const step = Math.floor(tasks.length / 10)
+        tasks = core.takeEveryNth(tasks, step)
+        // dry-run 大批量任务只抽样预览约 1/10，显著提示用户避免误解为全部处理
+        log.logWarn(
+            LOG_TAG,
+            t("ffmpeg.test.sample", { total: totalBefore, count: tasks.length, step }),
+        )
     }
     const results = await pMap(tasks, (entry) => runFFmpegCmd(entry, { showBar }), {
         concurrency: jobCount,
@@ -691,10 +699,12 @@ async function runFFmpegTasks({ tasks, testMode, preset, jobs }) {
     let rOKCount = 0
     // 严格模式：跳过 CPU 降级重试（失败即失败，不允许自动降级）
     const strict = tasks[0]?.argv?.strict === true
-    if (failedTasks.length > 0 && strict) {
+    // testMode 下任务统一按 failed 收尾（见 runFFmpegCmd），但没有真正转码失败，
+    // 重试/严格跳过提示只对真实执行有意义，dry-run 一律跳过
+    if (failedTasks.length > 0 && !testMode && strict) {
         log.logWarn(LOG_TAG, t("ffmpeg.strict.retry"))
         log.fileLog(t("ffmpeg.strict.retry"), "FFConv")
-    } else if (failedTasks.length > 0) {
+    } else if (failedTasks.length > 0 && !testMode) {
         const answer = await confirmDangerousAction(
             t("ffmpeg.confirm.retry", { count: failedTasks.length }),
         )
@@ -718,27 +728,26 @@ async function runFFmpegTasks({ tasks, testMode, preset, jobs }) {
         }
     }
 
-    testMode && log.logWarn(LOG_TAG, t("common.test.mode.note"))
+    testMode && log.logWarn(LOG_TAG, t("common.test.mode.note", { count: tasks.length }))
     const okResults = results.filter((r) => r && r.ok)
     // 严格模式跳过的文件：不进失败名单（未标记 ffmpegFailed）、不重试，仅汇总提示
     const skippedResults = results.filter((r) => r && r.skipped === true)
-    // 结束汇总落盘：哪些文件失败、失败原因是什么，此前只打印到控制台
-    if (!testMode) {
-        const failedResults = results.filter((r) => r && r.ffmpegFailed && !r.ok)
-        const totalOK = okResults.length + rOKCount
-        log.fileLog(
-            `Summary: total=${tasks.length} ok=${totalOK} error=${failedResults.length}` +
-                (skippedResults.length > 0 ? ` skipped=${skippedResults.length}` : ""),
-            "FFConv",
-        )
-        for (const fr of failedResults) {
-            log.fileLog(`Fail <${fr.path}> ${fr.ffmpegError || ""}`, "FFConv")
-        }
-        for (const sk of skippedResults) {
-            log.fileLog(`Skip[Strict] <${sk.path}> ${sk.skipReason || ""}`, "FFConv")
-        }
+    // 结束汇总落盘：哪些文件失败、失败原因是什么，此前只打印到控制台。
+    // dry-run 也全量落盘，带 [TestMode] 前缀区分（此时全部任务都按 failed 收尾）
+    const failedResults = results.filter((r) => r && r.ffmpegFailed && !r.ok)
+    const totalOK = okResults.length + rOKCount
+    log.fileLog(
+        `${tmTag}Summary: total=${tasks.length} ok=${totalOK} error=${failedResults.length}` +
+            (skippedResults.length > 0 ? ` skipped=${skippedResults.length}` : ""),
+        "FFConv",
+    )
+    for (const fr of failedResults) {
+        log.fileLog(`${tmTag}Fail <${fr.path}> ${fr.ffmpegError || ""}`, "FFConv")
     }
-    if (skippedResults.length > 0 && !testMode) {
+    for (const sk of skippedResults) {
+        log.fileLog(`${tmTag}Skip[Strict] <${sk.path}> ${sk.skipReason || ""}`, "FFConv")
+    }
+    if (skippedResults.length > 0) {
         log.showYellow(LOG_TAG, t("ffmpeg.strict.skip.count", { count: skippedResults.length }))
     }
     !testMode &&
