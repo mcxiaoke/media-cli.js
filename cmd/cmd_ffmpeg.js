@@ -305,6 +305,40 @@ const builder = function addOptions(ya) {
 const handler = cmdConvert
 
 /**
+ * 加载 YAML 预设（来自 presets.yaml 或 ~/.mediac/presets.yaml）
+ *
+ * `presets.yaml` 此前是**死配置**：`package.json` 的 files 白名单把它打进 npm 包，
+ * 但 `initPresetsAsync()` 全仓库没有任何调用点，用户改了 YAML 不会有任何效果，
+ * 实际生效的只有 `ffmpeg_presets.js` 里的硬编码常量。
+ *
+ * 必须在 `presets.getPreset(argv.preset)` 之前调用，否则 YAML 中新增的预设
+ * （如 hevc_qsv2k）永远无法被 `--preset` 识别。
+ *
+ * 加载失败不阻断：内置硬编码预设已经足够，YAML 只作为覆盖/扩展层。
+ */
+let yamlPresetsLoaded = false
+async function loadYamlPresets() {
+    if (yamlPresetsLoaded) {
+        return
+    }
+    yamlPresetsLoaded = true
+    const before = presets.getAllNames().length
+    try {
+        await presets.initPresetsAsync()
+        const after = presets.getAllNames().length
+        if (after > before) {
+            log.logInfo(LOG_TAG, `YAML presets applied: ${before} => ${after} presets`)
+        }
+    } catch (error) {
+        // 用户的自定义 YAML 写坏时不应该让整个转码命令不可用
+        log.logWarn(
+            LOG_TAG,
+            `YAML presets not applied, using built-ins: ${error?.message || error}`,
+        )
+    }
+}
+
+/**
  * FFmpeg转换命令处理函数
  * 处理媒体文件的转码、压缩、格式转换等操作
  * @param {Object} argv - 命令行参数对象
@@ -347,40 +381,6 @@ const handler = cmdConvert
  * @param {boolean} argv.doit - 是否执行实际操作
  * @returns {Promise<void>}
  */
-/**
- * 加载 YAML 预设（来自 presets.yaml 或 ~/.mediac/presets.yaml）
- *
- * `presets.yaml` 此前是**死配置**：`package.json` 的 files 白名单把它打进 npm 包，
- * 但 `initPresetsAsync()` 全仓库没有任何调用点，用户改了 YAML 不会有任何效果，
- * 实际生效的只有 `ffmpeg_presets.js` 里的硬编码常量。
- *
- * 必须在 `presets.getPreset(argv.preset)` 之前调用，否则 YAML 中新增的预设
- * （如 hevc_qsv2k）永远无法被 `--preset` 识别。
- *
- * 加载失败不阻断：内置硬编码预设已经足够，YAML 只作为覆盖/扩展层。
- */
-let yamlPresetsLoaded = false
-async function loadYamlPresets() {
-    if (yamlPresetsLoaded) {
-        return
-    }
-    yamlPresetsLoaded = true
-    const before = presets.getAllNames().length
-    try {
-        await presets.initPresetsAsync()
-        const after = presets.getAllNames().length
-        if (after > before) {
-            log.logInfo(LOG_TAG, `YAML presets applied: ${before} => ${after} presets`)
-        }
-    } catch (error) {
-        // 用户的自定义 YAML 写坏时不应该让整个转码命令不可用
-        log.logWarn(
-            LOG_TAG,
-            `YAML presets not applied, using built-ins: ${error?.message || error}`,
-        )
-    }
-}
-
 async function cmdConvert(argv) {
     const plan = await planFFmpegTasks(argv)
     if (!plan) return
@@ -625,13 +625,13 @@ async function planFFmpegTasks(argv) {
         tier: TIERS.find((t) => t.name === "cpu"),
         size: null,
     }
-    const lastFFArgs = createFFmpegArgs(lastTask, previewPlan, false)
+    const lastFFPlan = createFFmpegArgs(lastTask, previewPlan, false)
     // fileLog 签名是 (logText, logTag, logFileName)：此前把参数数组当成了 tag、
     // 把 LOG_TAG 当成了文件名，日志被写进独立的 FFConv_log_*.txt 且正文与标签颠倒。
-    !testMode && log.fileLog(`ffmpegArgs: ${lastFFArgs?.flat().join(" ")}`, LOG_TAG)
+    !testMode && log.fileLog(`ffmpegArgs: ${lastFFPlan.args?.flat().join(" ")}`, LOG_TAG)
     log.info("-----------------------------------------------------------")
-    log.info(LOG_TAG, chalk.cyan("PRESET:"), lastTask.debugPreset)
-    log.info(LOG_TAG, chalk.cyan("CMD:"), "ffmpeg", lastFFArgs?.flat().join(" "))
+    log.info(LOG_TAG, chalk.cyan("PRESET:"), lastFFPlan.debugPreset)
+    log.info(LOG_TAG, chalk.cyan("CMD:"), "ffmpeg", lastFFPlan.args?.flat().join(" "))
     // 注意运算符优先级：`acc + t.info?.duration || 0` 会因 + 高于 || 而
     // 在任一条 duration 缺失时把整个累计值清零，必须显式括号。
     // 取数口径与运行时进度条一致：dstArgs.srcDuration 是 calculateDstArgs 算出的
@@ -825,7 +825,7 @@ async function runFFmpegCmd(entry, { showBar = true } = {}) {
         const hwPlan = await resolveHwPlan(entry)
         entry.hwPlan = hwPlan
         entry.useCUDA = hwPlan.tier.name === "cuda"
-        entry.ffmpegArgs = createFFmpegArgs(entry, hwPlan, false)
+        entry.ffmpegArgs = createFFmpegArgs(entry, hwPlan, false).args
         // ⚠️ 分层决策与真实命令必须落盘：此前只在控制台输出，日志里无法判断
         // 「某个文件走了哪一层、实际执行了什么命令」，排查困难（曾发生）。
         log.fileLog(
@@ -963,7 +963,7 @@ async function runFFmpegCmd(entry, { showBar = true } = {}) {
             helper.humanSize(entry.size),
         )
         log.fileLog(
-            `${ipx} Failed <${entry.path}> [${entry.dstAudioBitrate || entry.preset.name}]`,
+            `${ipx} Failed <${entry.path}> [${entry.dstArgs?.dstAudioBitrate || entry.preset.name}]`,
             "FFCMD",
         )
     } catch (error) {
@@ -1044,29 +1044,22 @@ function extractFFmpegError(error, maxLen = 200) {
 
 /**
  * 生成FFmpeg元数据注释参数
+ *
+ * comment 写入实际转码完整命令行，保证可从元数据精确追溯真实参数。
+ * 基于 prepare 阶段已定稿的 entry.ffmpegArgs（三段数组）拼接，
+ * createFFmpegArgs 为纯函数，固定输出同一命令，不会因调用时机不同导致不一致。
  * @param {Object} entry - 文件对象
  * @returns {string[]} FFmpeg元数据参数数组
  */
 function getCommentArgs(entry) {
-    // 元数据 comment 写入精简摘要：预设名、类型、硬件分层与源时长。
-    // 此前这里嵌套调用 createFFmpegArgs 生成整条命令塞进 comment，既臃肿
-    // 又会在转码阶段把 entry.debugArgs/debugPreset 覆盖成展示模式（input.mkv），
-    // 现在只保留可读摘要，命令主体参数不受影响。
-    const parts = []
-    if (entry.preset?.name) {
-        parts.push(`preset=${entry.preset.name}`)
+    const MAX_COMMENT_LEN = 1000
+    const command = entry.ffmpegArgs?.flat()?.join(" ")
+    if (!command) {
+        return ["-metadata", "comment=mediac"]
     }
-    if (entry.preset?.type) {
-        parts.push(`type=${entry.preset.type}`)
-    }
-    if (entry.hwPlan?.tier?.name) {
-        parts.push(`tier=${entry.hwPlan.tier.name}`)
-    }
-    const srcDuration = entry.dstArgs?.srcDuration || entry.info?.duration || 0
-    if (srcDuration > 0) {
-        parts.push(`src=${helper.humanSeconds(srcDuration)}`)
-    }
-    const commentText = parts.length > 0 ? parts.join(" ").replaceAll(/['"]/gi, " ") : "mediac"
+    // 引号清洗：避免 comment 值内的引号破坏 -metadata 参数形态
+    const clean = command.replaceAll(/['"]/gi, " ")
+    const commentText = `mediac ${clean}`.substring(0, MAX_COMMENT_LEN)
     return ["-metadata", `comment=${commentText}`]
 }
 
@@ -1184,10 +1177,9 @@ async function prepareFFmpegCmd(entry) {
             entry.tags = meta?.tags
             // 如果ffprobe或music-metadata获取的数据中有比特率数据
             log.info(entry.name, preset.name)
-            if (entry.format?.bitrate || entry.info?.audio.bitrate || entry.info?.bitrate) {
-                // 可以读取码率，文件未损坏
-            } else {
-                // 如果无法获取元数据，认为不是合法的音频或视频文件，忽略
+            // 如果无法获取任何比特率信息，认为不是合法的音频文件，忽略
+            // （注意 audio 流可能缺失，需使用 ?. 避免 TypeError，原写法会抛异常）
+            if (!(entry.format?.bitrate || entry.info?.audio?.bitrate || entry.info?.bitrate)) {
                 log.showYellow(
                     logTag,
                     `${ipx} Skip[Invalid]: ${entry.path} (${helper.humanSize(entry.size)})`,
@@ -1591,7 +1583,9 @@ const bitrateMap = [
  */
 function minNoZero(...numbers) {
     const fNumbers = numbers.filter((n) => n > 0)
-    return Math.min(...fNumbers)
+    // 无正数时返回 0，避免 Math.min(...[]) 产生 Infinity，
+    // 否则会经 dstAudioBitrate/dstVideoBitrate 扩散成 "InfinityK" 文件名与 NaN 比例
+    return fNumbers.length > 0 ? Math.min(...fNumbers) : 0
 }
 
 /**
@@ -1793,9 +1787,9 @@ function calculateDstArgs(entry) {
         dstWidth,
         dstHeight,
         dstSpeed,
-        // 码率智能缩放
-        audioBitScale: core.roundNum(dstAudioBitrate / srcAudioBitrate),
-        videoBitScale: core.roundNum(dstVideoBitrate / srcVideoBitrate),
+        // 码率智能缩放（源码率缺失时为 0，避免 Infinity/NaN 进模板变量）
+        audioBitScale: srcAudioBitrate > 0 ? core.roundNum(dstAudioBitrate / srcAudioBitrate) : 0,
+        videoBitScale: srcVideoBitrate > 0 ? core.roundNum(dstVideoBitrate / srcVideoBitrate) : 0,
         // 会覆盖preset的同名预设值
         // videoBitrate: dstVideoBitrate,
         videoBitrateK: `${Math.round(dstVideoBitrate / 1000)}K`,
@@ -1899,23 +1893,21 @@ function buildVideoArgsFromPlan(entry, hwPlan, tempPreset) {
 }
 
 /**
- * 组合各种参数，替换模板参数，输出最终的ffmpeg命令行参数
+ * 纯函数：组合各种参数，替换模板参数，输出最终的ffmpeg命令行参数
+ * 不修改任何外部状态（不再写 entry.debugArgs/debugPreset，调试信息随返回值携带）
  * @param {Object} entry - 文件对象
  * @param {Object} hwPlan - resolveHwPlan 的结果（含 tier / size）
  * @param {boolean} forDisplay - 是否仅用于显示
- * @returns {Array} [inputArgs, middleArgs, outputArgs] - 输入参数、中间参数、输出参数
+ * @returns {{ args: Array, debugPreset: Object }} - args 为
+ *   [inputArgs, middleArgs, outputArgs]（输入、中间、输出参数），
+ *   debugPreset 为格式化后的预设对象（仅用于展示）
  */
 function createFFmpegArgs(entry, hwPlan = null, forDisplay = false) {
     // 不要使用 entry.perset，下面复制一份针对每个entry
     const tempPreset = { ...entry.preset, ...entry.dstArgs }
 
-    log.info(">>>>", entry.name)
-    log.info(tempPreset)
-
     // 是否需要添加fps filter（原地修改 tempPreset.filters）
     prepareFramerateFilter(tempPreset)
-
-    log.info("createFFmpegArgs", "tempPreset", entry.name, tempPreset)
 
     // 输入参数部分，在 -i input 前面
     const inputArgs = buildInputArgs(entry, tempPreset, hwPlan, forDisplay)
@@ -1933,12 +1925,11 @@ function createFFmpegArgs(entry, hwPlan = null, forDisplay = false) {
     // 显示数据时用最终路径，实际使用时用临时文件路径
     const outputArgs = [forDisplay ? "output.mp4" : entry.fileDstTemp]
 
-    // 仅用于展示
-    entry.debugPreset = core.formatObjectArgs(tempPreset, tempPreset)
-    entry.debugArgs = [...inputArgs, ...middleArgs, ...outputArgs]
-
-    // 返回三种参数，方便后面组合保存ffmpeg参数到元数据
-    return [inputArgs, middleArgs, outputArgs]
+    // 调试信息仅随返回值携带，不再写入 entry，调用方按需取用
+    return {
+        args: [inputArgs, middleArgs, outputArgs],
+        debugPreset: core.formatObjectArgs(tempPreset, tempPreset),
+    }
 }
 
 /**
@@ -2301,12 +2292,19 @@ function parseTimeToSeconds(timeStr) {
     // 1. "00:00:04.633333" (out_time, 有6位小数)
     // 2. "00:04:36.30" (time, 有2位小数)
     // 3. "00:04:36" (无小数)
+    if (!timeStr) return 0
     const parts = timeStr.split(":")
     if (parts.length === 3) {
         const [hours, minutes, seconds] = parts
         // 只取小数点前两位，忽略微秒
         const secondsNum = parseFloat(seconds)
-        return parseFloat(hours) * 3600 + parseFloat(minutes) * 60 + secondsNum
+        // out_time=N/A 或时间字段含非数字时 parseFloat 返回 NaN，
+        // 不能让它传播到进度条 update(NaN)
+        if (!Number.isFinite(secondsNum)) return 0
+        const hoursNum = parseFloat(hours)
+        const minutesNum = parseFloat(minutes)
+        if (!Number.isFinite(hoursNum) || !Number.isFinite(minutesNum)) return 0
+        return hoursNum * 3600 + minutesNum * 60 + secondsNum
     }
     return 0
 }
