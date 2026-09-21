@@ -38,6 +38,38 @@ import { detectHardwareCapabilities } from "../lib/hwdetect.js"
 // 命令内容执行
 // ===========================================
 
+/**
+ * 加载 YAML 预设（分层：包内 presets/default.yaml → ~/.mediac/presets.yaml → cwd/presets.yaml）
+ *
+ * P0-2 修复：本函数在模块顶层 await 执行（见下方调用），保证 yargs builder 的
+ * `choices: presets.getAllNames()` 求值时已包含全部 YAML 预设。函数幂等：
+ * 模块顶层调用后，plan 阶段再次调用直接返回。
+ *
+ * 预设唯一源就是 YAML：包内 presets/default.yaml 随包发布（内置层，总是存在）；
+ * 用户层 ~/.mediac 与 cwd 仅作覆盖/新增层。加载失败（如用户文件写坏）只影响
+ * 对应层，default.yaml 层仍可用，不阻断命令。
+ */
+let yamlPresetsLoaded = false
+async function loadYamlPresets() {
+    if (yamlPresetsLoaded) {
+        return
+    }
+    yamlPresetsLoaded = true
+    try {
+        await presets.initPresetsAsync()
+        const total = presets.getAllNames().length
+        log.logInfo(LOG_TAG, `FFmpeg presets loaded: ${total} from YAML layers`)
+    } catch (error) {
+        // 用户的自定义 YAML 写坏时不应该让整个转码命令不可用
+        log.logWarn(LOG_TAG, `YAML presets load failed: ${error?.message || error}`)
+    }
+}
+
+// 必须在 builder 求值前完成：`--preset` 的 `choices: presets.getAllNames()` 在 yargs
+// parse 时同步求值，若此时 YAML 预设未加载，YAML 新增的预设名会被 choices 校验直接
+// 拒绝（P0-2）。ESM 顶层 await + index.js 的 `await import()` 保证命令注册前预设已就绪。
+await loadYamlPresets()
+
 export { aliases, builder, command, describe, handler }
 // directories 表示额外输入文件，用于支持多个目录
 const command = "ffmpeg <input>"
@@ -185,6 +217,12 @@ const builder = function addOptions(ya) {
                 default: false,
                 describe: t("ffmpeg.video.copy"),
             })
+            // 显式指定视频编码器（穿透硬件分层矩阵，如 h264_nvenc / libx264 / copy）
+            .option("video-codec", {
+                alias: "vc",
+                type: "string",
+                describe: t("ffmpeg.video.codec"),
+            })
             // 视频选项，指定视频质量参数
             .option("video-quality", {
                 alias: "vq",
@@ -299,40 +337,6 @@ const builder = function addOptions(ya) {
 }
 
 const handler = cmdConvert
-
-/**
- * 加载 YAML 预设（来自 presets.yaml 或 ~/.mediac/presets.yaml）
- *
- * `presets.yaml` 此前是**死配置**：`package.json` 的 files 白名单把它打进 npm 包，
- * 但 `initPresetsAsync()` 全仓库没有任何调用点，用户改了 YAML 不会有任何效果，
- * 实际生效的只有 `ffmpeg_presets.js` 里的硬编码常量。
- *
- * 必须在 `presets.getPreset(argv.preset)` 之前调用，否则 YAML 中新增的预设
- * （如 hevc_qsv2k）永远无法被 `--preset` 识别。
- *
- * 加载失败不阻断：内置硬编码预设已经足够，YAML 只作为覆盖/扩展层。
- */
-let yamlPresetsLoaded = false
-async function loadYamlPresets() {
-    if (yamlPresetsLoaded) {
-        return
-    }
-    yamlPresetsLoaded = true
-    const before = presets.getAllNames().length
-    try {
-        await presets.initPresetsAsync()
-        const after = presets.getAllNames().length
-        if (after > before) {
-            log.logInfo(LOG_TAG, `YAML presets applied: ${before} => ${after} presets`)
-        }
-    } catch (error) {
-        // 用户的自定义 YAML 写坏时不应该让整个转码命令不可用
-        log.logWarn(
-            LOG_TAG,
-            `YAML presets not applied, using built-ins: ${error?.message || error}`,
-        )
-    }
-}
 
 /**
  * FFmpeg转换命令处理函数

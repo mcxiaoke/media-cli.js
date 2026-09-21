@@ -21,7 +21,8 @@
         "lib",
         "cmd",
         "assets",
-        "presets.yaml"
+        "presets",
+        "presets.example.yaml"
     ],
     "bin": {
         "mediac": "./index.js"
