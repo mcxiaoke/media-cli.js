@@ -560,6 +560,18 @@ const builder = function addOptions(ya) {
 
 const handler = cmdRemove
 async function cmdRemove(argv) {
+    const plan = await planRemoveTasks(argv)
+    if (!plan) return
+    await runRemoveTasks(plan)
+}
+
+/**
+ * 计划阶段：扫描文件、解析条件、收集任务并确认。返回计划对象供 runRemoveTasks 执行；
+ * 取消确认或无需处理时返回 null（调用方直接结束）。
+ * @param {Object} argv - yargs 解析后的命令行参数
+ * @returns {Promise<{tasks: Object[], conditions: Object, testMode: boolean, type: string, errorStats: Object, operationLog: Object[]}|null>}
+ */
+async function planRemoveTasks(argv) {
     // 初始化全局自动确认开关（--auto-confirm / -A / MEDIAC_AUTO_CONFIRM）
     initAutoConfirm(argv)
     log.logInfo(LOG_TAG, argv)
@@ -645,11 +657,11 @@ async function cmdRemove(argv) {
                 cNames = new Set(dirFiles.map((x) => path.parse(x).name.trim()))
             } else {
                 log.logError(LOG_TAG, `invalid arguments: list file invalid 1`)
-                return
+                return null
             }
         } catch (error) {
             log.logError(LOG_TAG, `invalid arguments: list file invalid 2`)
-            return
+            return null
         }
     }
 
@@ -836,7 +848,7 @@ async function cmdRemove(argv) {
     if (tasks.length === 0) {
         log.logInfo(LOG_TAG, conditions)
         log.logWarn(LOG_TAG, t("remove.nothing.to.do"))
-        return
+        return null
     }
     log.logWarn(LOG_TAG, t("remove.files.to.remove", { count: tasks.length, type: type }))
     log.logWarn(LOG_TAG, conditions)
@@ -860,9 +872,16 @@ async function cmdRemove(argv) {
 
     if (!answer) {
         log.logWarn(LOG_TAG, t("operation.cancelled"))
-        return
+        return null
     }
+    return { tasks, conditions, testMode, type, errorStats, operationLog }
+}
 
+/**
+ * 执行阶段：删除/移动文件、进度与汇总输出、操作日志落盘。
+ * @param {{tasks: Object[], conditions: Object, testMode: boolean, type: string, errorStats: Object, operationLog: Object[]}} plan - planRemoveTasks 的产出
+ */
+async function runRemoveTasks({ tasks, conditions, testMode, type, errorStats, operationLog }) {
     const startMs = Date.now()
     log.logSuccess(LOG_TAG, "task startAt", dayjs().format())
     let removedCount = 0
@@ -902,12 +921,9 @@ async function cmdRemove(argv) {
                     })
 
                     await fs.remove(task.src)
-                    log.logTask(
-                        LOG_TAG,
-                        ++index,
-                        tasks.length,
-                        `${t("operation.delete")} ${shortPath} ${helper.humanSize(task.size)} ${flag}`,
-                    )
+                    // 逐文件日志只落 fileLog/operationLog，控制台统一由进度条呈现
+                    // （避免与 SingleBar 渲染交替导致混写）
+                    ++index
                     log.fileLog(
                         `${t("operation.delete")}: ${task.index} <${task.src}> ${helper.humanSize(task.size)} ${flag}`,
                         LOG_TAG,
@@ -932,12 +948,8 @@ async function cmdRemove(argv) {
                         timestamp,
                         flag,
                     })
-                    log.logTask(
-                        LOG_TAG,
-                        ++index,
-                        tasks.length,
-                        `${t("operation.move")} ${shortPath} ${helper.humanSize(task.size)} ${flag}`,
-                    )
+                    // 逐文件日志只落 fileLog/operationLog，控制台统一由进度条呈现
+                    ++index
                     log.fileLog(
                         `${t("operation.move")}: ${task.index} <${task.src}> ${helper.humanSize(task.size)} ${flag}`,
                         LOG_TAG,
@@ -957,12 +969,8 @@ async function cmdRemove(argv) {
                         timestamp,
                         flag,
                     })
-                    log.logTask(
-                        LOG_TAG,
-                        ++index,
-                        tasks.length,
-                        `${t("operation.move")} ${shortPath} ${helper.humanSize(task.size)} ${flag}`,
-                    )
+                    // 逐文件日志只落 fileLog/operationLog，控制台统一由进度条呈现
+                    ++index
                     log.fileLog(
                         `${t("operation.move")}: ${task.index} <${task.src}> ${helper.humanSize(task.size)} ${flag}`,
                         LOG_TAG,
