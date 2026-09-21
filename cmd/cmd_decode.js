@@ -20,7 +20,19 @@ import { t } from "../lib/i18n.js"
 import config from "../lib/config.js"
 
 // 从配置文件获取默认编码列表
-const DEFAULT_ENCODING_LIST = config.ENCODING?.DEFAULT_FROM_ENCODINGS || ["ISO-8859-1", "ISO-8859-2", "UTF8", "UTF-16", "UTF-32", "GBK", "BIG5", "SHIFT_JIS", "EUC-JP", "EUC-KR", "CP949"]
+const DEFAULT_ENCODING_LIST = config.ENCODING?.DEFAULT_FROM_ENCODINGS || [
+    "ISO-8859-1",
+    "ISO-8859-2",
+    "UTF8",
+    "UTF-16",
+    "UTF-32",
+    "GBK",
+    "BIG5",
+    "SHIFT_JIS",
+    "EUC-JP",
+    "EUC-KR",
+    "CP949",
+]
 
 export { aliases, builder, command, describe, handler }
 const command = "decode [strings...]"
@@ -28,56 +40,69 @@ const aliases = ["dc"]
 const describe = t("decode.description")
 
 const builder = function addOptions(ya) {
-    return (
-        ya
-            .positional("strings", {
-                describe: t("decode.positional.strings"),
-                type: "string",
-                required: false,
-            })
-            .option("from-enc", {
-                alias: "f",
-                type: "choices",
-                choices: ["utf8", "utf-16", "utf-32", "gbk", "shift_jis", "big5", "euc-kr", "iso-8859-1", "iso-8859-2", "euc-jp", "cp949"],
-                describe: t("decode.option.fromEnc"),
-                default: undefined,
-            })
-            .option("to-enc", {
-                alias: "t",
-                type: "choices",
-                choices: ["utf8", "utf-16", "utf-32", "gbk", "shift_jis", "big5", "euc-kr", "iso-8859-1", "iso-8859-2", "euc-jp", "cp949"],
-                describe: t("decode.option.toEnc"),
-                default: undefined,
-            })
-            .option("files", {
-                alias: "i",
-                type: "array",
-                describe: t("decode.option.files"),
-                default: [],
-            })
-            .option("recursive", {
-                alias: "r",
-                type: "boolean",
-                describe: t("decode.option.recursive"),
-                default: false,
-            })
-            .example(
-                "mediac decode 乱码字符串",
-                t("decode.example.decode.string")
-            )
-            .example(
-                "mediac decode --files *.txt",
-                t("decode.example.decode.files")
-            )
-            .example(
-                "mediac decode --files **/*.txt --recursive",
-                t("decode.example.decode.recursive")
-            )
-            .example(
-                "mediac decode --from-enc gbk --to-enc utf8 乱码字符串",
-                t("decode.example.decode.from.gbk")
-            )
-    )
+    return ya
+        .positional("strings", {
+            describe: t("decode.positional.strings"),
+            type: "string",
+            required: false,
+        })
+        .option("from-enc", {
+            alias: "f",
+            type: "choices",
+            choices: [
+                "utf8",
+                "utf-16",
+                "utf-32",
+                "gbk",
+                "shift_jis",
+                "big5",
+                "euc-kr",
+                "iso-8859-1",
+                "iso-8859-2",
+                "euc-jp",
+                "cp949",
+            ],
+            describe: t("decode.option.fromEnc"),
+            default: undefined,
+        })
+        .option("to-enc", {
+            alias: "t",
+            type: "choices",
+            choices: [
+                "utf8",
+                "utf-16",
+                "utf-32",
+                "gbk",
+                "shift_jis",
+                "big5",
+                "euc-kr",
+                "iso-8859-1",
+                "iso-8859-2",
+                "euc-jp",
+                "cp949",
+            ],
+            describe: t("decode.option.toEnc"),
+            default: undefined,
+        })
+        .option("files", {
+            alias: "i",
+            type: "array",
+            describe: t("decode.option.files"),
+            default: [],
+        })
+        .option("recursive", {
+            alias: "r",
+            type: "boolean",
+            describe: t("decode.option.recursive"),
+            default: false,
+        })
+        .example("mediac decode 乱码字符串", t("decode.example.decode.string"))
+        .example("mediac decode --files *.txt", t("decode.example.decode.files"))
+        .example("mediac decode --files **/*.txt --recursive", t("decode.example.decode.recursive"))
+        .example(
+            "mediac decode --from-enc gbk --to-enc utf8 乱码字符串",
+            t("decode.example.decode.from.gbk"),
+        )
 }
 
 /**
@@ -103,20 +128,27 @@ const handler = async function cmdDecode(argv) {
     }
 
     const fromEnc = argv.fromEnc?.length > 0 ? [argv.fromEnc] : DEFAULT_ENCODING_LIST
-    const toEnc = argv.toEnc?.length > 0 ? [argv.toEnc] : (config.ENCODING?.DEFAULT_TO_ENCODINGS || DEFAULT_ENCODING_LIST)
-    const threhold = log.isVerbose() ? 0 : (config.ENCODING?.DEFAULT_THRESHOLD || 50)
+    const toEnc =
+        argv.toEnc?.length > 0
+            ? [argv.toEnc]
+            : config.ENCODING?.DEFAULT_TO_ENCODINGS || DEFAULT_ENCODING_LIST
+    const threhold = log.isVerbose() ? 0 : config.ENCODING?.DEFAULT_THRESHOLD || 50
     log.show(logTag, `fromEnc:`, JSON.stringify(fromEnc))
     log.show(logTag, `toEnc:`, JSON.stringify(toEnc))
 
     if (strArgs.length > 0) {
-        await pMap(strArgs, async (str) => {
-            log.show(chalk.yellow(logTag), chalk.cyan(t("decode.tryDecoding") + ":"), [str])
-            const results = decodeText(str, fromEnc, toEnc, threhold)
-            results.forEach(showResults)
-            log.show(chalk.green(t("decode.input") + ":"), [str, str.length])
-            log.show(chalk.green(t("decode.output") + ":"), results.pop())
-            log.show()
-        }, { concurrency: config.ENCODING?.CONCURRENCY || 4 })
+        await pMap(
+            strArgs,
+            async (str) => {
+                log.show(chalk.yellow(logTag), chalk.cyan(t("decode.tryDecoding") + ":"), [str])
+                const results = decodeText(str, fromEnc, toEnc, threhold)
+                results.forEach(showResults)
+                log.show(chalk.green(t("decode.input") + ":"), [str, str.length])
+                log.show(chalk.green(t("decode.output") + ":"), results.pop())
+                log.show()
+            },
+            { concurrency: config.ENCODING?.CONCURRENCY || 4 },
+        )
     }
 
     if (files.length > 0) {
@@ -150,7 +182,7 @@ async function processFiles(files, recursive, fromEnc, toEnc, threhold) {
             continue
         }
 
-        const filesToProcess = matchedFiles.filter(filePath => {
+        const filesToProcess = matchedFiles.filter((filePath) => {
             try {
                 const stats = fs.statSync(filePath)
                 return stats.isFile()
@@ -161,54 +193,91 @@ async function processFiles(files, recursive, fromEnc, toEnc, threhold) {
 
         const totalFiles = filesToProcess.length
         if (totalFiles === 0) {
-            log.info(chalk.yellow(logTag), chalk.cyan(t("decode.no.files.found") + ":"), chalk.green(filePattern))
+            log.info(
+                chalk.yellow(logTag),
+                chalk.cyan(t("decode.no.files.found") + ":"),
+                chalk.green(filePattern),
+            )
             continue
         }
 
-        log.info(chalk.yellow(logTag), chalk.cyan(t("decode.found.files", { count: totalFiles }) + ":"), chalk.green(filePattern))
+        log.info(
+            chalk.yellow(logTag),
+            chalk.cyan(t("decode.found.files", { count: totalFiles }) + ":"),
+            chalk.green(filePattern),
+        )
 
         const progressBar = new cliProgress.SingleBar({
-            format: chalk.cyan(t("decode.processing.files")) + ' [{bar}] ' + chalk.green('{percentage}%') + ' | ETA: ' + chalk.yellow('{eta}s') + ' | ' + chalk.blue('{value}/{total} ' + t("decode.file")),
-            barCompleteChar: '█',
-            barIncompleteChar: '░',
-            hideCursor: true
+            format:
+                chalk.cyan(t("decode.processing.files")) +
+                " [{bar}] " +
+                chalk.green("{percentage}%") +
+                " | ETA: " +
+                chalk.yellow("{eta}s") +
+                " | " +
+                chalk.blue("{value}/{total} " + t("decode.file")),
+            barCompleteChar: "█",
+            barIncompleteChar: "░",
+            hideCursor: true,
         })
 
         progressBar.start(totalFiles, 0)
 
         let processedFiles = 0
 
-        await pMap(filesToProcess, async (filePath) => {
-            try {
-                log.show(chalk.yellow(logTag), chalk.cyan(t("decode.processing.file") + ":"), chalk.green(filePath))
+        await pMap(
+            filesToProcess,
+            async (filePath) => {
+                try {
+                    log.show(
+                        chalk.yellow(logTag),
+                        chalk.cyan(t("decode.processing.file") + ":"),
+                        chalk.green(filePath),
+                    )
 
-                // 乱码文件不能用 UTF-8 读取：那会在读入阶段就把字节替换为
-                // U+FFFD，导致后续检测判定"无乱码"或输出仍是乱码。
-                // 改为按 latin1（binary）读取，完整保留原始字节，
-                // 交由 decodeText 做编码猜测与转换。
-                const rawBuffer = fs.readFileSync(filePath)
-                const fileContent = rawBuffer.toString("latin1")
+                    // 乱码文件不能用 UTF-8 读取：那会在读入阶段就把字节替换为
+                    // U+FFFD，导致后续检测判定"无乱码"或输出仍是乱码。
+                    // 改为按 latin1（binary）读取，完整保留原始字节，
+                    // 交由 decodeText 做编码猜测与转换。
+                    const rawBuffer = fs.readFileSync(filePath)
+                    const fileContent = rawBuffer.toString("latin1")
 
-                const results = decodeText(fileContent, fromEnc, toEnc, threhold)
+                    const results = decodeText(fileContent, fromEnc, toEnc, threhold)
 
-                log.show(chalk.yellow(logTag), chalk.cyan(t("decode.file.content.length") + ":"), chalk.green(fileContent.length))
-                results.forEach(showResults)
+                    log.show(
+                        chalk.yellow(logTag),
+                        chalk.cyan(t("decode.file.content.length") + ":"),
+                        chalk.green(fileContent.length),
+                    )
+                    results.forEach(showResults)
 
-                const bestResult = results.pop()
-                log.show(chalk.green(t("decode.file") + ":"), chalk.green(filePath))
-                log.show(chalk.green(t("decode.output") + ":"), bestResult)
-                log.show()
-
-            } catch (error) {
-                log.error(chalk.red(logTag), chalk.red(t("decode.error.file", { path: filePath })), chalk.red(error.message))
-            } finally {
-                processedFiles++
-                progressBar.update(processedFiles)
-            }
-        }, { concurrency: config.ENCODING?.CONCURRENCY || 4 })
+                    const bestResult = results.pop()
+                    log.show(chalk.green(t("decode.file") + ":"), chalk.green(filePath))
+                    log.show(chalk.green(t("decode.output") + ":"), bestResult)
+                    log.show()
+                } catch (error) {
+                    log.error(
+                        chalk.red(logTag),
+                        chalk.red(t("decode.error.file", { path: filePath })),
+                        chalk.red(error.message),
+                    )
+                } finally {
+                    processedFiles++
+                    progressBar.update(processedFiles)
+                }
+            },
+            { concurrency: config.ENCODING?.CONCURRENCY || 4 },
+        )
 
         progressBar.stop()
-        log.info(chalk.yellow(logTag), chalk.cyan(t("decode.processed.out.of", { processed: processedFiles, total: totalFiles }) + ":"), chalk.green(filePattern))
+        log.info(
+            chalk.yellow(logTag),
+            chalk.cyan(
+                t("decode.processed.out.of", { processed: processedFiles, total: totalFiles }) +
+                    ":",
+            ),
+            chalk.green(filePattern),
+        )
     }
 }
 
@@ -224,7 +293,12 @@ async function processFiles(files, recursive, fromEnc, toEnc, threhold) {
  * 该函数调用 enc.tryDecodeText 获取解码结果，然后反转数组顺序，
  * 使质量最高的解码结果排在前面，方便后续处理和显示。
  */
-function decodeText(str, fromEnc = DEFAULT_ENCODING_LIST, toEnc = DEFAULT_ENCODING_LIST, threhold = 50) {
+function decodeText(
+    str,
+    fromEnc = DEFAULT_ENCODING_LIST,
+    toEnc = DEFAULT_ENCODING_LIST,
+    threhold = 50,
+) {
     // 调用核心解码函数获取解码结果
     let results = enc.tryDecodeText(str, fromEnc, toEnc, threhold)
     // 反转结果数组，使质量最高的结果排在前面
@@ -253,5 +327,6 @@ function showResults(r) {
     cr = cr.filter((ct) => ct.confidence >= 70)
     cr?.length > 0 && print(t("decode.encoding"), chalk.green(JSON.stringify(cr)))
     const badUnicode = enc.checkBadUnicode(str, true)
-    badUnicode?.length > 0 && log.show(chalk.red(t("decode.badUnicode") + ":"), chalk.red(JSON.stringify(badUnicode)))
+    badUnicode?.length > 0 &&
+        log.show(chalk.red(t("decode.badUnicode") + ":"), chalk.red(JSON.stringify(badUnicode)))
 }

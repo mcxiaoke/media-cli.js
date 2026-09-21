@@ -226,7 +226,12 @@ async function findValidFileListCache(outputDir, rootPath) {
                 const data = await fs.readJson(cachePath)
                 if (isFileListCacheValid(data) && Array.isArray(data.files)) {
                     const cacheRoot = data.root || ""
-                    if (cacheRoot && rootPath && !cacheRoot.includes(rootPath) && !rootPath.includes(cacheRoot)) {
+                    if (
+                        cacheRoot &&
+                        rootPath &&
+                        !cacheRoot.includes(rootPath) &&
+                        !rootPath.includes(cacheRoot)
+                    ) {
                         continue
                     }
                     return { path: cachePath, data, fileCount: data.files.length }
@@ -262,7 +267,7 @@ export async function cmdPick(argv) {
         if (!(await fs.pathExists(argv.fileList))) {
             throw new MediaCliError(
                 ErrorTypes.FILE_NOT_FOUND,
-                t("pick.file.list.not.found", { path: argv.fileList })
+                t("pick.file.list.not.found", { path: argv.fileList }),
             )
         }
         const fileListExt = helper.pathExt(argv.fileList, true)
@@ -278,14 +283,14 @@ export async function cmdPick(argv) {
                         if (!item.path || typeof item.size === "undefined") {
                             throw new MediaCliError(
                                 ErrorTypes.INVALID_JSON_INPUT,
-                                t("pick.json.missing.field", { item: JSON.stringify(item) })
+                                t("pick.json.missing.field", { item: JSON.stringify(item) }),
                             )
                         }
                     }
                 } else {
                     throw new MediaCliError(
                         ErrorTypes.INVALID_JSON_INPUT,
-                        t("pick.json.must.be.array")
+                        t("pick.json.must.be.array"),
                     )
                 }
             } catch (e) {
@@ -295,7 +300,7 @@ export async function cmdPick(argv) {
                 throw new MediaCliError(
                     ErrorTypes.INVALID_JSON_INPUT,
                     t("pick.json.parse.failed", { error: e.message }),
-                    e
+                    e,
                 )
             }
         } else if (fileListExt === ".txt") {
@@ -307,7 +312,7 @@ export async function cmdPick(argv) {
         } else {
             throw new MediaCliError(
                 ErrorTypes.INVALID_ARGUMENT,
-                t("pick.file.list.format.unknown", { ext: fileListExt })
+                t("pick.file.list.format.unknown", { ext: fileListExt }),
             )
         }
 
@@ -333,7 +338,7 @@ export async function cmdPick(argv) {
         if (validCache && !argv.noCache) {
             log.logInfo(
                 LOG_TAG,
-                `Found valid file-list cache: ${validCache.path} (${validCache.fileCount} files, ${FILE_LIST_CACHE_DAYS} days valid)`
+                `Found valid file-list cache: ${validCache.path} (${validCache.fileCount} files, ${FILE_LIST_CACHE_DAYS} days valid)`,
             )
             entries = validCache.data.files.map((item) => ({
                 path: item.path,
@@ -377,7 +382,10 @@ export async function cmdPick(argv) {
 
             try {
                 await fs.writeJSON(fileListOutput, cacheData, { spaces: 2 })
-                log.logInfo(LOG_TAG, `File list cached to: ${fileListOutput} (valid for ${FILE_LIST_CACHE_DAYS} days)`)
+                log.logInfo(
+                    LOG_TAG,
+                    `File list cached to: ${fileListOutput} (valid for ${FILE_LIST_CACHE_DAYS} days)`,
+                )
             } catch (err) {
                 log.logWarn(LOG_TAG, `Failed to cache file list: ${err.message}`)
             }
@@ -398,7 +406,7 @@ export async function cmdPick(argv) {
         }
         log.logWarn(
             LOG_TAG,
-            t("pick.entries.ignored", { count: entries.length - validEntries.length })
+            t("pick.entries.ignored", { count: entries.length - validEntries.length }),
         )
         if (validEntries.length === 0) {
             log.logWarn(LOG_TAG, t("pick.no.files"))
@@ -465,7 +473,7 @@ export async function cmdPick(argv) {
         const dedupResult = await log.measure(processImageHashDedup)(
             daySelections,
             argv.hashThreshold,
-            { cache, rootPath: root, useCache }
+            { cache, rootPath: root, useCache },
         )
         cacheEntries = dedupResult.cacheEntries || {}
         if (dedupResult.removedCount > 0) {
@@ -523,7 +531,7 @@ export async function cmdPick(argv) {
             LOG_TAG,
             t("pick.entries.excluded", {
                 count: pickedFiles.length - filesAfterExclude.length,
-            })
+            }),
         )
     }
 
@@ -545,7 +553,7 @@ export async function cmdPick(argv) {
             LOG_TAG,
             t("pick.copy.skip.exists.count", {
                 count: filesAfterExclude.length - finalFiles.length,
-            })
+            }),
         )
     }
 
@@ -629,7 +637,7 @@ async function copyPickedFiles(files, root, argv) {
                         t("pick.copy.skip.exists", {
                             index: `${copyIndex}/${copyTotal}`,
                             path: f.path,
-                        })
+                        }),
                     )
                     return { status: "skipped", month: month, srcPath: f.path }
                 }
@@ -645,7 +653,7 @@ async function copyPickedFiles(files, root, argv) {
                         name: helper.pathShort(f.path),
                         dest: path.dirname(destRel),
                         size: sizeStr,
-                    })
+                    }),
                 )
                 return { status: "success", month: month, srcPath: f.path }
             } catch (err) {
@@ -704,7 +712,6 @@ function calculateSourceStats(parsed) {
  * 构建 JSON 输出数据结构
  */
 function buildJsonOutput(daySelections, srcStats, selStats) {
-
     const allYears = Array.from(srcStats.years.keys()).sort()
 
     const outputFiles = []
@@ -902,7 +909,7 @@ async function selectForDay(files, targetN) {
         minIntervalMs,
         CONFIG.MAX_PER_HOUR,
         CONFIG.MAX_PET_PER_DAY,
-        qualityScores
+        qualityScores,
     )
 
     return picked
@@ -957,7 +964,7 @@ function selectForDaySimple(files, targetN, minIntervalMs, qualityScores) {
 
     const calculateScore = (idx) => {
         const file = files[idx]
-        const sizeScore = (file.size || 0) / (10 * 1024 * 1024) * 50
+        const sizeScore = ((file.size || 0) / (10 * 1024 * 1024)) * 50
         const qualityScore = qualityScores.get(file.path) || 0
         return sizeScore * 0.4 + qualityScore * 0.6
     }
@@ -1006,7 +1013,7 @@ function selectFromEventsWithQuality(
     minIntervalMs,
     hourLimit,
     petLimit,
-    qualityScores
+    qualityScores,
 ) {
     if (events.length === 0 || targetCount === 0) {
         return []
@@ -1047,7 +1054,7 @@ function selectFromEventsWithQuality(
     }
 
     const calculateScore = (file) => {
-        const sizeScore = (file.size || 0) / (10 * 1024 * 1024) * 50
+        const sizeScore = ((file.size || 0) / (10 * 1024 * 1024)) * 50
         const qualityScore = qualityScores.get(file.path) || 0
         return sizeScore * 0.4 + qualityScore * 0.6
     }
@@ -1165,7 +1172,11 @@ function processBurstGroups(files, mode) {
  * @param {Object} options - 缓存选项
  * @returns {Object} { removedCount, cacheEntries }
  */
-async function processImageHashDedup(daySelections, threshold = CONFIG.IMAGE_HASH.THRESHOLD, options = {}) {
+async function processImageHashDedup(
+    daySelections,
+    threshold = CONFIG.IMAGE_HASH.THRESHOLD,
+    options = {},
+) {
     const allFiles = []
     const fileToDay = new Map()
 
@@ -1224,8 +1235,6 @@ async function processImageHashDedup(daySelections, threshold = CONFIG.IMAGE_HAS
 
     return { removedCount, cacheEntries }
 }
-
-
 
 /**
  * 过滤包含 .nomedia 或 .gitignore 的目录

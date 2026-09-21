@@ -7,7 +7,6 @@
  */
 
 import chalk from "chalk"
-import EventEmitter from "events"
 import fs from "fs-extra"
 import { createRequire } from "module"
 import path from "path"
@@ -35,7 +34,9 @@ function checkNodeVersion() {
     if (Number.isNaN(major) || major < MIN_NODE_MAJOR) {
         process.stderr.write(
             [
-                chalk.red(`MediaCli 需要 Node.js >= ${MIN_NODE_MAJOR}，当前为 ${process.versions.node}。`),
+                chalk.red(
+                    `MediaCli 需要 Node.js >= ${MIN_NODE_MAJOR}，当前为 ${process.versions.node}。`,
+                ),
                 "请升级 Node.js 后重试：https://nodejs.org/",
                 "",
             ].join("\n"),
@@ -45,9 +46,6 @@ function checkNodeVersion() {
 }
 
 checkNodeVersion()
-
-// fix max listeners
-EventEmitter.defaultMaxListeners = 1000
 
 // 全局兜底错误捕获：此前全仓库没有注册任何 process 级处理器，
 // 未捕获异常只会打印裸堆栈且退出码不确定，CLAUDE.md 的相关描述与实现不符。

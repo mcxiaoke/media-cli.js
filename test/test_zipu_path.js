@@ -33,13 +33,22 @@ describe("zipu - resolveSafeEntryPath", () => {
     })
 
     it("should block '..' traversal", () => {
-        for (const name of ["../../evil.txt", "..\\..\\evil.txt", "a/../../b.txt", "sub/../../../x"]) {
+        for (const name of [
+            "../../evil.txt",
+            "..\\..\\evil.txt",
+            "a/../../b.txt",
+            "sub/../../../x",
+        ]) {
             assertContained(resolveSafeEntryPath(ZIP_DIR, name))
         }
     })
 
     it("should block absolute paths and drive letters", () => {
-        for (const name of ["/etc/passwd", "C:\\Windows\\evil.txt", "\\\\server\\share\\evil.txt"]) {
+        for (const name of [
+            "/etc/passwd",
+            "C:\\Windows\\evil.txt",
+            "\\\\server\\share\\evil.txt",
+        ]) {
             assertContained(resolveSafeEntryPath(ZIP_DIR, name))
         }
     })

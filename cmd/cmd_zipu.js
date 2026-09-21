@@ -25,7 +25,6 @@ import * as unzipper from "unzipper"
 
 import { finished } from "stream/promises"
 
-
 const FALLBACK_ENCODING = "GBK"
 const INOGRE_ENCODING = ["Big5", "windows-1251", "ISO-8859-1"]
 const TRY_ENCODING = [
@@ -390,31 +389,28 @@ async function unzipFileUseUnzipper(f, useEncoding) {
         const stream = fs.createReadStream(zipFilePath)
         const zipEntries = stream.pipe(unzipper.Parse({ forceStream: true }))
 
-    const zipFileSize = f.size || 0
-    // Zip bomb 防护：条目声明的 uncompressedSize 来自包内头部，完全不可信，
-    // 几 KB 的 zip 可以声明出 TB 级解压体积。原先唯一的 2GB 保护已被注释掉，
-    // 这里改为「绝对上限 + 压缩比上限」双判据（取更严格的那个）。
-    const ZIP_MAX_TOTAL_BYTES = 20 * 1024 * 1024 * 1024 // 20GB
-    const ZIP_MAX_RATIO = 200
-    const ZIP_MIN_ALLOWED_BYTES = 100 * 1024 * 1024 // 小 zip 至少允许解出 100MB，避免误伤高压缩比文本文件
-    const totalCap = Math.min(
-        ZIP_MAX_TOTAL_BYTES,
-        Math.max(zipFileSize * ZIP_MAX_RATIO, ZIP_MIN_ALLOWED_BYTES),
-    )
+        const zipFileSize = f.size || 0
+        // Zip bomb 防护：条目声明的 uncompressedSize 来自包内头部，完全不可信，
+        // 几 KB 的 zip 可以声明出 TB 级解压体积。原先唯一的 2GB 保护已被注释掉，
+        // 这里改为「绝对上限 + 压缩比上限」双判据（取更严格的那个）。
+        const ZIP_MAX_TOTAL_BYTES = 20 * 1024 * 1024 * 1024 // 20GB
+        const ZIP_MAX_RATIO = 200
+        const ZIP_MIN_ALLOWED_BYTES = 100 * 1024 * 1024 // 小 zip 至少允许解出 100MB，避免误伤高压缩比文本文件
+        const totalCap = Math.min(
+            ZIP_MAX_TOTAL_BYTES,
+            Math.max(zipFileSize * ZIP_MAX_RATIO, ZIP_MIN_ALLOWED_BYTES),
+        )
 
-    let unzippedCount = 0
-    let totalUncompressed = 0
-    for await (const entry of zipEntries) {
+        let unzippedCount = 0
+        let totalUncompressed = 0
+        for await (const entry of zipEntries) {
             let entryEnc = useEncoding
             const isUnicode = entry.props.flags.isUnicode
             let entryName = isUnicode ? entry.path : iconv.decode(entry.props.pathBuffer, entryEnc)
 
             // 乱码文件名二次确认，再次解码测试
             if (hasBadChars(entryName, true)) {
-                const { fileName } = decodeNameSmart(
-                    entry.props.pathBuffer,
-                    entryEnc,
-                )
+                const { fileName } = decodeNameSmart(entry.props.pathBuffer, entryEnc)
                 entryName = fileName
                 // log.showCyan(fileName, encoding, badName)
                 // 如果二次解码还是乱码，报错

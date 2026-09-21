@@ -429,7 +429,10 @@ async function cmdCompress(argv) {
         log.show(core.omit(f, "stats"))
     })
     if (tasks.length > previewCount) {
-        log.logInfo(LOG_TAG, `... and ${tasks.length - previewCount} more tasks (total ${tasks.length})`)
+        log.logInfo(
+            LOG_TAG,
+            `... and ${tasks.length - previewCount} more tasks (total ${tasks.length})`,
+        )
     }
     log.info(LOG_TAG, argv)
     testMode && log.logWarn(LOG_TAG, `++++++++++ ${t("ffmpeg.test.mode")} ++++++++++`)

@@ -17,7 +17,12 @@ import { ErrorTypes, createError } from "../lib/errors.js"
 import * as exif from "../lib/exif.js"
 import * as helper from "../lib/helper.js"
 import { t } from "../lib/i18n.js"
-import { confirmAction, confirmDangerousAction, abortIfCancelled, initAutoConfirm } from "../lib/command_utils.js"
+import {
+    confirmAction,
+    confirmDangerousAction,
+    abortIfCancelled,
+    initAutoConfirm,
+} from "../lib/command_utils.js"
 
 const LOG_TAG = "DcimR"
 

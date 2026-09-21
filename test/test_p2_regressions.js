@@ -182,7 +182,10 @@ describe("P2 regressions", () => {
         it("exposes named, positive job counts instead of ad-hoc cpus() math", () => {
             for (const [name, fn] of Object.entries(config.JOBS)) {
                 const n = fn()
-                assert.ok(Number.isInteger(n) && n >= 1, `${name}() should be a positive int, got ${n}`)
+                assert.ok(
+                    Number.isInteger(n) && n >= 1,
+                    `${name}() should be a positive int, got ${n}`,
+                )
             }
         })
 

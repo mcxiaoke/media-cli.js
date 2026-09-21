@@ -7,10 +7,11 @@ import nodeGlobals from "globals"
 // 整合 Prettier 规则（ESLint v9+ 需手动组合规则）
 // 说明：此前 "prettier/prettier" 被设为 "off"，导致插件与配置形同负担：
 // 仓库里 14 个文件不符合 .prettierrc 却不会被任何门禁发现。
-// 这里改为 "warn"——先让差异可见、不阻断构建，待全量格式化后可视情况收紧为 "error"。
+// 后改为 "warn" 暴露差异，待全量格式化后收紧为 "error"（2026-09-21 已全量
+// prettier --write 并统一 LF 行尾），格式问题从此由 lint 门禁强制拦截。
 const prettierRules = {
     ...prettierConfig.rules,
-    "prettier/prettier": "warn",
+    "prettier/prettier": "error",
 }
 
 export default [

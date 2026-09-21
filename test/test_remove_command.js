@@ -93,9 +93,7 @@ describe("remove command", () => {
 
     it("should accept size condition without throwing", async () => {
         // --sizel 提供有效数值时应通过校验（dry-run，不实际删除）
-        await assert.doesNotReject(async () =>
-            handler({ input: testDir, sizel: 1, doit: false }),
-        )
+        await assert.doesNotReject(async () => handler({ input: testDir, sizel: 1, doit: false }))
     })
 
     it("should accept pattern condition without throwing", async () => {
