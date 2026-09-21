@@ -198,67 +198,129 @@ describe("probeCacheKey includes speed/framerate", () => {
     })
 })
 
-describe("candidateTiers d3d removal + filterSupport prefilter", () => {
-    const allUsable = { usable: { cuda: true, qsv: true, amf: true, d3d: true, cpu: true } }
+describe("candidateTiers auto: vendor-directed whitelist + filterSupport prefilter", () => {
+    // T6 语义：auto 链 = GPU_VENDOR_HWACCELS[vendor] ∩ caps.hwaccels（-hwaccels 实测）
+    //   → usable → filterSupport 预筛 → cpu。
+    //   nvidia → [cuda, d3d]；intel → [qsv, d3d]；amd → [amf, d3d]；other/无 → [d3d]
+    const nvidiaCaps = {
+        gpus: [{ vendor: "nvidia", name: "RTX 4070" }],
+        usable: { cuda: true, qsv: true, amf: true, d3d: true, cpu: true },
+        filterSupport: { scale_cuda: true, scale_qsv: true, vpp_amf: true },
+    }
 
-    it("auto default chain excludes d3d even when usable", () => {
+    it("nvidia main GPU -> [cuda, d3d, cpu] (vendor-directed)", () => {
+        const tiers = candidateTiers(nvidiaCaps, { decodeMode: "auto" })
+        assert.ok(tiers.includes("cuda"), "cuda is the primary candidate")
+        assert.ok(tiers.includes("d3d"), "d3d is the fallback for nvidia machine")
+        assert.deepStrictEqual(tiers, ["cuda", "d3d", "cpu"])
+    })
+
+    it("intel main GPU -> [qsv, d3d, cpu]", () => {
         const caps = {
-            ...allUsable,
+            ...nvidiaCaps,
+            gpus: [{ vendor: "intel", name: "UHD 750" }],
+        }
+        const tiers = candidateTiers(caps, { decodeMode: "auto" })
+        assert.deepStrictEqual(tiers, ["qsv", "d3d", "cpu"])
+    })
+
+    it("amd main GPU -> [amf, d3d, cpu]", () => {
+        const caps = {
+            ...nvidiaCaps,
+            gpus: [{ vendor: "amd", name: "RX 6800" }],
+        }
+        const tiers = candidateTiers(caps, { decodeMode: "auto" })
+        assert.deepStrictEqual(tiers, ["amf", "d3d", "cpu"])
+    })
+
+    it("no gpus/vendor (legacy caps) -> other directed -> [d3d, cpu]", () => {
+        const caps = {
+            usable: { cuda: true, qsv: true, amf: true, d3d: true, cpu: true },
             filterSupport: { scale_cuda: true, scale_qsv: true, vpp_amf: true },
         }
         const tiers = candidateTiers(caps, { decodeMode: "auto" })
-        assert.ok(!tiers.includes("d3d"), "d3d must not appear in auto chain")
-        assert.deepStrictEqual(tiers, ["cuda", "qsv", "amf", "cpu"])
+        assert.deepStrictEqual(tiers, ["d3d", "cpu"])
+    })
+
+    it("hwaccels whitelist: missing methods drop that tier (nvidia, only cuda) -> [cuda, cpu]", () => {
+        const caps = {
+            ...nvidiaCaps,
+            hwaccels: ["cuda"], // -hwaccels 无 d3d11va
+        }
+        const tiers = candidateTiers(caps, { decodeMode: "auto" })
+        assert.deepStrictEqual(tiers, ["cuda", "cpu"])
+    })
+
+    it("hwaccels whitelist: d3d11va only -> [d3d, cpu] (cuda method absent)", () => {
+        const caps = {
+            ...nvidiaCaps,
+            hwaccels: ["d3d11va"],
+        }
+        const tiers = candidateTiers(caps, { decodeMode: "auto" })
+        assert.deepStrictEqual(tiers, ["d3d", "cpu"])
     })
 
     it("explicit hwaccel=d3d still works (whitelist override)", () => {
-        const caps = {
-            ...allUsable,
-            filterSupport: { scale_cuda: true, scale_qsv: true, vpp_amf: true },
-        }
-        const tiers = candidateTiers(caps, { decodeMode: "auto", hwaccel: "d3d" })
+        const tiers = candidateTiers(nvidiaCaps, { decodeMode: "auto", hwaccel: "d3d" })
         assert.deepStrictEqual(tiers, ["d3d", "cpu"])
     })
 
     it("explicit hwaccel=d3d11va still normalizes to d3d layer", () => {
-        const caps = {
-            ...allUsable,
-            filterSupport: { scale_cuda: true, scale_qsv: true, vpp_amf: true },
-        }
-        const tiers = candidateTiers(caps, { decodeMode: "auto", hwaccel: "d3d11va" })
+        const tiers = candidateTiers(nvidiaCaps, { decodeMode: "auto", hwaccel: "d3d11va" })
         assert.deepStrictEqual(tiers, ["d3d", "cpu"])
     })
 
     it("gpu mode with d3d still allowed (explicit)", () => {
-        const caps = {
-            ...allUsable,
-            filterSupport: { scale_cuda: true, scale_qsv: true, vpp_amf: true },
-        }
-        const tiers = candidateTiers(caps, { decodeMode: "gpu", hwaccel: "d3d11va" })
+        const tiers = candidateTiers(nvidiaCaps, { decodeMode: "gpu", hwaccel: "d3d11va" })
         assert.deepStrictEqual(tiers, ["d3d"])
     })
 
-    it("filterSupport missing scale_cuda -> cuda skipped, qsv/amf kept", () => {
+    it("filterSupport missing scale_cuda -> cuda skipped, d3d kept", () => {
         const caps = {
-            ...allUsable,
+            ...nvidiaCaps,
             filterSupport: { scale_cuda: false, scale_qsv: true, vpp_amf: true },
         }
         const tiers = candidateTiers(caps, { decodeMode: "auto" })
-        assert.deepStrictEqual(tiers, ["qsv", "amf", "cpu"])
+        assert.deepStrictEqual(tiers, ["d3d", "cpu"])
     })
 
-    it("filterSupport missing vpp_amf (old ffmpeg) -> amf skipped", () => {
+    it("filterSupport missing vpp_amf (old ffmpeg) -> amf skipped on amd machine", () => {
         const caps = {
-            ...allUsable,
+            ...nvidiaCaps,
+            gpus: [{ vendor: "amd", name: "RX 6800" }],
             filterSupport: { scale_cuda: true, scale_qsv: true, vpp_amf: false },
         }
         const tiers = candidateTiers(caps, { decodeMode: "auto" })
-        assert.deepStrictEqual(tiers, ["cuda", "qsv", "cpu"])
+        assert.deepStrictEqual(tiers, ["d3d", "cpu"])
     })
 
     it("no filterSupport table (legacy caps) -> no prefilter, all kept", () => {
-        const caps = { ...allUsable, filterSupport: undefined }
+        const caps = { ...nvidiaCaps, filterSupport: undefined }
         const tiers = candidateTiers(caps, { decodeMode: "auto" })
-        assert.deepStrictEqual(tiers, ["cuda", "qsv", "amf", "cpu"])
+        assert.deepStrictEqual(tiers, ["cuda", "d3d", "cpu"])
+    })
+
+    it("unknown hwaccel value -> warn, falls back to default chain (not silent)", () => {
+        const tiers = candidateTiers(nvidiaCaps, { decodeMode: "auto", hwaccel: "vulkan" })
+        assert.deepStrictEqual(tiers, ["cuda", "d3d", "cpu"])
+    })
+
+    it("gpu mode with unknown hwaccel -> throws (value domain narrowed)", () => {
+        assert.throws(
+            () => candidateTiers(nvidiaCaps, { decodeMode: "gpu", hwaccel: "vulkan" }),
+            /requires --hwaccel/,
+        )
+        assert.throws(() => candidateTiers(nvidiaCaps, { decodeMode: "gpu" }), /requires --hwaccel/)
+    })
+
+    it("gpu mode rejects tiers unavailable on this machine", () => {
+        const caps = {
+            ...nvidiaCaps,
+            usable: { cuda: true, qsv: false, amf: false, d3d: false, cpu: true },
+        }
+        assert.throws(
+            () => candidateTiers(caps, { decodeMode: "gpu", hwaccel: "qsv" }),
+            /not available/,
+        )
     })
 })

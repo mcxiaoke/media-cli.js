@@ -964,41 +964,12 @@ async function prepareFFmpegCmd(entry) {
         if (isVideo) {
             switch (argv.decodeMode) {
                 case "cpu":
-                    newEntry.useCPUDecode = true
-                    break
                 case "gpu":
-                    newEntry.useCPUDecode = false
-                    break
                 case "auto":
                 default:
-                    {
-                        // https://developer.nvidia.com/video-encode-and-decode-gpu-support-matrix-new
-                        // H264 10Bit Nvidia和Intel都不支持硬解，直接跳过
-                        // H264 High L5以上可能也不支持
-                        const isH264 = ivideo?.format === "h264" || ivideo?.format === "avc"
-                        if (isH264 && ivideo?.bitDepth === 10) {
-                            // 严格模式：H264 10bit 无任何硬解支持（Nvidia/Intel 均不支持），
-                            // 不自动软解降级，warn 并跳过该文件，其余文件继续
-                            if (argv.strict) {
-                                log.showYellow(
-                                    logTag,
-                                    `${ipx} Skip[Strict10bit] <${entry.path}> ` +
-                                        `(${ivideo?.format} ${ivideo?.bitDepth}bit has no hw decode)`,
-                                )
-                                log.fileLog(
-                                    `${ipx} Skip[Strict10bit] <${entry.path}> ` +
-                                        `[${preset.name}] ${ivideo?.format} ${ivideo?.bitDepth}bit has no hw decode`,
-                                    "Prepare",
-                                )
-                                return false
-                            }
-                            // 添加标志，使用软解，替换解码参数
-                            // 在组装ffmpeg参数时判断和替换
-                            // 解码和滤镜参数都需要修改
-                            // 尝试使用CPU解码
-                            newEntry.useCPUDecode = true
-                        }
-                    }
+                    // 解码层选择全部交由 run 阶段 resolveHwPlan（lib/ffmpeg_run.js）决策：
+                    // auto = 逐层探测 + lib/gpu.js 解码矩阵预筛（gpuBlocksDecode）；strict 不降级由
+                    // selectTier strict 分支承接（lib/hwaccel.js）。此处不再做 prepare 特例预判。
                     break
             }
         }
@@ -1051,7 +1022,7 @@ async function prepareFFmpegCmd(entry) {
         log.show(
             logTag,
             chalk.cyan(`${ipx} SRC`),
-            chalk.yellow(newEntry.useCPUDecode ? `SW` : `HW`),
+            chalk.yellow(argv.decodeMode === "cpu" ? `SW` : `HW`),
             `"${helper.pathShort(entry.path, 80)}"`,
             selectedSubtitle ? `(SUB:${path.basename(selectedSubtitle)})` : "",
             codecInfo,

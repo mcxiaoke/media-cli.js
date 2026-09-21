@@ -91,6 +91,7 @@
         "p-filter": "^4.1.0",
         "p-map": "^7.0.4",
         "sharp": "^0.34.5",
+        "systeminformation": "^5.33.13",
         "unzipper": "^0.11.3",
         "which": "^4.0.0",
         "xxhash-wasm": "^1.1.0",

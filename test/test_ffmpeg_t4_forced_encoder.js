@@ -131,7 +131,12 @@ describe("codecFamilyOfPreset priority", () => {
 })
 
 describe("candidateTiers auto whitelist (hwaccel)", () => {
-    const caps = { usable: { cuda: true, qsv: false, d3d: false, cpu: true } }
+    // T6：真实 caps 由 detectHardwareCapabilities 产出，必带 gpus/vendor。
+    // 显式 --hwaccel 分支不依赖 vendor；below 的 auto 链按主 GPU vendor=nvidia 定向。
+    const caps = {
+        gpus: [{ vendor: "nvidia", name: "RTX 4070" }],
+        usable: { cuda: true, qsv: false, d3d: false, cpu: true },
+    }
 
     it("hwaccel=cuda (available) -> [cuda, cpu]", () => {
         const tiers = candidateTiers(caps, { decodeMode: "auto", hwaccel: "cuda" })
