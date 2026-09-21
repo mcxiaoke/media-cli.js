@@ -626,7 +626,7 @@ async function planFFmpegTasks(argv) {
         tier: TIERS.find((t) => t.name === "cpu"),
         size: null,
     }
-    const lastFFPlan = createFFmpegArgs(lastTask, previewPlan, false)
+    const lastFFPlan = createFFmpegArgs(lastTask, previewPlan)
     // fileLog 签名是 (logText, logTag, logFileName)：此前把参数数组当成了 tag、
     // 把 LOG_TAG 当成了文件名，日志被写进独立的 FFConv_log_*.txt 且正文与标签颠倒。
     !testMode && log.fileLog(`ffmpegArgs: ${flattenFFArgs(lastFFPlan.args)}`, LOG_TAG)
@@ -826,7 +826,7 @@ async function runFFmpegCmd(entry, { showBar = true } = {}) {
         const hwPlan = await resolveHwPlan(entry)
         entry.hwPlan = hwPlan
         entry.useCUDA = hwPlan.tier.name === "cuda"
-        entry.ffmpegArgs = createFFmpegArgs(entry, hwPlan, false).args
+        entry.ffmpegArgs = createFFmpegArgs(entry, hwPlan).args
         // ⚠️ 分层决策与真实命令必须落盘：此前只在控制台输出，日志里无法判断
         // 「某个文件走了哪一层、实际执行了什么命令」，排查困难（曾发生）。
         log.fileLog(
@@ -1886,12 +1886,11 @@ function buildVideoArgsFromPlan(entry, hwPlan, tempPreset) {
  * 不修改任何外部状态（不再写 entry.debugArgs/debugPreset，调试信息随返回值携带）
  * @param {Object} entry - 文件对象
  * @param {Object} hwPlan - resolveHwPlan 的结果（含 tier / size）
- * @param {boolean} forDisplay - 是否仅用于显示
  * @returns {{ args: Array, debugPreset: Object }} - args 为
  *   [inputArgs, middleArgs, outputArgs]（输入、中间、输出参数），
  *   debugPreset 为格式化后的预设对象（仅用于展示）
  */
-function createFFmpegArgs(entry, hwPlan = null, forDisplay = false) {
+function createFFmpegArgs(entry, hwPlan = null) {
     // 不要使用 entry.perset，下面复制一份针对每个entry
     const tempPreset = { ...entry.preset, ...entry.dstArgs }
 
@@ -1899,20 +1898,19 @@ function createFFmpegArgs(entry, hwPlan = null, forDisplay = false) {
     prepareFramerateFilter(tempPreset)
 
     // 输入参数部分，在 -i input 前面
-    const inputArgs = buildInputArgs(entry, tempPreset, hwPlan, forDisplay)
+    const inputArgs = buildInputArgs(entry, tempPreset, hwPlan)
 
     // 中间参数部分，在 -i input 后面，顺序建议 filters codec stream metadata
     const middleArgs = [
         ...buildFilterArgs(entry, tempPreset, hwPlan),
         ...buildVideoArgs(entry, hwPlan, tempPreset),
         ...buildAudioArgs(entry, tempPreset),
-        ...buildMetaArgs(entry, tempPreset, forDisplay),
+        ...buildMetaArgs(entry, tempPreset),
         ...buildStreamArgs(tempPreset),
     ]
 
-    // 输出参数部分，只有一个输出文件路径
-    // 显示数据时用最终路径，实际使用时用临时文件路径
-    const outputArgs = [forDisplay ? "output.mp4" : entry.fileDstTemp]
+    // 输出参数部分，只有一个输出文件路径（临时文件，转换成功后改名）
+    const outputArgs = [entry.fileDstTemp]
 
     // 调试信息仅随返回值携带，不再写入 entry，调用方按需取用
     return {
@@ -1940,10 +1938,9 @@ function prepareFramerateFilter(tempPreset) {
  * @param {Object} entry - 文件对象
  * @param {Object} tempPreset - 预设副本
  * @param {Object} hwPlan - 硬件加速分层计划
- * @param {boolean} forDisplay - 是否为展示模式
  * @returns {string[]} 输入参数数组
  */
-function buildInputArgs(entry, tempPreset, hwPlan, forDisplay) {
+function buildInputArgs(entry, tempPreset, hwPlan) {
     const inputArgs = []
     inputArgs.push("-hide_banner", "-n")
     // 是否启用调试参数
@@ -1973,7 +1970,7 @@ function buildInputArgs(entry, tempPreset, hwPlan, forDisplay) {
         inputArgs.push(...tempPreset.inputArgs.split(" "))
     }
     inputArgs.push("-i")
-    inputArgs.push(forDisplay ? "input.mkv" : entry.path)
+    inputArgs.push(entry.path)
     // 添加MP4内嵌字幕文件，只添加一个优先选择的字幕文件
     // 优先取中文字幕，不行就取第一个
     appendSubtitleArgs(entry, inputArgs)
@@ -2119,11 +2116,10 @@ function buildAudioArgs(entry, tempPreset) {
 /**
  * 构建元数据参数（description/copyright/音频标签/标题）
  * @param {Object} entry - 文件对象
- * @param {Object} tempPreset - 预设副本（展示模式不写 extraArgs）
- * @param {boolean} forDisplay - 是否为展示模式
+ * @param {Object} tempPreset - 预设副本
  * @returns {string[]} 元数据参数数组
  */
-function buildMetaArgs(entry, tempPreset, forDisplay) {
+function buildMetaArgs(entry, tempPreset) {
     const metaArgs = []
     // 添加自定义metadata字段
     // description, comment, copyright
@@ -2162,11 +2158,8 @@ function buildMetaArgs(entry, tempPreset, forDisplay) {
     } else {
         metaArgs.push(`-metadata`, `title=${entry.name}`)
     }
-    // 显示console信息时，不需要这些
     // 元数据放到 extraArgs 这里（字符串形式仅供展示）
-    if (!forDisplay) {
-        tempPreset.extraArgs = metaArgs.join(" ")
-    }
+    tempPreset.extraArgs = metaArgs.join(" ")
     // 注意：这里直接使用 metaArgs 数组，不能再 join(" ") 后再 split(" ")——
     // 那个往返会把含空格的值（如 title=My Movie）拆成多个 argv。
     return metaArgs
