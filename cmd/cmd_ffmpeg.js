@@ -40,6 +40,7 @@ import {
     selectTier,
     validateSpeed,
 } from "../lib/hwaccel.js"
+import { flattenFFArgs } from "../lib/ffmpeg_build.js"
 
 const LOG_TAG = "FFConv"
 // ffmpeg 可执行文件路径（模块级缓存，供硬件探测复用）
@@ -628,10 +629,10 @@ async function planFFmpegTasks(argv) {
     const lastFFPlan = createFFmpegArgs(lastTask, previewPlan, false)
     // fileLog 签名是 (logText, logTag, logFileName)：此前把参数数组当成了 tag、
     // 把 LOG_TAG 当成了文件名，日志被写进独立的 FFConv_log_*.txt 且正文与标签颠倒。
-    !testMode && log.fileLog(`ffmpegArgs: ${lastFFPlan.args?.flat().join(" ")}`, LOG_TAG)
+    !testMode && log.fileLog(`ffmpegArgs: ${flattenFFArgs(lastFFPlan.args)}`, LOG_TAG)
     log.info("-----------------------------------------------------------")
     log.info(LOG_TAG, chalk.cyan("PRESET:"), lastFFPlan.debugPreset)
-    log.info(LOG_TAG, chalk.cyan("CMD:"), "ffmpeg", lastFFPlan.args?.flat().join(" "))
+    log.info(LOG_TAG, chalk.cyan("CMD:"), "ffmpeg", flattenFFArgs(lastFFPlan.args))
     // 注意运算符优先级：`acc + t.info?.duration || 0` 会因 + 高于 || 而
     // 在任一条 duration 缺失时把整个累计值清零，必须显式括号。
     // 取数口径与运行时进度条一致：dstArgs.srcDuration 是 calculateDstArgs 算出的
@@ -833,10 +834,7 @@ async function runFFmpegCmd(entry, { showBar = true } = {}) {
                 `tier=${hwPlan.tier.name} tried=[${(hwPlan.tried || []).join(",")}] ${hwPlan.reason || ""}`,
             "FFCMD",
         )
-        log.fileLog(
-            `${ipx} CMD <${entry.path}> ffmpeg ${entry.ffmpegArgs.flat().join(" ")}`,
-            "FFCMD",
-        )
+        log.fileLog(`${ipx} CMD <${entry.path}> ffmpeg ${flattenFFArgs(entry.ffmpegArgs)}`, "FFCMD")
         logTag =
             chalk.green("FFCMD") + chalk.cyanBright(hwPlan.tier.name === "cpu" ? "[SW]" : "[HW]")
         if (entry.retryOnFailed) {
@@ -866,7 +864,7 @@ async function runFFmpegCmd(entry, { showBar = true } = {}) {
     )
 
     log.logDebug(LOG_TAG, ipx, getEntryShowInfo(entry))
-    log.logDebug(LOG_TAG, ipx, `ffmpeg`, entry.ffmpegArgs.flat().join(" "))
+    log.logDebug(LOG_TAG, ipx, `ffmpeg`, flattenFFArgs(entry.ffmpegArgs))
     if (entry.testMode) {
         log.logInfo(
             LOG_TAG,
@@ -1053,7 +1051,7 @@ function extractFFmpegError(error, maxLen = 200) {
  */
 function getCommentArgs(entry) {
     const MAX_COMMENT_LEN = 1000
-    const command = entry.ffmpegArgs?.flat()?.join(" ")
+    const command = flattenFFArgs(entry.ffmpegArgs)
     if (!command) {
         return ["-metadata", "comment=mediac"]
     }
