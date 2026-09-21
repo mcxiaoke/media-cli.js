@@ -1265,7 +1265,6 @@ async function prepareFFmpegCmd(entry) {
         // 文件名变了，带有前缀或后缀
         // 才需要判断同目录的文件是否存在
         if (prefix || suffix) {
-            // if (fileDstName !== entry.name) {
             if (await fs.pathExists(fileDstSameDir)) {
                 if (!argv.override) {
                     log.showYellow(
@@ -1361,8 +1360,6 @@ async function prepareFFmpegCmd(entry) {
             subtitles,
             selectedSubtitle,
         }
-        // newEntry.ffmpegArgs = createFFmpegArgs(newEntry)
-        // log.info(logTag, "ffmpeg", newEntry.ffmpegArgs.flat().join(" "))
         return newEntry
     } catch (error) {
         // 单个文件解析失败不应中断整批任务：目录里混入一个坏文件时，
@@ -1399,11 +1396,9 @@ function createDstBaseName(entry) {
         ...entry.preset,
         ...entry.dstArgs,
     }
-    // log.show(entry.preset)
     // 应用模板参数到前缀和后缀字符串模板
     const prefix = helper.filenameSafe(formatArgs(entry.preset.prefix || "", replaceArgs))
     const suffix = helper.filenameSafe(formatArgs(entry.preset.suffix || "", replaceArgs))
-    // return { prefix, suffix }
     return [`${prefix}${srcBase}${suffix}`, prefix, suffix]
 }
 
@@ -1503,8 +1498,6 @@ async function readMusicMeta(entry) {
     try {
         const mt = await mm.parseFile(entry.path, { skipCovers: true })
         if (mt?.format && mt.common) {
-            // log.show('format', mt.format)
-            // log.show('common', mt.common)
             log.info(
                 "Metadata",
                 `Read(${entry.index}) ${entry.name} [${mt.format.codec}|${mt.format.duration}|${mt.format.bitrate}|${mt.format.lossless}, ${mt.common.artist},${mt.common.title},${mt.common.album}]`,
@@ -1743,10 +1736,8 @@ function calculateDstArgs(entry) {
             // 如果目标码率不是1080p，根据分辨率智能缩放
             // 示例 辨率1920*1080的目标码率是 1600k
             // 1280*720码率 960k
-            // scaleFactor = Math.sqrt(scaleFactor)
             // 缩放码率，平滑系数
             scaleFactor = core.smoothChange(scaleFactor, 1, 0.3)
-            // log.info('scaleFactor', scaleFactor)
             dstVideoBitrate = Math.round(dstVideoBitrate * scaleFactor)
         }
         // 目标分辨率，不能大于源文件分辨率
