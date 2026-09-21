@@ -382,6 +382,18 @@ async function loadYamlPresets() {
 }
 
 async function cmdConvert(argv) {
+    const plan = await planFFmpegTasks(argv)
+    if (!plan) return
+    await runFFmpegTasks(plan)
+}
+
+/**
+ * 计划阶段：校验参数、扫描文件、收集任务并确认。返回计划对象供 runFFmpegTasks 执行；
+ * 取消确认、无文件或只展示信息时返回 null（调用方直接结束）。
+ * @param {Object} argv - yargs 解析后的命令行参数
+ * @returns {Promise<{tasks: Object[], testMode: boolean, preset: Object, jobs: number}|null>}
+ */
+async function planFFmpegTasks(argv) {
     log.logDebug(LOG_TAG, "ARGV:", argv)
     // 初始化全局自动确认开关（--auto-confirm / -A / MEDIAC_AUTO_CONFIRM）
     initAutoConfirm(argv)
@@ -392,12 +404,12 @@ async function cmdConvert(argv) {
             const data = core.pick(value, "name", "type", "format", "videoBitrate", "dimension")
             log.show(JSON.stringify(data))
         }
-        return
+        return null
     }
     // 参数验证
     if (!argv.preset || !presets.getPreset(argv.preset)) {
         log.error(LOG_TAG, t("ffmpeg.error.preset"))
-        return
+        return null
     }
     if (argv.jobs !== undefined && argv.jobs <= 0) {
         throw createError(ErrorTypes.INVALID_ARGUMENT, t("ffmpeg.error.jobs"))
@@ -485,7 +497,7 @@ async function cmdConvert(argv) {
     log.logWarn(LOG_TAG, t("ffmpeg.total.files", { count: fileEntries.length }))
     if (fileEntries.length === 0) {
         log.logWarn(LOG_TAG, t("ffmpeg.no.files.left"))
-        return
+        return null
     }
 
     fileEntries = fileEntries.slice(argv.start, argv.start + argv.count)
@@ -500,14 +512,14 @@ async function cmdConvert(argv) {
             const info = await getMediaInfo(entry.path)
             log.logInfo(LOG_TAG, info)
         }
-        return
+        return null
     }
     if (fileEntries.length > 1000) {
         const continueAnswer = await confirmDangerousAction(
             t("ffmpeg.confirm.continue", { count: fileEntries.length }),
         )
         if (await abortIfCancelled(continueAnswer, LOG_TAG)) {
-            return
+            return null
         }
     }
     addEntryProps(fileEntries)
@@ -527,7 +539,7 @@ async function cmdConvert(argv) {
         t("ffmpeg.confirm.check", { preset: preset.name }),
     )
     if (await abortIfCancelled(prepareAnswer, LOG_TAG)) {
-        return
+        return null
     }
     log.logSuccess(LOG_TAG, t("ffmpeg.preparing.tasks"))
     let tasks = await pMap(fileEntries, prepareFFmpegCmd, {
@@ -601,7 +613,7 @@ async function cmdConvert(argv) {
     tasks = tasks.filter((t) => t && t.fileDst)
     if (tasks.length === 0) {
         log.logWarn(LOG_TAG, t("ffmpeg.all.skipped"))
-        return
+        return null
     }
     const lastTask = tasks.slice(-1)[0]
     // ⚠️ 此处 hwPlan 尚未生成（分层决策在 runFFmpegCmd 内按文件进行），
@@ -622,7 +634,13 @@ async function cmdConvert(argv) {
     log.info(LOG_TAG, chalk.cyan("CMD:"), "ffmpeg", lastFFArgs?.flat().join(" "))
     // 注意运算符优先级：`acc + t.info?.duration || 0` 会因 + 高于 || 而
     // 在任一条 duration 缺失时把整个累计值清零，必须显式括号。
-    const totalDuration = tasks.reduce((acc, t) => acc + (t.info?.duration || 0), 0)
+    // 取数口径与运行时进度条一致：dstArgs.srcDuration 是 calculateDstArgs 算出的
+    // 实际源时长（container → video stream → audio stream 逐级兜底），
+    // 只读 entry.info?.duration 会在容器缺 format 级时长时少报总时长。
+    const totalDuration = tasks.reduce(
+        (acc, t) => acc + (t.dstArgs?.srcDuration || t.info?.duration || 0),
+        0,
+    )
     log.info("-----------------------------------------------------------")
     testMode && log.logWarn(LOG_TAG, `++++++++++ ${t("ffmpeg.test.mode")} ++++++++++`)
     log.logWarn(LOG_TAG, t("ffmpeg.check.details"))
@@ -634,20 +652,33 @@ async function cmdConvert(argv) {
         }),
     )
     if (await abortIfCancelled(answer, LOG_TAG)) {
-        return
+        return null
     }
     ffmpegPath = await which("ffmpeg", { nothrow: true })
     if (!ffmpegPath) {
         throw createError(ErrorTypes.FFMPEG_ERROR, t("ffmpeg.not.found"))
     }
-    startMs = Date.now()
+    return { tasks, testMode, preset, jobs: argv.jobs }
+}
+
+/**
+ * 执行阶段：逐文件转码、失败重试与汇总输出。
+ * @param {{tasks: Object[], testMode: boolean, preset: Object, jobs: number}} plan - planFFmpegTasks 的产出
+ */
+async function runFFmpegTasks({ tasks, testMode, preset, jobs }) {
+    let startMs = Date.now()
     addEntryProps(tasks)
     await log.flushFileLog()
-    const jobCount = argv.jobs || (preset.type === "video" ? 1 : 4)
+    const jobCount = jobs || (preset.type === "video" ? 1 : 4)
+    // 并发 > 1 时多个任务同时渲染进度条会与逐文件日志混写：
+    // 改用每文件一行（Processing/Done/Failed 日志已有），串行才保留进度条。
+    const showBar = jobCount <= 1
     if (testMode && tasks.length > 20) {
         tasks = core.takeEveryNth(tasks, Math.floor(tasks.length / 10))
     }
-    const results = await pMap(tasks, runFFmpegCmd, { concurrency: jobCount })
+    const results = await pMap(tasks, (entry) => runFFmpegCmd(entry, { showBar }), {
+        concurrency: jobCount,
+    })
     let failedTasks = results.filter((r) => r && r.ffmpegFailed && !r.retryOnFailed)
     let rOKCount = 0
     if (failedTasks.length > 0) {
@@ -665,7 +696,8 @@ async function cmdConvert(argv) {
                 newFT.argv.decodeMode = "cpu"
                 newFT.retryOnFailed = true
                 const task = await prepareFFmpegCmd(newFT)
-                const rt = await runFFmpegCmd(task)
+                // 重试是顺序逐个执行，可以正常显示进度条
+                const rt = await runFFmpegCmd(task, { showBar: true })
                 if (rt && rt.ok) {
                     rOKCount++
                 }
@@ -758,7 +790,7 @@ function installTempCleanupHooks() {
  * @param {string} entry.errorFile - 错误日志文件
  * @returns {Promise<Object|null>} 处理结果对象
  */
-async function runFFmpegCmd(entry) {
+async function runFFmpegCmd(entry, { showBar = true } = {}) {
     const ipx = `${entry.index + 1}/${entry.total}`
 
     // ================================================================
@@ -855,11 +887,11 @@ async function runFFmpegCmd(entry) {
     const metaComment = getCommentArgs(entry)
     const ffmpegArgs = [...inputArgs, ...middleArgs, ...metaComment, ...outputArgs]
 
-    // 创建进度条
+    // 创建进度条：并发任务不渲染进度条（会与逐文件日志混写），只走日志；串行/重试才显示
     const srcDuration = entry.dstArgs?.srcDuration || entry.info?.duration || 0
     let progressBar = null
 
-    if (srcDuration > 0) {
+    if (showBar && srcDuration > 0) {
         progressBar = new cliProgress.SingleBar(
             {
                 format: "{bar} | {percentage}% | {filename}",
@@ -1016,12 +1048,26 @@ function extractFFmpegError(error, maxLen = 200) {
  * @returns {string[]} FFmpeg元数据参数数组
  */
 function getCommentArgs(entry) {
-    // 将所有ffmpeg参数放到comment
-    const ffmpegArgsText = createFFmpegArgs(entry, entry.hwPlan || null, true)
-        .flat()
-        .join(" ")
-        .replaceAll(/['"]/gi, " ")
-    return ["-metadata", `comment=${ffmpegArgsText}`]
+    // 元数据 comment 写入精简摘要：预设名、类型、硬件分层与源时长。
+    // 此前这里嵌套调用 createFFmpegArgs 生成整条命令塞进 comment，既臃肿
+    // 又会在转码阶段把 entry.debugArgs/debugPreset 覆盖成展示模式（input.mkv），
+    // 现在只保留可读摘要，命令主体参数不受影响。
+    const parts = []
+    if (entry.preset?.name) {
+        parts.push(`preset=${entry.preset.name}`)
+    }
+    if (entry.preset?.type) {
+        parts.push(`type=${entry.preset.type}`)
+    }
+    if (entry.hwPlan?.tier?.name) {
+        parts.push(`tier=${entry.hwPlan.tier.name}`)
+    }
+    const srcDuration = entry.dstArgs?.srcDuration || entry.info?.duration || 0
+    if (srcDuration > 0) {
+        parts.push(`src=${helper.humanSeconds(srcDuration)}`)
+    }
+    const commentText = parts.length > 0 ? parts.join(" ").replaceAll(/['"]/gi, " ") : "mediac"
+    return ["-metadata", `comment=${commentText}`]
 }
 
 /**
@@ -1503,25 +1549,23 @@ function selectPreferredSubtitle(subtitles) {
     if (subtitles.length === 1) {
         return subtitles[0]
     }
-    // 中文字幕关键词列表
-    const chineseKeywords = [
-        "chinese",
-        "chinese simp",
-        "chs",
-        "zh",
-        "zhcn",
-        "chi",
-        "简体",
-        "简中",
-        "gb",
-        "chs",
-    ]
+    // 中文字幕关键词（已去重；"chinese simp" 由 "chinese" 前缀覆盖）
+    // 改用「词元精确匹配」替代 substring includes：zh/chs/gb/chi 等短关键词
+    // 做子串匹配会误命中（如 "chzh"、"zhuan"、"gba"、"chipta"），
+    // 按非字母数字（含中文字符）切词后，"zh-CN" 会切成 ["zh","CN"] 仍可命中。
+    const chineseKeywords = ["chinese", "chs", "zh", "zhcn", "chi", "gb", "简体", "简中"]
     for (const sub of subtitles) {
         const lowerSub = sub.toLowerCase()
-        for (const keyword of chineseKeywords) {
-            if (lowerSub.includes(keyword)) {
-                return sub
-            }
+        // 保留中文词元（繁体简体中文属于同一词元，如 简体/繁体），
+        // 中文关键词用词元内 includes 匹配，拉丁关键词用词元精确匹配。
+        const tokens = lowerSub.split(/[^a-z0-9\u4e00-\u9fff]+/u)
+        const hit = tokens.some(
+            (token) =>
+                chineseKeywords.includes(token) ||
+                chineseKeywords.some((kw) => /[\u4e00-\u9fff]/.test(kw) && token.includes(kw)),
+        )
+        if (hit) {
+            return sub
         }
     }
     // 没有找到中文字幕，返回第一个
@@ -1868,10 +1912,40 @@ function createFFmpegArgs(entry, hwPlan = null, forDisplay = false) {
     log.info(">>>>", entry.name)
     log.info(tempPreset)
 
-    // 输入参数
-    let inputArgs = []
+    // 是否需要添加fps filter（原地修改 tempPreset.filters）
+    prepareFramerateFilter(tempPreset)
 
-    // 是否需要添加fps filter
+    log.info("createFFmpegArgs", "tempPreset", entry.name, tempPreset)
+
+    // 输入参数部分，在 -i input 前面
+    const inputArgs = buildInputArgs(entry, tempPreset, hwPlan, forDisplay)
+
+    // 中间参数部分，在 -i input 后面，顺序建议 filters codec stream metadata
+    const middleArgs = [
+        ...buildFilterArgs(entry, tempPreset, hwPlan),
+        ...buildVideoArgs(entry, hwPlan, tempPreset),
+        ...buildAudioArgs(entry, tempPreset),
+        ...buildMetaArgs(entry, tempPreset, forDisplay),
+        ...buildStreamArgs(tempPreset),
+    ]
+
+    // 输出参数部分，只有一个输出文件路径
+    // 显示数据时用最终路径，实际使用时用临时文件路径
+    const outputArgs = [forDisplay ? "output.mp4" : entry.fileDstTemp]
+
+    // 仅用于展示
+    entry.debugPreset = core.formatObjectArgs(tempPreset, tempPreset)
+    entry.debugArgs = [...inputArgs, ...middleArgs, ...outputArgs]
+
+    // 返回三种参数，方便后面组合保存ffmpeg参数到元数据
+    return [inputArgs, middleArgs, outputArgs]
+}
+
+/**
+ * 是否需要添加 fps filter：--fps > 0 时把 fps={framerate} 追加到 filters 链
+ * @param {Object} tempPreset - 预设副本（原地修改 filters）
+ */
+function prepareFramerateFilter(tempPreset) {
     if (tempPreset.framerate > 0) {
         if (tempPreset.filters?.length > 0) {
             tempPreset.filters += ",fps={framerate}"
@@ -1879,28 +1953,18 @@ function createFFmpegArgs(entry, hwPlan = null, forDisplay = false) {
             tempPreset.filters = "fps={framerate}"
         }
     }
+}
 
-    log.info("createFFmpegArgs", "tempPreset", entry.name, tempPreset)
-
-    // 几种ffmpeg参数设置的时间和功耗
-    // ffmpeg -hide_banner -n -v error -stats -i
-    // 32s 110w
-    // ffmpeg -hide_banner -n -v error -stats -hwaccel auto -i
-    // 34s 56w
-    // ffmpeg -hide_banner -n -v error -stats  -hwaccel d3d11va -hwaccel_output_format d3d11
-    // 27s 45w rm格式死机蓝屏
-    // ffmpeg -hide_banner -n -v error -stats -hwaccel cuda -hwaccel_output_format cuda
-    // 27s 41w
-    // ffmpeg -hide_banner -n -v error -stats -hwaccel cuda -i
-    // 31s 60w
-    // 显示详细信息
-    // let args = "-hide_banner -n -loglevel repeat+level+info -stats".split(" ")
-    // 只显示进度和错误
-    //
-    //===============================================================
-    // 输入参数部分，在 -i input 前面
-    //===============================================================
-    //
+/**
+ * 构建输入参数（在 -i input 前面，含 hwaccel 分层、输入参数与字幕选轨）
+ * @param {Object} entry - 文件对象
+ * @param {Object} tempPreset - 预设副本
+ * @param {Object} hwPlan - 硬件加速分层计划
+ * @param {boolean} forDisplay - 是否为展示模式
+ * @returns {string[]} 输入参数数组
+ */
+function buildInputArgs(entry, tempPreset, hwPlan, forDisplay) {
+    const inputArgs = []
     inputArgs.push("-hide_banner", "-n")
     // 是否启用调试参数
     inputArgs.push("-v", entry.argv.debug ? "repeat+level+info" : "error")
@@ -1926,46 +1990,54 @@ function createFFmpegArgs(entry, hwPlan = null, forDisplay = false) {
     }
     // 输入参数在输入文件前面，顺序重要
     if (tempPreset.inputArgs?.length > 0) {
-        inputArgs = inputArgs.concat(tempPreset.inputArgs.split(" "))
+        inputArgs.push(...tempPreset.inputArgs.split(" "))
     }
     inputArgs.push("-i")
     inputArgs.push(forDisplay ? "input.mkv" : entry.path)
     // 添加MP4内嵌字幕文件，只添加一个优先选择的字幕文件
     // 优先取中文字幕，不行就取第一个
+    appendSubtitleArgs(entry, inputArgs)
+    return inputArgs
+}
+
+/**
+ * 附加字幕参数：优先使用外部选中的字幕，否则处理内嵌字幕（MP4 仅支持 tx3g）
+ * @param {Object} entry - 文件对象
+ * @param {string[]} inputArgs - 正在构建的输入参数数组（原地追加）
+ */
+function appendSubtitleArgs(entry, inputArgs) {
     if (entry.selectedSubtitle) {
         inputArgs.push("-i")
         inputArgs.push(entry.selectedSubtitle)
-        const subArgs = "-c:s mov_text -metadata:s:s:0 language=chi -disposition:s:0 default"
-        inputArgs = inputArgs.concat(subArgs.split(" "))
+        inputArgs.push(
+            ..."-c:s mov_text -metadata:s:s:0 language=chi -disposition:s:0 default".split(" "),
+        )
         // 使用提供的字幕，忽略MKV内置字幕文件
-        inputArgs = inputArgs.concat("-map 0:v -map 0:a -map 1".split(" "))
+        inputArgs.push(..."-map 0:v -map 0:a -map 1".split(" "))
     } else {
         // MP4格式仅支持tx3g格式字幕
         const subs = entry.info?.subtitles
         if (subs?.length > 0) {
             const isAllTextSubs = subs?.every((e) => e.codec === "tx3g")
             if (isAllTextSubs) {
-                inputArgs = inputArgs.concat("-c:s mov_text".split(" "))
+                inputArgs.push(..."-c:s mov_text".split(" "))
             } else {
                 // 不支持的字幕直接忽略
                 inputArgs.push("-sn")
             }
         }
     }
-    //
-    //===============================================================
-    // 中间参数部分，在 -i input 后面
-    // 顺序建议 filters codec stream metadata
-    //===============================================================
-    //
-    // 中间参数
-    let middleArgs = []
+}
 
-    // 添加MP4硬字幕
-    // if (entry.fileSubtitle) {
-    //     entryPreset.filters = `-subtitles="${entry.fileSubtitle}"`
-    // }
-
+/**
+ * 构建滤镜参数（-filter_complex 或 -vf）
+ * @param {Object} entry - 文件对象
+ * @param {Object} tempPreset - 预设副本
+ * @param {Object} hwPlan - 硬件加速分层计划
+ * @returns {string[]} 滤镜参数数组
+ */
+function buildFilterArgs(entry, tempPreset, hwPlan) {
+    const middleArgs = []
     // 滤镜参数
     // complexFilter 和 filters 不能同时存在
     if (tempPreset.complexFilter?.length > 0) {
@@ -1989,15 +2061,38 @@ function createFFmpegArgs(entry, hwPlan = null, forDisplay = false) {
             middleArgs.push(formatArgs(tempFilters, tempPreset))
         }
     }
+    return middleArgs
+}
+
+/**
+ * 构建视频编码参数（S-4 硬件分层块优先，否则用 preset 的 videoArgs）
+ * @param {Object} entry - 文件对象
+ * @param {Object} hwPlan - 硬件加速分层计划
+ * @param {Object} tempPreset - 预设副本
+ * @returns {string[]} 视频参数数组
+ */
+function buildVideoArgs(entry, hwPlan, tempPreset) {
+    const middleArgs = []
     // 视频参数
     // S-4：优先用 hwPlan 生成的编码器参数块（整段替换，含正确的质量参数写法）
     const planVideoArgs = buildVideoArgsFromPlan(entry, hwPlan, tempPreset)
     if (planVideoArgs) {
-        middleArgs = middleArgs.concat(planVideoArgs)
+        middleArgs.push(...planVideoArgs)
     } else if (tempPreset.videoArgs?.length > 0) {
         const va = formatArgs(tempPreset.videoArgs, tempPreset)
-        middleArgs = middleArgs.concat(va.split(" "))
+        middleArgs.push(...va.split(" "))
     }
+    return middleArgs
+}
+
+/**
+ * 构建音频编码参数（extract_audio 智能选择；码率与容器兼容性决定是否 copy）
+ * @param {Object} entry - 文件对象
+ * @param {Object} tempPreset - 预设副本（可能被原地修改 audioArgs）
+ * @returns {string[]} 音频参数数组
+ */
+function buildAudioArgs(entry, tempPreset) {
+    const middleArgs = []
     // 音频参数
     if (tempPreset.audioArgs?.length > 0) {
         // extract_audio模式下智能选择编码器
@@ -2036,13 +2131,22 @@ function createFFmpegArgs(entry, hwPlan = null, forDisplay = false) {
             }
         }
         const aa = formatArgs(tempPreset.audioArgs, tempPreset)
-        middleArgs = middleArgs.concat(aa.split(" "))
+        middleArgs.push(...aa.split(" "))
     }
-    // 其它参数
-    // metadata 参数放这里
-    let metaArgs = []
+    return middleArgs
+}
+
+/**
+ * 构建元数据参数（description/copyright/音频标签/标题）
+ * @param {Object} entry - 文件对象
+ * @param {Object} tempPreset - 预设副本（展示模式不写 extraArgs）
+ * @param {boolean} forDisplay - 是否为展示模式
+ * @returns {string[]} 元数据参数数组
+ */
+function buildMetaArgs(entry, tempPreset, forDisplay) {
+    const metaArgs = []
     // 添加自定义metadata字段
-    //description, comment, copyright
+    // description, comment, copyright
     const descArgs = []
     descArgs.push(getEntryShowInfo(entry))
     const dateText = dayjs().format("YYYY-MM-DD HH:mm:ss.SSS Z")
@@ -2072,7 +2176,7 @@ function createFFmpegArgs(entry, hwPlan = null, forDisplay = false) {
                 validTags[key] = value.replaceAll(/['"]/gi, " ")
             }
         }
-        metaArgs = metaArgs.concat(
+        metaArgs.push(
             ...Object.entries(validTags).map(([key, value]) => [`-metadata`, `${key}=${value}`]),
         )
     } else {
@@ -2085,29 +2189,25 @@ function createFFmpegArgs(entry, hwPlan = null, forDisplay = false) {
     }
     // 注意：这里直接使用 metaArgs 数组，不能再 join(" ") 后再 split(" ")——
     // 那个往返会把含空格的值（如 title=My Movie）拆成多个 argv。
-    if (metaArgs.length > 0) {
-        middleArgs = middleArgs.concat(metaArgs)
-    }
+    return metaArgs
+}
+
+/**
+ * 构建流选择与其它输出参数（streamArgs / outputArgs，顺序重要）
+ * @param {Object} tempPreset - 预设副本
+ * @returns {string[]} 流与输出参数数组
+ */
+function buildStreamArgs(tempPreset) {
+    const middleArgs = []
     // 流参数 streamArgs -map xxx 等
     if (tempPreset.streamArgs?.length > 0) {
-        middleArgs = middleArgs.concat(tempPreset.streamArgs.split(" "))
+        middleArgs.push(...tempPreset.streamArgs.split(" "))
     }
     // 输出参数在最后，在输出文件前面，顺序重要
     if (tempPreset.outputArgs?.length > 0) {
-        middleArgs = middleArgs.concat(tempPreset.outputArgs.split(" "))
+        middleArgs.push(...tempPreset.outputArgs.split(" "))
     }
-    //===============================================================
-    // 输出参数部分，只有一个输出文件路径
-    //===============================================================
-    // 显示数据时用最终路径，实际使用时用临时文件路径
-    const outputArgs = [forDisplay ? "output.mp4" : entry.fileDstTemp]
-
-    // 仅用于展示
-    entry.debugPreset = core.formatObjectArgs(tempPreset, tempPreset)
-    entry.debugArgs = [...inputArgs, ...middleArgs, ...outputArgs]
-
-    // 返回三种参数，方便后面组合保存ffmpeg参数到元数据
-    return [inputArgs, middleArgs, outputArgs]
+    return middleArgs
 }
 
 /**
@@ -2181,12 +2281,12 @@ async function executeFFmpeg(args, entry, progressBar = null) {
 
     try {
         await subprocess
-        // 进度完成，确保换行
+        // 进度完成，确保换行（并发模式无进度条时无需补空行）
         progressBar?.stop()
-        log.show() // 添加换行符
+        progressBar && log.show()
     } catch (error) {
         progressBar?.stop()
-        log.show() // 添加换行符
+        progressBar && log.show()
         throw error
     }
 }
