@@ -9,7 +9,6 @@ import chalk from "chalk"
 import fs from "fs-extra"
 import pMap from "p-map"
 import path from "path"
-import which from "which"
 import argparser from "../lib/arg_parser.js"
 import { abortIfCancelled, confirmDangerousAction, initAutoConfirm } from "../lib/command_utils.js"
 import config from "../lib/config.js"
@@ -32,6 +31,8 @@ import {
 } from "../lib/ffmpeg_plan.js"
 import { createFFmpegArgs, flattenFFArgs } from "../lib/ffmpeg_build.js"
 import { LOG_TAG, runFFmpegCmd, setFFmpegPath } from "../lib/ffmpeg_run.js"
+import { resolveFFmpegBinary } from "../lib/ffmpeg_bin.js"
+import { detectHardwareCapabilities } from "../lib/hwdetect.js"
 
 // ===========================================
 // 命令内容执行
@@ -249,6 +250,12 @@ const builder = function addOptions(ya) {
                 choices: ["auto", "gpu", "cpu"],
                 default: "auto",
                 describe: t("ffmpeg.decode.mode"),
+            })
+            // 严格模式：禁用所有自动降级（硬件层回退、编码器降级、失败重试等）
+            .option("strict", {
+                type: "boolean",
+                default: false,
+                describe: t("ffmpeg.strict"),
             })
             // 并行操作限制，并发数，默认为 CPU 核心数
             .option("jobs", {
@@ -605,6 +612,21 @@ async function planFFmpegTasks(argv) {
         return null
     }
     const lastTask = tasks.slice(-1)[0]
+    // ffmpeg 二进制定位：环境变量（FFMPEG_PATH/FFMPEG_BINARY）优先，未设置时按 PATH 查找。
+    // 提前到预览之前探测一次构建能力（进程内缓存，真实执行直接复用），
+    // 一方面让预览命令结构与真实执行一致（如 libfdk_aac 缺失时的 aac 降级在日志即体现），
+    // 另一方面随探测顺带打印软硬件环境信息（版本/构建/编码器/硬件加速栈）。
+    const ffmpegBin = await resolveFFmpegBinary()
+    if (!ffmpegBin) {
+        throw createError(ErrorTypes.FFMPEG_ERROR, t("ffmpeg.not.found"))
+    }
+    setFFmpegPath(ffmpegBin)
+    let hwCaps = null
+    try {
+        hwCaps = await detectHardwareCapabilities({ ffmpegPath: ffmpegBin })
+    } catch (err) {
+        log.logWarn(LOG_TAG, `hw capability detection failed: ${err.message}`)
+    }
     // ⚠️ 此处 hwPlan 尚未生成（分层决策在 runFFmpegCmd 内按文件进行），
     // 传 null 会让 buildScaleFiltersFromPlan 走兜底分支返回 preset.filters，
     // 而 preset.filters 是 "{scaleFilter}" 占位符 → 日志里会打印未替换的字面量。
@@ -613,6 +635,7 @@ async function planFFmpegTasks(argv) {
     const previewPlan = {
         tier: TIERS.find((t) => t.name === "cpu"),
         size: null,
+        caps: hwCaps, // 携带构建能力：预览命令与真实执行走同一降级/参数决策
     }
     const lastFFPlan = createFFmpegArgs(lastTask, previewPlan)
     // fileLog 签名是 (logText, logTag, logFileName)：此前把参数数组当成了 tag、
@@ -643,11 +666,6 @@ async function planFFmpegTasks(argv) {
     if (await abortIfCancelled(answer, LOG_TAG)) {
         return null
     }
-    const ffmpegBin = await which("ffmpeg", { nothrow: true })
-    if (!ffmpegBin) {
-        throw createError(ErrorTypes.FFMPEG_ERROR, t("ffmpeg.not.found"))
-    }
-    setFFmpegPath(ffmpegBin)
     return { tasks, testMode, preset, jobs: argv.jobs }
 }
 
@@ -671,7 +689,12 @@ async function runFFmpegTasks({ tasks, testMode, preset, jobs }) {
     })
     let failedTasks = results.filter((r) => r && r.ffmpegFailed && !r.retryOnFailed)
     let rOKCount = 0
-    if (failedTasks.length > 0) {
+    // 严格模式：跳过 CPU 降级重试（失败即失败，不允许自动降级）
+    const strict = tasks[0]?.argv?.strict === true
+    if (failedTasks.length > 0 && strict) {
+        log.logWarn(LOG_TAG, t("ffmpeg.strict.retry"))
+        log.fileLog(t("ffmpeg.strict.retry"), "FFConv")
+    } else if (failedTasks.length > 0) {
         const answer = await confirmDangerousAction(
             t("ffmpeg.confirm.retry", { count: failedTasks.length }),
         )
@@ -697,17 +720,26 @@ async function runFFmpegTasks({ tasks, testMode, preset, jobs }) {
 
     testMode && log.logWarn(LOG_TAG, t("common.test.mode.note"))
     const okResults = results.filter((r) => r && r.ok)
+    // 严格模式跳过的文件：不进失败名单（未标记 ffmpegFailed）、不重试，仅汇总提示
+    const skippedResults = results.filter((r) => r && r.skipped === true)
     // 结束汇总落盘：哪些文件失败、失败原因是什么，此前只打印到控制台
     if (!testMode) {
         const failedResults = results.filter((r) => r && r.ffmpegFailed && !r.ok)
         const totalOK = okResults.length + rOKCount
         log.fileLog(
-            `Summary: total=${tasks.length} ok=${totalOK} error=${failedResults.length}`,
+            `Summary: total=${tasks.length} ok=${totalOK} error=${failedResults.length}` +
+                (skippedResults.length > 0 ? ` skipped=${skippedResults.length}` : ""),
             "FFConv",
         )
         for (const fr of failedResults) {
             log.fileLog(`Fail <${fr.path}> ${fr.ffmpegError || ""}`, "FFConv")
         }
+        for (const sk of skippedResults) {
+            log.fileLog(`Skip[Strict] <${sk.path}> ${sk.skipReason || ""}`, "FFConv")
+        }
+    }
+    if (skippedResults.length > 0 && !testMode) {
+        log.showYellow(LOG_TAG, t("ffmpeg.strict.skip.count", { count: skippedResults.length }))
     }
     !testMode &&
         log.logSuccess(
@@ -932,6 +964,21 @@ async function prepareFFmpegCmd(entry) {
                         // H264 High L5以上可能也不支持
                         const isH264 = ivideo?.format === "h264" || ivideo?.format === "avc"
                         if (isH264 && ivideo?.bitDepth === 10) {
+                            // 严格模式：H264 10bit 无任何硬解支持（Nvidia/Intel 均不支持），
+                            // 不自动软解降级，warn 并跳过该文件，其余文件继续
+                            if (argv.strict) {
+                                log.showYellow(
+                                    logTag,
+                                    `${ipx} Skip[Strict10bit] <${entry.path}> ` +
+                                        `(${ivideo?.format} ${ivideo?.bitDepth}bit has no hw decode)`,
+                                )
+                                log.fileLog(
+                                    `${ipx} Skip[Strict10bit] <${entry.path}> ` +
+                                        `[${preset.name}] ${ivideo?.format} ${ivideo?.bitDepth}bit has no hw decode`,
+                                    "Prepare",
+                                )
+                                return false
+                            }
                             // 添加标志，使用软解，替换解码参数
                             // 在组装ffmpeg参数时判断和替换
                             // 解码和滤镜参数都需要修改
@@ -940,6 +987,33 @@ async function prepareFFmpegCmd(entry) {
                         }
                     }
                     break
+            }
+        }
+
+        // 严格模式：音频编码器预检。预设里指定了本机构建不支持的编码器
+        // （如缺 libfdk_aac 的 ffmpeg 用到 -c:a libfdk_aac）时，不降级、不报错，
+        // warn 并跳过该文件，避免在 confirm/run 阶段才发现。
+        if (argv.strict && preset.audioArgs?.length > 0) {
+            const am = String(preset.audioArgs).match(/-c:a(?::\d+)?\s+(\S+)/)
+            if (am && am[1] !== "copy") {
+                const codec = am[1]
+                try {
+                    // 进程内缓存 + in-flight 去重：并发 prepare 只实际探测一次
+                    const caps = await detectHardwareCapabilities()
+                    const encoders = caps?.encoders
+                    if (encoders && encoders.size > 0 && !encoders.has(codec)) {
+                        const why = `audio encoder "${codec}" not available in this ffmpeg build`
+                        log.showYellow(logTag, `${ipx} Skip[StrictCodec] <${entry.path}> (${why})`)
+                        log.fileLog(
+                            `${ipx} Skip[StrictCodec] <${entry.path}> [${preset.name}] ${why}`,
+                            "Prepare",
+                        )
+                        return false
+                    }
+                } catch (err) {
+                    // 探测失败不拦截：留给 run 阶段按真实结果处理
+                    log.logWarn(logTag, `codec precheck skipped for ${entry.path}: ${err.message}`)
+                }
             }
         }
 
@@ -985,6 +1059,19 @@ async function prepareFFmpegCmd(entry) {
         }
         return newEntry
     } catch (error) {
+        // 严格模式错误：探测到软硬件不支持（如 H264 10bit 无硬解）时，
+        // warn 并跳过该文件，其余文件继续；不再整体报错退出。
+        if (error?.name === "StrictModeError" || error?.code?.startsWith?.("STRICT_")) {
+            log.showYellow(
+                logTag,
+                `${ipx} Skip[Strict] <${entry.path}> (${error?.message || error})`,
+            )
+            log.fileLog(
+                `${ipx} Skip[Strict] <${entry.path}> [${preset?.name}] ${error?.message || error}`,
+                "Prepare",
+            )
+            return false
+        }
         // 单个文件解析失败不应中断整批任务：目录里混入一个坏文件时，
         // 旧实现会 rethrow 导致 pMap 整体失败，几十个正常文件全部不处理。
         // 这里改为记录后跳过（与日志文案 "Skip[Error]" 的意图一致）。
