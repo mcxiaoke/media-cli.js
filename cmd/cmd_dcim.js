@@ -17,7 +17,7 @@ import { ErrorTypes, createError } from "../lib/errors.js"
 import * as exif from "../lib/exif.js"
 import * as helper from "../lib/helper.js"
 import { t } from "../lib/i18n.js"
-import { confirmAction, confirmDangerousAction, abortIfCancelled } from "../lib/command_utils.js"
+import { confirmAction, confirmDangerousAction, abortIfCancelled, initAutoConfirm } from "../lib/command_utils.js"
 
 const LOG_TAG = "DcimR"
 
@@ -72,6 +72,12 @@ const builder = function addOptions(ya) {
             default: false,
             description: t("option.common.doit"),
         })
+        .option("auto-confirm", {
+            alias: "A",
+            type: "boolean",
+            default: false,
+            description: t("option.common.autoConfirm"),
+        })
         .option("log", {
             alias: "l",
             type: "string",
@@ -108,6 +114,8 @@ const builder = function addOptions(ya) {
  * @returns {Promise<void>}
  */
 const handler = async function cmdRename(argv) {
+    // 初始化全局自动确认开关（--auto-confirm / -A / MEDIAC_AUTO_CONFIRM）
+    initAutoConfirm(argv)
     log.logInfo(LOG_TAG, argv)
 
     const inputDirs = Array.isArray(argv.input) ? argv.input : [argv.input]

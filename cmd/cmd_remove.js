@@ -11,7 +11,6 @@ import dayjs from "dayjs"
 import { fileTypeFromFile } from "file-type"
 import fs from "fs-extra"
 import imageSizeOfSync from "image-size"
-import inquirer from "inquirer"
 import { cpus } from "os"
 import pMap from "p-map"
 import path from "path"
@@ -25,6 +24,7 @@ import { ErrorTypes, createError } from "../lib/errors.js"
 import * as mf from "../lib/file.js"
 import * as helper from "../lib/helper.js"
 import { t } from "../lib/i18n.js"
+import { confirmDangerousAction, initAutoConfirm } from "../lib/command_utils.js"
 import { getMediaInfo, getVideoInfo } from "../lib/mediainfo.js"
 import { applyFileNameRules } from "../lib/rename.js"
 
@@ -41,7 +41,7 @@ const caches = {
     /** @type {Map<string, import('image-size').ISizeCalculationResult>} */
     imageSize: new Map(),
     /** @type {Map<string, any>} */
-    videoInfo: new Map()
+    videoInfo: new Map(),
     // audioInfo 会在首次使用时动态添加
 }
 
@@ -69,35 +69,35 @@ function clearCaches() {
  * @returns {Object} 错误信息对象
  */
 function handleTaskError(error, fileSrc, errorStats) {
-    const errorType = error.name || 'UnknownError'
-    const errorMessage = error.message || 'No error message provided'
-    
+    const errorType = error.name || "UnknownError"
+    const errorMessage = error.message || "No error message provided"
+
     // 统计错误
     errorStats.total++
     if (!errorStats.byType[errorType]) {
         errorStats.byType[errorType] = 0
     }
     errorStats.byType[errorType]++
-    
+
     // 记录错误详情
     errorStats.details.push({
         file: fileSrc,
         error: errorType,
-        message: errorMessage
+        message: errorMessage,
     })
-    
+
     // 记录错误日志
     log.error(
         "TaskError",
         `Error processing ${fileSrc}: ${errorType} - ${errorMessage}`,
-        error.stack
+        error.stack,
     )
-    
+
     // 返回错误对象，便于上层处理
     return {
         error: errorType,
         message: errorMessage,
-        file: fileSrc
+        file: fileSrc,
     }
 }
 
@@ -126,7 +126,7 @@ async function getCachedFileType(filePath) {
     if (caches.fileType.has(filePath)) {
         return caches.fileType.get(filePath)
     }
-    
+
     try {
         const fileType = await fileTypeFromFile(filePath)
         caches.fileType.set(filePath, fileType)
@@ -142,7 +142,7 @@ async function getCachedMediaInfo(filePath) {
     if (caches.mediaInfo.has(filePath)) {
         return caches.mediaInfo.get(filePath)
     }
-    
+
     try {
         const mediaInfo = await getMediaInfo(filePath)
         caches.mediaInfo.set(filePath, mediaInfo)
@@ -158,7 +158,7 @@ async function getCachedImageSize(filePath) {
     if (caches.imageSize.has(filePath)) {
         return caches.imageSize.get(filePath)
     }
-    
+
     try {
         const imageSizeOf = promisify(imageSizeOfSync)
         const dimension = await imageSizeOf(filePath)
@@ -175,7 +175,7 @@ async function getCachedVideoInfo(filePath) {
     if (caches.videoInfo.has(filePath)) {
         return caches.videoInfo.get(filePath)
     }
-    
+
     try {
         const videoInfo = await getVideoInfo(filePath)
         caches.videoInfo.set(filePath, videoInfo)
@@ -195,7 +195,7 @@ async function getCachedAudioInfo(filePath) {
     } else {
         caches.audioInfo = new Map()
     }
-    
+
     try {
         const audioInfo = await mm.parseFile(filePath)
         caches.audioInfo.set(filePath, audioInfo)
@@ -211,53 +211,53 @@ async function checkAudioParams(fileSrc, audioParams, ipx, fileName) {
     if (!Object.keys(audioParams).length) {
         return { matches: false, description: "" }
     }
-    
+
     try {
         const audioInfo = await getCachedAudioInfo(fileSrc)
         if (!audioInfo) {
             return { matches: false, description: " Audio=Invalid" }
         }
-        
+
         const format = audioInfo.format
-        const hasDuration = 'duration' in audioParams
-        const hasBitrate = 'bitrate' in audioParams
-        const hasSampleRate = 'samplerate' in audioParams
-        const hasChannels = 'channels' in audioParams
-        
+        const hasDuration = "duration" in audioParams
+        const hasBitrate = "bitrate" in audioParams
+        const hasSampleRate = "samplerate" in audioParams
+        const hasChannels = "channels" in audioParams
+
         let matches = true
         let description = " Audio="
-        
+
         if (hasDuration) {
             const duration = format.duration || 0
             matches = matches && duration <= audioParams.duration
             description += `D=${duration.toFixed(1)}s`
         }
-        
+
         if (hasBitrate) {
             const bitrate = format.bitrate || 0
             matches = matches && bitrate <= audioParams.bitrate
             description += `B=${bitrate}kbps`
         }
-        
+
         if (hasSampleRate) {
             const sampleRate = format.sampleRate || 0
             matches = matches && sampleRate <= audioParams.samplerate
             description += `SR=${sampleRate}Hz`
         }
-        
+
         if (hasChannels) {
             const channels = format.numberOfChannels || 0
             matches = matches && channels <= audioParams.channels
             description += `CH=${channels}`
         }
-        
+
         if (matches) {
             log.info(
                 "preRemove[Audio]:",
                 `${ipx} ${fileName} ${description} [${JSON.stringify(audioParams)}]`,
             )
         }
-        
+
         return { matches, description }
     } catch (error) {
         log.logWarn(LOG_TAG, `preRemove[AudioCheckError]: ${ipx} ${fileSrc} - ${error.message}`)
@@ -328,35 +328,35 @@ function checkTimeParams(fileSrc, mtimeDiff, ctimeDiff, ipx, fileName) {
     if (!mtimeDiff && !ctimeDiff) {
         return { matches: false, description: "" }
     }
-    
+
     try {
         const stats = fs.statSync(fileSrc)
         const now = Date.now()
         const mtime = stats.mtime.getTime()
         const ctime = stats.ctime.getTime()
-        
+
         let matches = true
         let description = " Time="
-        
+
         if (mtimeDiff) {
             const mtimeOk = now - mtime <= mtimeDiff
             matches = matches && mtimeOk
-            description += `M=${dayjs(mtime).format('YYYY-MM-DD')}`
+            description += `M=${dayjs(mtime).format("YYYY-MM-DD")}`
         }
-        
+
         if (ctimeDiff) {
             const ctimeOk = now - ctime <= ctimeDiff
             matches = matches && ctimeOk
-            description += `C=${dayjs(ctime).format('YYYY-MM-DD')}`
+            description += `C=${dayjs(ctime).format("YYYY-MM-DD")}`
         }
-        
+
         if (matches) {
             log.info(
                 "preRemove[Time]:",
-                `${ipx} ${fileName} ${description} [mtime=${mtimeDiff ? 'Y' : 'N'}, ctime=${ctimeDiff ? 'Y' : 'N'}]`,
+                `${ipx} ${fileName} ${description} [mtime=${mtimeDiff ? "Y" : "N"}, ctime=${ctimeDiff ? "Y" : "N"}]`,
             )
         }
-        
+
         return { matches, description }
     } catch (error) {
         log.logWarn(LOG_TAG, `preRemove[TimeCheckError]: ${ipx} ${fileSrc} - ${error.message}`)
@@ -535,6 +535,12 @@ const builder = function addOptions(ya) {
                 default: false,
                 description: t("option.common.doit"),
             })
+            .option("auto-confirm", {
+                alias: "A",
+                type: "boolean",
+                default: false,
+                description: t("option.common.autoConfirm"),
+            })
             // 时间筛选，基于文件修改时间
             // 格式: 1d (1天内), 1w (1周内), 1m (1月内), 1y (1年内)
             .option("mtime", {
@@ -554,20 +560,25 @@ const builder = function addOptions(ya) {
 
 const handler = cmdRemove
 async function cmdRemove(argv) {
+    // 初始化全局自动确认开关（--auto-confirm / -A / MEDIAC_AUTO_CONFIRM）
+    initAutoConfirm(argv)
     log.logInfo(LOG_TAG, argv)
     const testMode = !argv.doit
     const root = path.resolve(argv.input)
-    
+
     const errorStats = {
         total: 0,
         byType: {},
-        details: []
+        details: [],
     }
-    
+
     const operationLog = []
-    
+
     if (!root || !(await fs.pathExists(root))) {
-        throw createError(ErrorTypes.INVALID_ARGUMENT, `Invalid Input: ${root} - Path does not exist or is not accessible`)
+        throw createError(
+            ErrorTypes.INVALID_ARGUMENT,
+            `Invalid Input: ${root} - Path does not exist or is not accessible`,
+        )
     }
     const reMeasure = /^\d+[x*,|]\d+$/
     // 数值型条件必须为有限正数：NaN 参与 == 比较恒为 false，
@@ -682,25 +693,25 @@ async function cmdRemove(argv) {
 
     let audioParams = {}
     if (argv.audio) {
-        const audioArgs = argv.audio.split(',').map(arg => arg.trim())
+        const audioArgs = argv.audio.split(",").map((arg) => arg.trim())
         for (const arg of audioArgs) {
-            const [key, value] = arg.split('=').map(item => item.trim())
+            const [key, value] = arg.split("=").map((item) => item.trim())
             if (key && value) {
                 switch (key) {
-                    case 'du':
-                    case 'duration':
+                    case "du":
+                    case "duration":
                         audioParams.duration = parseFloat(value)
                         break
-                    case 'bit':
-                    case 'bitrate':
+                    case "bit":
+                    case "bitrate":
                         audioParams.bitrate = parseFloat(value)
                         break
-                    case 'sr':
-                    case 'samplerate':
+                    case "sr":
+                    case "samplerate":
                         audioParams.samplerate = parseFloat(value)
                         break
-                    case 'ch':
-                    case 'channels':
+                    case "ch":
+                    case "channels":
                         audioParams.channels = parseInt(value)
                         break
                 }
@@ -712,26 +723,26 @@ async function cmdRemove(argv) {
     // 旧实现声明了 --video 但从未读取，属死选项；此处补齐解析
     let videoParams = {}
     if (argv.video) {
-        const videoArgs = argv.video.split(',').map((arg) => arg.trim())
+        const videoArgs = argv.video.split(",").map((arg) => arg.trim())
         for (const arg of videoArgs) {
-            const [key, value] = arg.split('=').map((item) => item.trim())
+            const [key, value] = arg.split("=").map((item) => item.trim())
             if (key && value) {
                 switch (key) {
-                    case 'du':
-                    case 'duration':
+                    case "du":
+                    case "duration":
                         videoParams.duration = parseFloat(value)
                         break
-                    case 'bit':
-                    case 'bitrate':
+                    case "bit":
+                    case "bitrate":
                         videoParams.bitrate = parseFloat(value)
                         break
-                    case 'w':
-                    case 'width':
-                    case 'dm':
+                    case "w":
+                    case "width":
+                    case "dm":
                         videoParams.width = parseFloat(value)
                         break
-                    case 'h':
-                    case 'height':
+                    case "h":
+                    case "height":
                         videoParams.height = parseFloat(value)
                         break
                 }
@@ -748,11 +759,20 @@ async function cmdRemove(argv) {
         const valueNum = parseInt(value)
         let maxDiff
         switch (unit) {
-            case 'd': maxDiff = valueNum * 24 * 60 * 60 * 1000; break
-            case 'w': maxDiff = valueNum * 7 * 24 * 60 * 60 * 1000; break
-            case 'm': maxDiff = valueNum * 30 * 24 * 60 * 60 * 1000; break
-            case 'y': maxDiff = valueNum * 365 * 24 * 60 * 60 * 1000; break
-            default: return null
+            case "d":
+                maxDiff = valueNum * 24 * 60 * 60 * 1000
+                break
+            case "w":
+                maxDiff = valueNum * 7 * 24 * 60 * 60 * 1000
+                break
+            case "m":
+                maxDiff = valueNum * 30 * 24 * 60 * 60 * 1000
+                break
+            case "y":
+                maxDiff = valueNum * 365 * 24 * 60 * 60 * 1000
+                break
+            default:
+                return null
         }
         return maxDiff
     }
@@ -795,12 +815,15 @@ async function cmdRemove(argv) {
             conditions: conditions,
         }
     })
-    
+
     const totalSize = fileEntries.reduce((acc, f) => acc + f.size, 0)
     const avgSize = fileEntries.length > 0 ? totalSize / fileEntries.length : 0
     const concurrency = getConcurrencyByFileSize(avgSize)
-    
-    log.logSuccess(LOG_TAG, `Using concurrency: ${concurrency} (based on average file size: ${helper.humanSize(avgSize)})`)
+
+    log.logSuccess(
+        LOG_TAG,
+        `Using concurrency: ${concurrency} (based on average file size: ${helper.humanSize(avgSize)})`,
+    )
     let tasks = await pMap(fileEntries, preRemoveArgs, { concurrency })
 
     conditions.names = Array.from(cNames).slice(-5)
@@ -827,22 +850,15 @@ async function cmdRemove(argv) {
     log.fileLog(`Conditions: ${JSON.stringify(conditions)}`, LOG_TAG)
     testMode && log.logWarn(LOG_TAG, `++++++++++ TEST MODE (DRY RUN) ++++++++++`)
     const tasksTotalSize = tasks.reduce((acc, file) => acc + file.size, 0)
-    const answer = await inquirer.prompt([
-        {
-            type: "confirm",
-            name: "yes",
-            default: false,
-            message: chalk.bold.red(
-                t("remove.confirm.delete", {
-                    count: tasks.length,
-                    size: helper.humanSize(tasksTotalSize),
-                    type: type,
-                }),
-            ),
-        },
-    ])
+    const answer = await confirmDangerousAction(
+        t("remove.confirm.delete", {
+            count: tasks.length,
+            size: helper.humanSize(tasksTotalSize),
+            type: type,
+        }),
+    )
 
-    if (!answer.yes) {
+    if (!answer) {
         log.logWarn(LOG_TAG, t("operation.cancelled"))
         return
     }
@@ -851,40 +867,40 @@ async function cmdRemove(argv) {
     log.logSuccess(LOG_TAG, "task startAt", dayjs().format())
     let removedCount = 0
     let index = 0
-    
+
     // 创建进度条
     const progressBar = new cliProgress.SingleBar({
-        format: 'Processing [{bar}] {percentage}% | ETA: {eta}s | {value}/{total} | {file}',
-        barCompleteChar: '█',
-        barIncompleteChar: '░',
+        format: "Processing [{bar}] {percentage}% | ETA: {eta}s | {value}/{total} | {file}",
+        barCompleteChar: "█",
+        barIncompleteChar: "░",
         hideCursor: true,
-        clearOnComplete: false
+        clearOnComplete: false,
     })
-    
+
     if (testMode) {
         log.logWarn(LOG_TAG, t("common.test.mode.note", { count: tasks.length }))
     } else {
-        progressBar.start(tasks.length, 0, { file: 'Starting...' })
-        
+        progressBar.start(tasks.length, 0, { file: "Starting..." })
+
         for (const task of tasks) {
             const flag = task.isDir ? "D" : "F"
             const shortPath = helper.pathShort(task.src, 40)
-            
+
             try {
                 progressBar.update(index, { file: shortPath })
-                
+
                 const originalPath = task.src
                 const timestamp = Date.now()
-                
+
                 if (conditions.purge) {
                     operationLog.push({
-                        type: 'delete',
+                        type: "delete",
                         path: originalPath,
                         size: task.size,
                         timestamp,
-                        flag
+                        flag,
                     })
-                    
+
                     await fs.remove(task.src)
                     log.logTask(
                         LOG_TAG,
@@ -898,7 +914,11 @@ async function cmdRemove(argv) {
                     )
                 } else if (conditions.output) {
                     // --output 指定时，把文件移动到该目录（而非默认的回收站）
-                    const destPath = await moveToOutputDir(task.src, conditions.output, conditions.outputTree)
+                    const destPath = await moveToOutputDir(
+                        task.src,
+                        conditions.output,
+                        conditions.outputTree,
+                    )
                     // moveToOutputDir 失败时返回 null：源文件仍在原处，
                     // 绝不能记入操作日志（会破坏"撤销"能力）也不能计入成功数。
                     if (!destPath) {
@@ -957,15 +977,15 @@ async function cmdRemove(argv) {
                 )
                 index++
             }
-            
+
             progressBar.update(index, { file: shortPath })
         }
-        
-        progressBar.update(tasks.length, { file: 'Completed' })
+
+        progressBar.update(tasks.length, { file: "Completed" })
         progressBar.stop()
     }
-    
-    log.show(chalk.cyan('='.repeat(80)))
+
+    log.show(chalk.cyan("=".repeat(80)))
     log.show(chalk.cyan(`Operation Summary:`))
     log.show(chalk.cyan(`- Total files to process: ${tasks.length}`))
     log.show(chalk.cyan(`- Successfully processed: ${removedCount}`))
@@ -974,32 +994,32 @@ async function cmdRemove(argv) {
         log.show(chalk.cyan(`- Errors encountered: ${errorStats.total}`))
     }
     log.show(chalk.cyan(`- Duration: ${helper.humanTime(startMs)}`))
-    log.show(chalk.cyan('='.repeat(80)))
-    
+    log.show(chalk.cyan("=".repeat(80)))
+
     if (errorStats.total > 0) {
         log.logError(LOG_TAG, `Encountered ${errorStats.total} error(s) during operation:`)
         for (const [errorType, count] of Object.entries(errorStats.byType)) {
             log.logWarn(LOG_TAG, `  - ${errorType}: ${count} occurrence(s)`)
         }
-        
+
         const errorLogPath = path.join(process.cwd(), `remove_errors_${Date.now()}.log`)
         await fs.writeFile(errorLogPath, JSON.stringify(errorStats, null, 2))
         log.logWarn(LOG_TAG, `Detailed error log saved to: ${errorLogPath}`)
     }
-    
+
     if (operationLog.length > 0) {
         const logPath = path.join(process.cwd(), `remove_operation_${Date.now()}.log`)
         await fs.writeFile(logPath, JSON.stringify(operationLog, null, 2))
         log.logSuccess(LOG_TAG, `Operation log saved to: ${logPath}`)
         log.logWarn(LOG_TAG, `To undo this operation, use: mediac undo --log ${logPath}`)
     }
-    
+
     log.logSuccess(LOG_TAG, "task endAt", dayjs().format())
     log.logSuccess(
         LOG_TAG,
         t("remove.summary", { count: removedCount, time: helper.humanTime(startMs), type: type }),
     )
-    
+
     clearCaches()
     log.logDebug(LOG_TAG, "Caches cleared")
 }
@@ -1091,7 +1111,10 @@ function handleNameListRule(fileSrc, base, cNames, cReverse, index, size, ipx, f
     const nameInList = cNames.has(base.trim())
     const shouldRemove = cReverse ? !nameInList : nameInList
     const itemDesc = `IN=${nameInList} R=${cReverse}`
-    log.logInfo(LOG_TAG, `preRemove[List] add:${ipx} ${helper.pathShort(fileSrc)} ${itemDesc} ${flag}`)
+    log.logInfo(
+        LOG_TAG,
+        `preRemove[List] add:${ipx} ${helper.pathShort(fileSrc)} ${itemDesc} ${flag}`,
+    )
     return buildRemoveArgs(index, itemDesc, shouldRemove, fileSrc, size)
 }
 
@@ -1109,10 +1132,10 @@ async function checkCorruptedFile(fileSrc, fileName, ipx) {
     const isRawExt = helper.isRawFile(fileName)
     const isArchiveExt = helper.isArchiveFile(fileName)
     const fileSize = (await fs.stat(fileSrc)).size
-    
+
     let isCorrupted = false
     let description = ""
-    
+
     if (isAudioExt || isVideoExt) {
         if (fileSize < 5 * 1024) {
             log.logDebug(LOG_TAG, `preRemove[BadSizeM]: ${ipx} ${fileSrc}`)
@@ -1131,7 +1154,10 @@ async function checkCorruptedFile(fileSrc, fileName, ipx) {
                     isCorrupted = true
                 }
             } catch (error) {
-                log.logDebug(LOG_TAG, `preRemove[CorruptedMediaError]: ${ipx} ${fileSrc} ${error.message}`)
+                log.logDebug(
+                    LOG_TAG,
+                    `preRemove[CorruptedMediaError]: ${ipx} ${fileSrc} ${error.message}`,
+                )
                 description += " Corrupted"
                 isCorrupted = true
             }
@@ -1150,17 +1176,20 @@ async function checkCorruptedFile(fileSrc, fileName, ipx) {
                     isCorrupted = true
                 }
             } catch (error) {
-                log.logDebug(LOG_TAG, `preRemove[CorruptedFormatError]: ${ipx} ${fileSrc} ${error.message}`)
+                log.logDebug(
+                    LOG_TAG,
+                    `preRemove[CorruptedFormatError]: ${ipx} ${fileSrc} ${error.message}`,
+                )
                 description += " Corrupted"
                 isCorrupted = true
             }
         }
     }
-    
+
     if (!isCorrupted) {
         log.info("preRemove[Good]:", `${ipx} ${fileSrc}`)
     }
-    
+
     return { isCorrupted, description }
 }
 
@@ -1175,14 +1204,14 @@ async function checkCorruptedFile(fileSrc, fileName, ipx) {
 function checkBadCharsInFileName(fileName, ipx, fileSrc, itemSize) {
     const itemCount = 1
     const hasBadChars = enc.hasBadCJKChar(fileName) || enc.hasBadUnicode(fileName, true)
-    
+
     if (hasBadChars) {
         log.logDebug(
             LOG_TAG,
             `preRemove[BadChars]: ${ipx} ${fileSrc} (${helper.humanSize(itemSize)},${itemCount})`,
         )
     }
-    
+
     return { hasBadChars, description: hasBadChars ? " BadChars" : "" }
 }
 
@@ -1216,7 +1245,9 @@ function checkNamePattern(fileName, cPattern, cNotMatch, ipx, fileSrc, itemSize,
 
     // 开头匹配，或末尾匹配，或（启用正则且合法时）正则匹配
     const pMatched =
-        fName.startsWith(lowerPattern) || fName.endsWith(lowerPattern) || (rp ? rp.test(fName) : false)
+        fName.startsWith(lowerPattern) ||
+        fName.endsWith(lowerPattern) ||
+        (rp ? rp.test(fName) : false)
     // 条件反转判断
     const matches = cNotMatch ? !pMatched : pMatched
 
@@ -1258,12 +1289,12 @@ function checkFileSize(fileSize, sizeLeft, sizeRight, fileName, ipx) {
     } else {
         matches = fileSize >= sizeLeftBytes
     }
-    
+
     log.info(
         "preRemove[Size]:",
         `${ipx} ${fileName} [${helper.humanSize(fileSize)}] Size=(${sizeLeft}K,${sizeRight}K)`,
     )
-    
+
     return { matches, description }
 }
 
@@ -1278,10 +1309,18 @@ function checkFileSize(fileSize, sizeLeft, sizeRight, fileName, ipx) {
  * @param {string} ipx - 索引/总数字符串
  * @returns {Promise<{matches: boolean, description: string}>}
  */
-async function checkFileDimensions(fileSrc, isImageExt, isVideoExt, maxWidth, maxHeight, fileName, ipx) {
+async function checkFileDimensions(
+    fileSrc,
+    isImageExt,
+    isVideoExt,
+    maxWidth,
+    maxHeight,
+    fileName,
+    ipx,
+) {
     let fWidth = 0
     let fHeight = 0
-    
+
     try {
         if (isImageExt) {
             // 获取图片宽高（带缓存）
@@ -1298,10 +1337,10 @@ async function checkFileDimensions(fileSrc, isImageExt, isVideoExt, maxWidth, ma
         log.info("preRemove[M]:", `${ipx} InvalidImage: ${fileName} ${error.message}`)
         return { matches: false, description: " M=Invalid" }
     }
-    
+
     const description = ` M=${fWidth}x${fHeight}`
     let matches = false
-    
+
     if (maxWidth > 0 && maxHeight > 0) {
         // 宽高都提供时，要求都满足才能删除
         if (fWidth <= maxWidth && fHeight <= maxHeight) {
@@ -1313,20 +1352,14 @@ async function checkFileDimensions(fileSrc, isImageExt, isVideoExt, maxWidth, ma
         }
     } else if (maxWidth > 0 && fWidth <= maxWidth) {
         // 只提供宽要求
-        log.info(
-            "preRemove[M]:",
-            `${ipx} ${fileName} ${fWidth}x${fHeight} [W=${maxWidth}]`,
-        )
+        log.info("preRemove[M]:", `${ipx} ${fileName} ${fWidth}x${fHeight} [W=${maxWidth}]`)
         matches = true
     } else if (maxHeight > 0 && fHeight <= maxHeight) {
         // 只提供高要求
-        log.info(
-            "preRemove[M]:",
-            `${ipx} ${fileName} ${fWidth}x${fHeight} [H=${maxHeight}]`,
-        )
+        log.info("preRemove[M]:", `${ipx} ${fileName} ${fWidth}x${fHeight} [H=${maxHeight}]`)
         matches = true
     }
-    
+
     return { matches, description }
 }
 
@@ -1379,33 +1412,42 @@ function checkConditions(cond) {
  * @param {Object} c - 条件对象
  * @returns {string} 项目描述
  */
-function buildItemDescription(testCorrupted, testBadChars, testPattern, testSize, testMeasure, testAudio, testTime, c) {
+function buildItemDescription(
+    testCorrupted,
+    testBadChars,
+    testPattern,
+    testSize,
+    testMeasure,
+    testAudio,
+    testTime,
+    c,
+) {
     let itemDesc = ""
-    
+
     if (testCorrupted) {
         itemDesc += " Corrupted"
     }
-    
+
     if (testBadChars) {
         itemDesc += " BadChars"
     }
-    
+
     if (testPattern && c.pattern) {
         itemDesc += ` P=${c.pattern.toLowerCase()}`
     }
-    
+
     if (testSize && (c.sizeLeft > 0 || c.sizeRight > 0)) {
         itemDesc += ` S=${helper.humanSize(c.size || 0)} (${c.sizeLeft}K,${c.sizeRight}K)`
     }
-    
+
     if (testAudio && c.audio) {
         itemDesc += " Audio=Y"
     }
-    
+
     if (testTime && (c.mtime || c.ctime)) {
         itemDesc += " Time=Y"
     }
-    
+
     return itemDesc
 }
 
@@ -1420,7 +1462,16 @@ function buildItemDescription(testCorrupted, testBadChars, testPattern, testSize
  * @param {string} itemDesc - 项目描述
  * @param {number} itemCount - 项目数量
  */
-function logRemoveStatus(shouldRemove, fileSrc, itemSize, flag, ipx, testCorrupted, itemDesc, itemCount = 1) {
+function logRemoveStatus(
+    shouldRemove,
+    fileSrc,
+    itemSize,
+    flag,
+    ipx,
+    testCorrupted,
+    itemDesc,
+    itemCount = 1,
+) {
     if (shouldRemove) {
         if (itemSize > mf.FILE_SIZE_1M * 200 || (flag === "D" && itemCount > 100)) {
             log.logWarn(
@@ -1439,10 +1490,7 @@ function logRemoveStatus(shouldRemove, fileSrc, itemSize, flag, ipx, testCorrupt
             LOG_TAG,
         )
     } else {
-        log.info(
-            "PreRemove ignore:",
-            `${ipx} ${helper.pathShort(fileSrc)} [${itemDesc}] ${flag}`,
-        )
+        log.info("PreRemove ignore:", `${ipx} ${helper.pathShort(fileSrc)} [${itemDesc}] ${flag}`)
     }
 }
 
@@ -1515,16 +1563,27 @@ async function preRemoveArgs(f) {
                 const { isCorrupted } = await checkCorruptedFile(fileSrc, fileName, ipx)
                 testCorrupted = isCorrupted
             } catch (error) {
-                log.logWarn(LOG_TAG, `preRemove[CorruptedCheckError]: ${ipx} ${fileSrc} - ${error.message}`)
+                log.logWarn(
+                    LOG_TAG,
+                    `preRemove[CorruptedCheckError]: ${ipx} ${fileSrc} - ${error.message}`,
+                )
             }
         }
 
         if (hasBadChars) {
             try {
-                const { hasBadChars: badChars } = checkBadCharsInFileName(fileName, ipx, fileSrc, itemSize)
+                const { hasBadChars: badChars } = checkBadCharsInFileName(
+                    fileName,
+                    ipx,
+                    fileSrc,
+                    itemSize,
+                )
                 testBadChars = badChars
             } catch (error) {
-                log.logWarn(LOG_TAG, `preRemove[BadCharsCheckError]: ${ipx} ${fileSrc} - ${error.message}`)
+                log.logWarn(
+                    LOG_TAG,
+                    `preRemove[BadCharsCheckError]: ${ipx} ${fileSrc} - ${error.message}`,
+                )
             }
         }
 
@@ -1541,7 +1600,10 @@ async function preRemoveArgs(f) {
                 )
                 testPattern = matches
             } catch (error) {
-                log.logWarn(LOG_TAG, `preRemove[NameCheckError]: ${ipx} ${fileSrc} - ${error.message}`)
+                log.logWarn(
+                    LOG_TAG,
+                    `preRemove[NameCheckError]: ${ipx} ${fileSrc} - ${error.message}`,
+                )
             }
         }
 
@@ -1550,16 +1612,30 @@ async function preRemoveArgs(f) {
                 const { matches } = checkFileSize(f.size, c.sizeLeft, c.sizeRight, fileName, ipx)
                 testSize = matches
             } catch (error) {
-                log.logWarn(LOG_TAG, `preRemove[SizeCheckError]: ${ipx} ${fileSrc} - ${error.message}`)
+                log.logWarn(
+                    LOG_TAG,
+                    `preRemove[SizeCheckError]: ${ipx} ${fileSrc} - ${error.message}`,
+                )
             }
         }
 
         if (!testCorrupted && hasMeasure && f.isFile) {
             try {
-                const { matches } = await checkFileDimensions(fileSrc, isImageExt, isVideoExt, cWidth, cHeight, fileName, ipx)
+                const { matches } = await checkFileDimensions(
+                    fileSrc,
+                    isImageExt,
+                    isVideoExt,
+                    cWidth,
+                    cHeight,
+                    fileName,
+                    ipx,
+                )
                 testMeasure = matches
             } catch (error) {
-                log.logWarn(LOG_TAG, `preRemove[DimensionsCheckError]: ${ipx} ${fileSrc} - ${error.message}`)
+                log.logWarn(
+                    LOG_TAG,
+                    `preRemove[DimensionsCheckError]: ${ipx} ${fileSrc} - ${error.message}`,
+                )
             }
         }
 
@@ -1573,7 +1649,10 @@ async function preRemoveArgs(f) {
                     testAudio = matches
                 }
             } catch (error) {
-                log.logWarn(LOG_TAG, `preRemove[AudioCheckError]: ${ipx} ${fileSrc} - ${error.message}`)
+                log.logWarn(
+                    LOG_TAG,
+                    `preRemove[AudioCheckError]: ${ipx} ${fileSrc} - ${error.message}`,
+                )
             }
         }
 
@@ -1586,7 +1665,10 @@ async function preRemoveArgs(f) {
                     testVideo = matches
                 }
             } catch (error) {
-                log.logWarn(LOG_TAG, `preRemove[VideoCheckError]: ${ipx} ${fileSrc} - ${error.message}`)
+                log.logWarn(
+                    LOG_TAG,
+                    `preRemove[VideoCheckError]: ${ipx} ${fileSrc} - ${error.message}`,
+                )
             }
         }
 
@@ -1597,7 +1679,10 @@ async function preRemoveArgs(f) {
                 const { matches } = checkTimeParams(fileSrc, c.mtime, c.ctime, ipx, fileName)
                 testTime = matches
             } catch (error) {
-                log.logWarn(LOG_TAG, `preRemove[TimeCheckError]: ${ipx} ${fileSrc} - ${error.message}`)
+                log.logWarn(
+                    LOG_TAG,
+                    `preRemove[TimeCheckError]: ${ipx} ${fileSrc} - ${error.message}`,
+                )
             }
         }
 
@@ -1644,8 +1729,17 @@ async function preRemoveArgs(f) {
             testTime,
             c,
         )
-        
-        logRemoveStatus(shouldRemove, fileSrc, itemSize, flag, ipx, testCorrupted, fullItemDesc, itemCount)
+
+        logRemoveStatus(
+            shouldRemove,
+            fileSrc,
+            itemSize,
+            flag,
+            ipx,
+            testCorrupted,
+            fullItemDesc,
+            itemCount,
+        )
         return buildRemoveArgs(f.index, fullItemDesc, shouldRemove, fileSrc, itemSize)
     } catch (error) {
         log.error(`PreRemove ${ipx} error:`, error, fileSrc, flag)

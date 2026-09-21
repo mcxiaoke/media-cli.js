@@ -10,7 +10,6 @@ import { sify } from "chinese-conv"
 import cliProgress from "cli-progress"
 import dayjs from "dayjs"
 import fs from "fs-extra"
-import inquirer from "inquirer"
 import { cpus } from "os"
 import pMap from "p-map"
 import path from "path"
@@ -26,6 +25,7 @@ import { getMediaInfo } from "../lib/mediainfo.js"
 import { mergePath } from "../lib/path-merge.js"
 import { applyFileNameRules, renameFiles } from "../lib/rename.js"
 import { cleanFileName } from "../lib/filename-rules.js"
+import { confirmDangerousAction, initAutoConfirm } from "../lib/command_utils.js"
 
 const ENTRY_TYPES = ["a", "f", "d"]
 const RENAME_MODES = ["clean", "zhcn", "replace", "fixenc", "mergedir", "suffix", "prefix"]
@@ -279,12 +279,20 @@ const builder = function addOptions(ya) {
                 type: "boolean",
                 description: t("option.common.doit"),
             })
+            .option("auto-confirm", {
+                alias: "A",
+                type: "boolean",
+                default: false,
+                description: t("option.common.autoConfirm"),
+            })
     )
 }
 
 const handler = cmdRename
 
 async function cmdRename(argv) {
+    // 初始化全局自动确认开关（--auto-confirm / -A / MEDIAC_AUTO_CONFIRM）
+    initAutoConfirm(argv)
     const testMode = !argv.doit
     const logTag = "cmdRename"
     const root = await helper.validateInput(argv.input)
@@ -474,17 +482,10 @@ async function cmdRename(argv) {
     }
 
     testMode && log.showYellow("++++++++++ TEST MODE (DRY RUN) ++++++++++")
-    const answer = await inquirer.prompt([
-        {
-            type: "confirm",
-            name: "yes",
-            default: false,
-            message: chalk.bold.red(
-                t("rename.confirm.rename", { count: tasks.length, type: entryType }),
-            ),
-        },
-    ])
-    if (answer.yes) {
+    const answer = await confirmDangerousAction(
+        t("rename.confirm.rename", { count: tasks.length, type: entryType }),
+    )
+    if (answer) {
         if (testMode) {
             log.showYellow(
                 logTag,

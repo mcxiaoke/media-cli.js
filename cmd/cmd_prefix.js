@@ -6,16 +6,15 @@
  * License: Apache License 2.0
  */
 
-import chalk from "chalk"
 import dayjs from "dayjs"
 import fs from "fs-extra"
-import inquirer from "inquirer"
 import path from "path"
 import { asyncFilter } from "../lib/core.js"
 import * as log from "../lib/debug.js"
 import { ErrorTypes, createError } from "../lib/errors.js"
 import * as mf from "../lib/file.js"
 import * as helper from "../lib/helper.js"
+import { confirmDangerousAction, initAutoConfirm } from "../lib/command_utils.js"
 import { t } from "../lib/i18n.js"
 import {
     RE_MEDIA_DIR_NAME,
@@ -132,6 +131,12 @@ const builder = function addOptions(ya) {
                 type: "boolean",
                 default: false,
                 description: t("option.common.doit"),
+            })
+            .option("auto-confirm", {
+                alias: "A",
+                type: "boolean",
+                default: false,
+                description: t("option.common.autoConfirm"),
             })
             // 输出目录选项
             .option("output", {
@@ -363,7 +368,9 @@ async function createNewNameByMode(f) {
                 suffix = dayjs(f.mtime || f.ctime).format("HHmmss")
                 break
             case SUFFIX_SEQ:
-                suffix = (f.index + 1 + (argv.seqStart || 1) - 1).toString().padStart(argv.seqPad || 3, "0")
+                suffix = (f.index + 1 + (argv.seqStart || 1) - 1)
+                    .toString()
+                    .padStart(argv.seqPad || 3, "0")
                 break
             case SUFFIX_SIZE:
                 suffix = helper.humanSize(f.size).replace(" ", "")
@@ -419,6 +426,8 @@ async function createNewNameByMode(f) {
 }
 
 const handler = async function cmdPrefix(argv) {
+    // 初始化全局自动确认开关（--auto-confirm / -A / MEDIAC_AUTO_CONFIRM）
+    initAutoConfirm(argv)
     resetNameDups()
     const testMode = !argv.doit
     const logTag = "cmdPrefix"
@@ -507,15 +516,8 @@ const handler = async function cmdPrefix(argv) {
     }
     log.show(logTag, argv)
     testMode && log.showYellow("++++++++++ TEST MODE (DRY RUN) ++++++++++")
-    const answer = await inquirer.prompt([
-        {
-            type: "confirm",
-            name: "yes",
-            default: false,
-            message: chalk.bold.red(t("prefix.confirm.rename", { count: tasks.length })),
-        },
-    ])
-    if (answer.yes) {
+    const answer = await confirmDangerousAction(t("prefix.confirm.rename", { count: tasks.length }))
+    if (answer) {
         if (testMode) {
             log.showYellow(logTag, `${tasks.length} files, NO file renamed in TEST MODE.`)
         } else {

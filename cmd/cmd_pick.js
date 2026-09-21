@@ -65,7 +65,7 @@ import {
     computeImageFeatures,
     computeImageFeaturesWithCache,
 } from "../lib/image_hash.js"
-import { confirmAction } from "../lib/command_utils.js"
+import { confirmAction, initAutoConfirm } from "../lib/command_utils.js"
 
 const LOG_TAG = "Pick"
 
@@ -153,6 +153,12 @@ const builder = (ya) =>
             default: false,
             describe: t("option.common.doit"),
         })
+        .option("auto-confirm", {
+            alias: "A",
+            type: "boolean",
+            default: false,
+            description: t("option.common.autoConfirm"),
+        })
         .option("jobs", {
             alias: "j",
             type: "number",
@@ -236,6 +242,8 @@ async function findValidFileListCache(outputDir, rootPath) {
 }
 
 export async function cmdPick(argv) {
+    // 初始化全局自动确认开关（--auto-confirm / -A / MEDIAC_AUTO_CONFIRM）
+    initAutoConfirm(argv)
     log.logInfo(LOG_TAG, argv)
 
     // 破坏性/写入类操作的默认值统一为「只预览」：

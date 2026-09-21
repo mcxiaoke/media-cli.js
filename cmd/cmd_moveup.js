@@ -17,6 +17,7 @@ import { ErrorTypes, createError, handleError } from "../lib/errors.js"
 import * as mf from "../lib/file.js"
 import * as helper from "../lib/helper.js"
 import { t } from "../lib/i18n.js"
+import { initAutoConfirm, isAutoConfirm } from "../lib/command_utils.js"
 
 export { aliases, builder, command, describe, handler }
 
@@ -60,6 +61,12 @@ const builder = function addOptions(ya) {
                 type: "boolean",
                 default: false,
                 description: t("option.common.doit"),
+            })
+            .option("auto-confirm", {
+                alias: "A",
+                type: "boolean",
+                default: false,
+                description: t("option.common.autoConfirm"),
             })
             // 移动所有文件到输入目录根目录，不创建子目录
             .option("flat", {
@@ -127,7 +134,7 @@ async function getSubDirs(root, outDirNames) {
  */
 async function confirmOperation(message, autoConfirm = false) {
     const logTag = "MoveUp"
-    if (autoConfirm) {
+    if (autoConfirm || isAutoConfirm()) {
         log.show(logTag, `Auto-confirming: ${message}`)
         return true
     }
@@ -153,11 +160,19 @@ async function confirmOperation(message, autoConfirm = false) {
  * @param {Set} keepDirList - 要保留的目录列表
  * @returns {Promise<{moved: number, total: number}>} 移动文件数量和总文件数量
  */
-async function processDirectory(root, subDirN, toRoot, flatMode, outDirNames, testMode, keepDirList) {
+async function processDirectory(
+    root,
+    subDirN,
+    toRoot,
+    flatMode,
+    outDirNames,
+    testMode,
+    keepDirList,
+) {
     const logTag = "MoveUp"
     const subDirPath = path.join(root, subDirN)
     log.info(logTag, "processing files in ", subDirPath)
-    
+
     let curDir = toRoot ? root : subDirPath
     let files
     try {
@@ -169,10 +184,10 @@ async function processDirectory(root, subDirN, toRoot, flatMode, outDirNames, te
         await handleError(error, { operation: "walk", path: subDirPath })
         return { moved: 0, total: 0 }
     }
-    
+
     const totalCount = files.length
     log.show(logTag, `Total ${totalCount} media files found in ${subDirPath}`)
-    
+
     let outDirPaths = []
     if (flatMode) {
         // 扁平模式：所有文件直接移动到根目录
@@ -186,7 +201,7 @@ async function processDirectory(root, subDirN, toRoot, flatMode, outDirNames, te
             keepDirList.add(odp)
         }
     }
-    
+
     if (outDirNames.includes(subDirN)) {
         log.showYellow(logTag, `Skip dir ${subDirPath}`)
         return { moved: 0, total: 0 }
@@ -198,84 +213,94 @@ async function processDirectory(root, subDirN, toRoot, flatMode, outDirNames, te
         log.info(logTag, `output:${curDir}${path.sep}{${outDirNames}}`)
     }
     log.info(logTag, `moving ${totalCount} files in ${subDirPath} ...`)
-    
+
     // 使用 p-map 并行处理文件移动
-    const moveResults = await pMap(files, async (f, index) => {
-        const currentDupCount = index + 1
-        const fileSrc = f.path
-        const [srcDir, , srcExt] = helper.pathSplit(fileSrc)
-        const srcDirName = path.basename(srcDir)
-        const fileType = helper.getFileTypeByExt(fileSrc)
-        
-        let fileDst
-        if (flatMode) {
-            // 扁平模式：直接移动到根目录
-            fileDst = path.join(root, path.basename(fileSrc))
-        } else {
-            // 正常模式：移动到对应类型的子目录
-            fileDst = path.join(outDirPaths[fileType], path.basename(fileSrc))
-        }
-        
-        if (srcDir === path.dirname(fileDst)) {
-            log.info(logTag, "Skip InDst:", fileDst)
-            return false
-        }
-        if (fileSrc === fileDst) {
-            log.info(logTag, "Skip Same:", fileDst)
-            return false
-        }
-        if (!(await fs.pathExists(fileSrc))) {
-            log.showYellow(logTag, "Not Found:", fileSrc)
-            return false
-        }
+    const moveResults = await pMap(
+        files,
+        async (f, index) => {
+            const currentDupCount = index + 1
+            const fileSrc = f.path
+            const [srcDir, , srcExt] = helper.pathSplit(fileSrc)
+            const srcDirName = path.basename(srcDir)
+            const fileType = helper.getFileTypeByExt(fileSrc)
 
-        if (!flatMode) {
-            await fs.ensureDir(path.dirname(fileDst))
-        }
-
-        if (await fs.pathExists(fileDst)) {
-            // 检查文件是否完全相同
-            if (await helper.isExactSameFile(fileSrc, fileDst)) {
-                log.info(logTag, "Skip Same File:", fileDst)
-                return false
-            }
-            // 文件名相同但内容不同，生成唯一文件名
+            let fileDst
             if (flatMode) {
-                // 扁平模式：在根目录中生成唯一文件名
-                fileDst = path.join(root, `${srcDirName}_${path.basename(fileSrc, srcExt)}_${currentDupCount}${srcExt}`)
+                // 扁平模式：直接移动到根目录
+                fileDst = path.join(root, path.basename(fileSrc))
             } else {
-                // 正常模式：在对应子目录中生成唯一文件名
-                const [dstDir, dstBase, dstExt] = helper.pathSplit(fileDst)
-                fileDst = path.join(dstDir, `${srcDirName}_${dstBase}_${currentDupCount}${dstExt}`)
+                // 正常模式：移动到对应类型的子目录
+                fileDst = path.join(outDirPaths[fileType], path.basename(fileSrc))
             }
-            log.showYellow(logTag, "New Name:", fileDst)
-        }
-        
-        if (await fs.pathExists(fileDst)) {
-            log.showYellow(logTag, "Exists:", fileDst)
-            return false
-        }
 
-        try {
-            if (testMode) {
-                log.debug(logTag, "NotMoved:", fileSrc, "to", fileDst)
+            if (srcDir === path.dirname(fileDst)) {
+                log.info(logTag, "Skip InDst:", fileDst)
                 return false
-            } else {
-                await fs.move(fileSrc, fileDst)
-                log.info(logTag, "Moved:", fileSrc, "to", fileDst)
-                log.fileLog(`Moved: <${fileSrc}> => <${fileDst}>`, logTag)
-                return true
             }
-        } catch (error) {
-            log.error(logTag, "Failed:", error, fileSrc, "to", fileDst)
-            await handleError(error, { operation: "moveFile", src: fileSrc, dst: fileDst })
-            return false
-        }
-    }, { concurrency: 4 }) // 控制并发数，避免系统资源过度使用
-    
+            if (fileSrc === fileDst) {
+                log.info(logTag, "Skip Same:", fileDst)
+                return false
+            }
+            if (!(await fs.pathExists(fileSrc))) {
+                log.showYellow(logTag, "Not Found:", fileSrc)
+                return false
+            }
+
+            if (!flatMode) {
+                await fs.ensureDir(path.dirname(fileDst))
+            }
+
+            if (await fs.pathExists(fileDst)) {
+                // 检查文件是否完全相同
+                if (await helper.isExactSameFile(fileSrc, fileDst)) {
+                    log.info(logTag, "Skip Same File:", fileDst)
+                    return false
+                }
+                // 文件名相同但内容不同，生成唯一文件名
+                if (flatMode) {
+                    // 扁平模式：在根目录中生成唯一文件名
+                    fileDst = path.join(
+                        root,
+                        `${srcDirName}_${path.basename(fileSrc, srcExt)}_${currentDupCount}${srcExt}`,
+                    )
+                } else {
+                    // 正常模式：在对应子目录中生成唯一文件名
+                    const [dstDir, dstBase, dstExt] = helper.pathSplit(fileDst)
+                    fileDst = path.join(
+                        dstDir,
+                        `${srcDirName}_${dstBase}_${currentDupCount}${dstExt}`,
+                    )
+                }
+                log.showYellow(logTag, "New Name:", fileDst)
+            }
+
+            if (await fs.pathExists(fileDst)) {
+                log.showYellow(logTag, "Exists:", fileDst)
+                return false
+            }
+
+            try {
+                if (testMode) {
+                    log.debug(logTag, "NotMoved:", fileSrc, "to", fileDst)
+                    return false
+                } else {
+                    await fs.move(fileSrc, fileDst)
+                    log.info(logTag, "Moved:", fileSrc, "to", fileDst)
+                    log.fileLog(`Moved: <${fileSrc}> => <${fileDst}>`, logTag)
+                    return true
+                }
+            } catch (error) {
+                log.error(logTag, "Failed:", error, fileSrc, "to", fileDst)
+                await handleError(error, { operation: "moveFile", src: fileSrc, dst: fileDst })
+                return false
+            }
+        },
+        { concurrency: 4 },
+    ) // 控制并发数，避免系统资源过度使用
+
     // 计算成功移动的文件数量
     const movedCount = moveResults.filter(Boolean).length
-    
+
     // 汇总口径修正：此前用 totalCount（扫描到的文件数）而非实际移动成功数，
     // 移动失败/跳过的文件也会被算进"已移动"，数字虚高
     log.showGreen(
@@ -283,7 +308,7 @@ async function processDirectory(root, subDirN, toRoot, flatMode, outDirNames, te
         `${movedCount}/${totalCount} files in ${helper.pathShort(subDirPath)} are moved.`,
         testMode ? "[DRY RUN]" : "",
     )
-    
+
     return { moved: movedCount, total: totalCount }
 }
 
@@ -297,7 +322,7 @@ async function processDirectory(root, subDirN, toRoot, flatMode, outDirNames, te
  */
 async function cleanupEmptyDirs(root, keepDirList, testMode, autoConfirm = false) {
     const logTag = "MoveUp"
-    
+
     keepDirList = new Set([...keepDirList].map((x) => path.resolve(x)))
     let subDirEntries = await mf.walk(root, { withDirs: true, withFiles: false })
     let subDirList = subDirEntries.map((x) => x.path)
@@ -326,10 +351,7 @@ async function cleanupEmptyDirs(root, keepDirList, testMode, autoConfirm = false
         }
     }
     if (nonEmptyDirs.length > 0) {
-        log.showYellow(
-            logTag,
-            `Keep ${nonEmptyDirs.length} dir(s) that are not empty, samples:`,
-        )
+        log.showYellow(logTag, `Keep ${nonEmptyDirs.length} dir(s) that are not empty, samples:`)
         log.show(nonEmptyDirs.slice(-10).map((d) => helper.pathShort(d)))
     }
 
@@ -345,37 +367,44 @@ async function cleanupEmptyDirs(root, keepDirList, testMode, autoConfirm = false
         log.showYellow(logTag, "No empty dirs to clean up.")
         return
     }
-    
+
     testMode && log.showYellow("++++++++++ TEST MODE (DRY RUN) ++++++++++")
-    
-    const removeUnusedAnswer = await confirmOperation(`Are you sure to DELETE these unused folders?`, autoConfirm)
+
+    const removeUnusedAnswer = await confirmOperation(
+        `Are you sure to DELETE these unused folders?`,
+        autoConfirm,
+    )
     if (!removeUnusedAnswer) {
         log.showYellow(logTag, "Will do nothing, aborted by user.")
         return
     }
-    
+
     // 使用 p-map 并行处理目录清理
-    const results = await pMap([...emptyDirList], async (td) => {
-        if (!testMode) {
-            try {
-                // safeRemove 失败返回 null：目录没被移走，不能计入 delCount
-                const dest = await helper.safeRemove(td)
-                if (!dest) {
-                    log.error(logTag, "Failed to delete directory:", td)
+    const results = await pMap(
+        [...emptyDirList],
+        async (td) => {
+            if (!testMode) {
+                try {
+                    // safeRemove 失败返回 null：目录没被移走，不能计入 delCount
+                    const dest = await helper.safeRemove(td)
+                    if (!dest) {
+                        log.error(logTag, "Failed to delete directory:", td)
+                        return false
+                    }
+                    log.fileLog(`SafeDel: <${td}> => <${dest}>`, logTag)
+                    return true
+                } catch (error) {
+                    log.error(logTag, "Failed to delete directory:", error)
+                    await handleError(error, { operation: "safeRemove", path: td })
                     return false
                 }
-                log.fileLog(`SafeDel: <${td}> => <${dest}>`, logTag)
-                return true
-            } catch (error) {
-                log.error(logTag, "Failed to delete directory:", error)
-                await handleError(error, { operation: "safeRemove", path: td })
-                return false
             }
-        }
-        log.show(logTag, "SafeDel", helper.pathShort(td), testMode ? "[DRY RUN]" : "")
-        return false
-    }, { concurrency: 4 }) // 控制并发数
-    
+            log.show(logTag, "SafeDel", helper.pathShort(td), testMode ? "[DRY RUN]" : "")
+            return false
+        },
+        { concurrency: 4 },
+    ) // 控制并发数
+
     // 计算成功删除的目录数量
     const delCount = results.filter(Boolean).length
     log.showGreen(logTag, `${delCount} dirs were SAFE DELETED ${testMode ? "[DRY RUN]" : ""}`)
@@ -393,13 +422,15 @@ async function cleanupEmptyDirs(root, keepDirList, testMode, autoConfirm = false
  * @returns {Promise<void>}
  */
 const handler = async function cmdMoveUp(argv) {
+    // 初始化全局自动确认开关（--auto-confirm / -A / MEDIAC_AUTO_CONFIRM）
+    initAutoConfirm(argv)
     const logTag = "MoveUp"
     log.info(logTag, argv)
     const testMode = !argv.doit
-    
+
     // 验证输入
     const root = await validateInput(argv.input)
-    
+
     if (!testMode) {
         log.fileLog(`Root: ${root}`, logTag)
         log.fileLog(`Argv: ${JSON.stringify(argv)}`, logTag)
@@ -423,14 +454,17 @@ const handler = async function cmdMoveUp(argv) {
         bookDirName,
         otherDirName,
     ]
-    
+
     // 获取子目录列表
     const subDirs = await getSubDirs(root, outDirNames)
-    
+
     testMode && log.showYellow("++++++++++ TEST MODE (DRY RUN) ++++++++++")
-    
+
     // 确认操作
-    const confirmAnswer = await confirmOperation(`Are you sure to move all files to top sub folder?`, autoConfirm)
+    const confirmAnswer = await confirmOperation(
+        `Are you sure to move all files to top sub folder?`,
+        autoConfirm,
+    )
     if (!confirmAnswer) {
         log.showYellow(logTag, "Will do nothing, aborted by user.")
         return
@@ -442,7 +476,7 @@ const handler = async function cmdMoveUp(argv) {
     // 移动深层子目录的文件到 子目录或根目录的 图片/视频 目录
     let movedCount = 0
     let totalCount = 0
-    
+
     // 按模式执行处理逻辑
     //
     // 说明：MODE_DIR / MODE_PREFIX / MODE_MEDIA / MODE_AUTO 此前是四个
@@ -467,7 +501,7 @@ const handler = async function cmdMoveUp(argv) {
             totalCount += result.total
         }
     }
-    
+
     log.showGreen(
         logTag,
         `Total ${movedCount}/${totalCount} files moved.`,
@@ -476,7 +510,10 @@ const handler = async function cmdMoveUp(argv) {
     log.showYellow(logTag, "There are some unused folders left after moving up operations.")
 
     // 确认清理操作
-    const cleanupAnswer = await confirmOperation(`Do you want to cleanup these unused sub folders?`, autoConfirm)
+    const cleanupAnswer = await confirmOperation(
+        `Do you want to cleanup these unused sub folders?`,
+        autoConfirm,
+    )
     if (!cleanupAnswer) {
         return
     }

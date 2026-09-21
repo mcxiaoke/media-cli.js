@@ -28,6 +28,7 @@ import {
     confirmDangerousAction,
     abortIfCancelled,
     shouldShowProgressBar,
+    initAutoConfirm,
 } from "../lib/command_utils.js"
 
 const LOG_TAG = "Compress"
@@ -164,6 +165,12 @@ const builder = function addOptions(ya) {
                 type: "boolean",
                 default: false,
                 description: t("option.common.doit"),
+            })
+            .option("auto-confirm", {
+                alias: "A",
+                type: "boolean",
+                default: false,
+                description: t("option.common.autoConfirm"),
             })
     )
 }
@@ -348,6 +355,8 @@ async function writeFailedLog(failedTasks, root) {
  * @returns {Promise<void>}
  */
 async function cmdCompress(argv) {
+    // 初始化全局自动确认开关（--auto-confirm / -A / MEDIAC_AUTO_CONFIRM）
+    initAutoConfirm(argv)
     const testMode = !argv.doit
     const root = await helper.validateInput(argv.input)
     if (!testMode) {

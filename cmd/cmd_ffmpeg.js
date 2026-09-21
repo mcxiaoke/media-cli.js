@@ -15,7 +15,7 @@ import pMap from "p-map"
 import path from "path"
 import which from "which"
 import argparser from "../lib/arg_parser.js"
-import { abortIfCancelled, confirmDangerousAction } from "../lib/command_utils.js"
+import { abortIfCancelled, confirmDangerousAction, initAutoConfirm } from "../lib/command_utils.js"
 import config from "../lib/config.js"
 import * as core from "../lib/core.js"
 import { formatArgs } from "../lib/core.js"
@@ -292,6 +292,13 @@ const builder = function addOptions(ya) {
                 default: false,
                 description: t("option.common.doit"),
             })
+            // 自动确认所有交互提示，跳过 y/N 询问，便于自动化测试
+            .option("auto-confirm", {
+                alias: "A",
+                type: "boolean",
+                default: false,
+                description: t("option.common.autoConfirm"),
+            })
     )
 }
 
@@ -376,6 +383,8 @@ async function loadYamlPresets() {
 
 async function cmdConvert(argv) {
     log.logDebug(LOG_TAG, "ARGV:", argv)
+    // 初始化全局自动确认开关（--auto-confirm / -A / MEDIAC_AUTO_CONFIRM）
+    initAutoConfirm(argv)
     await loadYamlPresets()
     // 显示预设列表
     if (argv.showPresets) {
@@ -648,6 +657,10 @@ async function cmdConvert(argv) {
         if (answer) {
             for (const ft of failedTasks) {
                 log.logWarn(LOG_TAG, `Retrying task: ${ft.path}`)
+                log.fileLog(
+                    `Retry <${ft.path}> [${ft.preset.name}] ${ft.ffmpegError || ""}`,
+                    "FFConv",
+                )
                 let newFT = core.omit(ft, "ffmpegArgs", "info")
                 newFT.argv.decodeMode = "cpu"
                 newFT.retryOnFailed = true
@@ -662,6 +675,18 @@ async function cmdConvert(argv) {
 
     testMode && log.logWarn(LOG_TAG, t("common.test.mode.note"))
     const okResults = results.filter((r) => r && r.ok)
+    // 结束汇总落盘：哪些文件失败、失败原因是什么，此前只打印到控制台
+    if (!testMode) {
+        const failedResults = results.filter((r) => r && r.ffmpegFailed && !r.ok)
+        const totalOK = okResults.length + rOKCount
+        log.fileLog(
+            `Summary: total=${tasks.length} ok=${totalOK} error=${failedResults.length}`,
+            "FFConv",
+        )
+        for (const fr of failedResults) {
+            log.fileLog(`Fail <${fr.path}> ${fr.ffmpegError || ""}`, "FFConv")
+        }
+    }
     !testMode &&
         log.logSuccess(
             LOG_TAG,
@@ -769,6 +794,17 @@ async function runFFmpegCmd(entry) {
         entry.hwPlan = hwPlan
         entry.useCUDA = hwPlan.tier.name === "cuda"
         entry.ffmpegArgs = createFFmpegArgs(entry, hwPlan, false)
+        // ⚠️ 分层决策与真实命令必须落盘：此前只在控制台输出，日志里无法判断
+        // 「某个文件走了哪一层、实际执行了什么命令」，排查困难（曾发生）。
+        log.fileLog(
+            `${ipx} Plan <${entry.path}> [${entry.preset.name}] ` +
+                `tier=${hwPlan.tier.name} tried=[${(hwPlan.tried || []).join(",")}] ${hwPlan.reason || ""}`,
+            "FFCMD",
+        )
+        log.fileLog(
+            `${ipx} CMD <${entry.path}> ffmpeg ${entry.ffmpegArgs.flat().join(" ")}`,
+            "FFCMD",
+        )
         logTag =
             chalk.green("FFCMD") + chalk.cyanBright(hwPlan.tier.name === "cpu" ? "[SW]" : "[HW]")
         if (entry.retryOnFailed) {
@@ -862,7 +898,13 @@ async function runFFmpegCmd(entry) {
         }
         if (await fs.pathExists(entry.fileDstTemp)) {
             const dstSize = (await fs.stat(entry.fileDstTemp))?.size || 0
-            if (dstSize > 20 * mf.FILE_SIZE_1K) {
+            // 判定「产物异常小」需同时满足：源文件 >1MB 且产物 <=20KB。
+            // 小源文件（测试片/短视频）产物天然很小（如 four-colors 12KB），
+            // 单独用 20KB 阈值会把它们误判为失败。大源文件出 20KB 以内产物
+            // 才说明 ffmpeg 退出 0 但实际没编出东西（空/截断输出）。
+            const dstTooSmall = dstSize <= 20 * mf.FILE_SIZE_1K
+            const srcBigEnough = entry.size > mf.FILE_SIZE_1M
+            if (!dstTooSmall || !srcBigEnough) {
                 await fs.move(entry.fileDstTemp, entry.fileDst)
                 log.show(
                     logTag,
@@ -879,9 +921,8 @@ async function runFFmpegCmd(entry) {
                 )
                 entry.ok = true
                 return entry
-            } else {
-                // 转换失败，删除临时文件
             }
+            // 转换失败，删除临时文件
         }
         log.showYellow(
             logTag,
@@ -1780,7 +1821,8 @@ function buildScaleFiltersFromPlan(entry, hwPlan, tempPreset) {
  * ⚠️ 必须整段替换而非只换编码器名：
  *   nvenc 的 -rc vbr -tune hq -spatial-aq 等参数 QSV/AMF 不接受
  * ⚠️ 质量参数不通用（实测）：
- *   qsv 的 -cq/-global_quality 会被静默忽略，必须用 -q:v
+ *   qsv 用 -global_quality（ICQ 智能恒定质量）；-cq 会被静默忽略（NVENC 专属）；
+ *   -q:v 是 CQP 遗留写法，10bit 源低值会 rate control 失效
  *
  * @returns {string[]|null} 参数数组；无 plan 时返回 null（保持预设原值）
  */
@@ -1796,7 +1838,8 @@ function buildVideoArgsFromPlan(entry, hwPlan, tempPreset) {
     const codecFamily = codecFamilyOfPreset(tempPreset)
     const quality = tempPreset.videoQuality || entry.preset?.videoQuality || 24
     const bitrateK = tempPreset.videoBitrateK || undefined
-    // pixFmt 用于 10bit + qsv 的质量钳制（hevc_qsv 在 10bit 源上低 -q:v 会失效）
+    // pixFmt 传给 buildEncoderArgs：历史用于 10bit + qsv 质量钳制，
+    // 换用 ICQ（-global_quality）后该异常已不存在，保留传参仅为兼容
     const pixFmt = entry.info?.video?.pixelFormat || ""
     const encArgs = buildEncoderArgs(tier.name, { quality, bitrateK, codecFamily, pixFmt })
 
@@ -1969,9 +2012,23 @@ function createFFmpegArgs(entry, hwPlan = null, forDisplay = false) {
             // 针对视频文件
             if (helper.isVideoFile(entry.path)) {
                 // 如果目标码率大于源文件码率，则不重新编码，考虑误差
-                const shouldCopy =
+                const bitrateOk =
                     tempPreset.srcAudioBitrate > 0 &&
                     tempPreset.dstAudioBitrate + 2000 > tempPreset.srcAudioBitrate
+                // 容器兼容性检查：源音频编码能否直接 copy 进目标容器
+                // 例：cook(RealAudio) 无法封装进 MP4，即使码率满足也必须重编码
+                const dstExt = tempPreset.format || helper.pathExt(entry.path)
+                const containerOk = helper.isAudioCodecCompatibleWithContainer(
+                    entry.srcAudioCodec,
+                    dstExt,
+                    entry.info?.audio?.codec,
+                )
+                const shouldCopy = bitrateOk && containerOk
+                if (!containerOk && bitrateOk) {
+                    log.debug(
+                        `Audio copy skipped: codec "${entry.srcAudioCodec}" not supported in container "${dstExt}", forcing re-encode`,
+                    )
+                }
                 // 如果用户指定不重新编码
                 if (shouldCopy || tempPreset.userArgs.audioCopy) {
                     tempPreset.audioArgs = "-c:a copy"
@@ -2202,6 +2259,9 @@ async function resolveHwPlan(entry) {
             srcW,
             srcH,
             pixFmt,
+            // ⚠️ 必须传显式位深：mediainfo 的 pixelFormat 不含位深，
+            // 缺了它 8bit/10bit 同键，10bit 源会误复用 8bit 的探测结果选错层
+            bitDepth: ivideo?.bitDepth,
             codec,
             codecFamily,
             dimension: dimension || Math.max(srcW, srcH),

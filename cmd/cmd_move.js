@@ -8,7 +8,6 @@
 
 import chalk from "chalk"
 import fs from "fs-extra"
-import inquirer from "inquirer"
 import { cpus } from "os"
 import pMap from "p-map"
 import path from "path"
@@ -19,9 +18,9 @@ import { ErrorTypes, createError } from "../lib/errors.js"
 import * as mf from "../lib/file.js"
 import * as helper from "../lib/helper.js"
 import { t } from "../lib/i18n.js"
+import { confirmDangerousAction, initAutoConfirm } from "../lib/command_utils.js"
 import { isSameFileCached } from "../lib/tools.js"
 import { applyFileNameRules } from "../lib/rename.js"
-
 
 // 按照文件名日期时间格式移动到对应目录，视频和图片分开，暂不支持其它格式
 // const filename_samples = [
@@ -143,6 +142,12 @@ const builder = function addOptions(ya) {
                 type: "boolean",
                 default: false,
                 description: t("option.common.doit"),
+            })
+            .option("auto-confirm", {
+                alias: "A",
+                type: "boolean",
+                default: false,
+                description: t("option.common.autoConfirm"),
             })
     )
 }
@@ -266,6 +271,8 @@ async function prepareMove(entries, argv) {
  * @returns {Promise<void>}
  */
 const handler = async function cmdMove(argv) {
+    // 初始化全局自动确认开关（--auto-confirm / -A / MEDIAC_AUTO_CONFIRM）
+    initAutoConfirm(argv)
     log.info(argv)
     const testMode = !argv.doit
     const logTag = testMode
@@ -299,7 +306,10 @@ const handler = async function cmdMove(argv) {
         log.showYellow(logTag, t("move.no.files.left.after.rules"))
         return
     }
-    log.show(logTag, `${t("move.total.entries.left.after.rules")} ${entries.length} ${t("common.files")}`)
+    log.show(
+        logTag,
+        `${t("move.total.entries.left.after.rules")} ${entries.length} ${t("common.files")}`,
+    )
 
     for (const e of entries) {
         log.info(logTag, `${t("move.found")}: ${e.path}`)
@@ -310,7 +320,10 @@ const handler = async function cmdMove(argv) {
     const taskGroups = groupByMonth(tasks)
     const fCount = entries.length
     const tCount = tasks.length
-    log.showYellow(logTag, `${t("move.total.files.skipped")} ${fCount - tCount} ${t("common.files")}`)
+    log.showYellow(
+        logTag,
+        `${t("move.total.files.skipped")} ${fCount - tCount} ${t("common.files")}`,
+    )
     if (tasks.length > 0) {
         log.showGreen(
             logTag,
@@ -323,7 +336,10 @@ const handler = async function cmdMove(argv) {
 
     for (const { monthStr, entries } of taskGroups) {
         const destDir = path.join(output, monthStr)
-        log.show(logTag, `${destDir} <<== ${entries.length} ${t("common.files")} | ${t("move.sample.files")}:`)
+        log.show(
+            logTag,
+            `${destDir} <<== ${entries.length} ${t("common.files")} | ${t("move.sample.files")}:`,
+        )
         for (const e of core.pickRandom(entries, 3)) {
             log.showGray(logTag, `--${e.fileSrc}`)
         }
@@ -335,15 +351,8 @@ const handler = async function cmdMove(argv) {
             `${t("mode.test")} (${t("mode.dryrun")}), ${t("move.no.files.will.be.moved")}`,
         )
     }
-    const answer = await inquirer.prompt([
-        {
-            type: "confirm",
-            name: "yes",
-            default: false,
-            message: chalk.bold.red(t("move.confirm.move", { count: tCount })),
-        },
-    ])
-    if (!answer.yes) {
+    const answer = await confirmDangerousAction(t("move.confirm.move", { count: tCount }))
+    if (!answer) {
         log.showYellow(logTag, t("operation.cancelled"))
         return
     }
@@ -374,7 +383,14 @@ const handler = async function cmdMove(argv) {
                 }
             } catch (error) {
                 failedCount++
-                log.error(logTag, `${t("file.failed")}:`, fileSrc, "->", fileDst, error?.message || error)
+                log.error(
+                    logTag,
+                    `${t("file.failed")}:`,
+                    fileSrc,
+                    "->",
+                    fileDst,
+                    error?.message || error,
+                )
             }
         }
         if (skippedCount > 0) {
