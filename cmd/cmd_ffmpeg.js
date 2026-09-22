@@ -22,6 +22,7 @@ import { t } from "../lib/i18n.js"
 import { getMediaInfo } from "../lib/mediainfo.js"
 import { addEntryProps, applyFileNameRules } from "../lib/rename.js"
 import { TIERS } from "../lib/hwaccel.js"
+import { ENCODER_SPECIFIC_ARGS } from "../lib/ffmpeg_args_known.js"
 import {
     calculateDstArgs,
     createDstBaseName,
@@ -79,11 +80,12 @@ const describe = t("ffmpeg.description")
 const builder = function addOptions(ya) {
     return (
         ya
-            // 输入目录，根目录
-            // .positional("input", {
-            //     describe: "Input folder that contains media files",
-            //     type: "string",
-            // })
+            // 输入目录 / 文件（命令串 "ffmpeg <input>" 的位置参数）
+            // 显式声明，供 .strictOptions() 识别——否则会被误判为未知参数
+            .positional("input", {
+                describe: "Input folder or media file (输入目录或媒体文件)",
+                type: "string",
+            })
             // 输出目录，默认输出文件与原文件同目录
             .option("output", {
                 alias: "o",
@@ -95,12 +97,10 @@ const builder = function addOptions(ya) {
                 describe: t("ffmpeg.ffargs"),
                 type: "string",
             })
-            // 位置标记参数（高级/位置敏感参数）
-            .option("arg", {
-                alias: "a",
-                describe: t("ffmpeg.arg"),
-                type: "array",
-                default: [],
+            // 输出元数据（独立追加通道，值可含空格）：--metadata "title=X;comment=Y"
+            .option("metadata", {
+                describe: t("ffmpeg.metadata"),
+                type: "string",
             })
             // 保持源文件目录结构
             .option("output-mode", {
@@ -346,10 +346,32 @@ const builder = function addOptions(ya) {
                 default: false,
                 description: t("option.common.autoConfirm"),
             })
+            // 严格校验选项：未知/拼错的选项直接报错，而非静默收进 argv 后被忽略。
+            // 典型场景：把 ffmpeg 的 --tune / -c:v 裸传给 mediac（应放进 --video-args），
+            // 或把 --video-args 拼成 --vide-args。用 strictOptions（放过多余位置参数）。
+            .strictOptions()
     )
 }
 
 const handler = cmdConvert
+
+/**
+ * 从用户追加串中检出「编码器专属」token（用于 auto 分层的启发式告警，见定稿 §4）。
+ * 仅返回命中的参数名（去值、去重），供 warn 文案展示。
+ * @param {string} argsStr - --video-args 原始串
+ * @returns {string[]} 命中的 token 列表
+ */
+function detectEncoderSpecificArgs(argsStr) {
+    const hits = new Set()
+    for (const tok of String(argsStr).split(/\s+/)) {
+        if (!tok.startsWith("-")) continue
+        const base = tok.split(":")[0] // -c:v → -c，-tune → -tune
+        if (ENCODER_SPECIFIC_ARGS.has(tok) || ENCODER_SPECIFIC_ARGS.has(base)) {
+            hits.add(base)
+        }
+    }
+    return [...hits]
+}
 
 /**
  * FFmpeg转换命令处理函数
@@ -359,6 +381,7 @@ const handler = cmdConvert
  * @param {string[]} argv.directories - 额外输入目录列表
  * @param {string} argv.output - 输出目录路径
  * @param {string} argv.ffargs - 复合参数
+ * @param {string} argv.metadata - 输出元数据 "key=value;key2=value2"（追加，值可含空格）
  * @param {string} argv.outputMode - 输出模式 (tree|dir|file)
  * @param {number} argv.start - 起始索引
  * @param {number} argv.count - 处理文件数量
@@ -374,15 +397,15 @@ const handler = cmdConvert
  * @param {number} argv.dimension - 视频尺寸，长边最大数值
  * @param {number} argv.fps - 视频帧率
  * @param {number} argv.speed - 视频速度调整
- * @param {string} argv.videoArgs - 视频参数
+ * @param {string} argv.videoArgs - 视频参数（追加到编码器块末尾）
  * @param {number} argv.videoBitrate - 视频码率
  * @param {boolean} argv.videoCopy - 是否直接复制视频流
  * @param {number} argv.videoQuality - 视频质量
- * @param {string} argv.audioArgs - 音频参数
+ * @param {string} argv.audioArgs - 音频参数（追加到音频块末尾）
  * @param {number} argv.audioBitrate - 音频码率
  * @param {boolean} argv.audioCopy - 是否直接复制音频流
  * @param {number} argv.audioQuality - 音频质量
- * @param {string} argv.filters - FFmpeg滤镜字符串
+ * @param {string} argv.filters - FFmpeg滤镜字符串（追加到 -vf 链末尾）
  * @param {string} argv.filterComplex - FFmpeg复杂滤镜字符串
  * @param {string} argv.errorFile - 错误日志文件
  * @param {string} argv.hwaccel - 硬件加速方式
@@ -479,6 +502,23 @@ async function planFFmpegTasks(argv) {
     }
     if (argv.dimension !== undefined && argv.dimension < 0) {
         throw createError(ErrorTypes.INVALID_ARGUMENT, t("ffmpeg.error.dimension"))
+    }
+    // 定稿：--video-args 追加通道的合法性
+    // RESERVED：不允许出现 -c:v。编码器由硬件分层/预设决定，直塞会造「CPU 滤镜 + GPU 编码器」畸形组合。
+    // 需换编码器请用 --video-codec 或 --ffargs "vc=..."。命中即报错（绝不静默丢弃）。
+    if (typeof argv.videoArgs === "string" && /(?:^|\s)-c:v(?:\s|:|$)/.test(argv.videoArgs)) {
+        throw createError(ErrorTypes.INVALID_ARGUMENT, t("ffmpeg.error.videoArgsCodec"))
+    }
+    // 编码器专属参数启发式告警：auto 分层下，仅某编码器认的 token 换到其它层可能报错或被重试拽回 CPU。
+    if (
+        typeof argv.videoArgs === "string" &&
+        argv.videoArgs.trim().length > 0 &&
+        (argv.decodeMode || "auto") === "auto"
+    ) {
+        const hits = detectEncoderSpecificArgs(argv.videoArgs)
+        if (hits.length > 0) {
+            log.logWarn(LOG_TAG, t("ffmpeg.warn.encoderSpecific", { tokens: hits.join(" ") }))
+        }
     }
     const root = path.resolve(argv.input)
     if (!root || !(await fs.pathExists(root))) {

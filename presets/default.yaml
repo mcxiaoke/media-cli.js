@@ -422,17 +422,6 @@ archive_4k:
     audioBitrate: 256000 # 256 Kbps
     dimension: 3840
 
-# 直播推流 - H.264 CBR 低延迟，适合实时传输
-streaming_1080p:
-    extends: _base_h264
-    description: "直播推流：1080p H.264，CBR低延迟模式"
-    videoQuality: 23
-    videoBitrate: 6000000 # 6 Mbps
-    audioBitrate: 160000 # 160 Kbps
-    dimension: 1920
-    # 强制关闭B帧减少延迟
-    videoArgs: "-bf 0 -tune zerolatency"
-
 # ===========================================
 # 音频预设
 # ===========================================

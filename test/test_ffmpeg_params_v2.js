@@ -1,0 +1,201 @@
+/**
+ * 定稿（2026-09-22）CLI 参数体系单测 —— 极简追加模型
+ *
+ * 覆盖（对应 docs/ffmpeg/ffmpeg-cli-params-v2-20260922.md §5）：
+ *   1. createFromArgv：--video-args / --audio-args 改「追加」，不再覆盖 preset.videoArgs/audioArgs
+ *   2. createFromArgv：--filters 改「追加到后滤镜段」，保留 {scaleFilter}
+ *   3. createFromArgv：--metadata 解析为 metadataPairs（值含空格原样保留，按 ';' 切分）
+ *   4. buildVideoArgsFromPlan：userArgs.videoExtra 追加到编码器块末尾
+ *   5. buildScaleFiltersFromPlan：追加的 post 滤镜保留缩放段、不泄漏占位符
+ *   6. createFFmpegArgs：--audio-args / --metadata 端到端进入最终命令，用户 metadata 覆盖自动 title
+ *
+ * ⚠️ 不涉及真实 ffmpeg 执行（纯参数构建，无 tier 探测）。
+ */
+import assert from "node:assert/strict"
+import { describe, it, before } from "node:test"
+
+import presetsDefault from "../lib/ffmpeg_presets.js"
+import { DEFAULT_PRESET_PATH } from "../lib/preset_loader.js"
+import {
+    createFFmpegArgs,
+    buildVideoArgsFromPlan,
+    buildScaleFiltersFromPlan,
+    flattenFFArgs,
+} from "../lib/ffmpeg_build.js"
+import { TIERS } from "../lib/hwaccel.js"
+
+const cudaTier = TIERS.find((t) => t.name === "cuda")
+const cpuTier = TIERS.find((t) => t.name === "cpu")
+const size = { w: 1920, h: 1080 }
+
+/** 构造极简 entry（与既有 ffmpeg build 测试同构，字段给足以避开可选链之外的读取） */
+const makeEntry = (over = {}) => ({
+    path: "/tmp/in.mp4",
+    name: "in",
+    size: 10 * 1024 * 1024,
+    info: {
+        video: { width: 3840, height: 2160, pixelFormat: "yuv420p", duration: 60 },
+        audio: { duration: 60 },
+    },
+    dstArgs: {
+        scaled: false,
+        srcDuration: 60,
+        srcVideoCodec: "hevc",
+        srcAudioCodec: "aac",
+    },
+    argv: { debug: false, strict: false, decodeMode: "cpu" },
+    fileDstTemp: "/tmp/out_tmp.mp4",
+    ...over,
+})
+
+const presetOf = (over = {}) => ({
+    name: "unit_test",
+    type: "video",
+    format: ".mp4",
+    filters: "{scaleFilter}",
+    videoCodecFamily: "h264",
+    videoQuality: 24,
+    framerate: 0,
+    speed: 0,
+    dimension: 0,
+    inputArgs: "",
+    streamArgs: "",
+    outputArgs: "",
+    audioArgs: "-c:a aac -b:a 128k",
+    ...over,
+})
+
+const makeHwPlan = (tier, s = size) => ({ tier, size: s, caps: {} })
+
+describe("createFromArgv — 追加语义 (video/audio)", () => {
+    before(async () => {
+        await presetsDefault.initPresetsAsync(DEFAULT_PRESET_PATH)
+    })
+
+    it("--video-args 存入 userArgs.videoExtra，且不覆盖 preset.videoArgs", () => {
+        const preset = presetsDefault.createFromArgv({
+            preset: "hevc_2k",
+            videoArgs: "-tune animation -g 60",
+        })
+        assert.strictEqual(preset.userArgs.videoExtra, "-tune animation -g 60")
+        // _base_hevc 的 videoArgs 是空串：追加语义下预设基线不应被用户串污染
+        assert.ok(!String(preset.videoArgs).includes("-tune"), "preset.videoArgs must stay base")
+    })
+
+    it("--audio-args 存入 userArgs.audioExtra，且不覆盖 preset.audioArgs", () => {
+        const preset = presetsDefault.createFromArgv({
+            preset: "hevc_2k",
+            audioArgs: "-ar 48000 -ac 2",
+        })
+        assert.strictEqual(preset.userArgs.audioExtra, "-ar 48000 -ac 2")
+        assert.ok(String(preset.audioArgs).includes("-c:a"), "preset.audioArgs keeps -c:a")
+        assert.ok(!String(preset.audioArgs).includes("-ar"), "preset.audioArgs not polluted")
+    })
+})
+
+describe("createFromArgv — --filters 追加保 {scaleFilter}", () => {
+    before(async () => {
+        await presetsDefault.initPresetsAsync(DEFAULT_PRESET_PATH)
+    })
+
+    it("--filters 追加到 post_filters，filters 占位符保留", () => {
+        const preset = presetsDefault.createFromArgv({
+            preset: "hevc_2k",
+            filters: "unsharp=3:3:1.0",
+        })
+        assert.strictEqual(preset.filters, "{scaleFilter}", "占位符不能被覆盖")
+        assert.strictEqual(preset.post_filters, "unsharp=3:3:1.0")
+    })
+
+    it("buildScaleFiltersFromPlan：缩放段与追加滤镜共存，不泄漏占位符", () => {
+        const tp = presetOf({ post_filters: "unsharp=3:3:1.0" })
+        const out = buildScaleFiltersFromPlan(
+            makeEntry({ dstArgs: { scaled: true } }),
+            makeHwPlan(cpuTier),
+            tp,
+        )
+        assert.ok(out.includes("scale=w=1920:h=1080"), "缩放段应存在")
+        assert.ok(out.endsWith(",unsharp=3:3:1.0"), `追加应在末尾: ${out}`)
+        assert.ok(!out.includes("{scaleFilter}"), "占位符不得泄漏")
+    })
+})
+
+describe("createFromArgv — --metadata 解析", () => {
+    before(async () => {
+        await presetsDefault.initPresetsAsync(DEFAULT_PRESET_PATH)
+    })
+
+    it("按 ';' 切分组、'=' 取键，值内空格原样保留", () => {
+        const preset = presetsDefault.createFromArgv({
+            preset: "hevc_2k",
+            metadata: "title=My Video;artist=Big Cat",
+        })
+        assert.deepStrictEqual(preset.userArgs.metadataPairs, [
+            ["title", "My Video"],
+            ["artist", "Big Cat"],
+        ])
+    })
+
+    it("无 '=' 的片段与空片段被忽略", () => {
+        const preset = presetsDefault.createFromArgv({
+            preset: "hevc_2k",
+            metadata: "novalue;;comment=hi",
+        })
+        assert.deepStrictEqual(preset.userArgs.metadataPairs, [["comment", "hi"]])
+    })
+})
+
+describe("buildVideoArgsFromPlan — videoExtra 追加", () => {
+    it("追加参数排在编码器块之后", () => {
+        const tp = presetOf({
+            userArgs: { videoExtra: "-tune film -g 60" },
+        })
+        const out = buildVideoArgsFromPlan(makeEntry(), makeHwPlan(cudaTier), tp)
+        assert.ok(out.includes("h264_nvenc"), "tier 编码器在前")
+        assert.deepStrictEqual(out.slice(-4), ["-tune", "film", "-g", "60"], `追加应在末尾: ${out}`)
+    })
+
+    it("无 videoExtra 时不追加（copy 早返回路径保持纯净）", () => {
+        const tp = presetOf({ userArgs: { videoCodec: "copy" } })
+        const out = buildVideoArgsFromPlan(makeEntry(), makeHwPlan(cudaTier), tp)
+        assert.deepStrictEqual(out, ["-c:v", "copy"])
+    })
+})
+
+describe("createFFmpegArgs — 端到端进入最终命令", () => {
+    it("audioExtra 追加到音频块末尾", () => {
+        const entry = makeEntry({
+            preset: presetOf({
+                dimension: 1920,
+                userArgs: { audioExtra: "-ar 48000 -ac 2" },
+            }),
+        })
+        const cmd = flattenFFArgs(createFFmpegArgs(entry, makeHwPlan(cpuTier)).args)
+        assert.ok(/-c:a aac -b:a 128k -ar 48000 -ac 2/.test(cmd), `音频追加缺失: ${cmd}`)
+    })
+
+    it("用户 metadata 覆盖自动 title（排在自动项之后）", () => {
+        const entry = makeEntry({
+            name: "clip",
+            preset: presetOf({
+                dimension: 1920,
+                userArgs: { metadataPairs: [["title", "My Big Movie"]] },
+            }),
+        })
+        const args = createFFmpegArgs(entry, makeHwPlan(cpuTier)).args.flat()
+        // 自动 title=clip 在前，用户 title=My Big Movie 在后（后写覆盖）
+        const autoIdx = args.indexOf("title=clip")
+        const userIdx = args.indexOf("title=My Big Movie")
+        assert.ok(autoIdx >= 0, "应存在自动 title=clip")
+        assert.ok(userIdx >= 0, "应存在用户 title=My Big Movie（值含空格、未被拆分）")
+        assert.ok(userIdx > autoIdx, "用户 metadata 应排在自动项之后以覆盖")
+    })
+
+    it("无追加项时命令不含空 token（splitArgs 净化空白）", () => {
+        const entry = makeEntry({
+            preset: presetOf({ dimension: 1920, userArgs: { videoExtra: "   " } }),
+        })
+        const args = createFFmpegArgs(entry, makeHwPlan(cpuTier)).args.flat()
+        assert.ok(!args.some((a) => a === "" || a === undefined), "不应有空白 token")
+    })
+})
