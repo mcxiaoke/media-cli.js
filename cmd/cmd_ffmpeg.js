@@ -95,6 +95,13 @@ const builder = function addOptions(ya) {
                 describe: t("ffmpeg.ffargs"),
                 type: "string",
             })
+            // 位置标记参数（高级/位置敏感参数）
+            .option("arg", {
+                alias: "a",
+                describe: t("ffmpeg.arg"),
+                type: "array",
+                default: [],
+            })
             // 保持源文件目录结构
             .option("output-mode", {
                 alias: "om",
