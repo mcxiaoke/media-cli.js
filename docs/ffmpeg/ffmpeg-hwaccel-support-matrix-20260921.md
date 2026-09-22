@@ -1,10 +1,12 @@
-# FFmpeg 硬解支持矩阵与混合链实测报告（2026-09-21）
+# FFmpeg 硬解支持矩阵与混合链实测报告（2026-09-21 起，2026-09-22 修订）
 
 > **定位**：本文是**本机实测数据**报告，不是通用能力清单。通用兼容性/选型见《FFmpeg 硬件加速兼容性与全硬件工作流指南》（`ffmpeg-guide-hwaccel-compat.md`），参数细节见 `ffmpeg-guide-hwaccel.md`。
 > **机器**：NVIDIA GeForce RTX 4070（驱动 610.47）+ Intel UHD Graphics 750（iGPU，oneVPL 2.15）
 > **ffmpeg**：三套实测——`C:/Home/Apps/ffmpeg/bin`（master `N-126733-gfddc59cf3-2026-09-20`，下文记 **master**）、`C:/Home/Apps/ffmpeg/ff8`（8.1.2 gyan full_build，记 **ff8**）、`C:/Home/Apps/ffmpeg/ff7`（n7.1.1，记 **ff7**）。**不要求支持 ffmpeg 7 以下版本**。
-> **素材**：FFmpeg FATE `bear` 系列样本集 `temp/testvideos`（232 个文件，其中 110~111 个可软解且尺寸有效）
-> **复现**：`node temp/probe_hwdec_matrix.mjs`（矩阵）、`node temp/probe_hwdec_matrix.mjs --xtab`（交叉统计）、`bash temp/hybrid_chain_test2.sh`（混合链计时）。原始记录在 `temp/probe_hwdec_*_<ts>.{json,md}`。
+> **素材**：① FFmpeg FATE `bear` 系列样本集 `temp/testvideos`（232 个文件，110~111 个可软解且尺寸有效）；
+> ② 自建 codec×位深×色度 矩阵 `F:/temp/testvideos/mysamples`（87 个文件，84 个有效，覆盖 vvc/avs2/avs3/evc/prores/apv/theora/msmpeg4v2 与 h264/hevc/vp9/av1 的各色度位深组合）；
+> ③ 真实高码率素材 `F:/temp/testvideos/jellyfin`（4K/8K 30~50 Mbps）。
+> **复现**：`node temp/probe_hwdec_matrix.mjs`（矩阵）、`node temp/probe_hwdec_matrix.mjs --xtab`（交叉统计，`TEST_DIR=...` 可换素材目录）、`bash temp/hybrid_chain_test2.sh`（混合链计时）、`bash temp/bench_d3d_vs_cpu.sh`（4K/8K d3d vs 软解）、`bash temp/bench_d3d_vulkan_pipelines.sh`（d3d12/vulkan 管线）、`bash temp/bench_hard_pipelines.sh`（硬样本管线 + CPU 判据）、`bash temp/bench_encoder_matrix.sh`（编码器能力矩阵）。原始记录在 `temp/probe_hwdec_*_<ts>.{json,md}`。
 
 ---
 
@@ -30,11 +32,31 @@ $ ffmpeg -hwaccel cuda -i hi10p.mp4 -f null -      ; echo $?
 | --- | --- | --- |
 | **HW** | 真硬解（帧在显存） | `pix_fmt: cuda/qsv/d3d11/d3d12/vulkan` 或 `pixfmt:<同上>`；QSV 另认 `Decoder: output is video memory surface` |
 | **SW** | 静默回退软件解码（= 硬件没生效） | exit=0 但无上述字段；常伴随 `Failed setup for format X` |
+| **UP** | **软解 + 上传**：日志出现硬件像素格式，但帧是**上传**到设备的（软件解码），非真硬解 | 出现 `Disabling host image transfers` / `hwupload` / `transfer` 等上传证据 |
 | **ER** | 硬失败 | 非 0 退出（实测同一失败在不同版本退出码不同：69/127/171，故只看非 0） |
 | **BR** | 工具链问题（对照文件同样失败） | 见 §5.1 归一化规则 |
 | **TP** | 硬件帧下载格式被拒（色度/位深限制，非硬解能力问题） | `Invalid output format X for hwframe download` |
 
 **推论（写代码时的硬约束）**：**不能靠「指定了 `-hwaccel`」判断是否真在硬解**。要判定必须靠 (a) 能力预检/支持矩阵，或 (b) 显式 `-hwaccel_output_format <hwfmt>` 让硬件帧成为硬性要求（此时硬解不可用会转为硬失败，而不是静默软解）——见 §4.2。
+
+### 0.1 判据可靠性修订（2026-09-22，用 mysamples 全套素材复核后）
+
+`pixfmt:<hwfmt>` 这一条**会假阳性**：ffmpeg 在解码器不支持该 codec 时，仍可能把**软件解码**的帧**上传**到硬件设备，日志照样出现 `pixfmt:<hwfmt>`。实测最典型的是 vulkan + ProRes/APV（NVIDIA 官方 NVDEC 矩阵里根本没有这两个 codec 的解码器，不可能硬解）。
+
+五种判据的实测可靠性：
+
+| 判据 | 可靠性 | 反例（本轮实测） |
+| --- | --- | --- |
+| 退出码 | ❌ 不可用 | 硬解失败静默软解仍 exit=0 |
+| `pixfmt:<hw>` | ⚠️ 会假阳性 | vulkan + ProRes：`pixfmt:vulkan` 出现，实为软解+上传 |
+| 解码器级 `Reinit context …, pix_fmt:<hw>` | ✅ 出现即可判真硬解，**但不是必要条件** | `cuda + hevc 10bit` 真硬解却不打印该行 |
+| CPU 时间对比（`-benchmark`） | ⚠️ 短切片/提前退出时被帧线程预读放大 | ProRes：软解 CPU=3.69s vs vulkan 路径 0.64s，看着像硬解 |
+| **厂商官方解码矩阵交叉验证** | ✅ 最可靠（与实测逐条一致） | Ada 5th-gen NVDEC：HEVC 4:4:4=YES、HEVC 4:2:2=NO、H.264 4:2:2=NO、H.264 10bit=NO、VP9 仅 4:2:0 |
+
+**落地判据（已写入 `temp/probe_hwdec_matrix.mjs`）**：
+1. 有硬件像素格式 + **有上传证据**（`Disabling host image transfers` / `hwupload` / `transfer`）→ **UP（软解+上传）**，不算硬解；
+2. 否则沿用原判定（不要求"解码器级证据"，否则会把 `cuda + hevc 10bit` 这类真硬解误降级）；
+3. 结论档位（支持/不支持某 codec）与**官方矩阵**对齐后再下定论。
 
 ---
 
@@ -210,5 +232,105 @@ $ ffmpeg -hwaccel cuda -i hi10p.mp4 -f null -      ; echo $?
 
 - 素材是 FFmpeg FATE 样本集，**theora/rv10/vp8/msmpeg4v3 占比远高于真实素材**；真实素材的 cuda 失败更集中在 h264 High 10 / VVC / AV1 4:4:4 等"共性 gap" → **真实场景下 78% 只会更高**。
 - "替代通道能救" 依赖机器上**同时存在 Intel 核显**；纯 NVIDIA 机器上 cuda 失败 ≈ 100% 只能 CPU。
-- 交叉统计只测**纯解码**，不含 scale/下载环节；叠加 §2 的约束后，替代通道的**有效**补位率还会更低。
+- 交叉统计只测**纯解码**，不含 scale/下载环节；叠加 §2 的约束后，替代通道的**有效**补位率只会更低。
 - 吞吐数据来自短素材（60s/33s），含进程启动开销，仅作量级对比。
+
+---
+
+## 6. 结论五：mysamples 全量矩阵 + 官方矩阵交叉验证（2026-09-22）
+
+对 `mysamples` 84 个有效文件做 5 通道纯解码交叉统计（84 × 5 = 420 次探测）：
+
+| 分组 | 文件数 | qsv | d3d11va | d3d12va | vulkan | 至少一个替代通道 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `cuda`=HW | 65 | 62/65 | 57/65 | 57/65 | 56/65 | 62/65 |
+| **`cuda`≠HW** | **19** | 3/19 | **0/19** | **0/19** | **0/19** | **3/19** |
+
+- 正方向：`cuda` 不行的 19 个里 **16 个（84%）所有替代通道也不行**（修正前为 63%——差额就是 vulkan 的 UP 假阳性）；
+- 并集：任一通道可硬解 **68/84**；"仅 cuda 可解" 3 个，"仅替代通道可解" **3 个**（全部是 qsv：hevc 4:2:2 8/10bit、vp9 4:4:4 10bit）。
+- 修正效果：`prores` vulkan 覆盖 3/3 → **0/3**、`apv` 1/1 → **0/1**（原为软解+上传被误记作硬解）。
+
+**与 NVIDIA 官方 NVDEC 矩阵逐条一致**（`docs/ffmpeg/support-matrix-nvidia.md`，Ada 5th-gen）：
+
+| 档位 | 官方矩阵 | 实测 |
+| --- | --- | --- |
+| H.264 4:2:0 8bit / 10bit | YES / **NO** | ✅ 一致 |
+| H.264 4:2:2 8/10bit | **NO / NO** | ✅ 一致 |
+| HEVC 4:2:0 8/10/12bit | YES | ✅ 一致 |
+| HEVC 4:2:2 8/10/12bit | **NO / NO / NO** | ✅ 一致（cuda 全失败） |
+| **HEVC 4:4:4 8/10/12bit** | **YES** | ✅ 一致（cuda 真硬解，13x） |
+| VP9（仅 4:2:0） | 无 4:2:2/4:4:4 | ✅ 一致 |
+| MPEG-1/2/4、VC-1、VP8、MJPEG | YES | ✅ 一致 |
+| VVC / AVS2 / AVS3(EVC) / ProRes / APV / Theora / MSMPEG4 | 无 | ✅ 一致（全通道无解） |
+
+**NVDEC 的真实缺口（+ 谁能补）**：
+
+| 缺口 | cuda | qsv | d3d11va | d3d12va | vulkan |
+| --- | --- | --- | --- | --- | --- |
+| HEVC **4:2:2** 8/10bit | ❌ | **✅ 唯一** | ❌ | ❌ | ❌ |
+| HEVC 4:4:4 / VP9 4:4:4 / h264 高位深高色度 | HEVC444 ✅ / 其余 ❌ | ✅ | ❌ | ❌ | 假阳性（UP） |
+| vvc / avs2 / avs3 / prores / apv / theora / msmpeg4v2 | ❌ | ❌ | ❌ | ❌ | ❌（UP 假阳性） |
+
+> ⚠️ 本节 vulkan 列已扣除"软解+上传"（UP）的假阳性；`prores`/`apv` 修正前记 3/3、1/1，实为 **0/3、0/1**（判定规则见 §0.2）。
+
+---
+
+## 7. 结论六：d3d12 / vulkan 管线实测（硬解全流程 vs 硬解+软编）
+
+管线形态：
+- **d3d12 全流程** = `-hwaccel d3d12va -hwaccel_output_format d3d12` + `scale_d3d12` + `h264_d3d12va`
+- **vulkan 全流程** = `-hwaccel vulkan -hwaccel_output_format vulkan` + `scale_vulkan` + `h264_vulkan`
+- **硬解+软编** = 同一解码 + `hwdownload,format=<按位深色度>` + CPU `scale=` + `libx264`
+
+| 样本 | d3d12 全流程 | vulkan 全流程 | qsv 全流程 | 硬解+软编 |
+| --- | --- | --- | --- | --- |
+| hevc 4:2:2 8bit | ❌ `Impossible to convert`（无解码覆盖→静默软解，一要求硬件帧即硬失败） | ❌ 同左 | ✅ **6.48x**（CPU 0.39s vs 软解 1.00s = 真硬解） | ❌ `Invalid output format yuv422p` |
+| hevc 4:4:4 8bit | ❌ 同左 | ❌ `Error while opening encoder` | ❌ `device failed (-17)` | ❌ `Invalid output format yuv444p` |
+| vp9 4:4:4 10bit | ❌ 同左 | ❌ | ❌ `not supported` | ❌ |
+| prores 4:2:2 10bit | ❌ 同左 | ❌ `Error while opening encoder` | ❌ | ❌ `Invalid output format p210le` |
+| hevc 8K 4:2:0 | ❌ `h264_d3d12va` 打不开 8K | ✅ **2.33x** | — | ✅ 1.11x |
+| hevc 10bit → h264 | ❌ 缺位深对齐（编码器打不开） | ❌ 同左 | ✅ | — |
+
+**三条结论**：
+1. **d3d12va 在这些硬样本上零解码覆盖**：一律静默软解；一旦显式 `-hwaccel_output_format d3d12`，就从"软解"变成**硬失败**（`Impossible to convert`）。其编码器 `h264_d3d12va` 对 8K / 10bit 输入也打不开 → **d3d 系没有可用价值**。
+2. **vulkan 的"能跑"多是假象**：无 vulkan 解码器时 ffmpeg 软解+上传（日志显示 `pixfmt:vulkan`），且上传后的帧连 `nv12`/`p210le`/`yuv444p` 都不匹配 `hwdownload` → 取不回帧做软编。唯一有独立价值的是 **8K 4:2:0 全流程**（`h264_vulkan` 支持 8K，而 `h264_d3d12va` 不支持）。
+3. **qsv 是唯一能在 NVDEC 缺档（HEVC 4:2:2）上跑通全流程硬件的通道**（`scale_qsv` + `h264_qsv`，6.48x）→ 支持"在 N 卡机器上按 codec 门控保留 qsv 补位"。
+
+---
+
+## 8. 结论七：编码器能力矩阵 —— 编码侧同样有静默降级
+
+合成源（`lavfi testsrc2`，1s）+ `-pix_fmt` 指定编码器输入格式，**并用 ffprobe 复核产物真实格式**：
+
+| 档位 | nvenc | qsv | vulkan | d3d12va | mf | 软编 |
+| --- | --- | --- | --- | --- | --- | --- |
+| VP9 420 | **无此编码器** | `vp9_qsv` ✅ **0.50x**（产物确为 vp9） | ✗ | ✗ | ✗ | libvpx-vp9 0.24x |
+| **8K H.264** | ✗ 打不开（4096 上限） | ✗ | ✗ | ✗ | ✅ **真 8K** 0.59x | libx264 |
+| 8K HEVC | ✅ 0.68x | ✅ 0.14x | ✗ | ✗ | ✗ | libx265 |
+| 10bit H.264 | ✗ | ⚠️ **静默降 8bit** | ✗ | ✗ | ⚠️ **静默降 8bit** | libx264 High10 ✅ |
+| 4:2:2（8/10bit） | ✗ | ⚠️ **静默降 420** | ✗ | ✗ | ⚠️ **静默降 420** | libx264 High422 |
+| 4:4:4 8bit | ✅ 3.56x | ✅ | ✗ | ✗ | ⚠️ 降 420 | libx264 |
+| 4:4:4 **10bit** | hevc ✅ **3.24x**（h264 ✗） | ⚠️ 降级 | ✗ | ✗ | ⚠️ 降级 | libx265 |
+| 12bit HEVC | ⚠️ **静默降 10bit** | ⚠️ | ✗ | ✗ | ✗ | libx265 ✅ |
+| AV1 | ✅ `av1_nvenc` 4.22x | ✗ | ✗ | ✗ | ✗ | libsvtav1 2.43x |
+
+**⚠️ 编码侧静默降级（与解码侧同源）**：`-pix_fmt yuv422p -c:v h264_qsv` **退出码 0**，但产物实测是 `yuv420p` —— ffmpeg 在编码器前自动插了一次格式转换。**所以"编码器 OK"不等于"支持该格式"，必须 ffprobe 产物格式复核。**
+（12bit HEVC 同理：`hevc_nvenc` 请求 12bit 实得 10bit。）
+
+**回答"NVENC 不支持、但别的硬件支持"——真缺口只有两个**：
+
+| 缺口 | 现状（N 卡机器） | 可用的硬件替代 | 收益 |
+| --- | --- | --- | --- |
+| **VP9 输出** | cuda 层无 vp9 族 → `ENCODER_MATRIX` 落 libvpx-vp9（CPU） | **`vp9_qsv`**（0.50x vs 0.24x） | ~2.1x |
+| **8K H.264 输出** | h264_nvenc 打不开（>4096） | **`h264_mf`**（真 8K，0.59x） | 从"无硬件方案"到可用 |
+
+其余档位（10bit H.264 / 4:2:2）**所有硬件编码器都不支持真格式**（qsv/mf 只是静默降级），只能 libx264 —— 与代码里既有注释"h264_nvenc/qsv 只支持 8bit，10bit 源必须降级 cpu 用 libx264"一致。
+
+---
+
+## 9. 落地建议（对应 `lib/hwaccel.js`）
+
+1. **砍掉 `d3d` 层**（§3 + §7 + 8K 实测三重支持）：无解码覆盖（硬样本一律静默软解；`-hwaccel_output_format` 一开就硬失败），解码+下载只带来 2 次 PCIe 拷贝（真素材上比软解慢 6~35%，且 10bit 场景直接崩），编码器又只有 nvenc 一族。
+2. **qsv 按 codec 门控保留为补位**：HEVC 4:2:2（NVDEC 无）与 VP9 4:4:4 是它的独有覆盖；但对 VP8/MPEG-1/MPEG-4/MJPEG 要先排除（那些只有 cuda 支持，qsv 会失败）。
+3. **编码器回退链补一维**：`按族的硬件编码器回退 = 本层 → 其他厂商硬件编码器（能力确凿者）→ CPU`。两个入口：`vp9 → vp9_qsv`、`h264 且输出长边 > 4096 → h264_mf`。**每个回退都要校验产物格式/尺寸**，否则会像 qsv/mf 的 422/10bit 那样"假成功静默降级"。
+4. **判定逻辑（探针/日志）**：`pixfmt:<hw>` 不能单独用作硬解证据，必须叠加"无上传证据"，并与官方矩阵口径对齐（§0.2）。

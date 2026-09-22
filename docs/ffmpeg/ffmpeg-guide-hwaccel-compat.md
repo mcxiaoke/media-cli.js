@@ -970,6 +970,14 @@ ffmpeg -hwaccel vaapi -hwaccel_output_format vaapi -i in.mp4 \
 | **`h264_nvenc` 收 10bit 输入** | `Error while opening encoder` / `Nothing was written into output file` | `-h encoder=h264_nvenc` 虽列出 `p010le`，但**实测不支持**。硬件帧链路用 scale 的**选项** `scale_cuda=w=W:h=H:format=nv12`（**0 拷贝**，位深转换在 GPU 内）；软解链路用 `-pix_fmt yuv420p` / `format=yuv420p`。注意 `,format=nv12`（逗号）是独立滤镜 → 会要求出显存而失败；`:format=cuda` 则是非法选项值。10bit 输出用 `hevc_nvenc`（可直接吃 p010） |
 | **ffmpeg 7.x 的 QSV** | `Error initializing an MFX session: -3`（连 8bit h264 也失败） | libmfx legacy 与本机 oneVPL 2.15 不兼容；7.x 上 QSV 完全不可用，主力用 8.x / master。另：7.x 无 `d3d12va`、无 `scale_d3d11/scale_d3d12/scale_vulkan`，vulkan 解 hevc 10bit 会挂死 |
 | **指望 d3d/vulkan 兜住 cuda 解不了的 codec** | qsv/d3d11va/d3d12va/vulkan 全部无法硬解 | **VP8 / MPEG-1 / MPEG-4 / MJPEG 只有 cuda（NVDEC）支持**；cuda 覆盖面最宽，d3d/vulkan 是它的子集。唯一反向例外是 VP9（QSV 更宽：支持 4:4:4 与奇数分辨率） |
+| **`-pix_fmt X` + 硬件编码器"成功"** | 退出码 0，但产物**不是** X | 编码器不支持时会**静默插一次格式转换**：实测 `h264_qsv`/`h264_mf` 请求 `yuv422p` 或 `yuv420p10le`，产物实得 `yuv420p`。**判定编码器能力必须 ffprobe 产物格式**，退出码/`-h encoder` 列表都不可信 |
+| **h264_nvenc 编 8K** | `Error while opening encoder: Invalid argument` | NVENC H.264 上限 4096（8K HEVC 则可用 hevc_nvenc）。8K H.264 的硬件出路是 **`h264_mf`**（MediaFoundation，实测真 7680x4320） |
+| **需要 VP9 输出** | nvenc/amf/vulkan/d3d12va **都没有 VP9 编码器** | 硬件只有 **`vp9_qsv`**（实测产物确为 vp9，0.50x vs libvpx-vp9 0.24x） |
+| **12bit HEVC 编码** | `hevc_nvenc` 请求 12bit **静默产出 10bit** | 无真 12bit 硬件编码；libx265 可用 |
+| **vulkan 的 `-hwaccel` 看着成功** | 日志出现 `pixfmt:vulkan`，实际是**软解+上传** | 该 codec 没有 vulkan 解码器时（ProRes/APV/…）ffmpeg 会软解后上传；此时 `hwdownload` 也取不回帧（格式不匹配）。判硬解必须叠加"无上传证据" |
+| **NVIDIA 解码能力速查（官方矩阵）** | — | Ada 5th-gen NVDEC：HEVC 4:4:4 = **YES**；HEVC 4:2:2 = **NO**；H.264 4:2:2 = **NO**；H.264 10bit = **NO**；VP9 仅 4:2:0。本机逐条实测一致 |
+| **位深/色度判据选错源** | 10bit 源被当 8bit → 硬件编码器打不开；反之浪费链路 | 实测 877 个文件：ffprobe `bits_per_raw_sample` **68% 缺失**、mediainfo `BitDepth` 缺失 84 个（含 4 个真 >8bit）。**位深必须以 `pix_fmt` 后缀为主（无后缀=8bit），mediainfo `BitDepth` 兜底**；详见《FFprobe / MediaInfo 元数据字段实测分析》（`ffmpeg-metadata-fields-20260922.md`） |
+| **用 `r_frame_rate` 当帧率** | 得到 50 / 60 / 1200000 这类值 | 10%（72/730）与 `avg_frame_rate` 差异 >0.01（隔行场率、裸流时基推导）。**一律用 `avg_frame_rate`**，`0/0` 落 mediainfo `FrameRate` |
 
 ### 8.2 能力探测命令
 

@@ -24,9 +24,12 @@ const cudaTier = TIERS.find((t) => t.name === "cuda")
 const cpuTier = TIERS.find((t) => t.name === "cpu")
 const size = { w: 1920, h: 1080 }
 
-/** 构造极简 entry：buildScaleFiltersFromPlan 只用到 info/dstArgs/preset */
+/** 构造极简 entry：buildScaleFiltersFromPlan 只用到 info/dstArgs/preset
+ *  ⚠️ pixelFormat 必须是**可识别的 8bit**：位深未知时会触发「保守按 10bit 对齐」
+ *  （给 scale 加 `:format=nv12`），那些用例断言的是链路结构而非对齐，故给 8bit 源。
+ *  对齐行为本身另有专门用例（见文件末尾 describe）。 */
 const makeEntry = (over = {}) => ({
-    info: { video: { width: 3840, height: 2160, pixelFormat: "" } },
+    info: { video: { width: 3840, height: 2160, pixelFormat: "yuv420p" } },
     dstArgs: { scaled: false },
     preset: { dimension: 1920 },
     path: "/tmp/in.mp4",
@@ -226,12 +229,70 @@ describe("buildVideoFilters (hwaccel.js) three-segment support", () => {
             preFilters: "yadif=1",
             postFilters: "unsharp=3",
             hasScale: false,
+            // 8bit 源：无缩放 + 无对齐需求 → 不应出现在场滤镜（10bit/未知位深时会输出
+            // 一个只做格式对齐的 scale，见文件末尾 describe）
+            codecFamily: "h264",
+            pixFmt: "yuv420p",
         })
         assert.strictEqual(out, "yadif=1,setpts=PTS/1.5,fps=25,unsharp=3")
     })
 
     it("default hasScale=true keeps legacy behavior (probe path unchanged)", () => {
-        const out = buildVideoFilters({ tier: cudaTier, size, speed: 1, framerate: 0 })
+        const out = buildVideoFilters({
+            tier: cudaTier,
+            size,
+            speed: 1,
+            framerate: 0,
+            codecFamily: "h264",
+            pixFmt: "yuv420p",
+        })
         assert.strictEqual(out, "scale_cuda=w=1920:h=1080:interp_algo=lanczos,format=cuda")
+    })
+})
+
+describe("位深对齐（10bit 源 + h264 目标 → scale 的 format=nv12）", () => {
+    // 实测依据 docs/ffmpeg/ffmpeg-metadata-fields-20260922.md §7.4：
+    // h264 硬件编码器不吃 10bit 输入；对齐动作对 8bit 源无副作用，故**未知位深取保守方向**。
+    const base = { tier: cudaTier, size, speed: 1, framerate: 0, codecFamily: "h264" }
+
+    it("8bit 源：不加对齐（与历史行为一致）", () => {
+        const out = buildVideoFilters({ ...base, pixFmt: "yuv420p" })
+        assert.strictEqual(out, "scale_cuda=w=1920:h=1080:interp_algo=lanczos,format=cuda")
+        // 显式 8bit 位深同样不触发
+        const out2 = buildVideoFilters({ ...base, pixFmt: "YUV4:2:0", bitDepth: 8 })
+        assert.ok(!out2.includes("format=nv12"), out2)
+    })
+
+    it("10bit 源（pix_fmt 后缀）→ 加 :format=nv12", () => {
+        const out = buildVideoFilters({ ...base, pixFmt: "yuv420p10le" })
+        assert.ok(out.includes(":format=nv12"), out)
+    })
+
+    it("10bit 源（mediainfo 路径：pixelFormat 不含位深，靠 bitDepth）→ 加 :format=nv12", () => {
+        const out = buildVideoFilters({ ...base, pixFmt: "YUV4:2:0", bitDepth: 10 })
+        assert.ok(out.includes(":format=nv12"), out)
+    })
+
+    it("位深未知（无 pix_fmt 也无 bitDepth）→ 保守加 :format=nv12", () => {
+        const out = buildVideoFilters({ ...base, pixFmt: "", bitDepth: undefined })
+        assert.ok(out.includes(":format=nv12"), out)
+    })
+
+    it("hevc 目标不需要对齐（hevc 编码器可直接吃 p010）", () => {
+        const out = buildVideoFilters({ ...base, codecFamily: "hevc", pixFmt: "yuv420p10le" })
+        assert.ok(!out.includes("format=nv12"), out)
+    })
+
+    it("buildScaleFiltersFromPlan 也带对齐（真实链路入口）", () => {
+        const out = buildScaleFiltersFromPlan(
+            makeEntry({
+                info: {
+                    video: { width: 3840, height: 2160, pixelFormat: "YUV4:2:0", bitDepth: 10 },
+                },
+            }),
+            makeHwPlan(cudaTier, size),
+            { dimension: 1920 },
+        )
+        assert.ok(out.includes(":format=nv12"), out)
     })
 })
