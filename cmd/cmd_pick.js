@@ -415,6 +415,14 @@ export async function cmdPick(argv) {
     }
 
     const excludedFiles = new Set()
+    // 排除键：父目录名 + 文件名。仅用 basename 会让不同目录的同名照片
+    // （相机 IMG_0001.jpg 极普遍）被一并误排除（B12）。
+    const excludeKey = (p, n) => {
+        const full = p || ""
+        const base = n || path.basename(full)
+        const parent = full ? path.basename(path.dirname(full)) : ""
+        return parent ? `${parent}${path.sep}${base}` : base
+    }
 
     if (argv.excludeDir && (await fs.pathExists(argv.excludeDir))) {
         try {
@@ -424,7 +432,7 @@ export async function cmdPick(argv) {
                 entryFilter: (f) => helper.isMediaFile(f.name),
             })
             for (const item of items) {
-                excludedFiles.add(item.name)
+                excludedFiles.add(excludeKey(item.path, item.name))
             }
             log.logInfo(LOG_TAG, `Loaded ${excludedFiles.size} files to exclude.`)
         } catch (e) {
@@ -525,7 +533,9 @@ export async function cmdPick(argv) {
         return
     }
 
-    const filesAfterExclude = pickedFiles.filter((e) => !excludedFiles.has(e.name))
+    const filesAfterExclude = pickedFiles.filter(
+        (e) => !excludedFiles.has(excludeKey(e.path, e.name)),
+    )
     if (filesAfterExclude.length < pickedFiles.length) {
         log.logWarn(
             LOG_TAG,

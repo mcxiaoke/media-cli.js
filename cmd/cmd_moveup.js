@@ -26,9 +26,6 @@ const aliases = ["mp"]
 const describe = t("moveup.description")
 
 const MODE_AUTO = "auto"
-const MODE_DIR = "dirname"
-const MODE_PREFIX = "prefix"
-const MODE_MEDIA = "media"
 const MODE_CLEAN = "clean"
 
 const builder = function addOptions(ya) {
@@ -41,13 +38,13 @@ const builder = function addOptions(ya) {
                 normalize: true,
                 description: t("moveup.output"),
             })
-            // 指定MODE，三种：自动，目录名，指定前缀
+            // 指定 MODE：auto=移动并归拢；clean=仅清理空目录。其余取值此前与 auto 行为逐字相同，已移除（B8）。
             .option("mode", {
                 alias: "m",
                 type: "string",
                 default: MODE_AUTO,
                 description: t("moveup.mode"),
-                choices: [MODE_AUTO, MODE_DIR, MODE_PREFIX, MODE_MEDIA, MODE_CLEAN],
+                choices: [MODE_AUTO, MODE_CLEAN],
             })
             // 移动所有文件到根目录的指定目录
             .option("topmost", {

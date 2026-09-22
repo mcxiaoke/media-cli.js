@@ -1057,7 +1057,8 @@ async function preRename(entry, state = {}) {
     })
     newPath = conflictResult.newPath
     entry.skipped = conflictResult.skipped
-    if (entry.fixenc && enc.hasBadUnicode(newPath, true)) {
+    // fixenc 开关在 argv 上，entry 从不带该字段；此前写成 entry.fixenc 导致乱码兜底永不触发（B4）。
+    if (argv.fixenc && enc.hasBadUnicode(newPath, true)) {
         const count = ++state.encodingErrorCount
         log.showGray(logTag, `BadEncFR:${count}`, oldPath)
         log.show(logTag, `BadEncTO:${count}`, newPath)
@@ -1078,7 +1079,9 @@ async function preRename(entry, state = {}) {
     // （未落盘前 fs.pathExists 查不到，否则后一个文件会覆盖前一个）
     state.seenPaths.add(conflictKey(newPath))
     entry.outBase = newBase
-    entry.associatedExts = associatedExts
+    // 契约：消费方 lib/rename.js 读取的是 f.extraExts（字幕/封面等伴随文件扩展名）。
+    // 此前误写成 entry.associatedExts 导致字段错位、伴随文件重命名从未生效（B3）。
+    entry.extraExts = associatedExts
     log.showGray(logTag, `SRC: ${oldPath} ${pathDepth}`)
     log.show(logTag, `DST: ${newPath}`, chalk.yellow(associatedExts || ""))
     log.fileLog(`Add: <${oldPath}> [SRC]`, logTag)

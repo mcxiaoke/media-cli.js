@@ -144,7 +144,7 @@ const handler = async function cmdDecode(argv) {
                 const results = decodeText(str, fromEnc, toEnc, threhold)
                 results.forEach(showResults)
                 log.show(chalk.green(t("decode.input") + ":"), [str, str.length])
-                log.show(chalk.green(t("decode.output") + ":"), results.pop())
+                log.show(chalk.green(t("decode.output") + ":"), results[0])
                 log.show()
             },
             { concurrency: config.ENCODING?.CONCURRENCY || 4 },
@@ -251,7 +251,7 @@ async function processFiles(files, recursive, fromEnc, toEnc, threhold) {
                     )
                     results.forEach(showResults)
 
-                    const bestResult = results.pop()
+                    const bestResult = results[0]
                     log.show(chalk.green(t("decode.file") + ":"), chalk.green(filePath))
                     log.show(chalk.green(t("decode.output") + ":"), bestResult)
                     log.show()
@@ -287,11 +287,12 @@ async function processFiles(files, recursive, fromEnc, toEnc, threhold) {
  * @param {Array<string>} fromEnc - 源编码列表，默认为 DEFAULT_ENCODING_LIST
  * @param {Array<string>} toEnc - 目标编码列表，默认为 DEFAULT_ENCODING_LIST
  * @param {number} threhold - 置信度阈值，低于此值的结果会被过滤，默认为 50
- * @returns {Array} 解码结果数组（反转顺序，使最佳结果在前）
+ * @returns {Array} 解码结果数组（按质量降序，最佳结果在前）
  *
  * @description
- * 该函数调用 enc.tryDecodeText 获取解码结果，然后反转数组顺序，
- * 使质量最高的解码结果排在前面，方便后续处理和显示。
+ * enc.tryDecodeText 内部已按分数 b[2]-a[2] 降序排序（最佳在前），
+ * 此处直接透传即可。此前多做了一次 reverse() 反而变成升序，
+ * 导致 forEach 打印为"差→好"、注释也与事实相反（B18）。
  */
 function decodeText(
     str,
@@ -299,10 +300,9 @@ function decodeText(
     toEnc = DEFAULT_ENCODING_LIST,
     threhold = 50,
 ) {
-    // 调用核心解码函数获取解码结果
-    let results = enc.tryDecodeText(str, fromEnc, toEnc, threhold)
-    // 反转结果数组，使质量最高的结果排在前面
-    return results.reverse()
+    // 调用核心解码函数获取解码结果（tryDecodeText 已按质量降序返回）
+    const results = enc.tryDecodeText(str, fromEnc, toEnc, threhold)
+    return results
 }
 
 /**

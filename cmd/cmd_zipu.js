@@ -113,13 +113,6 @@ const builder = function addOptions(ya) {
                 default: 99999,
                 description: t("zipu.count"),
             })
-            // 繁体转简体
-            .option("tcsc", {
-                alias: "t",
-                type: "boolean",
-                default: false,
-                description: t("zipu.tcsc"),
-            })
             // 解压成功后删除原ZIP文件
             .option("purge", {
                 alias: "delete-zip",

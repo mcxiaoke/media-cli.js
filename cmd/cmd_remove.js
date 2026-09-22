@@ -852,6 +852,25 @@ async function planRemoveTasks(argv) {
     }
     log.logWarn(LOG_TAG, t("remove.files.to.remove", { count: tasks.length, type: type }))
     log.logWarn(LOG_TAG, conditions)
+    // 诚实化说明：--corrupted/--badchars 是"或"触发器，命中即删，不要求同时满足其余过滤器。
+    // 这是刻意设计（避免对疑似损坏文件再跑昂贵的宽高/时长探测），非缺陷（B1 讨论后定案）。
+    const hasOtherFilter = Boolean(
+        (conditions.pattern && conditions.pattern.length) ||
+        conditions.sizeLeft > 0 ||
+        conditions.sizeRight > 0 ||
+        conditions.width > 0 ||
+        conditions.height > 0 ||
+        Object.keys(conditions.audio || {}).length > 0 ||
+        Object.keys(conditions.video || {}).length > 0 ||
+        conditions.mtime ||
+        conditions.ctime,
+    )
+    if ((hasCorrupted || hasBadChars) && hasOtherFilter) {
+        log.logWarn(
+            LOG_TAG,
+            `Note: --corrupted/--badchars are OR triggers — a file matching them will be removed even if it does NOT satisfy the other filters.`,
+        )
+    }
     if (cNames && cNames.size > 0) {
         log.logWarn(LOG_TAG, `Attention: use file name list, ignore all other conditions`)
         log.logError(
@@ -1019,7 +1038,11 @@ async function runRemoveTasks({ tasks, conditions, testMode, type, errorStats, o
         const logPath = path.join(process.cwd(), `remove_operation_${Date.now()}.log`)
         await fs.writeFile(logPath, JSON.stringify(operationLog, null, 2))
         log.logSuccess(LOG_TAG, `Operation log saved to: ${logPath}`)
-        log.logWarn(LOG_TAG, `To undo this operation, use: mediac undo --log ${logPath}`)
+        // mediac 没有 undo 命令；此前提示误导用户以为可自动回滚（B2）。
+        log.logWarn(
+            LOG_TAG,
+            `There is no automatic undo. Removed files were sent to the Recycle Bin by default — restore them from the system Recycle Bin (or from the --output dir if used). See the operation log for the full list.`,
+        )
     }
 
     log.logSuccess(LOG_TAG, "task endAt", dayjs().format())
@@ -1696,6 +1719,9 @@ async function preRemoveArgs(f) {
 
         let shouldRemove = false
 
+        // 刻意设计（非 bug）：损坏/乱码为"或"触发器，命中即删并跳过其余条件的昂贵探测
+        // （下方各条件检查带 !testCorrupted 短路）。与其余过滤器的"或"关系已在执行前
+        // 的确认提示中向用户明示。若将来要改为"严格=全部满足"的 AND，需同时移除这些短路守卫。
         if (testCorrupted || testBadChars) {
             shouldRemove = true
         } else {

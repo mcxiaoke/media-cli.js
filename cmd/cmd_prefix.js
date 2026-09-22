@@ -119,12 +119,6 @@ const builder = function addOptions(ya) {
                 type: "boolean",
                 description: t("prefix.all"),
             })
-            // 并行操作限制，并发数，默认为 CPU 核心数
-            .option("jobs", {
-                alias: "j",
-                describe: t("option.common.jobs"),
-                type: "number",
-            })
             // 确认执行所有系统操作，非测试模式，如删除和重命名和移动操作
             .option("doit", {
                 alias: "d",
@@ -175,6 +169,11 @@ const builder = function addOptions(ya) {
 function getAutoModePrefix(dir, sep) {
     // 从左到右的目录层次
     const [d1, d2, d3] = dir.split(path.sep).slice(-3)
+    // 浅目录（不足 3 层或结尾带分隔符）时 d1/d2/d3 可能为 undefined/""，
+    // 直接 .includes 会抛 TypeError 使整批崩溃（B6）——退回到可用的最深一段。
+    if (!d1 || !d2 || !d3) {
+        return (d3 || d2 || d1 || "").trim()
+    }
     log.debug([d1, d2, d3].join(","))
     if (d3.includes(d1) && d2.includes(d1)) {
         return d3
@@ -266,11 +265,11 @@ async function createNewNameByMode(f) {
                 sep = "."
                 prefix = dirName
                 if (prefix.match(RE_MEDIA_DIR_NAME)) {
-                    prefix = dirParts[2]
+                    prefix = dirParts[2] || prefix
                 }
                 const checkPrefix = prefix
                 if (checkPrefix.length < 4 && /^[A-Za-z0-9]+$/.test(checkPrefix)) {
-                    prefix = dirParts[2] + sep + dirName
+                    prefix = dirParts[2] ? dirParts[2] + sep + dirName : prefix
                 }
             }
             break
@@ -285,13 +284,13 @@ async function createNewNameByMode(f) {
                 sep = "_"
                 prefix = dirName
                 if (prefix.match(RE_MEDIA_DIR_NAME)) {
-                    prefix = dirParts[2]
+                    prefix = dirParts[2] || prefix
                 }
                 if (prefix.match(RE_MEDIA_DIR_NAME)) {
-                    prefix = dirParts[1]
+                    prefix = dirParts[1] || prefix
                 }
                 if (prefix.match(RE_MEDIA_DIR_NAME)) {
-                    prefix = dirParts[0]
+                    prefix = dirParts[0] || prefix
                 }
             }
             break
