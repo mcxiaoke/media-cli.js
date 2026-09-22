@@ -343,16 +343,16 @@ describe("swdec tier (T7: CPU 解码 + CPU scale + 硬件编码)", () => {
         encoders: new Set(["h264_nvenc", "hevc_nvenc", "av1_nvenc", "libx264", "libx265"]),
     }
 
-    it("nv 机器有 nvenc → 插入 swdec（d3d 之后、cpu 之前）", () => {
+    it("nv 机器有 nvenc → 插入 swdec（d3d 之前、cpu 之前）", () => {
         assert.deepStrictEqual(candidateTiers(nvCaps, { decodeMode: "auto" }), [
             "cuda",
-            "d3d",
             "swdec",
+            "d3d",
             "cpu",
         ])
     })
 
-    it("intel 机器有 qsv 编码器 → [qsv, d3d, swdec, cpu]", () => {
+    it("intel 机器有 qsv 编码器 → [qsv, swdec, d3d, cpu]", () => {
         const caps = {
             ...nvCaps,
             gpus: [{ vendor: "intel", name: "UHD 750" }],
@@ -362,8 +362,8 @@ describe("swdec tier (T7: CPU 解码 + CPU scale + 硬件编码)", () => {
         }
         assert.deepStrictEqual(candidateTiers(caps, { decodeMode: "auto" }), [
             "qsv",
-            "d3d",
             "swdec",
+            "d3d",
             "cpu",
         ])
     })

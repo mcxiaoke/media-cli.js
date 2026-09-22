@@ -146,6 +146,34 @@ h264_2kl:
     dimension: 1920
 
 # ===========================================
+# H.264 视频预设 (4K)
+# ===========================================
+
+# 4K 超高质量 (3840p, CRF 22, 码率20M)
+h264_4ku:
+    extends: _base_h264
+    videoQuality: 22
+    videoBitrate: 20000000 # 20 Mbps
+    audioBitrate: 256000 # 256 Kbps
+    dimension: 3840
+
+# 4K 标准 (3840p, CRF 23, 码率15M)
+h264_4k:
+    extends: _base_h264
+    videoQuality: 23
+    videoBitrate: 15000000 # 15 Mbps
+    audioBitrate: 256000 # 256 Kbps
+    dimension: 3840
+
+# 4K 低质量 (3840p, CRF 25, 码率10M)
+h264_4kl:
+    extends: _base_h264
+    videoQuality: 25
+    videoBitrate: 10000000 # 10 Mbps
+    audioBitrate: 192000 # 192 Kbps
+    dimension: 3840
+
+# ===========================================
 # HEVC 视频预设
 # ===========================================
 
@@ -232,6 +260,101 @@ hevc_2kt:
     smartBitrate: false
 
 # ===========================================
+# AV1 视频预设
+# ===========================================
+
+# AV1 基础预设 (输出 codec 族: av1)
+# 编码器由 lib/hwaccel.js 按 tier 决定：cuda/d3d→av1_nvenc、qsv→av1_qsv、
+# amf→av1_amf、cpu→libaom-av1（SW 编码很慢，CPU 层作兜底）。
+_base_av1:
+    format: ".mp4"
+    type: video
+    prefix: "[SHANA] "
+    suffix: "_{preset}"
+    description: "AV1_BASE"
+    intro: "av1|libfdk_aac"
+    smartBitrate: true
+    dimension: 3840
+    framerate: 0
+    speed: 0
+    videoCodecFamily: "av1"
+    videoArgs: ""
+    audioArgs: "-c:a libfdk_aac -b:a {audioBitrateK}"
+    inputArgs: ""
+    streamArgs: "-map_metadata 0 -map_metadata:s:v 0:s:v"
+    outputArgs: "-movflags +faststart -movflags use_metadata_tags"
+    filters: "{scaleFilter}"
+    complexFilter: ""
+
+# AV1 2K 超高质量 (1920p, 质量24, 码率8M)
+av1_2ku:
+    extends: _base_av1
+    videoQuality: 24
+    videoBitrate: 8000000 # 8 Mbps
+    audioBitrate: 256000 # 256 Kbps
+    dimension: 1920
+
+# AV1 2K 高质量 (1920p, 质量26, 码率6M)
+av1_2kh:
+    extends: _base_av1
+    videoQuality: 26
+    videoBitrate: 6000000 # 6 Mbps
+    audioBitrate: 256000 # 256 Kbps
+    dimension: 1920
+
+# AV1 2K 标准 (1920p, 质量28, 码率4M) - 默认推荐
+av1_2k:
+    extends: _base_av1
+    videoQuality: 28
+    videoBitrate: 4000000 # 4 Mbps
+    audioBitrate: 192000 # 192 Kbps
+    dimension: 1920
+
+# AV1 2K 中等 (1920p, 质量30, 码率2M)
+av1_2km:
+    extends: _base_av1
+    videoQuality: 30
+    videoBitrate: 2000000 # 2 Mbps
+    audioBitrate: 128000 # 128 Kbps
+    dimension: 1920
+
+# AV1 2K 低质量 (1920p, 质量32, 码率1.6M)
+av1_2kl:
+    extends: _base_av1
+    videoQuality: 32
+    videoBitrate: 1600000 # 1.6 Mbps
+    audioBitrate: 128000 # 128 Kbps
+    dimension: 1920
+
+# ===========================================
+# AV1 视频预设 (4K)
+# ===========================================
+
+# AV1 4K 超高质量 (3840p, 质量24, 码率25M)
+av1_4ku:
+    extends: _base_av1
+    videoQuality: 24
+    videoBitrate: 25000000 # 25 Mbps
+    audioBitrate: 256000 # 256 Kbps
+    dimension: 3840
+
+# AV1 4K 标准 (3840p, 质量26, 码率15M)
+av1_4k:
+    extends: _base_av1
+    videoQuality: 26
+    videoBitrate: 15000000 # 15 Mbps
+    audioBitrate: 256000 # 256 Kbps
+    dimension: 3840
+
+# AV1 4K 低质量 (3840p, 质量28, 码率8M)
+av1_4kl:
+    extends: _base_av1
+    videoQuality: 28
+    videoBitrate: 8000000 # 8 Mbps
+    audioBitrate: 192000 # 192 Kbps
+    dimension: 3840
+
+# ===========================================
 # 特殊视频预设
 # ===========================================
 
@@ -256,6 +379,59 @@ hevc_speed:
     filters: ""
     complexFilter: "[0:v]setpts=PTS/{speed},{scaleFilter},fps={framerate}[v];[0:a]atempo={speed}[a]"
     streamArgs: "-map [v] -map [a]"
+
+# 快速预览模式 - 极低质量快速生成缩略视频
+hevc_preview:
+    extends: _base_hevc
+    description: "快速预览：极低质量，720p，快速生成缩略视频"
+    videoQuality: 35
+    videoBitrate: 800000 # 800 Kbps
+    audioBitrate: 64000 # 64 Kbps
+    dimension: 720
+    framerate: 15
+    smartBitrate: false
+
+# ===========================================
+# 场景型预设
+# ===========================================
+
+# 网页嵌入 - 720p H.264，广泛兼容，低码率
+web_720p:
+    extends: _base_h264
+    description: "网页嵌入：720p H.264，高兼容低码率"
+    videoQuality: 26
+    videoBitrate: 2500000 # 2.5 Mbps
+    audioBitrate: 128000 # 128 Kbps
+    dimension: 1280
+
+# 社交媒体 - 1080p H.264，平衡质量与大小
+social_1080p:
+    extends: _base_h264
+    description: "社交媒体：1080p H.264，平衡质量与文件大小"
+    videoQuality: 24
+    videoBitrate: 6000000 # 6 Mbps
+    audioBitrate: 192000 # 192 Kbps
+    dimension: 1920
+
+# 长期归档 - HEVC 高质量，保留元数据，低码率高画质
+archive_4k:
+    extends: _base_hevc
+    description: "长期归档：4K HEVC，高质量低码率，适合长期保存"
+    videoQuality: 20
+    videoBitrate: 12000000 # 12 Mbps
+    audioBitrate: 256000 # 256 Kbps
+    dimension: 3840
+
+# 直播推流 - H.264 CBR 低延迟，适合实时传输
+streaming_1080p:
+    extends: _base_h264
+    description: "直播推流：1080p H.264，CBR低延迟模式"
+    videoQuality: 23
+    videoBitrate: 6000000 # 6 Mbps
+    audioBitrate: 160000 # 160 Kbps
+    dimension: 1920
+    # 强制关闭B帧减少延迟
+    videoArgs: "-bf 0 -tune zerolatency"
 
 # ===========================================
 # 音频预设

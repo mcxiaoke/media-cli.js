@@ -143,6 +143,12 @@ const builder = function addOptions(ya) {
                 type: "string",
                 describe: t("option.common.extensions"),
             })
+            // 文件清单：从文本文件读取要处理的媒体文件路径（一行一个，支持 # 注释），
+            // 命中时跳过目录遍历，直接以清单为输入集（便于对指定样本做参数矩阵测试）
+            .option("filelist", {
+                type: "string",
+                describe: t("ffmpeg.filelist"),
+            })
             // 选择预设，从预设列表中选一个，预设等于一堆预定义参数
             .option("preset", {
                 type: "choices",
@@ -388,6 +394,53 @@ async function cmdConvert(argv) {
 }
 
 /**
+ * 收集输入媒体文件条目。
+ *
+ * 两种来源：
+ *   1. 文件清单（--filelist）：解析清单文件，委托给通用工具 `mf.parseFilelist`；
+ *   2. 目录遍历（默认）：`mf.walk` 遍历根目录 + argv.directories 额外目录。
+ *
+ * @param {Object} argv - 命令行参数（filelist / directories）
+ * @param {string} root - 已 resolve 的输入根目录
+ * @param {Object} walkOpts - mf.walk 的选项
+ * @returns {Promise<Object[]>} 文件条目数组
+ */
+async function collectInputEntries(argv, root, walkOpts) {
+    // 显式文件清单：以清单为输入集，不遍历目录
+    if (typeof argv.filelist === "string" && argv.filelist.length > 0) {
+        const listPath = path.resolve(argv.filelist)
+        if (!(await fs.pathExists(listPath))) {
+            throw createError(
+                ErrorTypes.INVALID_ARGUMENT,
+                t("ffmpeg.error.filelist", { path: listPath }),
+            )
+        }
+        return mf.parseFilelist(listPath, root)
+    }
+
+    // 默认：遍历根目录
+    let fileEntries = await mf.walk(root, walkOpts)
+    // 处理额外目录参数
+    if (argv.directories?.length > 0) {
+        const extraDirs = new Set(argv.directories.map((d) => path.resolve(d)))
+        for (const dirPath of extraDirs) {
+            const st = await fs.stat(dirPath)
+            if (st.isDirectory()) {
+                const dirFiles = await mf.walk(dirPath, walkOpts)
+                if (dirFiles.length > 0) {
+                    log.logInfo(
+                        LOG_TAG,
+                        t("ffmpeg.add.files", { count: dirFiles.length, path: dirPath }),
+                    )
+                    fileEntries = fileEntries.concat(dirFiles)
+                }
+            }
+        }
+    }
+    return fileEntries
+}
+
+/**
  * 计划阶段：校验参数、扫描文件、收集任务并确认。返回计划对象供 runFFmpegTasks 执行；
  * 取消确认、无文件或只展示信息时返回 null（调用方直接结束）。
  * @param {Object} argv - yargs 解析后的命令行参数
@@ -461,24 +514,7 @@ async function planFFmpegTasks(argv) {
         needStats: true,
         entryFilter: (e) => e.isFile && helper.isMediaFile(e.name),
     }
-    let fileEntries = await mf.walk(root, walkOpts)
-    // 处理额外目录参数
-    if (argv.directories?.length > 0) {
-        const extraDirs = new Set(argv.directories.map((d) => path.resolve(d)))
-        for (const dirPath of extraDirs) {
-            const st = await fs.stat(dirPath)
-            if (st.isDirectory()) {
-                const dirFiles = await mf.walk(dirPath, walkOpts)
-                if (dirFiles.length > 0) {
-                    log.logInfo(
-                        LOG_TAG,
-                        t("ffmpeg.add.files", { count: dirFiles.length, path: dirPath }),
-                    )
-                    fileEntries = fileEntries.concat(dirFiles)
-                }
-            }
-        }
-    }
+    let fileEntries = await collectInputEntries(argv, root, walkOpts)
     fileEntries = core.uniqueByFields(fileEntries, "path")
     log.logInfo(
         LOG_TAG,
