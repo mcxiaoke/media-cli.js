@@ -355,30 +355,78 @@ av1_4kl:
     dimension: 3840
 
 # ===========================================
-# 特殊视频预设
+# VP9 视频预设（NVENC 不支持 VP9 硬编 → 恒走 CPU：libvpx-vp9；旧 Intel 卡可 vp9_qsv）
+# 输出 .webm + 音频 libopus；质量用 CRF（libvpx-vp9 纯 CRF 需 -b:v 0，由 buildEncoderArgs cpu 分支产出）
+# CRF 值域 0–63，越小越高质量；档位对齐 hevc_2k*（超好→低）
 # ===========================================
 
-# 极速模式 - 适用于视频教程/演讲
-# 支持变速播放，低码率，小文件
-# 注意: complexFilter 内 {scaleFilter} 占位符由分层按 tier 现算替换
-#       （CPU 层出 scale=，GPU 层出 scale_cuda/scale_qsv 等）
-hevc_speed:
-    extends: _base_hevc
-    videoQuality: 30
-    videoBitrate: 500000 # 500 Kbps
-    audioQuality: 1 # HE-AAC VBR 1
-    audioBitrate: 48000 # 48 Kbps
-    dimension: 1920
-    speed: 1.5
-    framerate: 25
+# VP9 基础预设（输出 codec 族: vp9）
+_base_vp9:
+    format: ".webm"
+    type: video
+    prefix: "[SHANA] "
+    suffix: "_{preset}"
+    description: "VP9_BASE"
+    intro: "vp9|libopus"
     smartBitrate: false
-    suffix: "_{speed}x"
-    # HE-AAC 编码，更低码率
-    audioArgs: "-c:a libfdk_aac -profile:a aac_he -vbr {audioQuality} -b:a {audioBitrateK}"
-    # 使用复杂滤镜实现变速
-    filters: ""
-    complexFilter: "[0:v]setpts=PTS/{speed},{scaleFilter},fps={framerate}[v];[0:a]atempo={speed}[a]"
-    streamArgs: "-map [v] -map [a]"
+    dimension: 3840
+    framerate: 0
+    speed: 0
+    videoCodecFamily: "vp9"
+    videoArgs: ""
+    audioArgs: "-c:a libopus -b:a {audioBitrateK}"
+    inputArgs: ""
+    streamArgs: "-map_metadata 0"
+    # webm/mkv 族 muxer，不用 mp4 专属的 -movflags
+    outputArgs: ""
+    filters: "{scaleFilter}"
+    complexFilter: ""
+
+# 2K 超高质量 (1920p, CRF 30)
+vp9_2ku:
+    extends: _base_vp9
+    videoQuality: 30
+    audioBitrate: 256000 # 256 Kbps
+    dimension: 1920
+
+# 2K 高质量 (1920p, CRF 34)
+vp9_2kh:
+    extends: _base_vp9
+    videoQuality: 34
+    audioBitrate: 192000 #
+    dimension: 1920
+
+# 2K 标准 (1920p, CRF 38) - 默认推荐
+vp9_2k:
+    extends: _base_vp9
+    videoQuality: 38
+    audioBitrate: 192000 #
+    dimension: 1920
+
+# 2K 中等 (1920p, CRF 42)
+vp9_2km:
+    extends: _base_vp9
+    videoQuality: 42
+    audioBitrate: 128000 #
+    dimension: 1920
+
+# 2K 低质量 (1920p, CRF 46)
+vp9_2kl:
+    extends: _base_vp9
+    videoQuality: 46
+    audioBitrate: 128000 #
+    dimension: 1920
+
+# 4K 标准 (3840p, CRF 38)
+vp9_4k:
+    extends: _base_vp9
+    videoQuality: 38
+    audioBitrate: 256000
+    dimension: 3840
+
+# ===========================================
+# 特殊视频预设
+# ===========================================
 
 # 快速预览模式 - 极低质量快速生成缩略视频
 hevc_preview:

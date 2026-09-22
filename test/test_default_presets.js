@@ -37,7 +37,6 @@ const EXPECTED_PUBLIC_PRESETS = [
     "hevc_2km",
     "hevc_2kl",
     "hevc_2kt",
-    "hevc_speed",
     "audio_extract",
     "aac_high",
     "aac_medium",
