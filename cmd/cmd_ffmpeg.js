@@ -203,7 +203,7 @@ const builder = function addOptions(ya) {
                 default: 0,
                 describe: t("ffmpeg.fps"),
             })
-            // 视频加速减速，默认不改动，范围0.25-4.0
+            // 视频加速减速，默认不改动（0），范围 0.5–2.0（与 hwaccel validateSpeed 一致）
             .option("speed", {
                 type: "number",
                 default: 0,
@@ -497,7 +497,8 @@ async function planFFmpegTasks(argv) {
     if (argv.jobs !== undefined && argv.jobs <= 0) {
         throw createError(ErrorTypes.INVALID_ARGUMENT, t("ffmpeg.error.jobs"))
     }
-    if (argv.speed !== undefined && (argv.speed < 0 || argv.speed > 4.0)) {
+    // speed 域收敛 0.5–2.0（D1，与 hwaccel validateSpeed 一致）；0 = 未变速（默认）
+    if (argv.speed !== undefined && argv.speed !== 0 && (argv.speed < 0.5 || argv.speed > 2.0)) {
         throw createError(ErrorTypes.INVALID_ARGUMENT, t("ffmpeg.error.speed"))
     }
     if (argv.dimension !== undefined && argv.dimension < 0) {

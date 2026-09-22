@@ -95,7 +95,7 @@ describe("splitPresetFilterSegments", () => {
 })
 
 describe("buildScaleFiltersFromPlan (three-segment)", () => {
-    it("tier + pre/post: assembles yadif -> scale_cuda -> unsharp", () => {
+    it("tier + pre/post: 硬件帧下载后软件缩放+滤镜（D3，实测 scale_cuda 帧喂不进软滤镜）", () => {
         const tp = { filters: "yadif=1,{scaleFilter},unsharp=3", speed: 1, framerate: 0 }
         const out = buildScaleFiltersFromPlan(
             makeEntry({ dstArgs: { scaled: true } }),
@@ -104,11 +104,12 @@ describe("buildScaleFiltersFromPlan (three-segment)", () => {
         )
         assert.strictEqual(
             out,
-            "yadif=1,scale_cuda=w=1920:h=1080:interp_algo=lanczos,format=cuda,unsharp=3",
+            // cuda 层帧在显存 + 软件滤镜 → hwdownload,format=nv12 + 软件 scale（非 scale_cuda）
+            "hwdownload,format=nv12,yadif=1,scale=w=1920:h=1080:flags=lanczos,unsharp=3",
         )
     })
 
-    it("speed+framerate injected at correct positions (setpts before scale, fps after)", () => {
+    it("speed+framerate: 硬件层含软滤镜时下载+软件scale，setpts在scale前、fps后", () => {
         const tp = { filters: "yadif=1,{scaleFilter}", speed: 1.5, framerate: 25 }
         const out = buildScaleFiltersFromPlan(
             makeEntry({ dstArgs: { scaled: true } }),
@@ -117,7 +118,7 @@ describe("buildScaleFiltersFromPlan (three-segment)", () => {
         )
         assert.strictEqual(
             out,
-            "yadif=1,setpts=PTS/1.5,scale_cuda=w=1920:h=1080:interp_algo=lanczos,format=cuda,fps=25",
+            "hwdownload,format=nv12,yadif=1,setpts=PTS/1.5,scale=w=1920:h=1080:flags=lanczos,fps=25",
         )
     })
 
@@ -131,14 +132,14 @@ describe("buildScaleFiltersFromPlan (three-segment)", () => {
         assert.strictEqual(out, "scale=w=1920:h=1080:flags=lanczos")
     })
 
-    it("no scale needed: user-only filters keep, no extra same-size scale (P1-1)", () => {
+    it("no scale needed: 硬件层用户滤镜仍下载后跑（不产同尺寸缩放）（P1-1 + D3）", () => {
         const tp = { filters: "yadif=1", speed: 1, framerate: 0 }
         const out = buildScaleFiltersFromPlan(
             makeEntry({ dstArgs: { scaled: false } }),
             makeHwPlan(cudaTier, size),
             tp,
         )
-        assert.strictEqual(out, "yadif=1")
+        assert.strictEqual(out, "hwdownload,format=nv12,yadif=1")
     })
 
     it("placeholder preset -> scale generated (占位符=声明要缩放；纯占位符且无缩放任务的场景由 buildFilterArgs 外层拦截，不会走到这里)", () => {
@@ -220,7 +221,7 @@ describe("buildVideoArgsFromPlan (-c:v removal)", () => {
 })
 
 describe("buildVideoFilters (hwaccel.js) three-segment support", () => {
-    it("preFilters/postFilters/hasScale=false compose correctly", () => {
+    it("硬件层 pre/post 软滤镜：hwdownload+软件域组合（D3），hasScale=false 不加缩放", () => {
         const out = buildVideoFilters({
             tier: cudaTier,
             size,
@@ -229,12 +230,24 @@ describe("buildVideoFilters (hwaccel.js) three-segment support", () => {
             preFilters: "yadif=1",
             postFilters: "unsharp=3",
             hasScale: false,
-            // 8bit 源：无缩放 + 无对齐需求 → 不应出现在场滤镜（10bit/未知位深时会输出
-            // 一个只做格式对齐的 scale，见文件末尾 describe）
             codecFamily: "h264",
             pixFmt: "yuv420p",
         })
-        assert.strictEqual(out, "yadif=1,setpts=PTS/1.5,fps=25,unsharp=3")
+        assert.strictEqual(out, "hwdownload,format=nv12,yadif=1,setpts=PTS/1.5,fps=25,unsharp=3")
+    })
+
+    it("软件层(cpu) 有软滤镜：不插 hwdownload（帧本就在内存）", () => {
+        const out = buildVideoFilters({
+            tier: cpuTier,
+            size,
+            speed: 1,
+            framerate: 0,
+            postFilters: "unsharp=3",
+            hasScale: true,
+            codecFamily: "hevc",
+            pixFmt: "yuv420p",
+        })
+        assert.strictEqual(out, "scale=w=1920:h=1080:flags=lanczos,unsharp=3")
     })
 
     it("default hasScale=true keeps legacy behavior (probe path unchanged)", () => {

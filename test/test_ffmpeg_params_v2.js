@@ -22,7 +22,7 @@ import {
     buildScaleFiltersFromPlan,
     flattenFFArgs,
 } from "../lib/ffmpeg_build.js"
-import { TIERS } from "../lib/hwaccel.js"
+import { TIERS, buildLayerArgs } from "../lib/hwaccel.js"
 
 const cudaTier = TIERS.find((t) => t.name === "cuda")
 const cpuTier = TIERS.find((t) => t.name === "cpu")
@@ -197,5 +197,91 @@ describe("createFFmpegArgs — 端到端进入最终命令", () => {
         })
         const args = createFFmpegArgs(entry, makeHwPlan(cpuTier)).args.flat()
         assert.ok(!args.some((a) => a === "" || a === undefined), "不应有空白 token")
+    })
+})
+
+describe("D2 — 变速的音视频同步产出（simple -vf setpts + -af atempo）", () => {
+    it("createFFmpegArgs：speed≠1 同时产出 -vf setpts 与 -af atempo", () => {
+        const entry = makeEntry({
+            preset: presetOf({
+                dimension: 1920,
+                speed: 1.5,
+                userArgs: { videoBitrate: 0, videoQuality: 24 },
+            }),
+            dstArgs: { scaled: true, srcDuration: 10, srcVideoCodec: "hevc", srcAudioCodec: "aac" },
+        })
+        const cmd = flattenFFArgs(createFFmpegArgs(entry, makeHwPlan(cpuTier)).args)
+        assert.match(cmd, /-vf [^ ]*setpts=PTS\/1\.5/, `视频 setpts 应在 -vf: ${cmd}`)
+        assert.match(cmd, /-af atempo=1\.5/, `音频 atempo 应在 -af: ${cmd}`)
+    })
+
+    it("speed==1 时不产出 -af（无谓变速）", () => {
+        const entry = makeEntry({
+            preset: presetOf({ dimension: 1920, speed: 0 }),
+            dstArgs: { scaled: true, srcDuration: 10, srcVideoCodec: "hevc", srcAudioCodec: "aac" },
+        })
+        const cmd = flattenFFArgs(createFFmpegArgs(entry, makeHwPlan(cpuTier)).args)
+        assert.ok(!/-af /.test(cmd), `speed=1 不应有 -af: ${cmd}`)
+    })
+})
+
+describe("D5 — speed≠1 强制音频重编码（禁用 copy）", () => {
+    it("满足 copy 条件但 speed≠1 → 不产出 -c:a copy，且加 -af atempo", () => {
+        // dstArgs 让 bitrateOk 成立（dstAudioBitrate+2000 > srcAudioBitrate）→ 平时会 copy
+        const entry = makeEntry({
+            preset: presetOf({
+                dimension: 1920,
+                speed: 1.5,
+                audioArgs: "-c:a libfdk_aac -b:a 128k",
+                userArgs: { audioCopy: false },
+            }),
+            dstArgs: {
+                scaled: true,
+                srcDuration: 10,
+                srcVideoCodec: "hevc",
+                srcAudioCodec: "aac",
+                srcAudioBitrate: 100000,
+                dstAudioBitrate: 100000,
+            },
+        })
+        const cmd = flattenFFArgs(createFFmpegArgs(entry, makeHwPlan(cpuTier)).args)
+        assert.ok(!/-c:a copy/.test(cmd), `speed≠1 不得 copy 音频: ${cmd}`)
+        assert.match(cmd, /-af atempo=1\.5/, "应套用 atempo")
+        assert.match(cmd, /-c:a libfdk_aac/, "音频应重编码")
+    })
+
+    it("speed==1 且满足 copy 条件 → 仍可 -c:a copy（不回归）", () => {
+        const entry = makeEntry({
+            preset: presetOf({ dimension: 1920, speed: 0, audioArgs: "-c:a libfdk_aac -b:a 128k" }),
+            dstArgs: {
+                scaled: true,
+                srcDuration: 10,
+                srcVideoCodec: "hevc",
+                srcAudioCodec: "aac",
+                srcAudioBitrate: 100000,
+                dstAudioBitrate: 100000,
+            },
+        })
+        const cmd = flattenFFArgs(createFFmpegArgs(entry, makeHwPlan(cpuTier)).args)
+        assert.match(cmd, /-c:a copy/, `speed=1 允许 copy: ${cmd}`)
+    })
+})
+
+describe("D2 — 探测命令与真实同构（buildLayerArgs 用 simple -af，不再 -filter_complex）", () => {
+    it("buildLayerArgs speed≠1 hasAudio → 产 -vf(setpts)+-af(atempo)，不含 -filter_complex", () => {
+        const { inputArgs, outputArgs } = buildLayerArgs({
+            tier: cpuTier,
+            size,
+            speed: 1.5,
+            framerate: 0,
+            hasAudio: true,
+            quality: 30,
+            codecFamily: "hevc",
+        })
+        const joined = outputArgs.join(" ")
+        assert.ok(outputArgs.includes("-af"), "应产出 -af")
+        assert.ok(joined.includes("atempo=1.5"), `应含 atempo: ${joined}`)
+        assert.ok(!joined.includes("-filter_complex"), "simple 路径不应有 -filter_complex")
+        assert.ok(inputArgs.length === 0, "cpu 层无 hwaccel 输入参数")
     })
 })
