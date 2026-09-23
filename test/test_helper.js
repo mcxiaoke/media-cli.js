@@ -116,6 +116,24 @@ describe("helper.js - Formatting Utilities", () => {
         assert.ok(helper.formatBytes(1024 * 1024).includes("MB"))
     })
 
+    it("parseBitrate: bare number = bps (aligns with ffmpeg)", () => {
+        assert.strictEqual(helper.parseBitrate("2000000"), 2000000)
+        assert.strictEqual(helper.parseBitrate(2000000), 2000000)
+    })
+
+    it("parseBitrate: k/m/g suffix (1000-based)", () => {
+        assert.strictEqual(helper.parseBitrate("233k"), 233000)
+        assert.strictEqual(helper.parseBitrate("3M"), 3000000)
+        assert.strictEqual(helper.parseBitrate("1.5m"), 1500000)
+        assert.strictEqual(helper.parseBitrate("2g"), 2000000000)
+    })
+
+    it("parseBitrate: invalid input throws", () => {
+        assert.throws(() => helper.parseBitrate("abc"))
+        assert.throws(() => helper.parseBitrate(""))
+        assert.throws(() => helper.parseBitrate(-5))
+    })
+
     it("should format duration correctly", () => {
         assert.ok(helper.humanDuration(500).includes("ms"))
         assert.ok(helper.humanDuration(65000).includes("m"))

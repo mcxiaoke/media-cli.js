@@ -110,9 +110,9 @@ describe("buildEncoderArgs (av1/vp9 matrix + fallback)", () => {
         assert.ok(args.includes("-crf"))
     })
 
-    it("cpu + av1 -> libaom-av1 with -b:v 0 (pure CRF)", () => {
+    it("cpu + av1 -> libsvtav1 with -b:v 0 (pure CRF)", () => {
         const args = buildEncoderArgs("cpu", { codecFamily: "av1", quality: 30 })
-        assert.strictEqual(args[1], "libaom-av1")
+        assert.strictEqual(args[1], "libsvtav1")
         assert.ok(args.includes("-crf"))
         assert.ok(args.includes("-b:v") && args[args.indexOf("-b:v") + 1] === "0")
     })
@@ -123,13 +123,15 @@ describe("buildEncoderArgs (av1/vp9 matrix + fallback)", () => {
         assert.ok(!args.includes("-b:v"))
     })
 
-    it("bitrateK passthrough adds maxrate/bufsize (cpu branch)", () => {
+    it("bitrate passthrough adds b:v/maxrate/bufsize (cpu branch)", () => {
         const args = buildEncoderArgs("cpu", {
             codecFamily: "h264",
             quality: 24,
-            bitrateK: "2000K",
+            bitrate: 2000000, // bps
         })
-        assert.ok(args.includes("-maxrate") && args[args.indexOf("-maxrate") + 1] === "2000K")
+        assert.ok(args.includes("-b:v") && args[args.indexOf("-b:v") + 1] === "2000K")
+        // maxbitrate 缺省 = bitrate × 1.5
+        assert.ok(args.includes("-maxrate") && args[args.indexOf("-maxrate") + 1] === "3000K")
         assert.ok(args.includes("-bufsize"))
     })
 
@@ -144,8 +146,8 @@ describe("buildEncoderArgs (av1/vp9 matrix + fallback)", () => {
     })
 })
 
-describe("buildLayerArgs -> buildProbeArgs bitrateK passthrough", () => {
-    it("probe args include maxrate/bufsize when bitrateK set", () => {
+describe("buildLayerArgs -> buildProbeArgs bitrate passthrough", () => {
+    it("probe args include maxrate/bufsize when bitrate set", () => {
         // buildProbeArgs 内的 buildLayerArgs 会组装同一套滤镜与编码器参数
         const probeArgs = buildProbeArgs({
             tier: cudaTier,
@@ -153,15 +155,17 @@ describe("buildLayerArgs -> buildProbeArgs bitrateK passthrough", () => {
             speed: 1,
             codecFamily: "h264",
             quality: 28,
-            bitrateK: "2000K",
+            bitrate: 2000000, // bps
             inputPath: "/tmp/in.mp4",
         })
+        assert.ok(probeArgs.includes("-b:v"), "probe must carry -b:v")
         assert.ok(probeArgs.includes("-maxrate"), "probe must carry -maxrate")
-        assert.ok(probeArgs.includes("-bufsize"), "probe must carry -bufsize")
-        assert.strictEqual(probeArgs[probeArgs.indexOf("-maxrate") + 1], "2000K")
+        assert.strictEqual(probeArgs[probeArgs.indexOf("-b:v") + 1], "2000K")
+        // maxbitrate 缺省 = bitrate × 1.5
+        assert.strictEqual(probeArgs[probeArgs.indexOf("-maxrate") + 1], "3000K")
     })
 
-    it("layer args without bitrateK omit maxrate/bufsize", () => {
+    it("layer args without bitrate omit maxrate/bufsize", () => {
         const { outputArgs } = buildLayerArgs({
             tier: cudaTier,
             size,

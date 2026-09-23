@@ -1,14 +1,19 @@
 /**
- * 内置默认预设（presets/default.yaml）单测（Phase 1：预设单源化）
+ * 内置默认预设（presets/default.yaml）单测
  *
- * 覆盖项：
- *   - default.yaml 随包存在且可被加载（通过模块内默认路径）
- *   - 公开预设名与预期的 21 个内置预设一致（QSV 示例不在其中）
- *   - 每个预设都能经 FFmpegPreset 构造器构造（字段类型与构造器契约匹配）
- *   - 视频预设 S-4 语义：videoArgs 不含 -c:v，filters 为 "{scaleFilter}"
- *     （hevc_speed 的 complexFilter 豁免：Phase 2 模板化）
- *   - getAllNames 返回副本（push 不影响内部状态）
- *   - 音频预设不受 S-4 影响
+ * 设计原则：**不写死预设总数**（那只会强迫每次增删预设都来改测试，
+ * 不带来任何真实保护）。改守三类有意义的不变式：
+ *   1. 关键规范名必须存在（MUST_EXIST）—— 防误删/重命名；同族新增不受影响。
+ *   2. 每个 codec 族至少一个公开预设（REQUIRED_CODEC_FAMILIES）—— 防无声漏族。
+ *   3. 结构不变式 —— 遍历**全部**已注册预设（不再只跑硬编码清单）：
+ *        · default.yaml 随包存在、模块相对路径可解析
+ *        · `_base_*` 模板不外泄到已注册集
+ *        · 每个预设能经 FFmpegPreset 构造器构造
+ *        · 视频预设符合 S-4：videoArgs 无 -c:v、videoCodecFamily 显式声明、
+ *          无 complexFilter 时 filters === "{scaleFilter}"；有 complexFilter 时
+ *          含 "{scaleFilter}" 模板且不含字面量 scale_cuda
+ *        · 音频预设 audioArgs 保留 -c:a
+ *        · getAllNames 返回副本
  *
  * 隔离策略：不调用 initPresetsAsync 全链（避免命中真实 ~/.mediac），
  * 直接用 DEFAULT_PRESET_PATH 单文件加载 + mergePresets 在空表上合并。
@@ -22,21 +27,17 @@ import presetsDefault from "../lib/ffmpeg_presets.js"
 import { DEFAULT_PRESET_PATH } from "../lib/preset_loader.js"
 import { loadPresetsFromYaml, mergePresets } from "../lib/preset_loader.js"
 
-// 与 Phase 1 迁移清单一致的预期公开预设名（21 个内置，不含 QSV 新增示例）
-const EXPECTED_PUBLIC_PRESETS = [
+// 关键规范名：各 codec 族的代表 + 场景/音频核心名。
+// 语义是「这些名字不许悄悄消失」；新增同族预设不触发失败。
+const MUST_EXIST_PRESETS = [
+    // 视频族代表
     "h264_2k",
-    "h264_2km",
-    "h264_2kl",
-    "hevc_4ku",
-    "hevc_4k",
-    "hevc_4kl",
-    "hevc_4kt",
-    "hevc_2ku",
-    "hevc_2kh",
+    "h264_4k",
     "hevc_2k",
-    "hevc_2km",
-    "hevc_2kl",
-    "hevc_2kt",
+    "hevc_4k",
+    "av1_2k",
+    "vp9_2k",
+    // 音频族
     "audio_extract",
     "aac_high",
     "aac_medium",
@@ -45,6 +46,15 @@ const EXPECTED_PUBLIC_PRESETS = [
     "aac_vbr",
     "aac_voice",
 ]
+
+// codec 族覆盖：新增族要显式登记本表（防无声遗漏）。
+const REQUIRED_CODEC_FAMILIES = {
+    h264: /^h264_/,
+    hevc: /^hevc_/,
+    av1: /^av1_/,
+    vp9: /^vp9_/,
+    aac: /^aac_/,
+}
 
 describe("presets/default.yaml (built-in layer)", () => {
     it("default.yaml exists at the expected module-relative path", async () => {
@@ -59,22 +69,35 @@ describe("presets/default.yaml (built-in layer)", () => {
         )
     })
 
-    it("loads exactly the 21 built-in public presets (no QSV examples, no _base)", async () => {
+    it("registers all must-exist presets, covers each codec family, and hides _base_* from the public set", async () => {
         const layer = await loadPresetsFromYaml(DEFAULT_PRESET_PATH)
         assert.ok(layer, "default layer should load")
-        const names = Object.keys(layer.presets).filter((n) => !n.startsWith("_"))
-        assert.deepStrictEqual(names.sort(), [...EXPECTED_PUBLIC_PRESETS].sort())
+        const publicNames = Object.keys(layer.presets).filter((n) => !n.startsWith("_"))
+
+        for (const name of MUST_EXIST_PRESETS) {
+            assert.ok(publicNames.includes(name), `must-exist preset missing: ${name}`)
+        }
+        for (const name of publicNames) {
+            assert.ok(!name.startsWith("_"), `_ prefix must not be public: ${name}`)
+        }
+        for (const [fam, re] of Object.entries(REQUIRED_CODEC_FAMILIES)) {
+            assert.ok(
+                publicNames.some((n) => re.test(n)),
+                `no public preset registered for codec family: ${fam}`,
+            )
+        }
     })
 
-    it("merges the default layer into an empty map without warnings about _override", async () => {
+    it("merges the default layer into an empty map (set identity, no _override noise)", async () => {
         const layer = await loadPresetsFromYaml(DEFAULT_PRESET_PATH)
         const merged = mergePresets(new Map(), layer)
-        assert.strictEqual(merged.size, EXPECTED_PUBLIC_PRESETS.length)
-        for (const name of EXPECTED_PUBLIC_PRESETS) {
+        // 不写死数量，只断言「集合恒等」：YAML 里的公开键 == 合并后的键
+        const publicNames = Object.keys(layer.presets).filter((n) => !n.startsWith("_"))
+        assert.strictEqual(merged.size, publicNames.length)
+        for (const name of publicNames) {
             assert.ok(merged.has(name), `${name} should be registered from default layer`)
         }
-        // 私有基类不注册
-        for (const name of Object.keys(merged)) {
+        for (const name of merged.keys()) {
             assert.ok(!name.startsWith("_"), `_ prefix should be filtered: ${name}`)
         }
     })
@@ -83,6 +106,7 @@ describe("presets/default.yaml (built-in layer)", () => {
         const layer = await loadPresetsFromYaml(DEFAULT_PRESET_PATH)
         const merged = mergePresets(new Map(), layer)
         const { FFmpegPreset } = presetsDefault
+        assert.ok(merged.size > 0, "no presets merged (loader regression?)")
         for (const [name, preset] of merged) {
             const fp = new FFmpegPreset(name, preset)
             assert.strictEqual(fp.name, name, `${name}: name mismatch`)
@@ -91,21 +115,25 @@ describe("presets/default.yaml (built-in layer)", () => {
         }
     })
 
-    it("video presets follow S-4: no -c:v in videoArgs, filters is {scaleFilter}", async () => {
+    it("all video presets follow S-4 (no -c:v in videoArgs, explicit videoCodecFamily, {scaleFilter})", async () => {
         const layer = await loadPresetsFromYaml(DEFAULT_PRESET_PATH)
         const merged = mergePresets(new Map(), layer)
-        const videoNames = EXPECTED_PUBLIC_PRESETS.filter((n) => merged.get(n)?.type === "video")
-        assert.ok(videoNames.length >= 10, "should have video presets")
-        for (const name of videoNames) {
-            const p = merged.get(name)
-            assert.ok(!p.videoArgs.includes("-c:v"), `${name}: videoArgs must not hardcode -c:v`)
-            // complexFilter 存在时缩放写在 complexFilter 里（hevc_speed，Phase 2 模板化）：
-            // {scaleFilter} 占位符由分层按 tier 现算替换，不再有字面量 scale_cuda / {dimension}
+        let checked = 0
+        for (const [name, p] of merged) {
+            if (p.type !== "video") continue
+            checked++
+            // videoArgs 允许缺省；含 -c:v 即违反 S-4（编码器由分层决定）
+            assert.ok(
+                !p.videoArgs || !String(p.videoArgs).includes("-c:v"),
+                `${name}: videoArgs must not hardcode -c:v`,
+            )
+            // 必须显式声明 codec 族（不再靠 videoArgs 反推）
+            assert.ok(p.videoCodecFamily, `${name}: videoCodecFamily must be declared (S-4)`)
             if (!p.complexFilter) {
                 assert.strictEqual(
                     p.filters,
                     "{scaleFilter}",
-                    `${name}: filters should be {scaleFilter}`,
+                    `${name}: filters should be {scaleFilter} placeholder`,
                 )
             } else {
                 assert.ok(
@@ -118,17 +146,27 @@ describe("presets/default.yaml (built-in layer)", () => {
                 )
             }
         }
+        // 至少覆盖到 codec 族数（视频族 = 除 aac 之外的族）
+        const videoFamilies = Object.keys(REQUIRED_CODEC_FAMILIES).filter((f) => f !== "aac").length
+        assert.ok(
+            checked >= videoFamilies,
+            `expected at least ${videoFamilies} video presets, got ${checked}`,
+        )
     })
 
-    it("audio presets keep original audioArgs behavior", async () => {
+    it("all audio presets keep -c:a in audioArgs", async () => {
         const layer = await loadPresetsFromYaml(DEFAULT_PRESET_PATH)
         const merged = mergePresets(new Map(), layer)
-        for (const name of EXPECTED_PUBLIC_PRESETS) {
-            const p = merged.get(name)
-            if (p.type === "audio") {
-                assert.ok(p.audioArgs.includes("-c:a"), `${name}: audioArgs should keep -c:a`)
-            }
+        let checked = 0
+        for (const [name, p] of merged) {
+            if (p.type !== "audio") continue
+            checked++
+            assert.ok(
+                p.audioArgs && String(p.audioArgs).includes("-c:a"),
+                `${name}: audioArgs should keep -c:a`,
+            )
         }
+        assert.ok(checked >= 1, "should have audio presets")
     })
 
     it("getAllNames returns a snapshot copy (mutation does not affect internal state)", async () => {

@@ -265,7 +265,7 @@ hevc_2kt:
 
 # AV1 基础预设 (输出 codec 族: av1)
 # 编码器由 lib/hwaccel.js 按 tier 决定：cuda/d3d→av1_nvenc、qsv→av1_qsv、
-# amf→av1_amf、cpu→libaom-av1（SW 编码很慢，CPU 层作兜底）。
+# amf→av1_amf、cpu→libsvtav1（SW 编码很慢，CPU 层作兜底）。
 _base_av1:
     format: ".mp4"
     type: video
@@ -438,37 +438,6 @@ hevc_preview:
     dimension: 720
     framerate: 15
     smartBitrate: false
-
-# ===========================================
-# 场景型预设
-# ===========================================
-
-# 网页嵌入 - 720p H.264，广泛兼容，低码率
-web_720p:
-    extends: _base_h264
-    description: "网页嵌入：720p H.264，高兼容低码率"
-    videoQuality: 26
-    videoBitrate: 2500000 # 2.5 Mbps
-    audioBitrate: 128000 # 128 Kbps
-    dimension: 1280
-
-# 社交媒体 - 1080p H.264，平衡质量与大小
-social_1080p:
-    extends: _base_h264
-    description: "社交媒体：1080p H.264，平衡质量与文件大小"
-    videoQuality: 24
-    videoBitrate: 6000000 # 6 Mbps
-    audioBitrate: 192000 # 192 Kbps
-    dimension: 1920
-
-# 长期归档 - HEVC 高质量，保留元数据，低码率高画质
-archive_4k:
-    extends: _base_hevc
-    description: "长期归档：4K HEVC，高质量低码率，适合长期保存"
-    videoQuality: 20
-    videoBitrate: 12000000 # 12 Mbps
-    audioBitrate: 256000 # 256 Kbps
-    dimension: 3840
 
 # ===========================================
 # 音频预设

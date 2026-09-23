@@ -220,8 +220,7 @@ const builder = function addOptions(ya) {
             // 视频选项，指定码率
             .option("video-bitrate", {
                 alias: "vb",
-                type: "number",
-                default: 0,
+                type: "string",
                 describe: t("ffmpeg.video.bitrate"),
             })
             // 直接复制视频流，不重新编码
@@ -254,8 +253,7 @@ const builder = function addOptions(ya) {
             // 音频选项，指定码率
             .option("audio-bitrate", {
                 alias: "ab",
-                type: "number",
-                default: 0,
+                type: "string",
                 describe: t("ffmpeg.audio.bitrate"),
             })
             // 直接复制音频流，不重新编码
