@@ -62,53 +62,19 @@ const presetOf = (over = {}) => ({
     inputArgs: "",
     streamArgs: "",
     outputArgs: "",
-    audioArgs: "-c:a aac -b:a 128k",
+    audioCodec: "aac",
+    audioBitrate: 128000,
     ...over,
 })
 
 const makeHwPlan = (tier, s = size) => ({ tier, size: s, caps: {} })
 
-describe("createFromArgv — 追加语义 (video/audio)", () => {
+describe("createFromArgv — 占位符与滤镜", () => {
     before(async () => {
         await presetsDefault.initPresetsAsync(DEFAULT_PRESET_PATH)
     })
 
-    it("--video-args 存入 userArgs.videoExtra，且不覆盖 preset.videoArgs", () => {
-        const preset = presetsDefault.createFromArgv({
-            preset: "hevc_2k",
-            videoArgs: "-tune animation -g 60",
-        })
-        assert.strictEqual(preset.userArgs.videoExtra, "-tune animation -g 60")
-        // _base_hevc 的 videoArgs 是空串：追加语义下预设基线不应被用户串污染
-        assert.ok(!String(preset.videoArgs).includes("-tune"), "preset.videoArgs must stay base")
-    })
-
-    it("--audio-args 存入 userArgs.audioExtra，且不覆盖 preset.audioArgs", () => {
-        const preset = presetsDefault.createFromArgv({
-            preset: "hevc_2k",
-            audioArgs: "-ar 48000 -ac 2",
-        })
-        assert.strictEqual(preset.userArgs.audioExtra, "-ar 48000 -ac 2")
-        assert.ok(String(preset.audioArgs).includes("-c:a"), "preset.audioArgs keeps -c:a")
-        assert.ok(!String(preset.audioArgs).includes("-ar"), "preset.audioArgs not polluted")
-    })
-})
-
-describe("createFromArgv — --filters 追加保 {scaleFilter}", () => {
-    before(async () => {
-        await presetsDefault.initPresetsAsync(DEFAULT_PRESET_PATH)
-    })
-
-    it("--filters 追加到 post_filters，filters 占位符保留", () => {
-        const preset = presetsDefault.createFromArgv({
-            preset: "hevc_2k",
-            filters: "unsharp=3:3:1.0",
-        })
-        assert.strictEqual(preset.filters, "{scaleFilter}", "占位符不能被覆盖")
-        assert.strictEqual(preset.post_filters, "unsharp=3:3:1.0")
-    })
-
-    it("buildScaleFiltersFromPlan：缩放段与追加滤镜共存，不泄漏占位符", () => {
+    it("buildScaleFiltersFromPlan：缩放段与用户滤镜共存，不泄漏占位符", () => {
         const tp = presetOf({ post_filters: "unsharp=3:3:1.0" })
         const out = buildScaleFiltersFromPlan(
             makeEntry({ dstArgs: { scaled: true } }),
@@ -146,17 +112,8 @@ describe("createFromArgv — --metadata 解析", () => {
     })
 })
 
-describe("buildVideoArgsFromPlan — videoExtra 追加", () => {
-    it("追加参数排在编码器块之后", () => {
-        const tp = presetOf({
-            userArgs: { videoExtra: "-tune film -g 60" },
-        })
-        const out = buildVideoArgsFromPlan(makeEntry(), makeHwPlan(cudaTier), tp)
-        assert.ok(out.includes("h264_nvenc"), "tier 编码器在前")
-        assert.deepStrictEqual(out.slice(-4), ["-tune", "film", "-g", "60"], `追加应在末尾: ${out}`)
-    })
-
-    it("无 videoExtra 时不追加（copy 早返回路径保持纯净）", () => {
+describe("buildVideoArgsFromPlan — 纯净返回", () => {
+    it("copy 早返回路径保持纯净", () => {
         const tp = presetOf({ userArgs: { videoCodec: "copy" } })
         const out = buildVideoArgsFromPlan(makeEntry(), makeHwPlan(cudaTier), tp)
         assert.deepStrictEqual(out, ["-c:v", "copy"])
@@ -164,17 +121,6 @@ describe("buildVideoArgsFromPlan — videoExtra 追加", () => {
 })
 
 describe("createFFmpegArgs — 端到端进入最终命令", () => {
-    it("audioExtra 追加到音频块末尾", () => {
-        const entry = makeEntry({
-            preset: presetOf({
-                dimension: 1920,
-                userArgs: { audioExtra: "-ar 48000 -ac 2" },
-            }),
-        })
-        const cmd = flattenFFArgs(createFFmpegArgs(entry, makeHwPlan(cpuTier)).args)
-        assert.ok(/-c:a aac -b:a 128k -ar 48000 -ac 2/.test(cmd), `音频追加缺失: ${cmd}`)
-    })
-
     it("用户 metadata 覆盖自动 title（排在自动项之后）", () => {
         const entry = makeEntry({
             name: "clip",
@@ -190,14 +136,6 @@ describe("createFFmpegArgs — 端到端进入最终命令", () => {
         assert.ok(autoIdx >= 0, "应存在自动 title=clip")
         assert.ok(userIdx >= 0, "应存在用户 title=My Big Movie（值含空格、未被拆分）")
         assert.ok(userIdx > autoIdx, "用户 metadata 应排在自动项之后以覆盖")
-    })
-
-    it("无追加项时命令不含空 token（splitArgs 净化空白）", () => {
-        const entry = makeEntry({
-            preset: presetOf({ dimension: 1920, userArgs: { videoExtra: "   " } }),
-        })
-        const args = createFFmpegArgs(entry, makeHwPlan(cpuTier)).args.flat()
-        assert.ok(!args.some((a) => a === "" || a === undefined), "不应有空白 token")
     })
 })
 
@@ -233,7 +171,8 @@ describe("D5 — speed≠1 强制音频重编码（禁用 copy）", () => {
             preset: presetOf({
                 dimension: 1920,
                 speed: 1.5,
-                audioArgs: "-c:a libfdk_aac -b:a 128k",
+                audioCodec: "libfdk_aac",
+                audioBitrate: 128000,
                 userArgs: { audioCopy: false },
             }),
             dstArgs: {
@@ -253,7 +192,12 @@ describe("D5 — speed≠1 强制音频重编码（禁用 copy）", () => {
 
     it("speed==1 且满足 copy 条件 → 仍可 -c:a copy（不回归）", () => {
         const entry = makeEntry({
-            preset: presetOf({ dimension: 1920, speed: 0, audioArgs: "-c:a libfdk_aac -b:a 128k" }),
+            preset: presetOf({
+                dimension: 1920,
+                speed: 0,
+                audioCodec: "libfdk_aac",
+                audioBitrate: 128000,
+            }),
             dstArgs: {
                 scaled: true,
                 srcDuration: 10,
@@ -397,7 +341,8 @@ describe("2026-09-23 修复验证", () => {
         })
         const preset = presetOf({
             type: "audio",
-            audioArgs: "-c:a aac -b:a 128k",
+            audioCodec: "aac",
+            audioBitrate: 128000,
         })
         const plan = makeHwPlan(cpuTier)
         const res = createFFmpegArgs({ ...entry, preset }, plan)
@@ -415,7 +360,8 @@ describe("2026-09-23 修复验证", () => {
         const entry = makeEntry()
         const preset = presetOf({
             type: "audio",
-            audioArgs: "-c:a aac -b:a 128k",
+            audioCodec: "aac",
+            audioBitrate: 128000,
         })
         const plan = makeHwPlan(cpuTier)
         const res = createFFmpegArgs({ ...entry, preset }, plan)
@@ -549,25 +495,5 @@ describe("Metadata 清理与纯净标题", () => {
         const cmd = flattenFFArgs(createFFmpegArgs(entry, makeHwPlan(cpuTier)).args)
         assert.ok(!cmd.includes("description="), `不应在元数据中强制覆盖 description: ${cmd}`)
         assert.ok(!cmd.includes("copyright="), `不应在元数据中强制覆盖 copyright: ${cmd}`)
-    })
-})
-
-describe("ARG_ALIASES 扩展（filters 与 filterComplex 别名支持）", () => {
-    it("applyFfargs 支持 fs / filter / filters 别名写入 preset.filters", () => {
-        const argv = {}
-        const merged1 = presetsDefault.applyFfargs(argv, { fs: "scale=1280:720" })
-        assert.strictEqual(merged1.filters, "scale=1280:720")
-
-        const merged2 = presetsDefault.applyFfargs(argv, { filter: "fps=30" })
-        assert.strictEqual(merged2.filters, "fps=30")
-    })
-
-    it("applyFfargs 支持 fc / complex / filterComplex 别名写入 preset.filterComplex", () => {
-        const argv = {}
-        const merged1 = presetsDefault.applyFfargs(argv, { fc: "[0:v][1:v]overlay[out]" })
-        assert.strictEqual(merged1.filterComplex, "[0:v][1:v]overlay[out]")
-
-        const merged2 = presetsDefault.applyFfargs(argv, { complex: "[0:v]yadif[out]" })
-        assert.strictEqual(merged2.filterComplex, "[0:v]yadif[out]")
     })
 })

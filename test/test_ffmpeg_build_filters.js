@@ -14,7 +14,6 @@ import { describe, it } from "node:test"
 import {
     buildScaleFiltersFromPlan,
     buildVideoArgsFromPlan,
-    resolveComplexFilterScale,
     splitPresetFilterSegments,
 } from "../lib/ffmpeg_build.js"
 import { buildVideoFilters } from "../lib/hwaccel.js"
@@ -166,56 +165,19 @@ describe("buildScaleFiltersFromPlan (three-segment)", () => {
     })
 })
 
-describe("resolveComplexFilterScale (hevc_speed template)", () => {
-    const tmpl = "[0:v]setpts=PTS/1.5,{scaleFilter},fps=30[v];[0:a]atempo=1.5[a]"
-
-    it("replaces {scaleFilter} with tier scale", () => {
-        const out = resolveComplexFilterScale(tmpl, makeHwPlan(cudaTier, size), makeEntry(), {})
-        assert.strictEqual(
-            out,
-            "[0:v]setpts=PTS/1.5,scale_cuda=w=1920:h=1080:interp_algo=lanczos,format=cuda,fps=30[v];[0:a]atempo=1.5[a]",
-        )
-    })
-
-    it("no tier: placeholder removed, no literal leak", () => {
-        const out = resolveComplexFilterScale(tmpl, null, makeEntry(), {})
-        assert.ok(!out.includes("{scaleFilter}"), "placeholder must not leak")
-        assert.ok(!out.includes("scale_cuda"), "hardcoded scale must not appear")
-        assert.ok(out.includes("fps=30"), "rest of template preserved")
-    })
-
-    it("plain complexFilter without placeholder untouched", () => {
-        const raw = "[0:v]null[v];[0:a]anull[a]"
-        assert.strictEqual(
-            resolveComplexFilterScale(raw, makeHwPlan(cudaTier, size), makeEntry(), {}),
-            raw,
-        )
-    })
-})
-
-describe("buildVideoArgsFromPlan (-c:v removal)", () => {
-    it("legacy videoArgs with -c:v ignored entirely, tier encoder used", () => {
+describe("buildVideoArgsFromPlan", () => {
+    it("tier encoder used based on videoCodecFamily", () => {
         const tp = {
-            videoArgs: "-c:v libx264 -preset slow",
             videoQuality: 28,
             videoCodecFamily: "h264",
         }
         const out = buildVideoArgsFromPlan(makeEntry(), makeHwPlan(cudaTier, size), tp)
         assert.ok(Array.isArray(out))
-        assert.ok(!out.includes("libx264"), "old encoder must not appear")
         assert.ok(out.includes("h264_nvenc"), "tier encoder used")
-        assert.ok(!out.some((a) => a === "-preset"), "whole videoArgs ignored (no stray preset)")
-    })
-
-    it("hw-independent videoArgs appended after tier encoder args", () => {
-        const tp = { videoArgs: "-pix_fmt yuv420p", videoQuality: 28, videoCodecFamily: "hevc" }
-        const out = buildVideoArgsFromPlan(makeEntry(), makeHwPlan(cudaTier, size), tp)
-        assert.ok(out.includes("hevc_nvenc"))
-        assert.deepStrictEqual(out.slice(-2), ["-pix_fmt", "yuv420p"])
     })
 
     it("no tier -> null (not part of this path)", () => {
-        const out = buildVideoArgsFromPlan(makeEntry(), null, { videoArgs: "-x 1" })
+        const out = buildVideoArgsFromPlan(makeEntry(), null, { videoCodecFamily: "h264" })
         assert.strictEqual(out, null)
     })
 })

@@ -22,7 +22,6 @@ import { t } from "../lib/i18n.js"
 import { getMediaInfo } from "../lib/mediainfo.js"
 import { addEntryProps, applyFileNameRules } from "../lib/rename.js"
 import { TIERS } from "../lib/hwaccel.js"
-import { ENCODER_SPECIFIC_ARGS } from "../lib/ffmpeg_args_known.js"
 import {
     calculateDstArgs,
     createDstBaseName,
@@ -209,14 +208,6 @@ const builder = function addOptions(ya) {
                 default: 0,
                 describe: t("ffmpeg.speed"),
             })
-            // 视频选项
-            // video-args = video-encoder + video-quality
-            // 如果此选项存在，会忽略其它 video-xxx 参数
-            .option("video-args", {
-                alias: "va",
-                type: "string",
-                describe: t("ffmpeg.video.args"),
-            })
             // 视频选项，指定码率
             .option("video-bitrate", {
                 alias: "vb",
@@ -248,14 +239,6 @@ const builder = function addOptions(ya) {
                 default: false,
                 describe: "Anime/animation tuning mode (动漫调优模式，收紧质量并注入线条保护参数)",
             })
-            // 音频选项
-            // audio-args = audio-encoder + audio-quality
-            // 如果此选项存在，会忽略其它 audio-xxx 参数
-            .option("audio-args", {
-                alias: "aa",
-                type: "string",
-                describe: t("ffmpeg.audio.args"),
-            })
             // 音频选项，指定码率
             .option("audio-bitrate", {
                 alias: "ab",
@@ -274,18 +257,6 @@ const builder = function addOptions(ya) {
                 type: "number",
                 default: 0,
                 describe: t("ffmpeg.audio.quality"),
-            })
-            // ffmpeg filter string
-            .option("filters", {
-                alias: "fs",
-                type: "string",
-                describe: t("ffmpeg.filters"),
-            })
-            // ffmpeg complex filter string
-            .option("filter-complex", {
-                alias: "fc",
-                type: "string",
-                describe: t("ffmpeg.filter.complex"),
             })
             // 记录日志到文件
             // 可选text文件或json文件
@@ -360,24 +331,6 @@ const builder = function addOptions(ya) {
 const handler = cmdConvert
 
 /**
- * 从用户追加串中检出「编码器专属」token（用于 auto 分层的启发式告警，见定稿 §4）。
- * 仅返回命中的参数名（去值、去重），供 warn 文案展示。
- * @param {string} argsStr - --video-args 原始串
- * @returns {string[]} 命中的 token 列表
- */
-function detectEncoderSpecificArgs(argsStr) {
-    const hits = new Set()
-    for (const tok of String(argsStr).split(/\s+/)) {
-        if (!tok.startsWith("-")) continue
-        const base = tok.split(":")[0] // -c:v → -c，-tune → -tune
-        if (ENCODER_SPECIFIC_ARGS.has(tok) || ENCODER_SPECIFIC_ARGS.has(base)) {
-            hits.add(base)
-        }
-    }
-    return [...hits]
-}
-
-/**
  * FFmpeg转换命令处理函数
  * 处理媒体文件的转码、压缩、格式转换等操作
  * @param {Object} argv - 命令行参数对象
@@ -401,16 +354,12 @@ function detectEncoderSpecificArgs(argsStr) {
  * @param {number} argv.dimension - 视频尺寸，长边最大数值
  * @param {number} argv.fps - 视频帧率
  * @param {number} argv.speed - 视频速度调整
- * @param {string} argv.videoArgs - 视频参数（追加到编码器块末尾）
  * @param {number} argv.videoBitrate - 视频码率
  * @param {boolean} argv.videoCopy - 是否直接复制视频流
  * @param {number} argv.videoQuality - 视频质量
- * @param {string} argv.audioArgs - 音频参数（追加到音频块末尾）
  * @param {number} argv.audioBitrate - 音频码率
  * @param {boolean} argv.audioCopy - 是否直接复制音频流
  * @param {number} argv.audioQuality - 音频质量
- * @param {string} argv.filters - FFmpeg滤镜字符串（追加到 -vf 链末尾）
- * @param {string} argv.filterComplex - FFmpeg复杂滤镜字符串
  * @param {string} argv.errorFile - 错误日志文件
  * @param {string} argv.hwaccel - 硬件加速方式
  * @param {string} argv.decodeMode - 解码模式 (auto|gpu|cpu)
@@ -529,23 +478,6 @@ async function planFFmpegTasks(argv) {
     }
     if (argv.dimension !== undefined && argv.dimension < 0) {
         throw createError(ErrorTypes.INVALID_ARGUMENT, t("ffmpeg.error.dimension"))
-    }
-    // 定稿：--video-args 追加通道的合法性
-    // RESERVED：不允许出现 -c:v。编码器由硬件分层/预设决定，直塞会造「CPU 滤镜 + GPU 编码器」畸形组合。
-    // 需换编码器请用 --video-codec 或 --ffargs "vc=..."。命中即报错（绝不静默丢弃）。
-    if (typeof argv.videoArgs === "string" && /(?:^|\s)-c:v(?:\s|:|$)/.test(argv.videoArgs)) {
-        throw createError(ErrorTypes.INVALID_ARGUMENT, t("ffmpeg.error.videoArgsCodec"))
-    }
-    // 编码器专属参数启发式告警：auto 分层下，仅某编码器认的 token 换到其它层可能报错或被重试拽回 CPU。
-    if (
-        typeof argv.videoArgs === "string" &&
-        argv.videoArgs.trim().length > 0 &&
-        (argv.decodeMode || "auto") === "auto"
-    ) {
-        const hits = detectEncoderSpecificArgs(argv.videoArgs)
-        if (hits.length > 0) {
-            log.logWarn(LOG_TAG, t("ffmpeg.warn.encoderSpecific", { tokens: hits.join(" ") }))
-        }
     }
     const root = path.resolve(argv.input)
     if (!root || !(await fs.pathExists(root))) {
@@ -933,7 +865,6 @@ async function prepareFFmpegCmd(entry) {
     const ipx = `${entry.index + 1}/${entry.total}`
     log.info(logTag, `Processing(${ipx}) file: ${entry.path}`)
     const isAudio = helper.isAudioFile(entry.path)
-    const isVideo = helper.isVideoFile(entry.path)
     const [srcDir, srcBase, srcExt] = helper.pathSplit(entry.path)
     const dstExt = preset.format || srcExt
     let fileDstDir
@@ -1106,43 +1037,27 @@ async function prepareFFmpegCmd(entry) {
             return false
         }
 
-        if (isVideo) {
-            switch (argv.decodeMode) {
-                case "cpu":
-                case "gpu":
-                case "auto":
-                default:
-                    // 解码层选择全部交由 run 阶段 resolveHwPlan（lib/ffmpeg_run.js）决策：
-                    // auto = 逐层探测 + lib/gpu.js 解码矩阵预筛（gpuBlocksDecode）；strict 不降级由
-                    // selectTier strict 分支承接（lib/hwaccel.js）。此处不再做 prepare 特例预判。
-                    break
-            }
-        }
-
         // 严格模式：音频编码器预检。预设里指定了本机构建不支持的编码器
         // （如缺 libfdk_aac 的 ffmpeg 用到 -c:a libfdk_aac）时，不降级、不报错，
         // warn 并跳过该文件，避免在 confirm/run 阶段才发现。
-        if (argv.strict && preset.audioArgs?.length > 0) {
-            const am = String(preset.audioArgs).match(/-c:a(?::\d+)?\s+(\S+)/)
-            if (am && am[1] !== "copy") {
-                const codec = am[1]
-                try {
-                    // 进程内缓存 + in-flight 去重：并发 prepare 只实际探测一次
-                    const caps = await detectHardwareCapabilities()
-                    const encoders = caps?.encoders
-                    if (encoders && encoders.size > 0 && !encoders.has(codec)) {
-                        const why = `audio encoder "${codec}" not available in this ffmpeg build`
-                        log.showYellow(logTag, `${ipx} Skip[StrictCodec] <${entry.path}> (${why})`)
-                        log.fileLog(
-                            `${ipx} Skip[StrictCodec] <${entry.path}> [${preset.name}] ${why}`,
-                            "Prepare",
-                        )
-                        return false
-                    }
-                } catch (err) {
-                    // 探测失败不拦截：留给 run 阶段按真实结果处理
-                    log.logWarn(logTag, `codec precheck skipped for ${entry.path}: ${err.message}`)
+        const targetAudioCodec = preset.userArgs?.audioCodec || preset.audioCodec || "aac"
+        if (argv.strict && targetAudioCodec && targetAudioCodec !== "copy") {
+            try {
+                // 进程内缓存 + in-flight 去重：并发 prepare 只实际探测一次
+                const caps = await detectHardwareCapabilities()
+                const encoders = caps?.encoders
+                if (encoders && encoders.size > 0 && !encoders.has(targetAudioCodec)) {
+                    const why = `audio encoder "${targetAudioCodec}" not available in this ffmpeg build`
+                    log.showYellow(logTag, `${ipx} Skip[StrictCodec] <${entry.path}> (${why})`)
+                    log.fileLog(
+                        `${ipx} Skip[StrictCodec] <${entry.path}> [${preset.name}] ${why}`,
+                        "Prepare",
+                    )
+                    return false
                 }
+            } catch (err) {
+                // 探测失败不拦截：留给 run 阶段按真实结果处理
+                log.logWarn(logTag, `codec precheck skipped for ${entry.path}: ${err.message}`)
             }
         }
 

@@ -140,6 +140,16 @@ describe("ffmpeg binary resolution and capability probes", () => {
             assert.strictEqual(out, "-c:a aac -b:a 96k")
         })
 
+        it("replaces an unavailable pure codec name with aac", () => {
+            const out = fallbackAudioEncoder("libfdk_aac", new Set(["aac"]))
+            assert.strictEqual(out, "aac")
+        })
+
+        it("leaves an available pure codec name untouched", () => {
+            const out = fallbackAudioEncoder("aac", new Set(["aac", "libopus"]))
+            assert.strictEqual(out, "aac")
+        })
+
         it("keeps the stream selector suffix when rewriting", () => {
             const out = fallbackAudioEncoder("-c:a:1 libfdk_aac -b:a 192k", new Set(["aac"]))
             assert.strictEqual(out, "-c:a:1 aac -b:a 192k")

@@ -84,18 +84,17 @@ describe("buildVideoArgsFromPlan (forcedEncoder)", () => {
 })
 
 describe("createFromArgv (video-codec / video-copy)", () => {
-    it("--video-codec hevc_nvenc -> userArgs.videoCodec, no -c:v in videoArgs", async () => {
+    it("--video-codec hevc_nvenc -> userArgs.videoCodec", async () => {
         await presetsDefault.initPresetsAsync(DEFAULT_PRESET_PATH)
         const preset = presetsDefault.createFromArgv({
             preset: "h264_2k",
             videoCodec: "hevc_nvenc",
         })
         assert.strictEqual(preset.userArgs.videoCodec, "hevc_nvenc")
-        // 旧式写入已删除：videoArgs 不得含 -c:v（否则会被 build 忽略 + warn）
-        assert.ok(!/-\s*c:v/.test(preset.videoArgs || ""))
+        assert.strictEqual(preset.videoArgs, undefined)
     })
 
-    it("--video-copy -> userArgs.videoCodec=copy, videoArgs has no -c:v copy", async () => {
+    it("--video-copy -> userArgs.videoCodec=copy", async () => {
         await presetsDefault.initPresetsAsync(DEFAULT_PRESET_PATH)
         const preset = presetsDefault.createFromArgv({
             preset: "h264_2k",
@@ -103,7 +102,7 @@ describe("createFromArgv (video-codec / video-copy)", () => {
         })
         assert.strictEqual(preset.userArgs.videoCodec, "copy")
         assert.strictEqual(preset.userArgs.videoCopy, true)
-        assert.ok(!/-\s*c:v\s+copy/.test(preset.videoArgs || ""))
+        assert.strictEqual(preset.videoArgs, undefined)
     })
 })
 

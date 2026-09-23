@@ -109,7 +109,7 @@ describe("preset schema", () => {
             assert.ok(hasPresetTypeMismatch("videoQuality", NaN))
             assert.strictEqual(hasPresetTypeMismatch("videoQuality", 24), false)
             assert.strictEqual(hasPresetTypeMismatch("filters", 123), true)
-            assert.strictEqual(hasPresetTypeMismatch("videoArgs", "-rc vbr"), false)
+            assert.strictEqual(hasPresetTypeMismatch("audioCodec", "aac"), false)
             assert.strictEqual(hasPresetTypeMismatch("unknown_field", "x"), false)
         })
 

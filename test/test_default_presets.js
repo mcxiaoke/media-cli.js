@@ -121,10 +121,11 @@ describe("presets/default.yaml (built-in layer)", () => {
         for (const [name, p] of merged) {
             if (p.type !== "video") continue
             checked++
-            // videoArgs 允许缺省；含 -c:v 即违反 S-4（编码器由分层决定）
-            assert.ok(
-                !p.videoArgs || !String(p.videoArgs).includes("-c:v"),
-                `${name}: videoArgs must not hardcode -c:v`,
+            // videoArgs 已彻底移除
+            assert.strictEqual(
+                p.videoArgs,
+                undefined,
+                `${name}: videoArgs must be completely removed`,
             )
             // 必须显式声明 codec 族（不再靠 videoArgs 反推）
             assert.ok(p.videoCodecFamily, `${name}: videoCodecFamily must be declared (S-4)`)
@@ -153,7 +154,7 @@ describe("presets/default.yaml (built-in layer)", () => {
         )
     })
 
-    it("all audio presets keep -c:a in audioArgs", async () => {
+    it("all audio presets have valid audioCodec defined", async () => {
         const layer = await loadPresetsFromYaml(DEFAULT_PRESET_PATH)
         const merged = mergePresets(new Map(), layer)
         let checked = 0
@@ -161,8 +162,8 @@ describe("presets/default.yaml (built-in layer)", () => {
             if (p.type !== "audio") continue
             checked++
             assert.ok(
-                p.audioArgs && String(p.audioArgs).includes("-c:a"),
-                `${name}: audioArgs should keep -c:a`,
+                p.audioCodec && typeof p.audioCodec === "string",
+                `${name}: audioCodec should be defined as a string`,
             )
         }
         assert.ok(checked >= 1, "should have audio presets")
