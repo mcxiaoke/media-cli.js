@@ -66,6 +66,36 @@ mediac <命令> --help
 | `test`（默认）       | `tt`                                    | 空操作命令，用于冒烟测试 CLI。                                   |
 | `zipu`               | `zipunicode`                            | **智能解压**：自动检测文件名编码并解压 ZIP 文件，解决乱码问题。  |
 
+## FFmpeg 转码命令
+
+`mediac ffmpeg <输入>`（别名 `transcode` / `aconv` / `vconv` / `avconv`）基于预设转换视频与音频，
+由一套硬件加速感知引擎驱动。完整参数手册与注意事项见
+[docs/FFMPEG-USAGE.md](docs/FFMPEG-USAGE.md)。
+
+反映当前实现的关键点：
+
+- **默认 dry-run（试跑）。** 不加 `--doit` 只做扫描、选层、拼命令并落盘日志，**不产出任何文件**；
+  加 `--doit` 才真正转码。
+- **`--preset` 必填**（无默认预设），用 `--show-presets` 查看全部预设。
+- **自动硬件分层。** 逐文件探测 CUDA / QSV / AMF / D3D11VA / 软解+硬编 / 纯 CPU 并平滑降级；
+  编码器由所选层与预设的输出 codec 族共同决定（**不受输入位深影响**）。可用 `--hwaccel` /
+  `--decode-mode` 干预，`--strict` 关闭一切降级（不支持的文件跳过而非重试）。
+- **预设是 YAML、分层且可继承。** 内置单一来源为 `presets/default.yaml`（h264 / hevc / av1 / vp9 /
+  音频族），用户层为 `~/.mediac/presets.yaml` 与 `./presets.yaml`；覆盖内置同名预设必须显式
+  `_override: true`。
+- **追加式参数覆盖。** `--video-args` / `--audio-args` / `--filters` 是**追加**到预设参数块末尾
+  （靠 ffmpeg 后写覆盖），而非整体替换；`--video-args` 禁止含 `-c:v`（换编码器请用 `--video-codec`
+  或 `--ffargs "vc=..."`）。
+- **`--metadata` 专用通道**，值可含空格；`--ffargs` 的键值分隔符是 `;` `:` `#`（不是逗号）。
+- **内置安全护栏。** 智能码率（不超源、不放大）、临时文件写入 + 中断清理、`--delete-source-files`
+  仅在产物非空时把源文件移入回收站（dry-run 绝不删除）。
+
+```bash
+# 先预览将执行的命令，再真正运行
+mediac ffmpeg ./video.mp4 --preset hevc_2k
+mediac ffmpeg ./video.mp4 --preset hevc_2k --doit
+```
+
 ## 开发指南
 
 ### 环境要求

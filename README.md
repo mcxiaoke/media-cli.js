@@ -68,6 +68,39 @@ mediac <command> --help
 | `test` *(default)*   | `tt`                                 | No-op command used to smoke-test the CLI.                                         |
 | `zipu`               | `zipunicode`                         | **Smart Unzip** detecting filename encoding automatically.                        |
 
+## FFmpeg Command
+
+`mediac ffmpeg <input>` (aliases `transcode` / `aconv` / `vconv` / `avconv`) transcodes video and
+audio using presets, driven by a hardware-acceleration-aware engine. See
+[docs/FFMPEG-USAGE.md](docs/FFMPEG-USAGE.md) for the full parameter reference and caveats.
+
+Key points that reflect the current implementation:
+
+- **Dry-run by default.** Without `--doit` the command only scans files, picks the hardware tier,
+  builds the command and logs it — it writes **nothing**. Add `--doit` to actually transcode.
+- **`--preset` is required** (no default). List available presets with `--show-presets`.
+- **Automatic hardware tiering.** Per file it probes CUDA / QSV / AMF / D3D11VA / software-decode+
+  hardware-encode / pure CPU and gracefully degrades; the encoder is chosen by the resolved tier
+  plus the preset's output codec family (never by input bit depth). Use `--hwaccel` / `--decode-mode`
+  to steer it, and `--strict` to disable every fallback (unsupported files are skipped, not retried).
+- **Presets are YAML, layered & inheritable.** Built-in single source is `presets/default.yaml`
+  (h264 / hevc / av1 / vp9 / audio families); user layers live in `~/.mediac/presets.yaml` and
+  `./presets.yaml`. Overriding a built-in name requires an explicit `_override: true`.
+- **Append-style overrides.** `--video-args` / `--audio-args` / `--filters` are *appended* to the
+  preset's blocks (later ffmpeg option wins) instead of replacing them; `--video-args` must not
+  contain `-c:v` (change the encoder with `--video-codec` or `--ffargs "vc=..."`).
+- **Dedicated `--metadata` channel** whose values may contain spaces; `--ffargs` uses `;` `:` `#`
+  as key/value separators (not commas).
+- **Built-in safety rails.** Smart bitrate (never exceeds source, never upscales), temp-file writes
+  with interrupt cleanup, and `--delete-source-files` only removes the source when a non-empty
+  output exists (moved to the Recycle Bin after confirmation; never in dry-run).
+
+```bash
+# preview the exact command, then run it
+mediac ffmpeg ./video.mp4 --preset hevc_2k
+mediac ffmpeg ./video.mp4 --preset hevc_2k --doit
+```
+
 ## Decode Command Detailed Usage
 
 The `decode` command is used to identify and fix encoding issues in text, particularly for filenames or text content that appears garbled due to encoding mismatches.

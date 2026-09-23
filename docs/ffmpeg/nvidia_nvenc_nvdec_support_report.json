@@ -1,0 +1,1086 @@
+{
+  "nvenc": {
+    "10": {
+      "H.264 (AVC) YUV 4:2:0": {
+        "total": 6,
+        "no": 0,
+        "na": 0
+      },
+      "H.264 (AVC) YUV 4:2:2": {
+        "total": 6,
+        "no": 6,
+        "na": 0
+      },
+      "H.264 (AVC) YUV 4:4:4": {
+        "total": 6,
+        "no": 0,
+        "na": 0
+      },
+      "H.264 (AVC) Lossless": {
+        "total": 6,
+        "no": 0,
+        "na": 0
+      },
+      "H.265 (HEVC) 4K YUV 4:2:0": {
+        "total": 6,
+        "no": 0,
+        "na": 0
+      },
+      "H.265 (HEVC) YUV 4:2:2": {
+        "total": 6,
+        "no": 6,
+        "na": 0
+      },
+      "H.265 (HEVC) 4K YUV 4:4:4": {
+        "total": 6,
+        "no": 0,
+        "na": 0
+      },
+      "H.265 (HEVC) 4K Lossless": {
+        "total": 6,
+        "no": 0,
+        "na": 0
+      },
+      "H.265 (HEVC) 8K": {
+        "total": 6,
+        "no": 0,
+        "na": 0
+      },
+      "HEVC 10-bit support": {
+        "total": 6,
+        "no": 0,
+        "na": 0
+      },
+      "HEVC B Frame support": {
+        "total": 6,
+        "no": 6,
+        "na": 0
+      },
+      "AV1 YUV 4:2:0": {
+        "total": 6,
+        "no": 6,
+        "na": 0
+      }
+    },
+    "20": {
+      "H.264 (AVC) YUV 4:2:0": {
+        "total": 18,
+        "no": 0,
+        "na": 0
+      },
+      "H.264 (AVC) YUV 4:2:2": {
+        "total": 18,
+        "no": 18,
+        "na": 0
+      },
+      "H.264 (AVC) YUV 4:4:4": {
+        "total": 18,
+        "no": 0,
+        "na": 0
+      },
+      "H.264 (AVC) Lossless": {
+        "total": 18,
+        "no": 0,
+        "na": 0
+      },
+      "H.265 (HEVC) 4K YUV 4:2:0": {
+        "total": 18,
+        "no": 0,
+        "na": 0
+      },
+      "H.265 (HEVC) YUV 4:2:2": {
+        "total": 18,
+        "no": 18,
+        "na": 0
+      },
+      "H.265 (HEVC) 4K YUV 4:4:4": {
+        "total": 18,
+        "no": 0,
+        "na": 0
+      },
+      "H.265 (HEVC) 4K Lossless": {
+        "total": 18,
+        "no": 0,
+        "na": 0
+      },
+      "H.265 (HEVC) 8K": {
+        "total": 18,
+        "no": 0,
+        "na": 0
+      },
+      "HEVC 10-bit support": {
+        "total": 18,
+        "no": 0,
+        "na": 0
+      },
+      "HEVC B Frame support": {
+        "total": 18,
+        "no": 4,
+        "na": 0
+      },
+      "AV1 YUV 4:2:0": {
+        "total": 18,
+        "no": 18,
+        "na": 0
+      }
+    },
+    "30": {
+      "H.264 (AVC) YUV 4:2:0": {
+        "total": 17,
+        "no": 0,
+        "na": 0
+      },
+      "H.264 (AVC) YUV 4:2:2": {
+        "total": 17,
+        "no": 17,
+        "na": 0
+      },
+      "H.264 (AVC) YUV 4:4:4": {
+        "total": 17,
+        "no": 0,
+        "na": 0
+      },
+      "H.264 (AVC) Lossless": {
+        "total": 17,
+        "no": 0,
+        "na": 0
+      },
+      "H.265 (HEVC) 4K YUV 4:2:0": {
+        "total": 17,
+        "no": 0,
+        "na": 0
+      },
+      "H.265 (HEVC) YUV 4:2:2": {
+        "total": 17,
+        "no": 17,
+        "na": 0
+      },
+      "H.265 (HEVC) 4K YUV 4:4:4": {
+        "total": 17,
+        "no": 0,
+        "na": 0
+      },
+      "H.265 (HEVC) 4K Lossless": {
+        "total": 17,
+        "no": 0,
+        "na": 0
+      },
+      "H.265 (HEVC) 8K": {
+        "total": 17,
+        "no": 0,
+        "na": 0
+      },
+      "HEVC 10-bit support": {
+        "total": 17,
+        "no": 0,
+        "na": 0
+      },
+      "HEVC B Frame support": {
+        "total": 17,
+        "no": 0,
+        "na": 0
+      },
+      "AV1 YUV 4:2:0": {
+        "total": 17,
+        "no": 17,
+        "na": 0
+      }
+    },
+    "40": {
+      "H.264 (AVC) YUV 4:2:0": {
+        "total": 14,
+        "no": 0,
+        "na": 0
+      },
+      "H.264 (AVC) YUV 4:2:2": {
+        "total": 14,
+        "no": 14,
+        "na": 0
+      },
+      "H.264 (AVC) YUV 4:4:4": {
+        "total": 14,
+        "no": 0,
+        "na": 0
+      },
+      "H.264 (AVC) Lossless": {
+        "total": 14,
+        "no": 0,
+        "na": 0
+      },
+      "H.265 (HEVC) 4K YUV 4:2:0": {
+        "total": 14,
+        "no": 0,
+        "na": 0
+      },
+      "H.265 (HEVC) YUV 4:2:2": {
+        "total": 14,
+        "no": 14,
+        "na": 0
+      },
+      "H.265 (HEVC) 4K YUV 4:4:4": {
+        "total": 14,
+        "no": 0,
+        "na": 0
+      },
+      "H.265 (HEVC) 4K Lossless": {
+        "total": 14,
+        "no": 0,
+        "na": 0
+      },
+      "H.265 (HEVC) 8K": {
+        "total": 14,
+        "no": 0,
+        "na": 0
+      },
+      "HEVC 10-bit support": {
+        "total": 14,
+        "no": 0,
+        "na": 0
+      },
+      "HEVC B Frame support": {
+        "total": 14,
+        "no": 0,
+        "na": 0
+      },
+      "AV1 YUV 4:2:0": {
+        "total": 14,
+        "no": 0,
+        "na": 0
+      }
+    },
+    "50": {
+      "H.264 (AVC) YUV 4:2:0": {
+        "total": 11,
+        "no": 0,
+        "na": 0
+      },
+      "H.264 (AVC) YUV 4:2:2": {
+        "total": 11,
+        "no": 0,
+        "na": 0
+      },
+      "H.264 (AVC) YUV 4:4:4": {
+        "total": 11,
+        "no": 0,
+        "na": 0
+      },
+      "H.264 (AVC) Lossless": {
+        "total": 11,
+        "no": 0,
+        "na": 0
+      },
+      "H.265 (HEVC) 4K YUV 4:2:0": {
+        "total": 11,
+        "no": 0,
+        "na": 0
+      },
+      "H.265 (HEVC) YUV 4:2:2": {
+        "total": 11,
+        "no": 0,
+        "na": 0
+      },
+      "H.265 (HEVC) 4K YUV 4:4:4": {
+        "total": 11,
+        "no": 0,
+        "na": 0
+      },
+      "H.265 (HEVC) 4K Lossless": {
+        "total": 11,
+        "no": 0,
+        "na": 0
+      },
+      "H.265 (HEVC) 8K": {
+        "total": 11,
+        "no": 0,
+        "na": 0
+      },
+      "HEVC 10-bit support": {
+        "total": 11,
+        "no": 0,
+        "na": 0
+      },
+      "HEVC B Frame support": {
+        "total": 11,
+        "no": 0,
+        "na": 0
+      },
+      "AV1 YUV 4:2:0": {
+        "total": 11,
+        "no": 0,
+        "na": 0
+      }
+    }
+  },
+  "nvdec": {
+    "10": {
+      "MPEG-1": {
+        "total": 6,
+        "no": 0,
+        "na": 0
+      },
+      "MPEG-2": {
+        "total": 6,
+        "no": 0,
+        "na": 0
+      },
+      "MPEG-4": {
+        "total": 6,
+        "no": 0,
+        "na": 0
+      },
+      "VC-1": {
+        "total": 6,
+        "no": 0,
+        "na": 0
+      },
+      "VP8": {
+        "total": 6,
+        "no": 4,
+        "na": 0
+      },
+      "VP9 4:2:0 8bit": {
+        "total": 6,
+        "no": 0,
+        "na": 0
+      },
+      "VP9 4:2:0 10bit": {
+        "total": 6,
+        "no": 3,
+        "na": 0
+      },
+      "VP9 4:2:0 12bit": {
+        "total": 6,
+        "no": 3,
+        "na": 0
+      },
+      "H.264 AVC 4:2:0 8bit": {
+        "total": 6,
+        "no": 0,
+        "na": 0
+      },
+      "H.264 AVC 4:2:0 10bit": {
+        "total": 6,
+        "no": 6,
+        "na": 0
+      },
+      "H.264 AVC 4:2:2 8bit": {
+        "total": 6,
+        "no": 6,
+        "na": 0
+      },
+      "H.264 AVC 4:2:2 10bit": {
+        "total": 6,
+        "no": 6,
+        "na": 0
+      },
+      "H.265 HEVC 4:2:0 8bit": {
+        "total": 6,
+        "no": 0,
+        "na": 0
+      },
+      "H.265 HEVC 4:2:0 10bit": {
+        "total": 6,
+        "no": 0,
+        "na": 0
+      },
+      "H.265 HEVC 4:2:0 12bit": {
+        "total": 6,
+        "no": 0,
+        "na": 0
+      },
+      "H.265 HEVC 4:2:2 8bit": {
+        "total": 6,
+        "no": 6,
+        "na": 0
+      },
+      "H.265 HEVC 4:2:2 10bit": {
+        "total": 6,
+        "no": 6,
+        "na": 0
+      },
+      "H.265 HEVC 4:2:2 12bit": {
+        "total": 6,
+        "no": 6,
+        "na": 0
+      },
+      "H.265 HEVC 4:4:4 8bit": {
+        "total": 6,
+        "no": 6,
+        "na": 0
+      },
+      "H.265 HEVC 4:4:4 10bit": {
+        "total": 6,
+        "no": 6,
+        "na": 0
+      },
+      "H.265 HEVC 4:4:4 12bit": {
+        "total": 6,
+        "no": 6,
+        "na": 0
+      },
+      "AV1 8bit": {
+        "total": 6,
+        "no": 6,
+        "na": 0
+      },
+      "AV1 10bit": {
+        "total": 6,
+        "no": 6,
+        "na": 0
+      }
+    },
+    "20": {
+      "MPEG-1": {
+        "total": 8,
+        "no": 0,
+        "na": 0
+      },
+      "MPEG-2": {
+        "total": 8,
+        "no": 0,
+        "na": 0
+      },
+      "MPEG-4": {
+        "total": 8,
+        "no": 0,
+        "na": 0
+      },
+      "VC-1": {
+        "total": 8,
+        "no": 0,
+        "na": 0
+      },
+      "VP8": {
+        "total": 8,
+        "no": 0,
+        "na": 0
+      },
+      "VP9 4:2:0 8bit": {
+        "total": 8,
+        "no": 0,
+        "na": 0
+      },
+      "VP9 4:2:0 10bit": {
+        "total": 8,
+        "no": 0,
+        "na": 0
+      },
+      "VP9 4:2:0 12bit": {
+        "total": 8,
+        "no": 0,
+        "na": 0
+      },
+      "H.264 AVC 4:2:0 8bit": {
+        "total": 8,
+        "no": 0,
+        "na": 0
+      },
+      "H.264 AVC 4:2:0 10bit": {
+        "total": 8,
+        "no": 8,
+        "na": 0
+      },
+      "H.264 AVC 4:2:2 8bit": {
+        "total": 8,
+        "no": 8,
+        "na": 0
+      },
+      "H.264 AVC 4:2:2 10bit": {
+        "total": 8,
+        "no": 8,
+        "na": 0
+      },
+      "H.265 HEVC 4:2:0 8bit": {
+        "total": 8,
+        "no": 0,
+        "na": 0
+      },
+      "H.265 HEVC 4:2:0 10bit": {
+        "total": 8,
+        "no": 0,
+        "na": 0
+      },
+      "H.265 HEVC 4:2:0 12bit": {
+        "total": 8,
+        "no": 0,
+        "na": 0
+      },
+      "H.265 HEVC 4:2:2 8bit": {
+        "total": 8,
+        "no": 8,
+        "na": 0
+      },
+      "H.265 HEVC 4:2:2 10bit": {
+        "total": 8,
+        "no": 8,
+        "na": 0
+      },
+      "H.265 HEVC 4:2:2 12bit": {
+        "total": 8,
+        "no": 8,
+        "na": 0
+      },
+      "H.265 HEVC 4:4:4 8bit": {
+        "total": 8,
+        "no": 0,
+        "na": 0
+      },
+      "H.265 HEVC 4:4:4 10bit": {
+        "total": 8,
+        "no": 0,
+        "na": 0
+      },
+      "H.265 HEVC 4:4:4 12bit": {
+        "total": 8,
+        "no": 0,
+        "na": 0
+      },
+      "AV1 8bit": {
+        "total": 8,
+        "no": 7,
+        "na": 0
+      },
+      "AV1 10bit": {
+        "total": 8,
+        "no": 7,
+        "na": 0
+      }
+    },
+    "30": {
+      "MPEG-1": {
+        "total": 17,
+        "no": 0,
+        "na": 0
+      },
+      "MPEG-2": {
+        "total": 17,
+        "no": 0,
+        "na": 0
+      },
+      "MPEG-4": {
+        "total": 17,
+        "no": 0,
+        "na": 0
+      },
+      "VC-1": {
+        "total": 17,
+        "no": 0,
+        "na": 0
+      },
+      "VP8": {
+        "total": 17,
+        "no": 0,
+        "na": 0
+      },
+      "VP9 4:2:0 8bit": {
+        "total": 17,
+        "no": 0,
+        "na": 0
+      },
+      "VP9 4:2:0 10bit": {
+        "total": 17,
+        "no": 0,
+        "na": 0
+      },
+      "VP9 4:2:0 12bit": {
+        "total": 17,
+        "no": 0,
+        "na": 0
+      },
+      "H.264 AVC 4:2:0 8bit": {
+        "total": 17,
+        "no": 0,
+        "na": 0
+      },
+      "H.264 AVC 4:2:0 10bit": {
+        "total": 17,
+        "no": 17,
+        "na": 0
+      },
+      "H.264 AVC 4:2:2 8bit": {
+        "total": 17,
+        "no": 17,
+        "na": 0
+      },
+      "H.264 AVC 4:2:2 10bit": {
+        "total": 17,
+        "no": 17,
+        "na": 0
+      },
+      "H.265 HEVC 4:2:0 8bit": {
+        "total": 17,
+        "no": 0,
+        "na": 0
+      },
+      "H.265 HEVC 4:2:0 10bit": {
+        "total": 17,
+        "no": 0,
+        "na": 0
+      },
+      "H.265 HEVC 4:2:0 12bit": {
+        "total": 17,
+        "no": 0,
+        "na": 0
+      },
+      "H.265 HEVC 4:2:2 8bit": {
+        "total": 17,
+        "no": 17,
+        "na": 0
+      },
+      "H.265 HEVC 4:2:2 10bit": {
+        "total": 17,
+        "no": 17,
+        "na": 0
+      },
+      "H.265 HEVC 4:2:2 12bit": {
+        "total": 17,
+        "no": 17,
+        "na": 0
+      },
+      "H.265 HEVC 4:4:4 8bit": {
+        "total": 17,
+        "no": 0,
+        "na": 0
+      },
+      "H.265 HEVC 4:4:4 10bit": {
+        "total": 17,
+        "no": 0,
+        "na": 0
+      },
+      "H.265 HEVC 4:4:4 12bit": {
+        "total": 17,
+        "no": 0,
+        "na": 0
+      },
+      "AV1 8bit": {
+        "total": 17,
+        "no": 0,
+        "na": 0
+      },
+      "AV1 10bit": {
+        "total": 17,
+        "no": 0,
+        "na": 0
+      }
+    },
+    "40": {
+      "MPEG-1": {
+        "total": 14,
+        "no": 0,
+        "na": 0
+      },
+      "MPEG-2": {
+        "total": 14,
+        "no": 0,
+        "na": 0
+      },
+      "MPEG-4": {
+        "total": 14,
+        "no": 0,
+        "na": 0
+      },
+      "VC-1": {
+        "total": 14,
+        "no": 0,
+        "na": 0
+      },
+      "VP8": {
+        "total": 14,
+        "no": 0,
+        "na": 0
+      },
+      "VP9 4:2:0 8bit": {
+        "total": 14,
+        "no": 0,
+        "na": 0
+      },
+      "VP9 4:2:0 10bit": {
+        "total": 14,
+        "no": 0,
+        "na": 0
+      },
+      "VP9 4:2:0 12bit": {
+        "total": 14,
+        "no": 0,
+        "na": 0
+      },
+      "H.264 AVC 4:2:0 8bit": {
+        "total": 14,
+        "no": 0,
+        "na": 0
+      },
+      "H.264 AVC 4:2:0 10bit": {
+        "total": 14,
+        "no": 14,
+        "na": 0
+      },
+      "H.264 AVC 4:2:2 8bit": {
+        "total": 14,
+        "no": 14,
+        "na": 0
+      },
+      "H.264 AVC 4:2:2 10bit": {
+        "total": 14,
+        "no": 14,
+        "na": 0
+      },
+      "H.265 HEVC 4:2:0 8bit": {
+        "total": 14,
+        "no": 0,
+        "na": 0
+      },
+      "H.265 HEVC 4:2:0 10bit": {
+        "total": 14,
+        "no": 0,
+        "na": 0
+      },
+      "H.265 HEVC 4:2:0 12bit": {
+        "total": 14,
+        "no": 0,
+        "na": 0
+      },
+      "H.265 HEVC 4:2:2 8bit": {
+        "total": 14,
+        "no": 14,
+        "na": 0
+      },
+      "H.265 HEVC 4:2:2 10bit": {
+        "total": 14,
+        "no": 14,
+        "na": 0
+      },
+      "H.265 HEVC 4:2:2 12bit": {
+        "total": 14,
+        "no": 14,
+        "na": 0
+      },
+      "H.265 HEVC 4:4:4 8bit": {
+        "total": 14,
+        "no": 0,
+        "na": 0
+      },
+      "H.265 HEVC 4:4:4 10bit": {
+        "total": 14,
+        "no": 0,
+        "na": 0
+      },
+      "H.265 HEVC 4:4:4 12bit": {
+        "total": 14,
+        "no": 0,
+        "na": 0
+      },
+      "AV1 8bit": {
+        "total": 14,
+        "no": 0,
+        "na": 0
+      },
+      "AV1 10bit": {
+        "total": 14,
+        "no": 0,
+        "na": 0
+      }
+    },
+    "50": {
+      "MPEG-1": {
+        "total": 11,
+        "no": 0,
+        "na": 0
+      },
+      "MPEG-2": {
+        "total": 11,
+        "no": 0,
+        "na": 0
+      },
+      "MPEG-4": {
+        "total": 11,
+        "no": 0,
+        "na": 0
+      },
+      "VC-1": {
+        "total": 11,
+        "no": 0,
+        "na": 0
+      },
+      "VP8": {
+        "total": 11,
+        "no": 0,
+        "na": 0
+      },
+      "VP9 4:2:0 8bit": {
+        "total": 11,
+        "no": 0,
+        "na": 0
+      },
+      "VP9 4:2:0 10bit": {
+        "total": 11,
+        "no": 0,
+        "na": 0
+      },
+      "VP9 4:2:0 12bit": {
+        "total": 11,
+        "no": 0,
+        "na": 0
+      },
+      "H.264 AVC 4:2:0 8bit": {
+        "total": 11,
+        "no": 0,
+        "na": 0
+      },
+      "H.264 AVC 4:2:0 10bit": {
+        "total": 11,
+        "no": 0,
+        "na": 0
+      },
+      "H.264 AVC 4:2:2 8bit": {
+        "total": 11,
+        "no": 0,
+        "na": 0
+      },
+      "H.264 AVC 4:2:2 10bit": {
+        "total": 11,
+        "no": 0,
+        "na": 0
+      },
+      "H.265 HEVC 4:2:0 8bit": {
+        "total": 11,
+        "no": 0,
+        "na": 0
+      },
+      "H.265 HEVC 4:2:0 10bit": {
+        "total": 11,
+        "no": 0,
+        "na": 0
+      },
+      "H.265 HEVC 4:2:0 12bit": {
+        "total": 11,
+        "no": 0,
+        "na": 0
+      },
+      "H.265 HEVC 4:2:2 8bit": {
+        "total": 11,
+        "no": 0,
+        "na": 0
+      },
+      "H.265 HEVC 4:2:2 10bit": {
+        "total": 11,
+        "no": 0,
+        "na": 0
+      },
+      "H.265 HEVC 4:2:2 12bit": {
+        "total": 11,
+        "no": 0,
+        "na": 0
+      },
+      "H.265 HEVC 4:4:4 8bit": {
+        "total": 11,
+        "no": 0,
+        "na": 0
+      },
+      "H.265 HEVC 4:4:4 10bit": {
+        "total": 11,
+        "no": 0,
+        "na": 0
+      },
+      "H.265 HEVC 4:4:4 12bit": {
+        "total": 11,
+        "no": 0,
+        "na": 0
+      },
+      "AV1 8bit": {
+        "total": 11,
+        "no": 0,
+        "na": 0
+      },
+      "AV1 10bit": {
+        "total": 11,
+        "no": 0,
+        "na": 0
+      }
+    }
+  },
+  "nvenc_fmt": [
+    "H.264 (AVC) YUV 4:2:0",
+    "H.264 (AVC) YUV 4:2:2",
+    "H.264 (AVC) YUV 4:4:4",
+    "H.264 (AVC) Lossless",
+    "H.265 (HEVC) 4K YUV 4:2:0",
+    "H.265 (HEVC) YUV 4:2:2",
+    "H.265 (HEVC) 4K YUV 4:4:4",
+    "H.265 (HEVC) 4K Lossless",
+    "H.265 (HEVC) 8K",
+    "HEVC 10-bit support",
+    "HEVC B Frame support",
+    "AV1 YUV 4:2:0"
+  ],
+  "nvdec_fmt": [
+    "MPEG-1",
+    "MPEG-2",
+    "MPEG-4",
+    "VC-1",
+    "VP8",
+    "VP9 4:2:0 8bit",
+    "VP9 4:2:0 10bit",
+    "VP9 4:2:0 12bit",
+    "H.264 AVC 4:2:0 8bit",
+    "H.264 AVC 4:2:0 10bit",
+    "H.264 AVC 4:2:2 8bit",
+    "H.264 AVC 4:2:2 10bit",
+    "H.265 HEVC 4:2:0 8bit",
+    "H.265 HEVC 4:2:0 10bit",
+    "H.265 HEVC 4:2:0 12bit",
+    "H.265 HEVC 4:2:2 8bit",
+    "H.265 HEVC 4:2:2 10bit",
+    "H.265 HEVC 4:2:2 12bit",
+    "H.265 HEVC 4:4:4 8bit",
+    "H.265 HEVC 4:4:4 10bit",
+    "H.265 HEVC 4:4:4 12bit",
+    "AV1 8bit",
+    "AV1 10bit"
+  ],
+  "boards_nvenc": {
+    "10": [
+      "GeForce GTX 1050 / 1050 Ti",
+      "GeForce GTX 1060",
+      "Geforce GTX 1070M / GTX 1080M",
+      "GeForce GTX 1070 / 1070Ti",
+      "GeForce GTX 1080",
+      "GeForce GTX 1080 Ti"
+    ],
+    "20": [
+      "GeForce RTX 2050",
+      "GeForce GTX 1630",
+      "GeForce GTX 1650 Max-Q",
+      "GeForce GTX 1650 GDDR5",
+      "GeForce GTX 1650 GDDR6",
+      "GeForce GTX 1650 SUPER",
+      "GeForce GTX 1660 Ti Max-Q",
+      "GeForce GTX 1660 Ti / 1660",
+      "GeForce GTX 1660 SUPER",
+      "GeForce RTX 2060 / 2070",
+      "GeForce RTX 2060 SUPER",
+      "GeForce RTX 2060 (TU104)",
+      "GeForce RTX 2070 Max-Q",
+      "GeForce RTX 2070 SUPER",
+      "GeForce RTX 2080",
+      "GeForce RTX 2080 Max-Q",
+      "GeForce RTX 2080 SUPER",
+      "GeForce RTX 2080Ti"
+    ],
+    "30": [
+      "GeForce RTX 3050",
+      "GeForce RTX 3050 Laptop",
+      "GeForce RTX 3080 Ti Laptop",
+      "GeForce RTX 3080 Laptop",
+      "GeForce RTX 3070 Ti Laptop",
+      "GeForce RTX 3070 Laptop",
+      "GeForce RTX 3060 Ti Laptop",
+      "GeForce RTX 3060 Laptop",
+      "GeForce RTX 3060",
+      "GeForce RTX 3070",
+      "GeForce RTX 3080",
+      "GeForce RTX 3090",
+      "GeForce RTX 3050 Ti Laptop",
+      "GeForce RTX 3060 Ti",
+      "GeForce RTX 3070 Ti",
+      "GeForce RTX 3080 Ti",
+      "GeForce RTX 3090 TI"
+    ],
+    "40": [
+      "GeForce RTX 4050 Laptop",
+      "GeForce RTX 4060 Laptop",
+      "GeForce RTX 4060",
+      "GeForce RTX 4060TI",
+      "GeForce RTX 4070 Laptop",
+      "GeForce RTX 4070",
+      "GeForce RTX 4070 Super",
+      "GeForce RTX 4070 TI",
+      "GeForce RTX 4070 TI Super",
+      "GeForce RTX 4080 Laptop",
+      "GeForce RTX 4080 16GB",
+      "GeForce RTX 4080 Super",
+      "GeForce RTX 4090 Laptop",
+      "GeForce RTX 4090"
+    ],
+    "50": [
+      "GeForce RTX 5050",
+      "GeForce RTX 5060",
+      "GeForce RTX 5060 Ti",
+      "GeForce RTX 5070",
+      "GeForce RTX 5070 Ti",
+      "GeForce RTX 5080",
+      "GeForce RTX 5090",
+      "GeForce RTX 5070 Laptop",
+      "GeForce RTX 5070 Ti Laptop",
+      "GeForce RTX 5080 Laptop",
+      "GeForce RTX 5090 Laptop"
+    ]
+  },
+  "boards_nvdec": {
+    "10": [
+      "GeForce GT 1030",
+      "GeForce GTX 1050 / 1050 Ti",
+      "GeForce GTX 1060",
+      "GeForce GTX 1070M / 1080M",
+      "GeForce GTX 1070 / 1070 Ti / 1080",
+      "GeForce GTX 1080 Ti"
+    ],
+    "20": [
+      "GeForce RTX 2050",
+      "GeForce GTX 1630",
+      "GeForce GTX 1650 (all variants)",
+      "GeForce GTX 1660 (all variants)",
+      "GeForce RTX 2060 (TU104)",
+      "GeForce RTX 2070",
+      "GeForce RTX 2080",
+      "GeForce RTX 2080 Ti"
+    ],
+    "30": [
+      "GeForce RTX 3050",
+      "GeForce RTX 3050 Laptop",
+      "GeForce RTX 3060",
+      "GeForce RTX 3060 Laptop",
+      "GeForce RTX 3070",
+      "GeForce RTX 3070 Laptop",
+      "GeForce RTX 3080",
+      "GeForce RTX 3080 Laptop",
+      "GeForce RTX 3090",
+      "GeForce RTX 3050 Ti Laptop",
+      "GeForce RTX 3060 Ti",
+      "GeForce RTX 3060 Ti Laptop",
+      "GeForce RTX 3070 Ti",
+      "GeForce RTX 3070 Ti Laptop",
+      "GeForce RTX 3080 Ti",
+      "GeForce RTX 3080 Ti Laptop",
+      "GeForce RTX 3090 Ti"
+    ],
+    "40": [
+      "GeForce RTX 4050 Laptop",
+      "GeForce RTX 4060 Laptop",
+      "GeForce RTX 4060",
+      "GeForce RTX 4060TI",
+      "GeForce RTX 4070 Laptop",
+      "GeForce RTX 4070",
+      "GeForce RTX 4070 Super",
+      "GeForce RTX 4070 Ti",
+      "GeForce RTX 4070 Ti Super",
+      "GeForce RTX 4080 Laptop",
+      "GeForce RTX 4080 16GB",
+      "GeForce RTX 4080 Super",
+      "GeForce RTX 4090 Laptop",
+      "GeForce RTX 4090"
+    ],
+    "50": [
+      "GeForce RTX 5050",
+      "GeForce RTX 5060",
+      "GeForce RTX 5060 Ti",
+      "GeForce RTX 5070",
+      "GeForce RTX 5070 Ti",
+      "GeForce RTX 5080",
+      "GeForce RTX 5090",
+      "GeForce RTX 5070 Laptop",
+      "GeForce RTX 5070 Ti Laptop",
+      "GeForce RTX 5080 Laptop",
+      "GeForce RTX 5090 Laptop"
+    ]
+  }
+}
