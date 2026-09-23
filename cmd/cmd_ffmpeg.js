@@ -242,6 +242,12 @@ const builder = function addOptions(ya) {
                 default: 0,
                 describe: t("ffmpeg.video.quality"),
             })
+            // 动漫/动画调优模式（保线条与平涂色块，收紧默认质量，注入 x265/x264/svtav1/nvenc 专属参数）
+            .option("anime", {
+                type: "boolean",
+                default: false,
+                describe: "Anime/animation tuning mode (动漫调优模式，收紧质量并注入线条保护参数)",
+            })
             // 音频选项
             // audio-args = audio-encoder + audio-quality
             // 如果此选项存在，会忽略其它 audio-xxx 参数

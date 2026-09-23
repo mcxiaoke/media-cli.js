@@ -446,3 +446,128 @@ describe("2026-09-23 修复验证", () => {
         assert.strictEqual(merged.audioCopy, true)
     })
 })
+
+describe("字幕与流映射改造（预定义模板驱动：MKV copy、MP4 mov_text 与 PGS 降级）", () => {
+    it("MKV 默认使用 -c:s copy 并映射全部音频与字幕轨（-map 0:v:0 -map 0:a? -map 0:s?）", () => {
+        const entry = makeEntry({
+            fileDst: "/output/movie.mkv",
+            preset: presetOf({ format: ".mkv" }),
+        })
+        const cmd = flattenFFArgs(createFFmpegArgs(entry, makeHwPlan(cpuTier)).args)
+        assert.ok(cmd.includes("-c:s copy"), `MKV 应使用 -c:s copy: ${cmd}`)
+        assert.ok(cmd.includes("-map 0:v:0"), `应映射主视频流: ${cmd}`)
+        assert.ok(cmd.includes("-map 0:a?"), `应映射音频流带问号: ${cmd}`)
+        assert.ok(cmd.includes("-map 0:s?"), `应映射字幕流带问号: ${cmd}`)
+    })
+
+    it("MP4 文本字幕保留为 -c:s mov_text 并映射全部音频与字幕轨", () => {
+        const entry = makeEntry({
+            fileDst: "/output/movie.mp4",
+            info: {
+                ...makeEntry().info,
+                subtitles: [{ format: "subrip", codec: "subrip" }],
+            },
+            preset: presetOf({ format: ".mp4" }),
+        })
+        const cmd = flattenFFArgs(createFFmpegArgs(entry, makeHwPlan(cpuTier)).args)
+        assert.ok(cmd.includes("-c:s mov_text"), `MP4 文本字幕应转 mov_text: ${cmd}`)
+        assert.ok(cmd.includes("-map 0:v:0 -map 0:a? -map 0:s?"), `流映射应完整保留: ${cmd}`)
+    })
+
+    it("MP4 遇 PGS 图形字幕容错降级为 -sn，避免转码崩溃", () => {
+        const entry = makeEntry({
+            fileDst: "/output/movie.mp4",
+            info: {
+                ...makeEntry().info,
+                subtitles: [{ format: "hdmv_pgs_subtitle", codec: "pgs" }],
+            },
+            preset: presetOf({ format: ".mp4" }),
+        })
+        const cmd = flattenFFArgs(createFFmpegArgs(entry, makeHwPlan(cpuTier)).args)
+        assert.ok(cmd.includes("-sn"), `MP4 遇到 PGS 图形字幕应容错降级 -sn: ${cmd}`)
+        assert.ok(!cmd.includes("-map 0:s?"), `降级 -sn 时不应映射字幕流: ${cmd}`)
+        assert.ok(cmd.includes("-map 0:v:0 -map 0:a?"), `仍应映射全部音轨: ${cmd}`)
+    })
+
+    it("外挂字幕正确加载为 input 1，并设置中文默认字幕标记与流映射", () => {
+        const entry = makeEntry({
+            fileDst: "/output/movie.mp4",
+            selectedSubtitle: "/subs/movie.zh.srt",
+            preset: presetOf({ format: ".mp4" }),
+        })
+        const cmd = flattenFFArgs(createFFmpegArgs(entry, makeHwPlan(cpuTier)).args)
+        assert.ok(cmd.includes("-i /subs/movie.zh.srt"), `应加载外挂字幕作为输入: ${cmd}`)
+        assert.ok(cmd.includes("-c:s mov_text"), `MP4 外挂字幕应转 mov_text: ${cmd}`)
+        assert.ok(cmd.includes("-metadata:s:s:0 language=chi"), `应标记中文字幕: ${cmd}`)
+        assert.ok(cmd.includes("-map 0:v:0 -map 0:a? -map 1:0?"), `流映射应包含外挂字幕: ${cmd}`)
+    })
+
+    it("MKV 外挂字幕转码为 -c:s copy 直通并映射 1:0?", () => {
+        const entry = makeEntry({
+            fileDst: "/output/movie.mkv",
+            selectedSubtitle: "/subs/movie.ass",
+            preset: presetOf({ format: ".mkv" }),
+        })
+        const cmd = flattenFFArgs(createFFmpegArgs(entry, makeHwPlan(cpuTier)).args)
+        assert.ok(cmd.includes("-c:s copy"), `MKV 外挂字幕应直通 copy: ${cmd}`)
+        assert.ok(cmd.includes("-map 0:v:0 -map 0:a? -map 1:0?"), `流映射应包含外挂字幕: ${cmd}`)
+    })
+
+    it("非视频类型（音频文件）不附加任何字幕或视频流映射", () => {
+        const entry = makeEntry({
+            path: "/tmp/music.flac",
+            fileDst: "/output/music.mp3",
+            preset: presetOf({ type: "audio", format: ".mp3" }),
+        })
+        const cmd = flattenFFArgs(createFFmpegArgs(entry, makeHwPlan(cpuTier)).args)
+        assert.ok(!cmd.includes("-c:s"), `音频文件不应有 -c:s: ${cmd}`)
+        assert.ok(!cmd.includes("-map 0:s?"), `音频文件不应有 -map 0:s?: ${cmd}`)
+    })
+})
+
+describe("Metadata 清理与纯净标题", () => {
+    it("title 自动去除文件扩展名后缀", () => {
+        const entry = makeEntry({
+            name: "Inception.2010.1080p.mp4",
+            preset: presetOf(),
+        })
+        const cmd = flattenFFArgs(createFFmpegArgs(entry, makeHwPlan(cpuTier)).args)
+        assert.ok(
+            cmd.includes("-metadata title=Inception.2010.1080p"),
+            `title 不应包含 .mp4 扩展名: ${cmd}`,
+        )
+        assert.ok(
+            !cmd.includes("-metadata title=Inception.2010.1080p.mp4"),
+            `不应出现带扩展名的 title: ${cmd}`,
+        )
+    })
+
+    it("不强制注入 description 与 copyright，避免冲掉原片内容", () => {
+        const entry = makeEntry({
+            preset: presetOf(),
+        })
+        const cmd = flattenFFArgs(createFFmpegArgs(entry, makeHwPlan(cpuTier)).args)
+        assert.ok(!cmd.includes("description="), `不应在元数据中强制覆盖 description: ${cmd}`)
+        assert.ok(!cmd.includes("copyright="), `不应在元数据中强制覆盖 copyright: ${cmd}`)
+    })
+})
+
+describe("ARG_ALIASES 扩展（filters 与 filterComplex 别名支持）", () => {
+    it("applyFfargs 支持 fs / filter / filters 别名写入 preset.filters", () => {
+        const argv = {}
+        const merged1 = presetsDefault.applyFfargs(argv, { fs: "scale=1280:720" })
+        assert.strictEqual(merged1.filters, "scale=1280:720")
+
+        const merged2 = presetsDefault.applyFfargs(argv, { filter: "fps=30" })
+        assert.strictEqual(merged2.filters, "fps=30")
+    })
+
+    it("applyFfargs 支持 fc / complex / filterComplex 别名写入 preset.filterComplex", () => {
+        const argv = {}
+        const merged1 = presetsDefault.applyFfargs(argv, { fc: "[0:v][1:v]overlay[out]" })
+        assert.strictEqual(merged1.filterComplex, "[0:v][1:v]overlay[out]")
+
+        const merged2 = presetsDefault.applyFfargs(argv, { complex: "[0:v]yadif[out]" })
+        assert.strictEqual(merged2.filterComplex, "[0:v]yadif[out]")
+    })
+})

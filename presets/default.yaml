@@ -104,89 +104,121 @@ _base_aac_cbr:
 # H.264 视频预设
 # ===========================================
 
-# 2K 标准
+# 2K 高画质 (收藏级, VMAF 96+)
+h264_2kh:
+    extends: _base_h264
+    videoQuality: 20
+    maxBitrate: 12M
+    audioBitrate: 256k
+    dimension: 1920
+
+# 2K 标准 (VMAF 94 黄金线)
 h264_2k:
     extends: _base_h264
-    videoQuality: 24
+    videoQuality: 23
     maxBitrate: 8M
     audioBitrate: 192k # 192 Kbps
+    dimension: 1920
+
+# 2K 低质量 (轻量分享, VMAF 90)
+h264_2kl:
+    extends: _base_h264
+    videoQuality: 26
+    maxBitrate: 5M
+    audioBitrate: 128k
     dimension: 1920
 
 # ===========================================
 # H.264 视频预设 (4K)
 # ===========================================
 
+# 4K 高画质
+h264_4kh:
+    extends: _base_h264
+    videoQuality: 22
+    maxBitrate: 22M
+    audioBitrate: 256k
+    dimension: 3840
+
 # 4K 标准
 h264_4k:
     extends: _base_h264
-    videoQuality: 26
+    videoQuality: 25
     maxBitrate: 16M # 16 Mbps
     audioBitrate: 192k # 192 Kbps
+    dimension: 3840
+
+# 4K 低质量
+h264_4kl:
+    extends: _base_h264
+    videoQuality: 28
+    maxBitrate: 10M
+    audioBitrate: 128k
     dimension: 3840
 
 # ===========================================
 # HEVC 视频预设
 # ===========================================
 
-# 4K 高质量
+# 4K 高质量 (VMAF 96+)
 hevc_4kh:
     extends: _base_hevc
-    videoQuality: 26
+    videoQuality: 22
     maxBitrate: 20M
     audioBitrate: 256k # 256 Kbps
     dimension: 3840
 
-# 4K 标准
+# 4K 标准 (VMAF 94.5 黄金线)
 hevc_4k:
     extends: _base_hevc
-    videoQuality: 28
-    maxBitrate: 16M
+    videoQuality: 25
+    maxBitrate: 14M
     audioBitrate: 256k # 256 Kbps
     dimension: 3840
 
-# 4K 中等
+# 4K 中等 (轻量分享)
 hevc_4kl:
     extends: _base_hevc
-    videoQuality: 30
-    maxBitrate: 12M
-    audioBitrate: 256k # 256 Kbps
+    videoQuality: 28
+    maxBitrate: 9M
+    audioBitrate: 192k # 192 Kbps
     dimension: 3840
 
-# 2K 高质量
+# 2K 高质量 (收藏级, VMAF 96.5)
 hevc_2kh:
     extends: _base_hevc
-    videoQuality: 24
-    maxBitrate: 10M
+    videoQuality: 20
+    maxBitrate: 12M
     audioBitrate: 256k # 256 Kbps
     dimension: 1920
 
-# 2K 标准
+# 2K 标准 (VMAF 94.5 黄金线) - 默认推荐
 hevc_2k:
     extends: _base_hevc
-    videoQuality: 26
+    videoQuality: 23
     maxBitrate: 8M
     audioBitrate: 192k # 192 Kbps
     dimension: 1920
 
-# 2K 低质量
+# 2K 低质量 (轻量分享, VMAF 91.5)
 hevc_2kl:
     extends: _base_hevc
-    videoQuality: 28
-    maxBitrate: 4M
+    videoQuality: 26
+    maxBitrate: 5M
     audioBitrate: 128k # 128 Kbps
     dimension: 1920
 
-# 2K 极低
+# 2K 极低 (极限防爆盘)
 hevc_2kt:
     extends: _base_hevc
-    videoQuality: 30
+    videoQuality: 29
     maxBitrate: 3M
     audioBitrate: 96k # 96 Kbps
     dimension: 1920
     framerate: 30
 
 # ===========================================
-# AV1 视频预设
+# AV1 视频预设 (现代主流推荐，高压缩比)
 # ===========================================
 
 # AV1 基础预设 (输出 codec 族: av1)
@@ -212,55 +244,71 @@ _base_av1:
     filters: "{scaleFilter}"
     complexFilter: ""
 
-# AV1 2K 高质量 (1920p, 质量28, 码率8M)
+# AV1 2K 高质量 (1920p, 质量28, 码率10M, 收藏级 VMAF 98+)
 av1_2kh:
     extends: _base_av1
     videoQuality: 28
-    maxBitrate: 8M
+    maxBitrate: 10M
     audioBitrate: 256k # 256 Kbps
     dimension: 1920
 
-# AV1 2K 标准 (1920p, 质量30, 码率6M) - 默认推荐
+# AV1 2K 标准 (1920p, 质量33, 码率6M, VMAF 95 黄金线) - 现代硬编主推默认
 av1_2k:
     extends: _base_av1
-    videoQuality: 30
+    videoQuality: 33
     maxBitrate: 6M
     audioBitrate: 192k # 192 Kbps
     dimension: 1920
 
-# AV1 2K 低质量 (1920p, 质量32, 码率4M)
+# AV1 2K 低质量 (1920p, 质量38, 码率3.5M, 便携分享 VMAF 91)
 av1_2kl:
     extends: _base_av1
-    videoQuality: 32
-    maxBitrate: 4M
+    videoQuality: 38
+    maxBitrate: 3.5M
     audioBitrate: 128k # 128 Kbps
     dimension: 1920
+
+# AV1 2K 极低 (1920p, 质量42, 码率2M, 极限体积分享)
+av1_2kt:
+    extends: _base_av1
+    videoQuality: 42
+    maxBitrate: 2M
+    audioBitrate: 96k
+    dimension: 1920
+
+# AV1 720p 标准 (1280p, 质量34, 码率3M, 移动端/微信黄金档)
+av1_720p:
+    extends: _base_av1
+    videoQuality: 34
+    maxBitrate: 3M
+    audioBitrate: 128k
+    dimension: 1280
 
 # ===========================================
 # AV1 视频预设 (4K)
 # ===========================================
 
-# AV1 4K 高质量
+# AV1 4K 高质量 (3840p, 质量30, 码率18M)
 av1_4kh:
     extends: _base_av1
-    videoQuality: 28
-    maxBitrate: 16M
+    videoQuality: 30
+    maxBitrate: 18M
     audioBitrate: 256k # 256 Kbps
     dimension: 3840
 
-# AV1 4K 标准
+# AV1 4K 标准 (3840p, 质量35, 码率12M, 4K黄金平衡点)
 av1_4k:
     extends: _base_av1
-    videoQuality: 30
+    videoQuality: 35
     maxBitrate: 12M
     audioBitrate: 192k # 192 Kbps
     dimension: 3840
 
-# AV1 4K 低质量
+# AV1 4K 低质量 (3840p, 质量40, 码率7M)
 av1_4kl:
     extends: _base_av1
-    videoQuality: 32
-    maxBitrate: 8M
+    videoQuality: 40
+    maxBitrate: 7M
     audioBitrate: 128k # 128 Kbps
     dimension: 3840
 
