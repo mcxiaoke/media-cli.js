@@ -31,6 +31,10 @@
 #   {framerate}      - 帧率
 #   {speed}          - 速度倍率
 #   {preset}         - 预设名称
+#
+# 码率字段（videoBitrate / audioBitrate / maxBitrate）为严格字符串，带单位写法：
+#   "233k" / "1.6M" / "800k"（1000 进制，与 CLI --video-bitrate 一致），
+#   构造时经 parseBitrate 归一为 bps。裸数字（bps）仅在程序化构造时被接受。
 # ===========================================
 
 # ===========================================
@@ -125,24 +129,24 @@ _base_aac_vbr:
 h264_2k:
     extends: _base_h264
     videoQuality: 24
-    videoBitrate: 4000000 # 4 Mbps
-    audioBitrate: 192000 # 192 Kbps
+    videoBitrate: 4M # 4 Mbps
+    audioBitrate: 192k # 192 Kbps
     dimension: 1920
 
 # 2K 中等 (1920p, 质量26, 码率2M)
 h264_2km:
     extends: _base_h264
     videoQuality: 26
-    videoBitrate: 2000000 # 2 Mbps
-    audioBitrate: 128000 # 128 Kbps
+    videoBitrate: 2M # 2 Mbps
+    audioBitrate: 128k # 128 Kbps
     dimension: 1920
 
 # 2K 低质量 (1920p, 质量26, 码率1.6M)
 h264_2kl:
     extends: _base_h264
     videoQuality: 26
-    videoBitrate: 1600000 # 1.6 Mbps
-    audioBitrate: 96000 # 96 Kbps
+    videoBitrate: 1.6M # 1.6 Mbps
+    audioBitrate: 96k # 96 Kbps
     dimension: 1920
 
 # ===========================================
@@ -153,24 +157,24 @@ h264_2kl:
 h264_4ku:
     extends: _base_h264
     videoQuality: 22
-    videoBitrate: 20000000 # 20 Mbps
-    audioBitrate: 256000 # 256 Kbps
+    videoBitrate: 20M # 20 Mbps
+    audioBitrate: 256k # 256 Kbps
     dimension: 3840
 
 # 4K 标准 (3840p, CRF 23, 码率15M)
 h264_4k:
     extends: _base_h264
     videoQuality: 23
-    videoBitrate: 15000000 # 15 Mbps
-    audioBitrate: 256000 # 256 Kbps
+    videoBitrate: 15M # 15 Mbps
+    audioBitrate: 256k # 256 Kbps
     dimension: 3840
 
 # 4K 低质量 (3840p, CRF 25, 码率10M)
 h264_4kl:
     extends: _base_h264
     videoQuality: 25
-    videoBitrate: 10000000 # 10 Mbps
-    audioBitrate: 192000 # 192 Kbps
+    videoBitrate: 10M # 10 Mbps
+    audioBitrate: 192k # 192 Kbps
     dimension: 3840
 
 # ===========================================
@@ -181,80 +185,80 @@ h264_4kl:
 hevc_4ku:
     extends: _base_hevc
     videoQuality: 20
-    videoBitrate: 16000000 # 16 Mbps
-    audioBitrate: 256000 # 256 Kbps
+    videoBitrate: 16M # 16 Mbps
+    audioBitrate: 256k # 256 Kbps
     dimension: 3840
 
 # 4K 高质量 (3840p, 质量22, 码率10M)
 hevc_4k:
     extends: _base_hevc
     videoQuality: 22
-    videoBitrate: 10000000 # 10 Mbps
-    audioBitrate: 256000 # 256 Kbps
+    videoBitrate: 10M # 10 Mbps
+    audioBitrate: 256k # 256 Kbps
     dimension: 3840
 
 # 4K 中等 (3840p, 质量24, 码率6M)
 hevc_4kl:
     extends: _base_hevc
     videoQuality: 24
-    videoBitrate: 6000000 # 6 Mbps
-    audioBitrate: 256000 # 256 Kbps
+    videoBitrate: 6M # 6 Mbps
+    audioBitrate: 256k # 256 Kbps
     dimension: 3840
 
 # 4K 低质量 (3840p, 质量26, 码率4M)
 hevc_4kt:
     extends: _base_hevc
     videoQuality: 26
-    videoBitrate: 4000000 # 4 Mbps
-    audioBitrate: 192000 # 192 Kbps
+    videoBitrate: 4M # 4 Mbps
+    audioBitrate: 192k # 192 Kbps
     dimension: 3840
 
 # 2K 超高质量 (1920p, 质量22, 码率8M)
 hevc_2ku:
     extends: _base_hevc
     videoQuality: 22
-    videoBitrate: 8000000 # 8 Mbps
-    audioBitrate: 256000 # 256 Kbps
+    videoBitrate: 8M # 8 Mbps
+    audioBitrate: 256k # 256 Kbps
     dimension: 1920
 
 # 2K 高质量 (1920p, 质量22, 码率6M)
 hevc_2kh:
     extends: _base_hevc
     videoQuality: 22
-    videoBitrate: 6000000 # 6 Mbps
-    audioBitrate: 256000 # 256 Kbps
+    videoBitrate: 6M # 6 Mbps
+    audioBitrate: 256k # 256 Kbps
     dimension: 1920
 
 # 2K 标准 (1920p, 质量24, 码率4M) - 默认推荐
 hevc_2k:
     extends: _base_hevc
     videoQuality: 24
-    videoBitrate: 4000000 # 4 Mbps
-    audioBitrate: 192000 # 192 Kbps
+    videoBitrate: 4M # 4 Mbps
+    audioBitrate: 192k # 192 Kbps
     dimension: 1920
 
 # 2K 中等 (1920p, 质量26, 码率2M)
 hevc_2km:
     extends: _base_hevc
     videoQuality: 26
-    videoBitrate: 2000000 # 2 Mbps
-    audioBitrate: 128000 # 128 Kbps
+    videoBitrate: 2M # 2 Mbps
+    audioBitrate: 128k # 128 Kbps
     dimension: 1920
 
 # 2K 低质量 (1920p, 质量26, 码率1.6M)
 hevc_2kl:
     extends: _base_hevc
     videoQuality: 26
-    videoBitrate: 1600000 # 1.6 Mbps
-    audioBitrate: 128000 # 128 Kbps
+    videoBitrate: 1.6M # 1.6 Mbps
+    audioBitrate: 128k # 128 Kbps
     dimension: 1920
 
 # 2K 极低 (1920p, 质量28, 码率1.2M, 30fps)
 hevc_2kt:
     extends: _base_hevc
     videoQuality: 28
-    videoBitrate: 1200000 # 1.2 Mbps
-    audioBitrate: 96000 # 96 Kbps
+    videoBitrate: 1.2M # 1.2 Mbps
+    audioBitrate: 96k # 96 Kbps
     dimension: 1920
     framerate: 30
     smartBitrate: false
@@ -290,40 +294,40 @@ _base_av1:
 av1_2ku:
     extends: _base_av1
     videoQuality: 24
-    videoBitrate: 8000000 # 8 Mbps
-    audioBitrate: 256000 # 256 Kbps
+    videoBitrate: 8M # 8 Mbps
+    audioBitrate: 256k # 256 Kbps
     dimension: 1920
 
 # AV1 2K 高质量 (1920p, 质量26, 码率6M)
 av1_2kh:
     extends: _base_av1
     videoQuality: 26
-    videoBitrate: 6000000 # 6 Mbps
-    audioBitrate: 256000 # 256 Kbps
+    videoBitrate: 6M # 6 Mbps
+    audioBitrate: 256k # 256 Kbps
     dimension: 1920
 
 # AV1 2K 标准 (1920p, 质量28, 码率4M) - 默认推荐
 av1_2k:
     extends: _base_av1
     videoQuality: 28
-    videoBitrate: 4000000 # 4 Mbps
-    audioBitrate: 192000 # 192 Kbps
+    videoBitrate: 4M # 4 Mbps
+    audioBitrate: 192k # 192 Kbps
     dimension: 1920
 
 # AV1 2K 中等 (1920p, 质量30, 码率2M)
 av1_2km:
     extends: _base_av1
     videoQuality: 30
-    videoBitrate: 2000000 # 2 Mbps
-    audioBitrate: 128000 # 128 Kbps
+    videoBitrate: 2M # 2 Mbps
+    audioBitrate: 128k # 128 Kbps
     dimension: 1920
 
 # AV1 2K 低质量 (1920p, 质量32, 码率1.6M)
 av1_2kl:
     extends: _base_av1
     videoQuality: 32
-    videoBitrate: 1600000 # 1.6 Mbps
-    audioBitrate: 128000 # 128 Kbps
+    videoBitrate: 1.6M # 1.6 Mbps
+    audioBitrate: 128k # 128 Kbps
     dimension: 1920
 
 # ===========================================
@@ -334,24 +338,24 @@ av1_2kl:
 av1_4ku:
     extends: _base_av1
     videoQuality: 24
-    videoBitrate: 25000000 # 25 Mbps
-    audioBitrate: 256000 # 256 Kbps
+    videoBitrate: 25M # 25 Mbps
+    audioBitrate: 256k # 256 Kbps
     dimension: 3840
 
 # AV1 4K 标准 (3840p, 质量26, 码率15M)
 av1_4k:
     extends: _base_av1
     videoQuality: 26
-    videoBitrate: 15000000 # 15 Mbps
-    audioBitrate: 256000 # 256 Kbps
+    videoBitrate: 15M # 15 Mbps
+    audioBitrate: 256k # 256 Kbps
     dimension: 3840
 
 # AV1 4K 低质量 (3840p, 质量28, 码率8M)
 av1_4kl:
     extends: _base_av1
     videoQuality: 28
-    videoBitrate: 8000000 # 8 Mbps
-    audioBitrate: 192000 # 192 Kbps
+    videoBitrate: 8M # 8 Mbps
+    audioBitrate: 192k # 192 Kbps
     dimension: 3840
 
 # ===========================================
@@ -386,42 +390,42 @@ _base_vp9:
 vp9_2ku:
     extends: _base_vp9
     videoQuality: 30
-    audioBitrate: 256000 # 256 Kbps
+    audioBitrate: 256k # 256 Kbps
     dimension: 1920
 
 # 2K 高质量 (1920p, CRF 34)
 vp9_2kh:
     extends: _base_vp9
     videoQuality: 34
-    audioBitrate: 192000 #
+    audioBitrate: 192k #
     dimension: 1920
 
 # 2K 标准 (1920p, CRF 38) - 默认推荐
 vp9_2k:
     extends: _base_vp9
     videoQuality: 38
-    audioBitrate: 192000 #
+    audioBitrate: 192k #
     dimension: 1920
 
 # 2K 中等 (1920p, CRF 42)
 vp9_2km:
     extends: _base_vp9
     videoQuality: 42
-    audioBitrate: 128000 #
+    audioBitrate: 128k #
     dimension: 1920
 
 # 2K 低质量 (1920p, CRF 46)
 vp9_2kl:
     extends: _base_vp9
     videoQuality: 46
-    audioBitrate: 128000 #
+    audioBitrate: 128k #
     dimension: 1920
 
 # 4K 标准 (3840p, CRF 38)
 vp9_4k:
     extends: _base_vp9
     videoQuality: 38
-    audioBitrate: 256000
+    audioBitrate: 256k
     dimension: 3840
 
 # ===========================================
@@ -433,8 +437,8 @@ hevc_preview:
     extends: _base_hevc
     description: "快速预览：极低质量，720p，快速生成缩略视频"
     videoQuality: 35
-    videoBitrate: 800000 # 800 Kbps
-    audioBitrate: 64000 # 64 Kbps
+    videoBitrate: 800k # 800 Kbps
+    audioBitrate: 64k # 64 Kbps
     dimension: 720
     framerate: 15
     smartBitrate: false
@@ -448,31 +452,31 @@ audio_extract:
     extends: _base_aac_cbr
     prefix: ""
     suffix: "_audio"
-    audioBitrate: 192000
+    audioBitrate: 192k
     audioArgs: "-c:a copy"
     streamArgs: "-vn -map 0:a:0 -map_metadata 0 -map_metadata:s:a 0:s:a"
 
 # AAC 高码率 (320 Kbps)
 aac_high:
     extends: _base_aac_cbr
-    audioBitrate: 320000
+    audioBitrate: 320k
 
 # AAC 中码率 (192 Kbps)
 aac_medium:
     extends: _base_aac_cbr
-    audioBitrate: 192000
+    audioBitrate: 192k
 
 # AAC 低码率 (128 Kbps)
 aac_low:
     extends: _base_aac_cbr
-    audioBitrate: 128000
+    audioBitrate: 128k
 
 # AAC HE (高效编码，适合低码率)
 aac_he:
     extends: _base_aac_cbr
     smartBitrate: false
     audioQuality: 2
-    audioBitrate: 72000 # 72 Kbps
+    audioBitrate: 72k # 72 Kbps
     audioArgs: "-c:a libfdk_aac -profile:a aac_he -vbr {audioQuality} -b:a {audioBitrateK}"
 
 # AAC VBR (可变码率)
@@ -485,7 +489,7 @@ aac_voice:
     extends: _base_aac_cbr
     smartBitrate: false
     audioQuality: 1
-    audioBitrate: 48000 # 48 Kbps
+    audioBitrate: 48k # 48 Kbps
     audioArgs: "-c:a libfdk_aac -profile:a aac_he -vbr {audioQuality} -b:a {audioBitrateK}"
 
 # ===========================================

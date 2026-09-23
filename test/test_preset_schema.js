@@ -30,8 +30,42 @@ import {
     processPresets,
     resolvePresetPath,
 } from "../lib/preset_loader.js"
+import presetsApi from "../lib/ffmpeg_presets.js"
 
 const TMP = path.join(os.tmpdir(), `mediac-test-preset-schema-${process.pid}`)
+
+describe("FFmpegPreset bitrate normalization（严格字符串）", () => {
+    const { FFmpegPreset } = presetsApi
+
+    it("videoBitrate/audioBitrate/maxBitrate 接受带单位字符串 -> 归一为 bps", () => {
+        const p = new FFmpegPreset("t", {
+            videoBitrate: "233k",
+            audioBitrate: "1.5M",
+            maxBitrate: "4M",
+        })
+        assert.strictEqual(p.videoBitrate, 233000)
+        assert.strictEqual(p.audioBitrate, 1500000)
+        assert.strictEqual(p.maxBitrate, 4000000)
+    })
+
+    it("仍接受 bps 裸数字（程序化构造向后兼容）", () => {
+        const p = new FFmpegPreset("t", {
+            videoBitrate: 4000000,
+            audioBitrate: 192000,
+            maxBitrate: 0,
+        })
+        assert.strictEqual(p.videoBitrate, 4000000)
+        assert.strictEqual(p.audioBitrate, 192000)
+        assert.strictEqual(p.maxBitrate, 0)
+    })
+
+    it("未设置归 0（不出现 NaN/字符串穿透）", () => {
+        const p = new FFmpegPreset("t", {})
+        assert.strictEqual(p.videoBitrate, 0)
+        assert.strictEqual(p.audioBitrate, 0)
+        assert.strictEqual(p.maxBitrate, 0)
+    })
+})
 
 describe("preset schema", () => {
     before(async () => {

@@ -135,6 +135,29 @@ describe("buildEncoderArgs (av1/vp9 matrix + fallback)", () => {
         assert.ok(args.includes("-bufsize"))
     })
 
+    it("explicit maxBitrate overrides default bitrate×1.5 (cpu branch)", () => {
+        // 显式峰值码率直接使用，不再取 bitrate×1.5
+        const args = buildEncoderArgs("cpu", {
+            codecFamily: "h264",
+            quality: 24,
+            bitrate: 2000000,
+            maxBitrate: 4000000, // 显式声明峰值 4M，而非缺省 3M
+        })
+        assert.ok(args.includes("-b:v") && args[args.indexOf("-b:v") + 1] === "2000K")
+        assert.ok(args.includes("-maxrate") && args[args.indexOf("-maxrate") + 1] === "4000K")
+        assert.ok(args.includes("-bufsize") && args[args.indexOf("-bufsize") + 1] === "4000K")
+    })
+
+    it("maxBitrate falsy keeps default bitrate×1.5 (cpu branch)", () => {
+        const args = buildEncoderArgs("cpu", {
+            codecFamily: "h264",
+            quality: 24,
+            bitrate: 2000000,
+            maxBitrate: 0,
+        })
+        assert.ok(args.includes("-maxrate") && args[args.indexOf("-maxrate") + 1] === "3000K")
+    })
+
     it("forcedEncoder=av1_nvenc on cpu tier -> av1_nvenc with nvenc args", () => {
         const args = buildEncoderArgs("cpu", {
             codecFamily: "av1",

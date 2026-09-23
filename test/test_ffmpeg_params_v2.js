@@ -23,6 +23,7 @@ import {
     flattenFFArgs,
 } from "../lib/ffmpeg_build.js"
 import { TIERS, buildLayerArgs } from "../lib/hwaccel.js"
+import { calculateDstArgs } from "../lib/ffmpeg_plan.js"
 
 const cudaTier = TIERS.find((t) => t.name === "cuda")
 const cpuTier = TIERS.find((t) => t.name === "cpu")
@@ -283,5 +284,69 @@ describe("D2 — 探测命令与真实同构（buildLayerArgs 用 simple -af，�
         assert.ok(joined.includes("atempo=1.5"), `应含 atempo: ${joined}`)
         assert.ok(!joined.includes("-filter_complex"), "simple 路径不应有 -filter_complex")
         assert.ok(inputArgs.length === 0, "cpu 层无 hwaccel 输入参数")
+    })
+})
+
+describe("calculateDstArgs — 分辨率码率缩放（像素面积幂律 α=0.75）", () => {
+    const makePlanEntry = ({
+        width,
+        height,
+        bitrate,
+        videoBitrate,
+        dimension,
+        maxBitrate = 0,
+    }) => ({
+        path: "/tmp/in.mp4",
+        name: "in.mp4",
+        info: { video: { width, height, bitrate, framerate: 24, format: "hevc" } },
+        preset: { videoBitrate, maxBitrate, dimension, userArgs: {} },
+    })
+
+    it("预设档位与实际输出一致 → 码率不缩放（满分 1.0）", () => {
+        // 1080p 预设压 1080p 源：anchorPixels==dstPixels → scale=1
+        const args = calculateDstArgs(
+            makePlanEntry({
+                width: 1920,
+                height: 1080,
+                bitrate: 8_000_000,
+                videoBitrate: 4_000_000,
+                dimension: 1920,
+            }),
+        )
+        assert.strictEqual(args.dstVideoBitrate, 4_000_000)
+    })
+
+    it("4K 预设压 1080p 源 → 按像素比 0.25^0.75≈0.354 缩放", () => {
+        // anchorPixels=3840×2160, dstPixels=1920×1080 → 16000000×(0.25^0.75)≈5656854
+        const args = calculateDstArgs(
+            makePlanEntry({
+                width: 1920,
+                height: 1080,
+                bitrate: 8_000_000,
+                videoBitrate: 16_000_000,
+                dimension: 3840,
+            }),
+        )
+        const expected = Math.round(16_000_000 * 0.25 ** 0.75) // 5656854
+        assert.strictEqual(args.dstVideoBitrate, expected)
+    })
+
+    it("maxBitrate 与 videoBitrate 同比例缩放（显式声明时）", () => {
+        const args = calculateDstArgs(
+            makePlanEntry({
+                width: 1920,
+                height: 1080,
+                bitrate: 8_000_000,
+                videoBitrate: 16_000_000,
+                dimension: 3840,
+                maxBitrate: 24_000_000,
+            }),
+        )
+        // videoBitrate 已按 0.25^0.75 缩放
+        const scale = (1920 * 1080) / (3840 * 2160)
+        const expectedMax = Math.round(24_000_000 * scale ** 0.75)
+        assert.strictEqual(args.dstMaxBitrate, expectedMax)
+        // 峰值上限仍是平均码率的 1.5 倍关系（同一缩放系数）
+        assert.strictEqual(args.dstMaxBitrate, Math.round(args.dstVideoBitrate * 1.5))
     })
 })
