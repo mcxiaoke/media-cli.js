@@ -205,12 +205,11 @@ mediac ffmpeg ./video.mp4 --preset audio_extract --doit
 | 预设 | 输出 | 说明 |
 | ---- | ---- | ---- |
 | `audio_extract` | `.m4a` | 从视频提取音频（aac 源直拷，否则重编码） |
-| `aac_high` | `.m4a` | AAC CBR 320k |
+| `aac_high` | `.m4a` | AAC CBR 256k |
 | `aac_medium` | `.m4a` | AAC CBR 192k |
 | `aac_low` | `.m4a` | AAC CBR 128k |
-| `aac_he` | `.m4a` | HE-AAC，72k 低码率 |
-| `aac_vbr` | `.m4a` | VBR 等级 4 |
-| `aac_voice` | `.m4a` | HE-AAC，48k 人声 |
+| `aac_he` | `.m4a` | HE-AAC，96k 低码率 |
+| `aac_voice` | `.m4a` | AAC，48k 人声 |
 
 > 内置 AAC 预设默认使用 `libfdk_aac`（需 nonfree 构建）。若本机 ffmpeg 无该编码器，运行时会**自动降级到原生 `aac`**（严格模式下改为跳过该文件），详见 §9.7。
 

@@ -102,24 +102,6 @@ _base_aac_cbr:
     streamArgs: "-vn -map_metadata 0 -map_metadata:s:a 0:s:a"
     outputArgs: "-movflags +faststart -movflags use_metadata_tags"
 
-# AAC VBR 基础预设
-_base_aac_vbr:
-    format: ".m4a"
-    type: audio
-    prefix: ""
-    suffix: "_q{audioQuality}"
-    smartBitrate: false
-    videoArgs: ""
-    # VBR 质量等级: 1(最低) - 5(最高)
-    # 1: 20-32 kbps/channel (HE-AAC)
-    # 2: 32-40 kbps/channel (HE-AAC)
-    # 3: 48-56 kbps/channel (HE-AAC)
-    # 4: 64-72 kbps/channel (LC-AAC)
-    # 5: 96-112 kbps/channel (LC-AAC)
-    audioArgs: "-map 0:a -c:a aac -q:a {audioQuality}"
-    inputArgs: ""
-    streamArgs: "-vn -map_metadata 0 -map_metadata:s:a 0:s:a"
-    outputArgs: "-movflags +faststart -movflags use_metadata_tags"
 
 # ===========================================
 # H.264 视频预设（与内置同名，示例覆盖需 _override: true）
@@ -336,20 +318,12 @@ aac_he:
     audioBitrate: 72000 # 72 Kbps
     audioArgs: "-map 0:a -c:a aac -b:a {audioBitrateK}"
 
-# AAC VBR (可变码率)
-aac_vbr:
-    _override: true
-    extends: _base_aac_vbr
-    audioQuality: 4
-
 # AAC 人声 (极低码率，适合语音)
 aac_voice:
     _override: true
     extends: _base_aac_cbr
     smartBitrate: false
-    audioQuality: 1
-    audioBitrate: 48000 # 48 Kbps
-    audioArgs: "-map 0:a -c:a aac -b:a {audioBitrateK}"
+    audioBitrate: 48k # 48 Kbps
 
 # ===========================================
 # 码率参考表

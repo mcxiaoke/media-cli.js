@@ -446,8 +446,30 @@ async function collectInputEntries(argv, root, walkOpts) {
         return mf.parseFilelist(listPath, root)
     }
 
-    // 默认：遍历根目录
-    let fileEntries = await mf.walk(root, walkOpts)
+    // 输入为单个文件：直接封装单个条目，避免 mf.walk 对文件 scandir 报错
+    const rootStat = await fs.stat(root)
+    let fileEntries = []
+    if (rootStat.isFile()) {
+        const filter = walkOpts.entryFilter || Boolean
+        const entry = {
+            root: path.dirname(root),
+            name: path.basename(root),
+            path: root,
+            stats: rootStat,
+            ctime: rootStat.ctime || 0,
+            mtime: rootStat.mtime || 0,
+            size: rootStat.size || 0,
+            isDir: false,
+            isFile: true,
+            index: 0,
+        }
+        if (filter(entry)) {
+            fileEntries = [entry]
+        }
+    } else {
+        // 默认：遍历根目录
+        fileEntries = await mf.walk(root, walkOpts)
+    }
     // 处理额外目录参数
     if (argv.directories?.length > 0) {
         const extraDirs = new Set(argv.directories.map((d) => path.resolve(d)))
@@ -783,6 +805,7 @@ async function runFFmpegTasks({ tasks, testMode, preset, jobs }) {
     })
     let failedTasks = results.filter((r) => r && r.ffmpegFailed && !r.retryOnFailed)
     let rOKCount = 0
+    const retryOKTasks = []
     // 严格模式：跳过 CPU 降级重试（失败即失败，不允许自动降级）
     const strict = tasks[0]?.argv?.strict === true
     // testMode 下任务统一按 failed 收尾（见 runFFmpegCmd），但没有真正转码失败，
@@ -809,6 +832,7 @@ async function runFFmpegTasks({ tasks, testMode, preset, jobs }) {
                 const rt = await runFFmpegCmd(task, { showBar: true })
                 if (rt && rt.ok) {
                     rOKCount++
+                    retryOKTasks.push(rt)
                 }
             }
         }
@@ -836,6 +860,39 @@ async function runFFmpegTasks({ tasks, testMode, preset, jobs }) {
     if (skippedResults.length > 0) {
         log.showYellow(LOG_TAG, t("ffmpeg.strict.skip.count", { count: skippedResults.length }))
     }
+
+    // 转换成功后删除源文件：对转码成功且目标文件非空的文件执行安全删除
+    if (!testMode && tasks[0]?.argv?.deleteSourceFiles) {
+        const allSuccess = [...okResults, ...retryOKTasks].filter((r) => r && r.fileDst)
+        if (allSuccess.length > 0) {
+            log.logInfo(
+                LOG_TAG,
+                `DeleteSource: removing ${allSuccess.length} converted source file(s)...`,
+            )
+            await pMap(
+                allSuccess,
+                async (entry) => {
+                    const st = await fs.stat(entry.fileDst).catch(() => null)
+                    if (st && st.size > 0) {
+                        const dest = await helper.safeRemove(entry.path)
+                        if (dest) {
+                            log.logWarn(
+                                LOG_TAG,
+                                `SafeDel ${entry.index + 1}/${entry.total} ${entry.path}`,
+                            )
+                        } else {
+                            log.logError(
+                                LOG_TAG,
+                                `SafeDelFailed ${entry.index + 1}/${entry.total} ${entry.path}`,
+                            )
+                        }
+                    }
+                },
+                { concurrency: config.JOBS.ioBound() },
+            )
+        }
+    }
+
     !testMode &&
         log.logSuccess(
             LOG_TAG,
@@ -1013,8 +1070,8 @@ async function prepareFFmpegCmd(entry) {
             log.showGray(logTag, `${ipx} Override: <${helper.pathShort(fileDst)}>`)
         }
         // 文件名变了，带有前缀或后缀
-        // 才需要判断同目录的文件是否存在
-        if (prefix || suffix) {
+        // 仅在未指定输出目录（输出在源同目录）时，才需要判断同目录同名文件是否存在
+        if (!argv.output && (prefix || suffix)) {
             if (await fs.pathExists(fileDstSameDir)) {
                 if (!argv.override) {
                     log.showYellow(

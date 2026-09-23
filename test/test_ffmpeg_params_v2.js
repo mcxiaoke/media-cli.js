@@ -349,4 +349,100 @@ describe("calculateDstArgs — 分辨率码率缩放（像素面积幂律 α=0.7
         // 峰值上限仍是平均码率的 1.5 倍关系（同一缩放系数）
         assert.strictEqual(args.dstMaxBitrate, Math.round(args.dstVideoBitrate * 1.5))
     })
+
+    it("CQ 模式下（未设置 videoBitrate），dstVideoBitrate 保持为 0", () => {
+        const args = calculateDstArgs(
+            makePlanEntry({
+                width: 1920,
+                height: 1080,
+                bitrate: 8_000_000,
+                videoBitrate: 0,
+                dimension: 1920,
+            }),
+        )
+        assert.strictEqual(args.dstVideoBitrate, 0, "dstVideoBitrate must stay 0 for CQ mode")
+    })
+})
+
+describe("2026-09-23 修复验证", () => {
+    it("CQ 模式在 createFFmpegArgs 中生成 -cq 或 -crf，且不输出目标正数码率", () => {
+        const entry = makeEntry({
+            dstArgs: {
+                dstVideoBitrate: 0,
+                dstVideoQuality: 24,
+                srcVideoCodec: "h264",
+                srcAudioCodec: "aac",
+            },
+        })
+        const preset = presetOf({
+            videoCodecFamily: "hevc",
+            videoQuality: 24,
+            videoBitrate: 0,
+        })
+        const plan = makeHwPlan(cudaTier)
+        const res = createFFmpegArgs({ ...entry, preset }, plan)
+        const cmd = flattenFFArgs(res.args)
+        assert.ok(cmd.includes("-cq 29") || cmd.includes("-cq"), "must contain -cq")
+        assert.ok(cmd.includes("-b:v 0"), "CQ mode must set -b:v 0")
+    })
+
+    it("音频 metadata tags 保持一维 flat 参数，不生成带逗号的异常 token", () => {
+        const entry = makeEntry({
+            path: "/tmp/song.flac",
+            name: "song.flac",
+            tags: {
+                title: "Track Title",
+                artist: "Artist Name",
+            },
+        })
+        const preset = presetOf({
+            type: "audio",
+            audioArgs: "-c:a aac -b:a 128k",
+        })
+        const plan = makeHwPlan(cpuTier)
+        const res = createFFmpegArgs({ ...entry, preset }, plan)
+        const middle = res.args[1]
+        for (const item of middle) {
+            assert.ok(!Array.isArray(item), "middleArgs must not contain nested arrays")
+        }
+        const cmd = flattenFFArgs(res.args)
+        assert.ok(cmd.includes("-metadata title=Track Title"), "must have proper title tag")
+        assert.ok(cmd.includes("-metadata artist=Artist Name"), "must have proper artist tag")
+        assert.ok(!cmd.includes("-metadata,title="), "must not have comma-joined tag")
+    })
+
+    it("纯音频任务不输出 -c:v 视频编码参数", () => {
+        const entry = makeEntry()
+        const preset = presetOf({
+            type: "audio",
+            audioArgs: "-c:a aac -b:a 128k",
+        })
+        const plan = makeHwPlan(cpuTier)
+        const res = createFFmpegArgs({ ...entry, preset }, plan)
+        const cmd = flattenFFArgs(res.args)
+        assert.ok(!cmd.includes("-c:v"), "audio preset must not include -c:v")
+        assert.ok(!cmd.includes("libx264"), "audio preset must not include libx264")
+    })
+
+    it("videoCodec=copy 自动将 videoCopy 置为 true 并清空滤镜", () => {
+        const preset = presetsDefault.createFromArgv({
+            preset: "hevc_2k",
+            videoCodec: "copy",
+        })
+        assert.strictEqual(preset.userArgs.videoCopy, true)
+        assert.strictEqual(preset.filters, "")
+    })
+
+    it("applyFfargs 允许覆盖默认 false 的布尔选项", () => {
+        const argv = {
+            videoCopy: false,
+            audioCopy: false,
+        }
+        const merged = presetsDefault.applyFfargs(argv, {
+            videoCopy: true,
+            audioCopy: true,
+        })
+        assert.strictEqual(merged.videoCopy, true)
+        assert.strictEqual(merged.audioCopy, true)
+    })
 })

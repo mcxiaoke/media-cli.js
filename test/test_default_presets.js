@@ -43,7 +43,6 @@ const MUST_EXIST_PRESETS = [
     "aac_medium",
     "aac_low",
     "aac_he",
-    "aac_vbr",
     "aac_voice",
 ]
 
