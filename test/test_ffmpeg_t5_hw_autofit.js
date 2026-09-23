@@ -167,6 +167,53 @@ describe("buildEncoderArgs (av1/vp9 matrix + fallback)", () => {
         assert.strictEqual(args[1], "av1_nvenc")
         assert.ok(args.includes("-cq"))
     })
+
+    it("VMAF 等值偏移接线：videoQuality 按各自 codec 的 CPU base + 同 codec 内硬件偏移自动补偿", () => {
+        // h264：cpu base=0
+        const x264 = buildEncoderArgs("cpu", { codecFamily: "h264", quality: 24 })
+        assert.ok(x264.includes("-crf") && x264[x264.indexOf("-crf") + 1] === "24")
+        // hevc cpu base=0（预设 quality 就是 x265 CRF）
+        const x265 = buildEncoderArgs("cpu", { codecFamily: "hevc", quality: 24 })
+        assert.ok(x265.includes("-crf") && x265[x265.indexOf("-crf") + 1] === "24")
+        // hw-hevc：同 codec 内 +5 → 24+5=29（hevc_nvenc 用 -cq）
+        const hwHevc = buildEncoderArgs("cuda", { codecFamily: "hevc", quality: 24 })
+        assert.strictEqual(hwHevc[1], "hevc_nvenc")
+        assert.ok(hwHevc.includes("-cq") && hwHevc[hwHevc.indexOf("-cq") + 1] === "29")
+        // hw-h264：同 codec 内 +7 → 24+7=31
+        const hwH264 = buildEncoderArgs("cuda", { codecFamily: "h264", quality: 24 })
+        assert.strictEqual(hwH264[1], "h264_nvenc")
+        assert.ok(hwH264.includes("-cq") && hwH264[hwH264.indexOf("-cq") + 1] === "31")
+        // av1 cpu base=0（svtav1 CRF 直接用原值，不再 +19）
+        const cpuAv1 = buildEncoderArgs("cpu", { codecFamily: "av1", quality: 24 })
+        assert.ok(cpuAv1.includes("-crf") && cpuAv1[cpuAv1.indexOf("-crf") + 1] === "24")
+    })
+
+    it("质量模式(CQ) + 显式 maxBitrate → 追加 -maxrate/-bufsize 峰值封顶", () => {
+        // 纯质量（无 bitrate）+ maxBitrate：crf 保持，追加 maxrate/bufsize
+        const cpu = buildEncoderArgs("cpu", {
+            codecFamily: "h264",
+            quality: 24,
+            maxBitrate: 6000000,
+        })
+        assert.ok(cpu.includes("-crf") && cpu[cpu.indexOf("-crf") + 1] === "24")
+        assert.ok(cpu.includes("-maxrate") && cpu[cpu.indexOf("-maxrate") + 1] === "6000K")
+        assert.ok(cpu.includes("-bufsize") && cpu[cpu.indexOf("-bufsize") + 1] === "6000K")
+        // 有目标码率时走 VBR，不重复触发本 CQ 封顶块
+        const vbr = buildEncoderArgs("cpu", {
+            codecFamily: "h264",
+            quality: 24,
+            bitrate: 2000000,
+            maxBitrate: 6000000,
+        })
+        assert.ok(vbr.includes("-b:v") && vbr[vbr.indexOf("-b:v") + 1] === "2000K")
+        // amf 无卡未实证：只发 -maxrate，不发 -bufsize
+        const amf = buildEncoderArgs("amf", {
+            codecFamily: "h264",
+            quality: 24,
+            maxBitrate: 6000000,
+        })
+        assert.ok(amf.includes("-maxrate") && !amf.includes("-bufsize"))
+    })
 })
 
 describe("buildLayerArgs -> buildProbeArgs bitrate passthrough", () => {
