@@ -56,7 +56,7 @@ _base_h264:
     videoCodecFamily: "h264"
     audioCodec: "aac"
     inputArgs: ""
-    streamArgs: "-map_metadata 0 -map_metadata:s:v 0:s:v"
+    streamArgs: "-map_metadata 0"
     outputArgs: "-movflags +faststart -movflags use_metadata_tags"
     # 缩放滤镜占位符，由 tier 层替换为 scale_cuda / scale_qsv / vpp_amf / scale
     filters: "{scaleFilter}"
@@ -76,7 +76,7 @@ _base_hevc:
     videoCodecFamily: "hevc"
     audioCodec: "aac"
     inputArgs: ""
-    streamArgs: "-map_metadata 0 -map_metadata:s:v 0:s:v"
+    streamArgs: "-map_metadata 0"
     outputArgs: "-movflags +faststart -movflags use_metadata_tags"
     filters: "{scaleFilter}"
 
@@ -91,7 +91,7 @@ _base_aac_cbr:
     smartBitrate: true
     audioCodec: "aac"
     inputArgs: ""
-    streamArgs: "-vn -map 0:a -map_metadata 0 -map_metadata:s:a 0:s:a"
+    streamArgs: "-vn -map 0:a -map_metadata 0"
     outputArgs: "-movflags +faststart -movflags use_metadata_tags"
 
 # ===========================================
@@ -232,7 +232,7 @@ _base_av1:
     videoCodecFamily: "av1"
     audioCodec: "aac"
     inputArgs: ""
-    streamArgs: "-map_metadata 0 -map_metadata:s:v 0:s:v"
+    streamArgs: "-map_metadata 0"
     outputArgs: "-movflags +faststart -movflags use_metadata_tags"
     filters: "{scaleFilter}"
 
@@ -354,7 +354,7 @@ audio_extract:
     prefix: ""
     suffix: "_audio"
     audioCodec: "copy"
-    streamArgs: "-vn -map 0:a:0 -map_metadata 0 -map_metadata:s:a 0:s:a"
+    streamArgs: "-vn -map 0:a:0 -map_metadata 0"
 
 # AAC 高码率 (256 Kbps)
 aac_high:

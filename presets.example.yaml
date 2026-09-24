@@ -57,7 +57,7 @@ _base_h264:
     # 缩放滤镜占位符，由 tier 层替换为 scale_cuda / scale_qsv / vpp_amf / scale
     filters: "{scaleFilter}"
     inputArgs: ""
-    streamArgs: "-map_metadata 0 -map_metadata:s:v 0:s:v"
+    streamArgs: "-map_metadata 0"
     outputArgs: "-movflags +faststart -movflags use_metadata_tags"
 
 # H.265/HEVC 基础预设 (输出 codec 族: hevc)
@@ -74,7 +74,7 @@ _base_hevc:
     audioCodec: "aac"
     filters: "{scaleFilter}"
     inputArgs: ""
-    streamArgs: "-map_metadata 0 -map_metadata:s:v 0:s:v"
+    streamArgs: "-map_metadata 0"
     outputArgs: "-movflags +faststart -movflags use_metadata_tags"
 
 # HEVC QSV 基础预设示例
@@ -94,7 +94,7 @@ _base_aac_cbr:
     smartBitrate: true
     audioCodec: "aac"
     inputArgs: ""
-    streamArgs: "-vn -map 0:a -map_metadata 0 -map_metadata:s:a 0:s:a"
+    streamArgs: "-vn -map 0:a -map_metadata 0"
     outputArgs: "-movflags +faststart -movflags use_metadata_tags"
 
 
@@ -281,7 +281,7 @@ audio_extract:
     suffix: "_audio"
     audioBitrate: 192000
     audioCodec: "copy"
-    streamArgs: "-vn -map 0:a:0 -map_metadata 0 -map_metadata:s:a 0:s:a"
+    streamArgs: "-vn -map 0:a:0 -map_metadata 0"
 
 # AAC 高码率 (320 Kbps)
 aac_high:

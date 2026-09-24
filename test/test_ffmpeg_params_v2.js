@@ -497,3 +497,50 @@ describe("Metadata 清理与纯净标题", () => {
         assert.ok(!cmd.includes("copyright="), `不应在元数据中强制覆盖 copyright: ${cmd}`)
     })
 })
+
+describe("流元数据保护与过期统计清理 (BPS/多轨语言保留)", () => {
+    it("视频重编码时显式清空 BPS、NUMBER_OF_BYTES 等过期统计，防止 MediaInfo 误读旧码率", () => {
+        const entry = makeEntry({
+            preset: presetOf({ type: "video" }),
+        })
+        const cmd = flattenFFArgs(createFFmpegArgs(entry, makeHwPlan(cpuTier)).args)
+        assert.ok(cmd.includes("-metadata:s:v BPS="), `应清理视频流过期 BPS: ${cmd}`)
+        assert.ok(
+            cmd.includes("-metadata:s:v NUMBER_OF_BYTES="),
+            `应清理视频流过期字节统计: ${cmd}`,
+        )
+        assert.ok(
+            cmd.includes("-metadata:s:v NUMBER_OF_FRAMES="),
+            `应清理视频流过期帧数统计: ${cmd}`,
+        )
+    })
+
+    it("音频重编码时清空音频流过期 BPS 统计，音频复制 (copy) 时保留", () => {
+        const entryReencode = makeEntry({
+            preset: presetOf({ audioCodec: "aac", audioCopy: false }),
+        })
+        const cmdRe = flattenFFArgs(createFFmpegArgs(entryReencode, makeHwPlan(cpuTier)).args)
+        assert.ok(cmdRe.includes("-metadata:s:a BPS="), `音频重编码时应清理音频 BPS: ${cmdRe}`)
+
+        const entryCopy = makeEntry({
+            preset: presetOf({ audioCodec: "copy", audioCopy: true }),
+        })
+        const cmdCopy = flattenFFArgs(createFFmpegArgs(entryCopy, makeHwPlan(cpuTier)).args)
+        assert.ok(
+            !cmdCopy.includes("-metadata:s:a BPS="),
+            `音频 copy 时不应清理音频 BPS: ${cmdCopy}`,
+        )
+    })
+
+    it("防御性过滤 streamArgs 中的 -map_metadata:s:v 与 -map_metadata:s:a，防止禁用流元数据继承", () => {
+        const entry = makeEntry({
+            preset: presetOf({
+                streamArgs: "-map_metadata 0 -map_metadata:s:v 0:s:v -map_metadata:s:a 0:s:a",
+            }),
+        })
+        const cmd = flattenFFArgs(createFFmpegArgs(entry, makeHwPlan(cpuTier)).args)
+        assert.ok(cmd.includes("-map_metadata 0"), `应保留全局元数据映射: ${cmd}`)
+        assert.ok(!cmd.includes("-map_metadata:s:v"), `有害的 -map_metadata:s:v 应被过滤: ${cmd}`)
+        assert.ok(!cmd.includes("-map_metadata:s:a"), `有害的 -map_metadata:s:a 应被过滤: ${cmd}`)
+    })
+})
