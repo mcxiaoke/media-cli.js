@@ -2,3 +2,5 @@ node_modules/
 out/
 release/
 *.log
+test-results/
+temp/

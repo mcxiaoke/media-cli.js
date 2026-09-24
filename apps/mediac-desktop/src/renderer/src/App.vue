@@ -1,571 +1,598 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from "vue"
-import type {
-  EnvironmentSummary,
-  PublicPlanSnapshot,
-} from "../../shared/contracts"
+import { ref, computed, onMounted, onUnmounted } from "vue"
+import HeaderBar from "./components/HeaderBar.vue"
+import GlobalDropMask from "./components/GlobalDropMask.vue"
+import ConfigPanel from "./components/ConfigPanel.vue"
+import HeroEmpty from "./components/HeroEmpty.vue"
+import TaskTable from "./components/TaskTable.vue"
+import ExecutionBoard from "./components/ExecutionBoard.vue"
+import TaskInspectorDrawer from "./components/TaskInspectorDrawer.vue"
+import LogDrawer from "./components/LogDrawer.vue"
+import SettingsModal from "./components/SettingsModal.vue"
 
-const version = ref("loading")
-const environment = ref<EnvironmentSummary | null>(null)
-const selectedInputs = ref<string[]>([])
-const outputDirectory = ref("")
-const presetName = ref("hevc_2k")
-const outputMode = ref<"tree" | "dir" | "file">("dir")
-const fps = ref(0)
-const speed = ref(0)
-const dimension = ref(0)
-const videoBitrate = ref("")
-const audioBitrate = ref("")
-const override = ref(false)
-const strict = ref(false)
-const deleteSource = ref(false)
-const plan = ref<PublicPlanSnapshot | null>(null)
-const status = ref("IDLE")
-const progress = ref<Record<string, unknown> | null>(null)
-const events = ref<Array<Record<string, unknown>>>([])
-const errorMessage = ref("")
-const busy = ref(false)
-let unsubscribe: (() => void) | null = null
+import { useEnvStore } from "./stores/env"
+import { useConfigStore } from "./stores/config"
+import { usePlanStore } from "./stores/plan"
+import { useLogStore } from "./stores/log"
+import { formatSize, formatDuration } from "./utils/format"
 
-function errorText(error: unknown) {
-  return error instanceof Error ? error.message : String(error)
+const envStore = useEnvStore()
+const configStore = useConfigStore()
+const planStore = usePlanStore()
+const logStore = useLogStore()
+
+// Sidebar resizer & collapse state
+const sidebarWidth = ref(380)
+const isSidebarCollapsed = ref(false)
+const isResizing = ref(false)
+const showSettings = ref(false)
+
+function toggleSidebar() {
+  isSidebarCollapsed.value = !isSidebarCollapsed.value
 }
 
-function addInputs(paths: string[]) {
-  selectedInputs.value = [...new Set([...selectedInputs.value, ...paths.filter(Boolean)])]
-  errorMessage.value = ""
-}
+function startResizing(e: MouseEvent) {
+  isResizing.value = true
+  const startX = e.clientX
+  const startW = sidebarWidth.value
 
-function removeInput(index: number) {
-  selectedInputs.value.splice(index, 1)
-  if (selectedInputs.value.length === 0) {
-    plan.value = null
-    status.value = "IDLE"
+  function onMouseMove(moveEvent: MouseEvent) {
+    const delta = moveEvent.clientX - startX
+    const newW = Math.max(320, Math.min(560, startW + delta))
+    sidebarWidth.value = newW
   }
-}
 
-async function chooseInputs(mode: "file" | "directory") {
-  try {
-    const result = await window.api.selectFiles({ mode, multiple: mode === "file" })
-    addInputs(result.paths)
-  } catch (error) {
-    errorMessage.value = errorText(error)
+  function onMouseUp() {
+    isResizing.value = false
+    window.removeEventListener("mousemove", onMouseMove)
+    window.removeEventListener("mouseup", onMouseUp)
   }
+
+  window.addEventListener("mousemove", onMouseMove)
+  window.addEventListener("mouseup", onMouseUp)
 }
 
-function handleDrop(event: DragEvent) {
-  const files = Array.from(event.dataTransfer?.files || [])
-  const paths = files
-    .map((file) => {
-      try {
-        return window.api.getPathForFile(file)
-      } catch {
-        return ""
-      }
-    })
-    .filter(Boolean)
-  addInputs(paths)
-}
+// Right toolbar stats
+const tbStatsText = computed(() => {
+  if (planStore.tasks.length === 0) return "尚无任务计划"
+  const count = planStore.tasks.length
+  const size = formatSize(planStore.planSnapshot?.totalSize || 0)
+  const duration = formatDuration(planStore.planSnapshot?.totalDuration || 0)
+  return `${count} 个任务 · ${size} · ${duration}`
+})
 
-async function chooseOutput() {
-  try {
-    const result = await window.api.selectFiles({ mode: "directory", multiple: false })
-    outputDirectory.value = result.paths[0] || ""
-  } catch (error) {
-    errorMessage.value = errorText(error)
-  }
-}
-
-async function refreshSnapshot() {
-  try {
-    const snapshot = await window.api.getTaskSnapshot()
-    status.value = String(snapshot.status || "IDLE")
-    plan.value = (snapshot.plan as PublicPlanSnapshot | null) || null
-  } catch (error) {
-    errorMessage.value = errorText(error)
-  }
-}
-
+// Create / Update plan
 async function createPlan() {
-  if (selectedInputs.value.length === 0) {
-    errorMessage.value = "请先选择至少一个文件或目录"
+  if (configStore.inputs.length === 0) {
+    alert("请先添加至少一个媒体文件或目录")
     return
   }
-  if (deleteSource.value && !window.confirm("转码成功后要删除源文件，确定继续吗？")) {
-    return
+  if (configStore.adv.deleteSource) {
+    const ok = window.confirm(
+      "【高危确认】转码成功且产物校验通过后，源文件将被移入 Mediac 安全回收目录（~/.mediac/deleted/日期），可随时恢复。请确认是否继续？"
+    )
+    if (!ok) return
   }
 
-  busy.value = true
-  errorMessage.value = ""
-  status.value = "PLANNING"
+  planStore.status = "PLANNING"
   try {
-    plan.value = await window.api.createPlan({
-      inputs: selectedInputs.value,
-      output: outputDirectory.value,
-      preset: presetName.value,
+    const payload = JSON.parse(JSON.stringify({
+      inputs: [...configStore.inputs],
+      output: configStore.outputDir || undefined,
+      preset: configStore.preset,
       options: {
-        outputMode: outputMode.value,
-        fps: fps.value > 0 ? fps.value : undefined,
-        speed: speed.value > 0 ? speed.value : undefined,
-        dimension: dimension.value > 0 ? dimension.value : undefined,
-        videoBitrate: videoBitrate.value.trim() || undefined,
-        audioBitrate: audioBitrate.value.trim() || undefined,
-        override: override.value,
-        strict: strict.value,
-        deleteSourceFiles: deleteSource.value,
-        ...(deleteSource.value ? { deleteSourceConfirmed: true } : {}),
+        outputMode: configStore.outputMode,
+        prefix: configStore.prefix || undefined,
+        suffix: configStore.suffix || undefined,
+        fps: configStore.tune.fps > 0 ? configStore.tune.fps : undefined,
+        speed: configStore.tune.speed > 0 ? configStore.tune.speed : undefined,
+        dimension: configStore.tune.dimension > 0 ? configStore.tune.dimension : undefined,
+        videoBitrate: configStore.tune.bitrate.trim() || undefined,
+        videoQuality: configStore.tune.quality > 0 ? configStore.tune.quality : undefined,
+        audioCodec: configStore.tune.audioCodec || undefined,
+        audioBitrate: configStore.tune.audioBitrate || undefined,
+        hwaccel: configStore.adv.hwaccel !== "auto" ? configStore.adv.hwaccel : undefined,
+        decodeMode: configStore.adv.decodeMode !== "auto" ? configStore.adv.decodeMode : undefined,
+        jobs: configStore.adv.jobs > 1 ? configStore.adv.jobs : undefined,
+        override: configStore.adv.override,
+        anime: configStore.adv.anime,
+        strict: configStore.adv.strict,
+        deleteSourceFiles: configStore.adv.deleteSource,
+        deleteSourceConfirmed: configStore.adv.deleteSource,
       },
+    }))
+    const plan = await window.api.createPlan(payload)
+    planStore.setPlan(plan)
+    logStore.append({
+      level: "INFO",
+      message: `计划已生成：共 ${plan.totalTasks} 个任务，预估耗时 ${plan.totalDuration.toFixed(1)} 秒`,
+      timestamp: new Date().toLocaleTimeString(),
     })
-    status.value = "READY"
-  } catch (error) {
-    status.value = "FAILED"
-    errorMessage.value = errorText(error)
-    events.value = [
-      ...events.value,
-      { type: "error", message: errorMessage.value, timestamp: new Date().toISOString() },
-    ]
-  } finally {
-    busy.value = false
+  } catch (error: any) {
+    planStore.status = "FAILED"
+    const msg = error instanceof Error ? error.message : String(error)
+    alert(`生成计划失败: ${msg}`)
+    logStore.append({
+      level: "ERROR",
+      message: `生成计划失败: ${msg}`,
+      timestamp: new Date().toLocaleTimeString(),
+    })
   }
 }
 
+// Start execution
 async function startExecution() {
-  if (!plan.value) return
-  busy.value = true
-  errorMessage.value = ""
-  status.value = "RUNNING"
+  if (planStore.tasks.length === 0) return
+  planStore.status = "RUNNING"
+  planStore.overallPercent = 0
+  const selected = Array.from(planStore.selectedIds)
   try {
-    await window.api.startExecution()
-  } catch (error) {
-    status.value = "FAILED"
-    errorMessage.value = errorText(error)
-  } finally {
-    busy.value = false
+    await window.api.startExecution(selected.length > 0 ? selected : undefined)
+    logStore.append({
+      level: "INFO",
+      message: `开始执行转码任务（共 ${selected.length || planStore.tasks.length} 项）`,
+      timestamp: new Date().toLocaleTimeString(),
+    })
+  } catch (error: any) {
+    planStore.status = "FAILED"
+    const msg = error instanceof Error ? error.message : String(error)
+    logStore.append({
+      level: "ERROR",
+      message: `执行失败: ${msg}`,
+      timestamp: new Date().toLocaleTimeString(),
+    })
   }
 }
 
+// Stop execution
 async function stopExecution() {
+  planStore.status = "STOPPING"
   try {
     await window.api.stopExecution()
-  } catch (error) {
-    errorMessage.value = errorText(error)
+    logStore.append({
+      level: "WARN",
+      message: "收到终止信号，正在中止转码进程…",
+      timestamp: new Date().toLocaleTimeString(),
+    })
+  } catch (error: any) {
+    logStore.append({
+      level: "ERROR",
+      message: `终止失败: ${error?.message || error}`,
+      timestamp: new Date().toLocaleTimeString(),
+    })
+  }
+}
+
+// Clear all tasks & inputs
+function clearAll() {
+  if (planStore.status === "RUNNING") return
+  configStore.clearInputs()
+  planStore.setPlan(null)
+}
+
+let unsubscribeEvents: (() => void) | null = null
+
+function handleKeydown(e: KeyboardEvent) {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "b") {
+    e.preventDefault()
+    toggleSidebar()
+  } else if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+    e.preventDefault()
+    if (planStore.status !== "RUNNING" && planStore.status !== "PLANNING") {
+      void createPlan()
+    }
   }
 }
 
 onMounted(async () => {
-  unsubscribe = window.api.onEngineEvent((event) => {
-    events.value = [...events.value.slice(-99), event]
-    if (event.type === "task.progress") progress.value = event
-    if (event.type === "session.summary") {
-      const summary = event.summary as Record<string, unknown> | undefined
-      status.value = summary?.isCancelled ? "STOPPED" : "COMPLETED"
-      void refreshSnapshot()
+  window.addEventListener("keydown", handleKeydown)
+
+  // Initialize theme
+  const savedTheme = localStorage.getItem("mediac_theme") || "dark"
+  document.documentElement.setAttribute("data-theme", savedTheme)
+
+  // Initialize environment & version
+  await envStore.fetchEnv()
+  if (envStore.summary?.presets && envStore.summary.presets.length > 0) {
+    if (!envStore.summary.presets.some((p) => p.name === configStore.preset)) {
+      configStore.preset = envStore.summary.presets[0].name
+    }
+  }
+
+  // Subscribe to engine IPC events
+  unsubscribeEvents = window.api.onEngineEvent((event: any) => {
+    if (event.type === "task.log") {
+      logStore.append({
+        level: event.level || "INFO",
+        message: event.message || "",
+        taskId: event.taskId,
+        timestamp: event.timestamp || new Date().toLocaleTimeString(),
+      })
+    } else if (event.type === "task.started") {
+      planStore.updateTaskStatus(event.taskId, "running")
+    } else if (event.type === "task.progress") {
+      planStore.updateTaskProgress(event.taskId, event.percent || 0, event.speed)
+      if (typeof event.percent === "number") {
+        planStore.overallPercent = event.percent
+      }
+    } else if (event.type === "task.done") {
+      planStore.updateTaskStatus(event.taskId, "success")
+    } else if (event.type === "task.failed") {
+      planStore.updateTaskStatus(event.taskId, "failed", event.error)
+    } else if (event.type === "task.skipped") {
+      planStore.updateTaskStatus(event.taskId, "skipped", event.reason)
+    } else if (event.type === "task.cancelled") {
+      planStore.updateTaskStatus(event.taskId, "cancelled")
+    } else if (event.type === "session.summary") {
+      const summary = event.summary as any
+      planStore.status = summary?.isCancelled ? "STOPPED" : "COMPLETED"
+      if (window.api?.notify) {
+        void window.api.notify(
+          "转码任务完成",
+          `共处理 ${summary?.total || 0} 个文件，成功 ${summary?.succeeded || 0} 个`
+        )
+      }
     }
   })
-
-  try {
-    const [appVersion, env] = await Promise.all([
-      window.api.getAppVersion(),
-      window.api.getEnvironment(),
-    ])
-    version.value = appVersion
-    environment.value = env
-    if (env.presets.length > 0 && !env.presets.some((preset) => preset.name === presetName.value)) {
-      presetName.value = env.presets[0].name
-    }
-    await refreshSnapshot()
-  } catch (error) {
-    status.value = "FAILED"
-    errorMessage.value = errorText(error)
-  }
 })
 
-onUnmounted(() => unsubscribe?.())
+onUnmounted(() => {
+  window.removeEventListener("keydown", handleKeydown)
+  unsubscribeEvents?.()
+})
 </script>
 
 <template>
-  <main class="shell">
-    <header class="header">
-      <div>
-        <p class="eyebrow">MEDIACLI DESKTOP</p>
-        <h1>FFmpeg workspace</h1>
-        <p class="muted">Shared FFmpeg Engine · v{{ version }}</p>
-      </div>
-      <span class="status" :class="`status-${status.toLowerCase()}`">{{ status }}</span>
-    </header>
+  <div class="app-container" data-testid="app-container">
+    <!-- 全域拖拽高亮蒙层 -->
+    <GlobalDropMask />
 
-    <p v-if="errorMessage" class="error-banner">{{ errorMessage }}</p>
+    <!-- 顶栏 HeaderBar -->
+    <HeaderBar
+      @toggle-sidebar="toggleSidebar"
+      @open-settings="showSettings = true"
+    />
 
-    <section
-      class="dropzone"
-      @dragover.prevent
-      @drop.prevent="handleDrop"
-      @click="chooseInputs('file')"
-    >
-      <strong>拖放媒体文件或目录到这里</strong>
-      <span>也可以点击选择文件</span>
-    </section>
+    <!-- 主工作区双栏布局 -->
+    <div class="layout">
+      <!-- 左侧配置侧栏 -->
+      <aside
+        class="side"
+        :class="{ collapsed: isSidebarCollapsed }"
+        :style="{ width: isSidebarCollapsed ? '0px' : `${sidebarWidth}px` }"
+      >
+        <ConfigPanel v-show="!isSidebarCollapsed" />
+      </aside>
 
-    <section class="card">
-      <div class="toolbar">
-        <button type="button" @click="chooseInputs('file')">选择媒体文件</button>
-        <button type="button" @click="chooseInputs('directory')">选择输入目录</button>
-        <button type="button" @click="chooseOutput">选择输出目录</button>
-      </div>
+      <!-- 拖拽手柄 -->
+      <div
+        v-show="!isSidebarCollapsed"
+        class="side-resizer"
+        :class="{ drag: isResizing }"
+        data-testid="side-resizer"
+        title="拖动调整左栏宽度"
+        @mousedown="startResizing"
+      ></div>
 
-      <div v-if="selectedInputs.length" class="input-list">
-        <div v-for="(input, index) in selectedInputs" :key="input" class="input-row">
-          <span :title="input">{{ input }}</span>
-          <button type="button" class="link-button" @click="removeInput(index)">移除</button>
+      <!-- 右侧主任务区 -->
+      <main class="main" data-testid="main-panel">
+        <!-- 任务操作工具栏 -->
+        <div class="toolbar" data-testid="toolbar">
+          <div class="tb-left">
+            <button
+              class="btn"
+              :class="{
+                'btn-primary pulse': planStore.status === 'STALE',
+                'btn-secondary': planStore.status !== 'STALE'
+              }"
+              :disabled="planStore.status === 'RUNNING' || planStore.status === 'PLANNING'"
+              data-testid="btn-plan"
+              @click="createPlan"
+            >
+              <svg class="i sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7">
+                <circle cx="11" cy="11" r="7" />
+                <path d="M20 20l-3.5-3.5" />
+              </svg>
+              <span>{{ planStore.status === "PLANNING" ? "分析中…" : (planStore.status === "STALE" ? "更新计划" : "生成计划") }}</span>
+            </button>
+
+            <button
+              class="btn btn-primary"
+              :disabled="planStore.status === 'RUNNING' || planStore.tasks.length === 0 || planStore.status === 'STALE' || planStore.status === 'PLANNING'"
+              data-testid="btn-start"
+              @click="startExecution"
+            >
+              <svg class="i sm" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M8 5.5v13l11-6.5z" />
+              </svg>
+              <span>开始转码</span>
+            </button>
+
+            <button
+              class="btn btn-danger"
+              :disabled="planStore.status !== 'RUNNING' && planStore.status !== 'STOPPING'"
+              data-testid="btn-stop"
+              @click="stopExecution"
+            >
+              <svg class="i sm" viewBox="0 0 24 24" fill="currentColor">
+                <rect x="6" y="6" width="12" height="12" rx="1.5" />
+              </svg>
+              <span>终止</span>
+            </button>
+
+            <button
+              class="btn btn-ghost"
+              :disabled="planStore.status === 'RUNNING' || (configStore.inputs.length === 0 && planStore.tasks.length === 0)"
+              data-testid="btn-clear"
+              @click="clearAll"
+            >
+              清空任务
+            </button>
+
+            <!-- 参数变更 STALE 告警条 -->
+            <div v-if="planStore.status === 'STALE'" class="stale-alert" data-testid="stale-alert">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" y1="8" x2="12" y2="12" />
+                <line x1="12" y1="16" x2="12.01" y2="16" />
+              </svg>
+              <span>参数已变更，请点击「更新计划」</span>
+            </div>
+          </div>
+
+          <div class="tb-right" data-testid="tb-stats">
+            <span class="muted">{{ tbStatsText }}</span>
+          </div>
         </div>
-      </div>
 
-      <div class="form-grid">
-        <label>
-          Preset
-          <select v-model="presetName">
-            <option v-for="preset in environment?.presets || []" :key="preset.name" :value="preset.name">
-              {{ preset.name }} · {{ preset.type }} · {{ preset.format }}
-            </option>
-          </select>
-        </label>
-        <label>
-          输出模式
-          <select v-model="outputMode">
-            <option value="tree">tree · 保持目录树</option>
-            <option value="dir">dir · 保留父目录名</option>
-            <option value="file">file · 直接写入输出目录</option>
-          </select>
-        </label>
-        <label>
-          FPS（0 = 保持源帧率）
-          <input v-model.number="fps" type="number" min="0" step="1" />
-        </label>
-        <label>
-          Speed（0 = 不变速）
-          <input v-model.number="speed" type="number" min="0" max="2" step="0.05" />
-        </label>
-        <label>
-          Dimension（0 = 预设值）
-          <input v-model.number="dimension" type="number" min="0" step="1" />
-        </label>
-        <label>
-          视频码率
-          <input v-model="videoBitrate" type="text" placeholder="例如 1500k" />
-        </label>
-        <label>
-          音频码率
-          <input v-model="audioBitrate" type="text" placeholder="例如 128k" />
-        </label>
-      </div>
+        <!-- 表格或空态 -->
+        <HeroEmpty v-if="planStore.tasks.length === 0" />
+        <TaskTable v-else />
 
-      <div class="options">
-        <label><input v-model="override" type="checkbox" /> 覆盖已有目标</label>
-        <label><input v-model="strict" type="checkbox" /> 严格模式</label>
-        <label><input v-model="deleteSource" type="checkbox" /> 成功后删除源文件</label>
-      </div>
+        <!-- 底部紧凑/展开执行看板 -->
+        <ExecutionBoard />
+      </main>
+    </div>
 
-      <div class="toolbar action-toolbar">
-        <button type="button" :disabled="busy || selectedInputs.length === 0" @click="createPlan">
-          {{ busy && status === "PLANNING" ? "分析中…" : "Analyze" }}
-        </button>
-        <button type="button" :disabled="busy || !plan" @click="startExecution">Start</button>
-        <button type="button" class="danger" :disabled="status !== 'RUNNING'" @click="stopExecution">
-          Stop
-        </button>
-      </div>
+    <!-- 侧拉式右侧检查器抽屉 -->
+    <TaskInspectorDrawer />
 
-      <p v-if="environment" class="muted environment-line">
-        FFmpeg: {{ environment.ffmpegPath || "not found" }} · FFprobe:
-        {{ environment.ffprobePath || "not found" }} · Presets: {{ environment.presets.length }}
-      </p>
-      <p v-if="outputDirectory" class="muted">输出目录：{{ outputDirectory }}</p>
-      <div v-if="progress" class="progress">
-        <div :style="{ width: `${Number(progress.percent || 0)}%` }" />
-      </div>
-    </section>
+    <!-- 侧拉式右侧日志抽屉 -->
+    <LogDrawer />
 
-    <section v-if="plan" class="card">
-      <h2>Plan · {{ plan.totalTasks }} task(s)</h2>
-      <p class="muted">
-        {{ plan.presetName }} · {{ plan.totalDuration.toFixed(1) }}s · {{ plan.totalSize }} bytes
-      </p>
-      <pre class="command-preview">{{ plan.previewCmd || "（当前计划没有可执行任务）" }}</pre>
-      <ul>
-        <li v-for="task in plan.tasks" :key="task.id">
-          <strong>{{ task.name }}</strong>
-          <span>{{ task.status }} → {{ task.fileDst || "—" }}</span>
-          <small v-if="task.skipReason"> ({{ task.skipReason }})</small>
-        </li>
-      </ul>
-    </section>
-
-    <section class="card">
-      <div class="section-header">
-        <h2>Events</h2>
-        <button type="button" class="link-button" @click="events = []">清空</button>
-      </div>
-      <pre>{{ events.slice(-12).map((event) => JSON.stringify(event, null, 2)).join("\n") }}</pre>
-    </section>
-  </main>
+    <!-- 设置弹窗 -->
+    <SettingsModal
+      :show="showSettings"
+      @close="showSettings = false"
+    />
+  </div>
 </template>
 
-<style>
-:root {
-  color-scheme: dark;
-  font-family: Inter, system-ui, sans-serif;
-  background: #0b0f14;
-  color: #e5e7eb;
-}
-
-body {
-  margin: 0;
-}
-
-.shell {
-  max-width: 1180px;
-  margin: 0 auto;
-  padding: 36px 32px 64px;
-}
-
-.header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 24px;
-}
-
-.eyebrow {
-  color: #6ee7b7;
-  font-size: 12px;
-  letter-spacing: 0.18em;
-}
-
-h1 {
-  margin: 8px 0 12px;
-  font-size: 36px;
-}
-
-h2 {
-  margin-top: 0;
-  font-size: 18px;
-}
-
-.muted {
-  color: #94a3b8;
-}
-
-.status {
-  border: 1px solid #334155;
-  border-radius: 999px;
-  padding: 8px 14px;
-  color: #cbd5e1;
-  background: #111827;
-}
-
-.status-running,
-.status-planning {
-  color: #6ee7b7;
-  border-color: #10b981;
-}
-
-.status-failed {
-  color: #fda4af;
-  border-color: #f43f5e;
-}
-
-.error-banner {
-  padding: 12px 16px;
-  border: 1px solid #f43f5e;
-  border-radius: 8px;
-  color: #fecdd3;
-  background: #2b1118;
-}
-
-.dropzone {
+<style scoped>
+.app-container {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  margin-top: 24px;
-  padding: 28px;
-  border: 1px dashed #34d399;
-  border-radius: 12px;
-  background: #0f1b1b;
-  color: #a7f3d0;
-  cursor: pointer;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+  background-color: var(--bg-body);
+  color: var(--text-base);
 }
 
-.dropzone span {
-  color: #64748b;
-  font-size: 13px;
-}
-
-.card {
-  margin-top: 20px;
-  padding: 20px;
-  border: 1px solid #263241;
-  border-radius: 12px;
-  background: #111827;
-}
-
-.toolbar,
-.options,
-.form-grid {
+.layout {
   display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
-.action-toolbar {
-  margin-top: 20px;
-}
-
-.form-grid {
-  align-items: end;
-  margin-top: 18px;
-}
-
-.form-grid label {
+.side {
+  flex: none;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  min-width: 240px;
-  color: #cbd5e1;
-  font-size: 13px;
+  padding: 10px;
+  background: var(--bg-body);
+  transition: width 0.16s ease, padding 0.16s ease;
 }
 
-select,
-input[type="number"],
-input[type="text"] {
-  padding: 10px 12px;
-  border: 1px solid #334155;
-  border-radius: 8px;
-  color: #e5e7eb;
-  background: #0f172a;
+.side.collapsed {
+  width: 0 !important;
+  padding: 0 !important;
+  border-right: none;
 }
 
-.options {
-  margin-top: 16px;
-  color: #cbd5e1;
-  font-size: 14px;
-}
-
-.options label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-button {
-  border: 0;
-  border-radius: 8px;
-  padding: 10px 16px;
-  background: #34d399;
-  color: #052e16;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-button.danger {
-  color: #fff1f2;
-  background: #be123c;
-}
-
-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.4;
-}
-
-.link-button {
-  padding: 2px 6px;
-  color: #93c5fd;
+.side-resizer {
+  width: 5px;
+  flex: none;
+  cursor: col-resize;
   background: transparent;
-  font-size: 12px;
+  position: relative;
+  z-index: 20;
 }
 
-.input-list {
-  margin-top: 18px;
-  border: 1px solid #263241;
-  border-radius: 8px;
-  overflow: hidden;
+.side-resizer::after {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--divider);
 }
 
-.input-row,
-.section-header {
+.side-resizer:hover,
+.side-resizer.drag {
+  background: var(--primary-soft);
+}
+
+.side-resizer:hover::after,
+.side-resizer.drag::after {
+  background: var(--primary);
+}
+
+.main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-body);
+  position: relative;
+}
+
+.toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--divider);
+  flex: none;
+  flex-wrap: wrap;
+  background: var(--bg-card);
 }
 
-.input-row {
-  padding: 8px 12px;
-  color: #cbd5e1;
-  background: #0f172a;
-  font-size: 13px;
+.tb-left {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
 }
 
-.input-row span {
-  overflow: hidden;
-  text-overflow: ellipsis;
+.tb-right {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--text-2);
   white-space: nowrap;
 }
 
-.section-header {
-  margin-bottom: 10px;
+.muted {
+  color: var(--text-3);
+  font-family: var(--mono);
+  font-size: 11px;
 }
 
-.section-header h2 {
-  margin: 0;
+.btn {
+  height: 28px;
+  padding: 0 12px;
+  font-size: 12px;
+  font-family: var(--font);
+  border-radius: var(--radius);
+  border: 1px solid transparent;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-base);
+  background: transparent;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+  white-space: nowrap;
 }
 
-.environment-line {
-  margin-top: 18px;
-  overflow-wrap: anywhere;
+.btn:hover {
+  background: var(--bg-hover);
 }
 
-.progress {
-  height: 8px;
-  margin-top: 12px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: #1f2937;
+.btn:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+  background: transparent;
 }
 
-.progress div {
-  height: 100%;
-  background: #34d399;
-  transition: width 120ms ease;
+.btn-primary {
+  background: var(--primary);
+  color: #101014;
+  font-weight: 600;
 }
 
-ul {
-  padding-left: 20px;
-  color: #cbd5e1;
+.btn-primary:hover {
+  background: var(--primary-hover);
 }
 
-li {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin: 8px 0;
-  word-break: break-all;
+.btn-primary:disabled {
+  background: var(--primary);
+  opacity: 0.38;
 }
 
-li span {
-  color: #94a3b8;
+[data-theme="light"] .btn-primary {
+  color: #fff;
 }
 
-pre {
-  max-height: 300px;
-  overflow: auto;
-  white-space: pre-wrap;
-  word-break: break-word;
-  color: #a7f3d0;
+.btn-secondary {
+  border-color: var(--border);
+  background: var(--bg-input);
 }
 
-.command-preview {
-  padding: 12px;
-  border-radius: 8px;
-  background: #0f172a;
+.btn-secondary:hover {
+  border-color: var(--border-strong);
+  background: var(--bg-hover);
+}
+
+.btn-ghost {
+  color: var(--text-2);
+}
+
+.btn-ghost:hover {
+  background: var(--bg-hover);
+  color: var(--text-base);
+}
+
+.btn-danger {
+  color: var(--error);
+  border-color: transparent;
+}
+
+.btn-danger:hover {
+  background: var(--error-soft);
+}
+
+.btn-danger:disabled {
+  opacity: 0.38;
+  background: transparent;
+}
+
+.stale-alert {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px;
+  border-radius: 4px;
+  background: var(--warning-soft);
+  color: var(--warning);
+  font-size: 11px;
+  font-weight: 500;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.stale-alert svg {
+  width: 14px;
+  height: 14px;
+}
+
+.pulse {
+  animation: pulseAnim 1.8s infinite;
+}
+
+@keyframes pulseAnim {
+  0% { box-shadow: 0 0 0 0 rgba(99, 226, 183, 0.4); }
+  70% { box-shadow: 0 0 0 6px rgba(99, 226, 183, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(99, 226, 183, 0); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-2px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+svg.i {
+  width: 14px;
+  height: 14px;
+}
+
+svg.i.sm {
+  width: 13px;
+  height: 13px;
 }
 </style>

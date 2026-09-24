@@ -1,0 +1,82 @@
+/* ============ mediac-desktop Design Tokens ============ */
+:root {
+  --bg-body: #101014;
+  --bg-card: #18181c;
+  --bg-hover: rgba(255, 255, 255, 0.06);
+  --bg-active: rgba(255, 255, 255, 0.09);
+  --bg-input: rgba(255, 255, 255, 0.06);
+  --bg-table-head: rgba(255, 255, 255, 0.04);
+  --border: rgba(255, 255, 255, 0.12);
+  --border-strong: rgba(255, 255, 255, 0.2);
+  --divider: rgba(255, 255, 255, 0.09);
+  --text-base: rgba(255, 255, 255, 0.82);
+  --text-2: rgba(255, 255, 255, 0.6);
+  --text-3: rgba(255, 255, 255, 0.4);
+  --text-dis: rgba(255, 255, 255, 0.28);
+  --primary: #63e2b7;
+  --primary-hover: #7fe7c4;
+  --primary-press: #4ed3a5;
+  --primary-soft: rgba(99, 226, 183, 0.14);
+  --primary-text: #63e2b7;
+  --info: #70bfff;
+  --info-soft: rgba(112, 191, 255, 0.14);
+  --warning: #f2c97d;
+  --warning-soft: rgba(242, 201, 125, 0.14);
+  --error: #e88080;
+  --error-soft: rgba(232, 128, 128, 0.14);
+  --shadow: 0 2px 8px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.28);
+  --radius: 4px;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+  --mono: Consolas, "Cascadia Mono", "SF Mono", Menlo, monospace;
+}
+
+[data-theme="light"] {
+  --bg-body: #f5f5f5;
+  --bg-card: #ffffff;
+  --bg-hover: rgba(0, 0, 0, 0.05);
+  --bg-active: rgba(0, 0, 0, 0.08);
+  --bg-input: rgba(0, 0, 0, 0.04);
+  --bg-table-head: rgba(0, 0, 0, 0.03);
+  --border: rgba(0, 0, 0, 0.09);
+  --border-strong: rgba(0, 0, 0, 0.16);
+  --divider: rgba(0, 0, 0, 0.07);
+  --text-base: rgba(0, 0, 0, 0.82);
+  --text-2: rgba(0, 0, 0, 0.6);
+  --text-3: rgba(0, 0, 0, 0.4);
+  --text-dis: rgba(0, 0, 0, 0.28);
+  --primary: #18a058;
+  --primary-hover: #1fb769;
+  --primary-press: #15984f;
+  --primary-soft: rgba(24, 160, 88, 0.1);
+  --primary-text: #18a058;
+  --info: #2080f0;
+  --info-soft: rgba(32, 128, 240, 0.1);
+  --warning: #f0a020;
+  --warning-soft: rgba(240, 160, 32, 0.12);
+  --error: #d03050;
+  --error-soft: rgba(208, 48, 80, 0.1);
+  --shadow: 0 2px 8px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  height: 100%;
+  overflow: hidden;
+  background-color: var(--bg-body);
+  color: var(--text-base);
+  font-family: var(--font);
+  font-size: 13px;
+  line-height: 1.4;
+  user-select: none;
+}
+
+#app {
+  height: 100%;
+  width: 100%;
+}
+
+/* Custom minimal scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-3); }

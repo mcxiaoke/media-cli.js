@@ -1,7 +1,7 @@
 import fs from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
-import { defineConfig } from "electron-vite"
+import { defineConfig, externalizeDepsPlugin } from "electron-vite"
 import vue from "@vitejs/plugin-vue"
 
 const appRoot = path.dirname(fileURLToPath(import.meta.url))
@@ -33,10 +33,12 @@ const copyCoreData = {
 
 export default defineConfig({
   main: {
-    plugins: [copyCoreData],
-    build: {
-      externalizeDeps: true,
-    },
+    plugins: [
+      copyCoreData,
+      externalizeDepsPlugin({
+        exclude: ["p-map", "systeminformation", "fs-extra", "execa", "yaml", "file-type"],
+      }),
+    ],
   },
   preload: {
     build: {
