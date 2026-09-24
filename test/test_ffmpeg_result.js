@@ -16,7 +16,7 @@ test("ffmpeg result adapter distinguishes success, skip, cancel, and failure", (
         toRunResult({ dstExists: true, fileDst: "out.mp4", dstExistsPath: "old.mp4" }),
         {
             status: RUN_STATUS.SKIPPED,
-            reason: "destination exists",
+            reason: SKIP_REASON.DESTINATION_EXISTS,
             outputPath: "old.mp4",
         },
     )

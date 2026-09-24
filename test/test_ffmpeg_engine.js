@@ -103,6 +103,34 @@ test("ffmpeg engine supports confirmed retry attempts", async () => {
     assert.strictEqual(summary.failed, 0)
 })
 
+test("ffmpeg engine summarizes empty and all-skipped plans", async () => {
+    const events = []
+    const emptyEngine = createFFmpegEngine({
+        runTask: async () => {
+            throw new Error("empty plans must not start ffmpeg")
+        },
+        onEvent: (event) => events.push(event),
+    })
+    const emptySummary = await emptyEngine.execute(
+        { id: "plan-empty", tasks: [] },
+        { onSummary: async (summary) => events.push(summary) },
+    )
+    assert.strictEqual(emptySummary.total, 0)
+    assert.strictEqual(emptySummary.success, 0)
+    assert.strictEqual(events.at(-1).total, 0)
+
+    const skippedTask = { ...makeTask(0), status: "skipped", skipReason: "missing_video" }
+    const skippedEngine = createFFmpegEngine({
+        runTask: async () => {
+            throw new Error("skipped tasks must not start ffmpeg")
+        },
+    })
+    const skippedSummary = await skippedEngine.execute({ id: "plan-skipped", tasks: [skippedTask] })
+    assert.strictEqual(skippedSummary.total, 1)
+    assert.strictEqual(skippedSummary.skipped, 1)
+    assert.strictEqual(skippedSummary.success, 0)
+})
+
 test("ffmpeg engine forwards process lifecycle callbacks", async () => {
     const spawned = []
     const exited = []

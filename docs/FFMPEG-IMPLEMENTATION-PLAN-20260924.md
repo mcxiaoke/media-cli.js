@@ -187,16 +187,16 @@ Options -> Scan -> Task -> Plan -> Execute -> Result/Event
 - [ ] 统一 prepare/run concurrency；
 - [x] 统一 retry/Attempt；
 - [x] 统一 stop/cancel；
-- [ ] 统一 delete-source 确认；
+- [x] 统一 delete-source 确认；
 - [x] 统一 summary/result；
-- [ ] 处理异常、取消、空计划、全部跳过和 stale plan。
+- [x] 处理异常、取消、空计划、全部跳过和 stale plan。
 
 **阶段 2 验收**：
 
-- [ ] CLI 和 ffweb 对相同输入产生相同 task 集合；
-- [ ] dry-run 不写最终产物；
-- [ ] strict/retry/cancel/delete-source 语义有测试；
-- [ ] task 状态不会因单个异常提前结束 session。
+- [x] CLI 和 ffweb 对相同输入产生相同 task 集合；
+- [x] dry-run 不写最终产物；
+- [x] strict/retry/cancel/delete-source 语义有测试；
+- [x] task 状态不会因单个异常提前结束 session。
 
 ---
 
@@ -205,25 +205,25 @@ Options -> Scan -> Task -> Plan -> Execute -> Result/Event
 ### 5.1 CLI
 
 - [ ] `cmd/cmd_ffmpeg.js` 改为薄适配器；
-- [ ] yargs/描述/交互确认留在 CLI；
-- [ ] 调用统一 Options/Scan/Task/Engine；
-- [ ] 保留现有 dry-run、错误和退出码；
-- [ ] 更新 FFMPEG-USAGE 和 CHANGES。
+- [x] yargs/描述/交互确认留在 CLI；
+- [x] 调用统一 Options/Scan/Task/Engine；
+- [x] 保留现有 dry-run、错误和退出码；
+- [x] 更新 FFMPEG-USAGE 和 CHANGES。
 
 ### 5.2 ffweb
 
-- [ ] `ffweb/task_runner.js` 删除重复扫描和任务构建；
+- [x] `ffweb/task_runner.js` 删除重复扫描和任务构建；
 - [ ] 只保留 HTTP/SSE transport 和状态映射；
 - [x] 使用 PublicPlanSnapshot；
 - [x] 使用 EngineEvent；
-- [ ] 补确认、retry、delete-source、override；
-- [ ] 保留 WebUI 功能回归。
+- [x] 补确认、retry、delete-source、override；
+- [x] 保留 WebUI 功能回归。
 
 **阶段 3 验收**：
 
-- [ ] CLI 全流程回归通过；
-- [ ] ffweb 环境、计划、执行、停止、SSE 全流程通过；
-- [ ] 不再存在两份 retry/任务构建/汇总逻辑。
+- [x] CLI 全流程回归通过；
+- [x] ffweb 环境、计划、执行、停止、SSE 全流程通过；
+- [x] 不再存在两份 retry/任务构建/汇总逻辑。
 
 ---
 
@@ -404,6 +404,7 @@ npm test/check/lint 结果已记录；
 | 2026-09-24 | 阶段 1B/5C：稳定 AttemptResult 与 AbortSignal | 已完成 | mediainfo/ffprobe、硬件能力探测、任务构建和输出提交贯穿 AbortSignal；Engine 透传稳定 TaskAttemptResult；npm test 316/316 通过 |
 | 2026-09-24 | 阶段 1D：稳定 runFFmpeg 接口 | 已完成 | 新增 `runFFmpeg` 稳定结果包装，CLI、ffweb、Electron 不再直接消费可变 `runFFmpegCmd` entry；定向 Engine/ffweb 测试和 app typecheck 通过 |
 | 2026-09-24 | 阶段 1E：skipReason 与 EngineEvent | 已完成 | 统一 skip reason 值域，preflight skipped task 不启动 ffmpeg，ffweb 透传 EngineEvent；ffweb/engine/task 定向测试通过 |
+| 2026-09-24 | 阶段 2F：共享 Planner 与行为统一 | 已完成 | CLI/ffweb 共用 task/Plan preparation、retry/delete-source/override、空计划/全跳过/stale plan 语义；新增 parity 与回归测试，定向测试通过；全量门禁待本阶段提交前确认 |
 | 2026-09-24 | 范围调整 | 已确认 | 核心功能优先；Electron 分发、许可、签名和干净机验收暂缓，不作为当前阶段门槛 |
 
 ---

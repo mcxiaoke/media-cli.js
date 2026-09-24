@@ -4,15 +4,17 @@
  * 负责与 lib/ 底层模块协作：加载预设、探测硬件、生成转码计划、
  * 执行转码队列、解析进度、捕获日志、处理用户中断与临时清理。
  */
-import fs from "fs-extra"
 import { resolveFFmpegBinary } from "../lib/ffmpeg_bin.js"
 import { createFFmpegArgs, flattenFFArgs } from "../lib/ffmpeg_build.js"
-import { buildTask } from "../lib/ffmpeg_task.js"
-import { createFFmpegEngine } from "../lib/ffmpeg_engine.js"
 import {
-    createInternalExecutionPlan,
-    createPublicPlanSnapshot,
-} from "../lib/ffmpeg_plan_snapshot.js"
+    deleteCompletedSources as deleteSourcesFromPlan,
+    isPlanCurrent,
+    PLAN_ERROR_CODE,
+    prepareFFmpegPlan,
+} from "../lib/ffmpeg_planner.js"
+import { buildCliTask } from "../lib/ffmpeg_task.js"
+import { createFFmpegEngine } from "../lib/ffmpeg_engine.js"
+import { createPublicPlanSnapshot } from "../lib/ffmpeg_plan_snapshot.js"
 import { normalizeWebOptions, toLegacyArgvOptions } from "../lib/ffmpeg_options.js"
 import presets from "../lib/ffmpeg_presets.js"
 import { runFFmpeg, setFFmpegPath } from "../lib/ffmpeg_run.js"
@@ -185,6 +187,9 @@ export class TaskRunner {
      * 创建转码计划（Plan）
      */
     async createPlan(body = {}) {
+        if (this.status === "RUNNING") {
+            throw new Error("Cannot create a new plan while execution is running")
+        }
         const normalized = normalizeWebOptions(body)
         const inputs = normalized.inputs
         const output = normalized.output
@@ -198,7 +203,9 @@ export class TaskRunner {
             if (files.length === 0) {
                 this.status = "IDLE"
                 this.emit("STATUS_CHANGE", { status: this.status })
-                throw new Error("No media files found in specified inputs")
+                const error = new Error("No media files found in specified inputs")
+                error.code = PLAN_ERROR_CODE.NO_INPUTS
+                throw error
             }
 
             const allPresetNames = presets.getAllNames()
@@ -210,10 +217,20 @@ export class TaskRunner {
             const legacyOptions = toLegacyArgvOptions(normalized)
             const mergedArgv = {
                 output: output || "",
-                outputMode: normalized.outputMode,
                 decodeMode: normalized.decodeMode,
                 preset: presetObj.name,
                 ...legacyOptions,
+            }
+            if (
+                mergedArgv.deleteSourceFiles === true &&
+                mergedArgv.deleteSourceConfirmed !== true &&
+                mergedArgv.autoConfirm !== true
+            ) {
+                const error = new Error(
+                    "deleteSourceFiles requires explicit deleteSourceConfirmed or autoConfirm",
+                )
+                error.code = PLAN_ERROR_CODE.DELETE_SOURCE_CONFIRMATION
+                throw error
             }
             const activePreset = presets.createFromArgv(mergedArgv)
 
@@ -223,61 +240,35 @@ export class TaskRunner {
                 `Analyzing ${files.length} file(s) for preset [${activePreset.name}]...`,
             )
 
-            // 构建任务项：具体条目构造已抽到 lib/ffmpeg_task.js，便于单测和后续 Engine 复用。
-            const tasks = []
-            for (let i = 0; i < files.length; i++) {
-                const f = files[i]
-                try {
-                    const entry = await buildTask(f, {
-                        index: i,
-                        total: files.length,
-                        activePreset,
-                        argv: mergedArgv,
-                        output,
-                        fsApi: fs,
-                    })
-                    if (entry) tasks.push(entry)
-                } catch (err) {
-                    this.appendLog("warn", "Plan", `Skip ${f.name}: ${err.message}`)
-                }
-            }
+            const prepared = await prepareFFmpegPlan({
+                entries: files,
+                preset: activePreset,
+                argv: mergedArgv,
+                mode: normalized.mode,
+                concurrency: 1,
+                onTaskError: (entry, error) => {
+                    this.appendLog("warn", "Plan", `Skip ${entry.name}: ${error.message}`)
+                },
+            })
 
-            if (tasks.length === 0) {
-                this.status = "IDLE"
-                this.emit("STATUS_CHANGE", { status: this.status })
-                throw new Error("None of the scanned files can be processed with current preset")
-            }
-
-            if (!tasks.some((task) => task.status !== "skipped" && task.fileDst)) {
-                this.status = "IDLE"
-                this.emit("STATUS_CHANGE", { status: this.status })
-                throw new Error("All scanned files were skipped")
-            }
-
-            // 生成命令预览（以首个可执行任务为例）
+            // 生成命令预览（以首个可执行任务为例）。空计划/全跳过计划仍然
+            // 可以被查看和执行，Engine 会给出统一的空/skipped summary。
             const previewPlan = {
                 tier: TIERS.find((t) => t.name === "cpu"),
                 caps: this.hwCaps,
             }
             const previewTask =
-                tasks.find((task) => task.status !== "skipped" && task.fileDst) || tasks[0]
-            const sampleFFPlan = createFFmpegArgs(previewTask, previewPlan)
-            const previewCmd = `ffmpeg ${flattenFFArgs(sampleFFPlan.args)}`
-
-            const totalDuration = tasks.reduce((acc, t) => acc + (t.duration || 0), 0)
-            const totalSize = tasks.reduce((acc, t) => acc + (t.size || 0), 0)
-
-            this.currentPlan = createInternalExecutionPlan({
-                id: `plan_${Date.now()}`,
-                presetName: activePreset.name,
-                preset: activePreset,
-                mode: normalized.mode,
-                argv: mergedArgv,
-                tasks,
-                totalDuration,
-                totalSize,
-                previewCmd,
-            })
+                prepared.executableTasks[0] || prepared.tasks.find((task) => task.fileDst)
+            let previewCmd = ""
+            if (previewTask) {
+                const sampleFFPlan = createFFmpegArgs(previewTask, previewPlan)
+                previewCmd = `ffmpeg ${flattenFFArgs(sampleFFPlan.args)}`
+            }
+            prepared.plan.previewCmd = previewCmd
+            this.currentPlan = prepared.plan
+            this.summary = null
+            this.currentProgress = null
+            const { tasks, totalDuration, totalSize } = prepared
 
             this.status = "IDLE"
             this.emit("STATUS_CHANGE", { status: this.status })
@@ -311,11 +302,29 @@ export class TaskRunner {
         }
     }
 
+    async deleteCompletedSources(plan = this.currentPlan) {
+        const deletion = await deleteSourcesFromPlan({
+            plan,
+            confirmDeleteSource: true,
+        })
+        if (deletion.requested) {
+            this.appendLog(
+                "info",
+                "DeleteSource",
+                `deleted=${deletion.deleted.length}, kept=${deletion.kept.length}, failed=${deletion.failed.length}`,
+            )
+            for (const failedPath of deletion.failed) {
+                this.appendLog("error", "DeleteSource", `Failed to remove source: ${failedPath}`)
+            }
+        }
+        return deletion
+    }
+
     /**
      * 启动转码任务
      */
     async startExecution() {
-        if (!this.currentPlan || this.currentPlan.tasks.length === 0) {
+        if (!this.currentPlan) {
             throw new Error("No active plan to execute")
         }
         if (this.status === "RUNNING") {
@@ -348,6 +357,19 @@ export class TaskRunner {
                 mode: "execute",
                 signal,
                 concurrency: 1,
+                maxAttempts: plan.argv?.strict === true || plan.argv?.autoConfirm !== true ? 1 : 2,
+                shouldRetry: ({ result }) => result.status === "failed",
+                confirmRetry: async () => plan.argv?.autoConfirm === true,
+                prepareAttempt: async ({ task, attempt, signal }) => {
+                    if (attempt === 1) return task
+                    this.appendLog("warn", "Retry", `Retrying on CPU: ${task.name}`)
+                    return buildCliTask({
+                        ...task,
+                        argv: { ...(task.argv || {}), decodeMode: "cpu" },
+                        retryOnFailed: true,
+                        signal,
+                    })
+                },
                 onTaskStart: ({ task, index, total }) => {
                     this.currentTaskIndex = index
                     this.emit("TASK_START", { index, taskName: task.name })
@@ -405,7 +427,11 @@ export class TaskRunner {
                             status: result.status,
                             reason: result.reason,
                         })
-                        this.appendLog("warn", "Skip", `Output already exists: ${task.name}`)
+                        this.appendLog(
+                            "warn",
+                            "Skip",
+                            `Skipped ${task.name}: ${result.reason || task.skipReason || "unknown reason"}`,
+                        )
                     } else {
                         this.emit("FILE_DONE", {
                             index,
@@ -417,7 +443,10 @@ export class TaskRunner {
                         this.appendLog("error", "Fail", `Failed: ${task.name} - ${result.error}`)
                     }
                 },
-                onSummary: (summary) => {
+                onSummary: async (summary) => {
+                    if (isPlanCurrent(plan, this.currentPlan)) {
+                        await this.deleteCompletedSources(plan)
+                    }
                     const isCancelled = summary.isCancelled
                     this.status = isCancelled ? "STOPPED" : "COMPLETED"
                     this.summary = {

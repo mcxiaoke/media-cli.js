@@ -366,6 +366,8 @@ mediac ffmpeg . --filelist samples.txt --preset vp9_2k --doit
 
 **9.18 单位。** `--video-bitrate` / `--audio-bitrate` 为字符串码率：裸数字=bps，带 `k/m/g` 后缀按 **1000 进制**（`k`=×1000，`m`=×1e6，`g`=×1e9，大小写均可）换算为 bps，与 ffmpeg `-b:v "3M"`=3_000_000 一致；`--video-quality` / `--audio-quality` 无量纲（CRF / VBR 等级）。
 
+**9.19 CLI 与 WebUI 共用 Planner。** 相同输入、输出模式和选项会生成相同的 task 集合；空计划/全跳过计划会保留在 Plan 中并由 Engine 统一汇总。WebUI 的 `deleteSourceFiles` 请求必须同时提供 `deleteSourceConfirmed: true` 或 `autoConfirm: true`，否则 API 拒绝执行；CLI 仍使用交互确认。
+
 ---
 
 ### 10. 环境变量

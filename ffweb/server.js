@@ -390,7 +390,10 @@ export class WebServer {
 
             return sendJSON(404, { ok: false, error: "Not Found" })
         } catch (err) {
-            return sendJSON(err.statusCode || 500, { ok: false, error: err.message || String(err) })
+            const statusCode =
+                err.statusCode ||
+                (typeof err.code === "string" && err.code.startsWith("FFMPEG_") ? 400 : 500)
+            return sendJSON(statusCode, { ok: false, error: err.message || String(err) })
         }
     }
 

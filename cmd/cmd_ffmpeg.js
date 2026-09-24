@@ -7,7 +7,6 @@
  */
 import chalk from "chalk"
 import fs from "fs-extra"
-import pMap from "p-map"
 import path from "path"
 import argparser from "../lib/arg_parser.js"
 import { abortIfCancelled, confirmDangerousAction, initAutoConfirm } from "../lib/command_utils.js"
@@ -22,6 +21,7 @@ import { getMediaInfo } from "../lib/mediainfo.js"
 import { addEntryProps } from "../lib/rename.js"
 import { scanFFmpegInputs } from "../lib/ffmpeg_scan.js"
 import { buildCliTask } from "../lib/ffmpeg_task.js"
+import { prepareFFmpegPlan, deleteCompletedSources } from "../lib/ffmpeg_planner.js"
 import { normalizeCliOptions, toLegacyArgvOptions } from "../lib/ffmpeg_options.js"
 import { TIERS } from "../lib/hwaccel.js"
 import { createFFmpegArgs, flattenFFArgs } from "../lib/ffmpeg_build.js"
@@ -499,16 +499,7 @@ async function planFFmpegTasks(argv) {
             return null
         }
     }
-    addEntryProps(fileEntries)
-    fileEntries = fileEntries.map((entry) => {
-        return {
-            ...entry,
-            argv: structuredClone(argv),
-            preset,
-            errorFile: argv.errorFile,
-            testMode: testMode,
-        }
-    })
+    // Shared planner owns task preparation and task metadata propagation.
 
     log.logInfo(LOG_TAG, "ARGV:", argv)
     log.logInfo(LOG_TAG, "PRESET:", preset)
@@ -519,9 +510,15 @@ async function planFFmpegTasks(argv) {
         return null
     }
     log.logSuccess(LOG_TAG, t("ffmpeg.preparing.tasks"))
-    let tasks = await pMap(fileEntries, buildCliTask, {
+    const prepared = await prepareFFmpegPlan({
+        entries: fileEntries,
+        preset,
+        argv: mergedArgv,
+        mode: "plan",
+        testMode,
         concurrency: argv.jobs || (core.isUNCPath(root) ? 4 : config.JOBS.externalTool()),
     })
+    let tasks = prepared.tasks
 
     if (argv.deleteSourceFiles) {
         // 目标产物必须「存在且非空」才可删源：0 字节说明上次运行中断留下了坏文件，
@@ -554,45 +551,26 @@ async function planFFmpegTasks(argv) {
                     t("ffmpeg.confirm.delete.source", { count: dstExitsTasks.length }),
                 )
                 if (answer) {
-                    addEntryProps(dstExitsTasks)
-                    const delResults = await pMap(
-                        dstExitsTasks,
-                        async (entry) => {
-                            // safeRemove 失败返回 null：源文件仍在原处，不能报 SafeDel
-                            const dest = await helper.safeRemove(entry.path)
-                            if (!dest) {
-                                log.logError(
-                                    LOG_TAG,
-                                    `SafeDelFailed ${entry.index}/${entry.total} ${entry.path}`,
-                                )
-                                return false
-                            }
-                            log.logWarn(
-                                LOG_TAG,
-                                `SafeDel ${entry.index}/${entry.total} ${entry.path}`,
-                            )
-                            return true
+                    const deletion = await deleteCompletedSources({
+                        plan: {
+                            argv: { deleteSourceFiles: true },
+                            tasks: dstExitsTasks,
                         },
-                        { concurrency: config.JOBS.ioBound() },
-                    )
-                    const failedCount = delResults.filter((ok) => !ok).length
-                    if (failedCount > 0) {
-                        log.logWarn(
-                            LOG_TAG,
-                            `SafeDel: ${failedCount} source file(s) still in place`,
-                        )
+                        includeExisting: true,
+                        confirmDeleteSource: true,
+                    })
+                    for (const deletedPath of deletion.deleted) {
+                        log.logWarn(LOG_TAG, `SafeDel ${deletedPath}`)
+                    }
+                    for (const failedPath of deletion.failed) {
+                        log.logError(LOG_TAG, `SafeDelFailed ${failedPath}`)
                     }
                 }
             }
         }
     }
 
-    tasks = tasks.filter((t) => t && t.fileDst)
-    if (tasks.length === 0) {
-        log.logWarn(LOG_TAG, t("ffmpeg.all.skipped"))
-        return null
-    }
-    const lastTask = tasks.slice(-1)[0]
+    const lastTask = prepared.executableTasks.slice(-1)[0] || tasks.find((task) => task.fileDst)
     // ffmpeg 二进制定位：环境变量（FFMPEG_PATH/FFMPEG_BINARY）优先，未设置时按 PATH 查找。
     // 提前到预览之前探测一次构建能力（进程内缓存，真实执行直接复用），
     // 一方面让预览命令结构与真实执行一致（如 libfdk_aac 缺失时的 aac 降级在日志即体现），
@@ -618,13 +596,15 @@ async function planFFmpegTasks(argv) {
         size: null,
         caps: hwCaps, // 携带构建能力：预览命令与真实执行走同一降级/参数决策
     }
-    const lastFFPlan = createFFmpegArgs(lastTask, previewPlan)
-    // fileLog 签名是 (logText, logTag, logFileName)：此前把参数数组当成了 tag、
-    // 把 LOG_TAG 当成了文件名，日志被写进独立的 FFConv_log_*.txt 且正文与标签颠倒。
-    log.fileLog(`${tmTag}ffmpegArgs: ${flattenFFArgs(lastFFPlan.args)}`, LOG_TAG)
-    log.info("-----------------------------------------------------------")
-    log.info(LOG_TAG, chalk.cyan("PRESET:"), lastFFPlan.debugPreset)
-    log.info(LOG_TAG, chalk.cyan("CMD:"), "ffmpeg", flattenFFArgs(lastFFPlan.args))
+    if (lastTask) {
+        const lastFFPlan = createFFmpegArgs(lastTask, previewPlan)
+        // fileLog 签名是 (logText, logTag, logFileName)：此前把参数数组当成了 tag、
+        // 把 LOG_TAG 当成了文件名，日志被写进独立的 FFConv_log_*.txt 且正文与标签颠倒。
+        log.fileLog(`${tmTag}ffmpegArgs: ${flattenFFArgs(lastFFPlan.args)}`, LOG_TAG)
+        log.info("-----------------------------------------------------------")
+        log.info(LOG_TAG, chalk.cyan("PRESET:"), lastFFPlan.debugPreset)
+        log.info(LOG_TAG, chalk.cyan("CMD:"), "ffmpeg", flattenFFArgs(lastFFPlan.args))
+    }
     // 注意运算符优先级：`acc + t.info?.duration || 0` 会因 + 高于 || 而
     // 在任一条 duration 缺失时把整个累计值清零，必须显式括号。
     // 取数口径与运行时进度条一致：dstArgs.srcDuration 是 calculateDstArgs 算出的
@@ -647,14 +627,14 @@ async function planFFmpegTasks(argv) {
     if (await abortIfCancelled(answer, LOG_TAG)) {
         return null
     }
-    return { tasks, testMode, preset, jobs: argv.jobs }
+    return { ...prepared, tasks, testMode, preset, jobs: argv.jobs }
 }
 
 /**
  * 执行阶段：逐文件转码、失败重试与汇总输出。
  * @param {{tasks: Object[], testMode: boolean, preset: Object, jobs: number}} plan - planFFmpegTasks 的产出
  */
-async function runFFmpegTasks({ tasks, testMode, preset, jobs }) {
+async function runFFmpegTasks({ tasks, testMode, preset, jobs, plan: preparedPlan }) {
     const startMs = Date.now()
     const tmTag = testMode ? "[TestMode] " : ""
     addEntryProps(tasks)
@@ -672,6 +652,9 @@ async function runFFmpegTasks({ tasks, testMode, preset, jobs }) {
         )
     }
 
+    const executionPlan = preparedPlan
+        ? { ...preparedPlan, tasks }
+        : { id: `plan_${Date.now()}`, tasks }
     const strict = tasks[0]?.argv?.strict === true
     let retryApproval
     const engine = createFFmpegEngine({
@@ -682,48 +665,42 @@ async function runFFmpegTasks({ tasks, testMode, preset, jobs }) {
             }),
     })
 
-    const summary = await engine.execute(
-        {
-            id: `plan_${Date.now()}`,
-            tasks,
-        },
-        {
-            mode: "execute",
-            concurrency: jobCount,
-            maxAttempts: testMode || strict ? 1 : 2,
-            shouldRetry: ({ result }) => result.status === "failed",
-            confirmRetry: async () => {
-                if (retryApproval === undefined) {
-                    retryApproval = await confirmDangerousAction(
-                        t("ffmpeg.confirm.retry", { count: 1 }),
-                    )
-                }
-                return retryApproval
-            },
-            prepareAttempt: async ({ task, result, attempt }) => {
-                if (attempt === 1) return task
-                log.logWarn(LOG_TAG, `Retrying task: ${task.path}`)
-                log.fileLog(
-                    `Retry <${task.path}> [${task.preset.name}] ${result.error || ""}`,
-                    "FFConv",
+    const summary = await engine.execute(executionPlan, {
+        mode: "execute",
+        concurrency: jobCount,
+        maxAttempts: testMode || strict ? 1 : 2,
+        shouldRetry: ({ result }) => result.status === "failed",
+        confirmRetry: async () => {
+            if (retryApproval === undefined) {
+                retryApproval = await confirmDangerousAction(
+                    t("ffmpeg.confirm.retry", { count: 1 }),
                 )
-                const retryEntry = core.omit(
-                    task,
-                    "ffmpegArgs",
-                    "info",
-                    "hwPlan",
-                    "ok",
-                    "ffmpegFailed",
-                    "ffmpegError",
-                    "status",
-                    "error",
-                )
-                retryEntry.argv = { ...(retryEntry.argv || {}), decodeMode: "cpu" }
-                retryEntry.retryOnFailed = true
-                return buildCliTask(retryEntry)
-            },
+            }
+            return retryApproval
         },
-    )
+        prepareAttempt: async ({ task, result, attempt, signal }) => {
+            if (attempt === 1) return task
+            log.logWarn(LOG_TAG, `Retrying task: ${task.path}`)
+            log.fileLog(
+                `Retry <${task.path}> [${task.preset.name}] ${result.error || ""}`,
+                "FFConv",
+            )
+            const retryEntry = core.omit(
+                task,
+                "ffmpegArgs",
+                "info",
+                "hwPlan",
+                "ok",
+                "ffmpegFailed",
+                "ffmpegError",
+                "status",
+                "error",
+            )
+            retryEntry.argv = { ...(retryEntry.argv || {}), decodeMode: "cpu" }
+            retryEntry.retryOnFailed = true
+            return buildCliTask({ ...retryEntry, signal })
+        },
+    })
 
     if (summary.failed > 0 && !testMode && strict) {
         log.logWarn(LOG_TAG, t("ffmpeg.strict.retry"))
@@ -748,34 +725,20 @@ async function runFFmpegTasks({ tasks, testMode, preset, jobs }) {
         log.showYellow(LOG_TAG, t("ffmpeg.strict.skip.count", { count: skippedResults.length }))
     }
 
-    if (!testMode && tasks[0]?.argv?.deleteSourceFiles) {
-        const successfulTasks = tasks.filter((task) => task.status === "done" && task.fileDst)
-        if (successfulTasks.length > 0) {
-            log.logInfo(
-                LOG_TAG,
-                `DeleteSource: removing ${successfulTasks.length} converted source file(s)...`,
-            )
-            await pMap(
-                successfulTasks,
-                async (entry) => {
-                    const stat = await fs.stat(entry.fileDst).catch(() => null)
-                    if (stat && stat.size > 0) {
-                        const dest = await helper.safeRemove(entry.path)
-                        if (dest) {
-                            log.logWarn(
-                                LOG_TAG,
-                                `SafeDel ${entry.index + 1}/${entry.total} ${entry.path}`,
-                            )
-                        } else {
-                            log.logError(
-                                LOG_TAG,
-                                `SafeDelFailed ${entry.index + 1}/${entry.total} ${entry.path}`,
-                            )
-                        }
-                    }
-                },
-                { concurrency: config.JOBS.ioBound() },
-            )
+    const deletion = await deleteCompletedSources({
+        plan: executionPlan,
+        testMode,
+        // The process confirmation above is the CLI confirmation. Passing true
+        // here keeps the actual deletion in the shared, output-validated helper.
+        confirmDeleteSource: true,
+    })
+    if (deletion.requested && !testMode) {
+        log.logInfo(
+            LOG_TAG,
+            `DeleteSource: deleted=${deletion.deleted.length}, kept=${deletion.kept.length}, failed=${deletion.failed.length}`,
+        )
+        for (const failedPath of deletion.failed) {
+            log.logError(LOG_TAG, `SafeDelFailed ${failedPath}`)
         }
     }
 

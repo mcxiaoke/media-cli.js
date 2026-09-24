@@ -10,6 +10,17 @@ import { WebServer } from "../ffweb/server.js"
 const TEST_OUT_DIR = path.resolve("temp/test_ffweb_out")
 const SAMPLE_VIDEO = path.resolve("data/videos/TEST2__mpeg4_avi_480.avi")
 
+async function listFiles(directory) {
+    const entries = await fs.readdir(directory, { withFileTypes: true })
+    const files = []
+    for (const entry of entries) {
+        const fullPath = path.join(directory, entry.name)
+        if (entry.isDirectory()) files.push(...(await listFiles(fullPath)))
+        else files.push(fullPath)
+    }
+    return files
+}
+
 test("FFmpeg WebUI (ffweb) End-to-End Real Flow", async (t) => {
     await fs.remove(TEST_OUT_DIR)
     await fs.ensureDir(TEST_OUT_DIR)
@@ -146,21 +157,22 @@ test("FFmpeg WebUI (ffweb) End-to-End Real Flow", async (t) => {
             )
 
             // 验证产物文件已生成且大小非空
-            const outFiles = await fs.readdir(TEST_OUT_DIR)
-            const transcodeOutputs = outFiles.filter((f) => !f.includes("_tmp@"))
+            const transcodeOutputs = (await listFiles(TEST_OUT_DIR)).filter(
+                (file) => !file.includes("_tmp@"),
+            )
             assert.ok(transcodeOutputs.length > 0, "Output file must be generated")
 
-            const outStat = await fs.stat(path.join(TEST_OUT_DIR, transcodeOutputs[0]))
+            const outStat = await fs.stat(transcodeOutputs[0])
             assert.ok(outStat.size > 1000, `Output size should be > 1KB, got ${outStat.size}`)
         },
     )
 
     await t.test("4. POST /api/task/stop and override should preserve safe semantics", async () => {
-        const existingOutput = (await fs.readdir(TEST_OUT_DIR)).find(
+        const existingOutput = (await listFiles(TEST_OUT_DIR)).find(
             (file) => !file.includes("_tmp@") && !file.endsWith(".error.txt"),
         )
         assert.ok(existingOutput, "The first transcode should leave an output file")
-        const existingPath = path.join(TEST_OUT_DIR, existingOutput)
+        const existingPath = existingOutput
         const before = await fs.stat(existingPath)
 
         const planRes = await apiFetch(`${baseUrl}/api/plan`, {
@@ -205,6 +217,67 @@ test("FFmpeg WebUI (ffweb) End-to-End Real Flow", async (t) => {
         await fs.ensureDir(TEST_OUT_DIR)
     })
 
+    await t.test(
+        "6. plan all-skipped and delete-source confirmation use shared semantics",
+        async () => {
+            const planRes = await apiFetch(`${baseUrl}/api/plan`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    inputs: [SAMPLE_VIDEO],
+                    output: TEST_OUT_DIR,
+                    preset: "h264_2k",
+                    options: { override: true },
+                }),
+            })
+            assert.strictEqual(planRes.status, 200)
+            const planData = await planRes.json()
+            const outputPath = planData.plan.tasks[0].fileDst
+            assert.ok(outputPath)
+            await fs.outputFile(outputPath, Buffer.alloc(2048, 1))
+
+            const unconfirmedDelete = await apiFetch(`${baseUrl}/api/plan`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    inputs: [SAMPLE_VIDEO],
+                    output: TEST_OUT_DIR,
+                    preset: "h264_2k",
+                    options: { deleteSourceFiles: true },
+                }),
+            })
+            assert.strictEqual(unconfirmedDelete.status, 400)
+
+            const skippedPlanRes = await apiFetch(`${baseUrl}/api/plan`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    inputs: [SAMPLE_VIDEO],
+                    output: TEST_OUT_DIR,
+                    preset: "h264_2k",
+                    options: { override: false },
+                }),
+            })
+            assert.strictEqual(skippedPlanRes.status, 200)
+            const skippedPlan = await skippedPlanRes.json()
+            assert.strictEqual(skippedPlan.plan.tasks[0].status, "skipped")
+            assert.strictEqual(skippedPlan.plan.tasks[0].skipReason, "destination_exists")
+
+            const startRes = await apiFetch(`${baseUrl}/api/task/start`, { method: "POST" })
+            assert.strictEqual(startRes.status, 200)
+            const deadline = Date.now() + 10000
+            let snapshot = null
+            while (Date.now() < deadline) {
+                const snapRes = await apiFetch(`${baseUrl}/api/snapshot`)
+                snapshot = (await snapRes.json()).snapshot
+                if (snapshot.summary) break
+                await new Promise((resolve) => setTimeout(resolve, 25))
+            }
+            assert.strictEqual(snapshot?.summary?.skipped, 1)
+            assert.strictEqual(snapshot?.summary?.success, 0)
+        },
+    )
+
     await t.test("5. POST /api/task/stop should abort running transcode", async () => {
         // 先生成新计划（覆盖模式）
         await apiFetch(`${baseUrl}/api/plan`, {
@@ -244,8 +317,8 @@ test("FFmpeg WebUI (ffweb) End-to-End Real Flow", async (t) => {
         )
 
         // 验证无任何残留的临时文件 _tmp@
-        const remainingFiles = await fs.readdir(TEST_OUT_DIR)
-        const tempFiles = remainingFiles.filter((f) => f.includes("_tmp@"))
+        const remainingFiles = await listFiles(TEST_OUT_DIR)
+        const tempFiles = remainingFiles.filter((file) => file.includes("_tmp@"))
         assert.strictEqual(tempFiles.length, 0, "No temporary files should be left")
     })
 })
