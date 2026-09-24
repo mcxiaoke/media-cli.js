@@ -68,6 +68,8 @@ export default [
             "node_modules/**",
             "**/node_modules/*",
             "dist/**",
+            "apps/**/out/**",
+            "apps/**/release/**",
             "coverage/**",
             "*.log",
             // temp/ 存放修复前的代码备份与中间产物，不是产品代码，
