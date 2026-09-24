@@ -116,43 +116,43 @@ Options -> Scan -> Task -> Plan -> Execute -> Result/Event
 
 ### 3.1 Options
 
-- [ ] 新增 `lib/ffmpeg_options.js`；
-- [ ] 定义规范化 `FFmpegOptions`；
-- [ ] 分离 CLI yargs schema 与领域 schema；
-- [ ] 明确 `mode: plan | execute`；
-- [ ] 明确 `jobs`、preset、outputMode、strict、override、deleteSourceFiles；
-- [ ] 保留 `--ffargs` 优先级和现有数值校验。
+- [x] 新增 `lib/ffmpeg_options.js`；
+- [x] 定义规范化 `FFmpegOptions`；
+- [x] 分离 CLI yargs schema 与领域 schema；
+- [x] 明确 `mode: plan | execute`；
+- [x] 明确 `jobs`、preset、outputMode、strict、override、deleteSourceFiles；
+- [x] 保留 `--ffargs` 优先级和现有数值校验。
 
 ### 3.2 Plan
 
-- [ ] 定义 `InternalExecutionPlan`；
-- [ ] 定义 `PublicPlanSnapshot`；
-- [ ] 增加 planId/taskId/index/status；
-- [ ] 明确 skipped/cancelled/failed；
-- [ ] 禁止将 Set/Map/Error/内部 argv 直接发送到 renderer。
+- [x] 定义 `InternalExecutionPlan`；
+- [x] 定义 `PublicPlanSnapshot`；
+- [x] 增加 planId/taskId/index/status；
+- [x] 明确 skipped/cancelled/failed；
+- [x] 禁止将 Set/Map/Error/内部 argv 直接发送到 renderer。
 
 ### 3.3 Result/Event
 
-- [ ] 定义 `RunResult` 判别联合；
+- [x] 定义 `RunResult` 判别联合；
 - [ ] 定义 `TaskAttemptResult`；
-- [ ] 定义 `EngineEvent`；
-- [ ] 事件包含 runId/taskId/seq/attempt/timestamp；
-- [ ] 明确 success/failed/skipped/cancelled。
+- [x] 定义 `EngineEvent`；
+- [x] 事件包含 runId/taskId/seq/attempt/timestamp；
+- [x] 明确 success/failed/skipped/cancelled。
 
 ### 3.4 测试 seam
 
 - [ ] 为 buildTask 注入 mediaInfo/musicMeta/fs/hardware/logger；
-- [ ] 为 scan 注入文件遍历和过滤依赖；
+- [x] 为 scan 注入文件遍历和过滤依赖；
 - [ ] 为 execute 注入 fake runner；
-- [ ] 建立 feature/characterization tests；
-- [ ] 私有函数测试通过公共测试入口完成，不依赖脆弱的 rewire。
+- [x] 建立 feature/characterization tests；
+- [x] 私有函数测试通过公共测试入口完成，不依赖脆弱的 rewire。
 
 **阶段 1 验收**：
 
-- [ ] Options/Plan/Result/Event 有测试；
-- [ ] InternalPlan 与 PublicSnapshot 有明确投影；
-- [ ] 不改变现有 CLI 外部参数；
-- [ ] 不改变编码参数算法。
+- [x] Options/Plan/Result/Event 有测试；
+- [x] InternalPlan 与 PublicSnapshot 有明确投影；
+- [x] 不改变现有 CLI 外部参数；
+- [x] 不改变编码参数算法。
 
 ---
 
@@ -160,21 +160,21 @@ Options -> Scan -> Task -> Plan -> Execute -> Result/Event
 
 ### 4.1 Scan
 
-- [ ] 新增 `lib/ffmpeg_scan.js`；
+- [x] 新增 `lib/ffmpeg_scan.js`；
 - [ ] 抽取单文件/目录/多输入/filelist 收集；
-- [ ] 抽取去重、排序、媒体类型过滤；
+- [x] 抽取去重、排序、媒体类型过滤；
 - [ ] 抽取 extensions/include/exclude/regex；
 - [ ] 抽取 start/count；
-- [ ] 统一 ScanEntry 结构；
+- [x] 统一 ScanEntry 结构；
 - [ ] 明确不存在路径和无媒体文件语义。
 
 ### 4.2 Task
 
-- [ ] 新增 `lib/ffmpeg_task.js`；
-- [ ] 抽取单文件任务构建；
+- [x] 新增 `lib/ffmpeg_task.js`；
+- [x] 抽取单文件任务构建；
 - [ ] 保留 outputMode、字幕、audio extract、metadata、prefix/suffix；
 - [ ] 保留临时文件和 skipReason；
-- [ ] 移除对 GUI/CLI 原始 body 的隐式依赖。
+- [x] 移除对 GUI/CLI 原始 body 的隐式依赖。
 
 ### 4.3 Engine
 
@@ -210,7 +210,7 @@ Options -> Scan -> Task -> Plan -> Execute -> Result/Event
 
 - [ ] `ffweb/task_runner.js` 删除重复扫描和任务构建；
 - [ ] 只保留 HTTP/SSE transport 和状态映射；
-- [ ] 使用 PublicPlanSnapshot；
+- [x] 使用 PublicPlanSnapshot；
 - [ ] 使用 EngineEvent；
 - [ ] 补确认、retry、delete-source、override；
 - [ ] 保留 WebUI 功能回归。
@@ -381,6 +381,7 @@ npm test/check/lint 结果已记录；
 | :--- | :--- | :--- | :--- |
 | 2026-09-24 | 计划创建 | 已完成 | 综合三份评审报告建立实施计划 |
 | 2026-09-24 | 第一批 | 已完成 | ffweb 安全、stop/cancel、override、RunResult 过渡适配、scan/task seam；npm test 297/297 通过 |
+| 2026-09-24 | 阶段 1A：领域契约 | 已完成 | FFmpeg Options adapters、Internal/Public Plan、EngineEvent、PublicSnapshot；ffweb 已接入 Options/PublicSnapshot；npm test 304/304 通过；Attempt/fake runner/完整 Engine 留待后续 |
 
 ---
 

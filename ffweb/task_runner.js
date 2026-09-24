@@ -8,6 +8,11 @@ import fs from "fs-extra"
 import { resolveFFmpegBinary } from "../lib/ffmpeg_bin.js"
 import { createFFmpegArgs, flattenFFArgs } from "../lib/ffmpeg_build.js"
 import { buildTask } from "../lib/ffmpeg_task.js"
+import {
+    createInternalExecutionPlan,
+    createPublicPlanSnapshot,
+} from "../lib/ffmpeg_plan_snapshot.js"
+import { normalizeWebOptions, toLegacyArgvOptions } from "../lib/ffmpeg_options.js"
 import presets from "../lib/ffmpeg_presets.js"
 import { runFFmpegCmd, setFFmpegPath } from "../lib/ffmpeg_run.js"
 import { RUN_STATUS, toRunResult } from "../lib/ffmpeg_result.js"
@@ -178,7 +183,11 @@ export class TaskRunner {
     /**
      * 创建转码计划（Plan）
      */
-    async createPlan({ inputs = [], output = "", preset = "hevc_2k", options = {} } = {}) {
+    async createPlan(body = {}) {
+        const normalized = normalizeWebOptions(body)
+        const inputs = normalized.inputs
+        const output = normalized.output
+        const requestedPreset = normalized.preset || "hevc_2k"
         await this.init()
         this.status = "PLANNING"
         this.emit("STATUS_CHANGE", { status: this.status })
@@ -193,23 +202,17 @@ export class TaskRunner {
 
             const allPresetNames = presets.getAllNames()
             const presetObj =
-                presets.getPreset(preset) ||
+                presets.getPreset(requestedPreset) ||
                 presets.getPreset("hevc_2k") ||
                 presets.getPreset("h264_2k") ||
                 presets.getPreset(allPresetNames[0])
-            const opt = { ...options }
-            if (opt.fps > 0) {
-                opt.framerate = opt.fps
-            }
-            if (opt.audioCodec === "copy") {
-                opt.audioCopy = true
-            }
+            const legacyOptions = toLegacyArgvOptions(normalized)
             const mergedArgv = {
                 output: output || "",
-                outputMode: "dir",
-                decodeMode: "auto",
+                outputMode: normalized.outputMode,
+                decodeMode: normalized.decodeMode,
                 preset: presetObj.name,
-                ...opt,
+                ...legacyOptions,
             }
             const activePreset = presets.createFromArgv(mergedArgv)
 
@@ -255,16 +258,17 @@ export class TaskRunner {
             const totalDuration = tasks.reduce((acc, t) => acc + (t.duration || 0), 0)
             const totalSize = tasks.reduce((acc, t) => acc + (t.size || 0), 0)
 
-            this.currentPlan = {
+            this.currentPlan = createInternalExecutionPlan({
                 id: `plan_${Date.now()}`,
                 presetName: activePreset.name,
                 preset: activePreset,
+                mode: normalized.mode,
                 argv: mergedArgv,
                 tasks,
                 totalDuration,
                 totalSize,
                 previewCmd,
-            }
+            })
 
             this.status = "IDLE"
             this.emit("STATUS_CHANGE", { status: this.status })
@@ -275,28 +279,21 @@ export class TaskRunner {
             )
             this.appendLog("info", "Command", `Preview Command: ${previewCmd}`)
 
+            const publicPlan = createPublicPlanSnapshot({
+                ...this.currentPlan,
+                mode: normalized.mode,
+            })
+            publicPlan.humanDuration = helper.humanSeconds(totalDuration)
+            publicPlan.humanSize = helper.humanSize(totalSize)
+            publicPlan.tasks = publicPlan.tasks.map((task) => ({
+                ...task,
+                humanSize: helper.humanSize(task.size),
+                humanDuration: helper.humanSeconds(task.duration),
+            }))
+
             return {
                 ok: true,
-                plan: {
-                    id: this.currentPlan.id,
-                    presetName: activePreset.name,
-                    totalTasks: tasks.length,
-                    totalDuration,
-                    humanDuration: helper.humanSeconds(totalDuration),
-                    totalSize,
-                    humanSize: helper.humanSize(totalSize),
-                    previewCmd,
-                    tasks: tasks.map((t) => ({
-                        index: t.index,
-                        name: t.name,
-                        path: t.path,
-                        size: t.size,
-                        humanSize: helper.humanSize(t.size),
-                        duration: t.duration,
-                        humanDuration: helper.humanSeconds(t.duration),
-                        fileDst: t.fileDst,
-                    })),
-                },
+                plan: publicPlan,
             }
         } catch (error) {
             this.status = "IDLE"
