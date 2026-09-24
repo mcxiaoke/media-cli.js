@@ -499,8 +499,10 @@ describe("Metadata 清理与纯净标题", () => {
 })
 
 describe("流元数据保护与过期统计清理 (BPS/多轨语言保留)", () => {
-    it("视频重编码时显式清空 BPS、NUMBER_OF_BYTES 等过期统计，防止 MediaInfo 误读旧码率", () => {
+    it("特殊 MKV 视频重编码时显式清空 BPS、NUMBER_OF_BYTES 等过期统计，防止 MediaInfo 误读旧码率", () => {
         const entry = makeEntry({
+            path: "/tmp/in.mkv",
+            hasMkvStats: true,
             preset: presetOf({ type: "video" }),
         })
         const cmd = flattenFFArgs(createFFmpegArgs(entry, makeHwPlan(cpuTier)).args)
@@ -515,14 +517,28 @@ describe("流元数据保护与过期统计清理 (BPS/多轨语言保留)", () 
         )
     })
 
+    it("普通 MP4 或无统计标签文件不追加过期统计清理参数", () => {
+        const entry = makeEntry({
+            path: "/tmp/in.mp4",
+            preset: presetOf({ type: "video" }),
+        })
+        const cmd = flattenFFArgs(createFFmpegArgs(entry, makeHwPlan(cpuTier)).args)
+        assert.ok(!cmd.includes("-metadata:s:v BPS="), `普通 MP4 不应追加清理 BPS: ${cmd}`)
+        assert.ok(!cmd.includes("-metadata:s:a BPS="), `普通 MP4 不应追加清理音频 BPS: ${cmd}`)
+    })
+
     it("音频重编码时清空音频流过期 BPS 统计，音频复制 (copy) 时保留", () => {
         const entryReencode = makeEntry({
+            path: "/tmp/in.mkv",
+            hasMkvStats: true,
             preset: presetOf({ audioCodec: "aac", audioCopy: false }),
         })
         const cmdRe = flattenFFArgs(createFFmpegArgs(entryReencode, makeHwPlan(cpuTier)).args)
         assert.ok(cmdRe.includes("-metadata:s:a BPS="), `音频重编码时应清理音频 BPS: ${cmdRe}`)
 
         const entryCopy = makeEntry({
+            path: "/tmp/in.mkv",
+            hasMkvStats: true,
             preset: presetOf({ audioCodec: "copy", audioCopy: true }),
         })
         const cmdCopy = flattenFFArgs(createFFmpegArgs(entryCopy, makeHwPlan(cpuTier)).args)

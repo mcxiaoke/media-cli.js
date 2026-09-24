@@ -21,6 +21,7 @@ import { getMediaInfo } from "../lib/mediainfo.js"
 import { addEntryProps } from "../lib/rename.js"
 import { scanFFmpegInputs } from "../lib/ffmpeg_scan.js"
 import { buildCliTask } from "../lib/ffmpeg_task.js"
+import { SKIP_REASON } from "../lib/ffmpeg_result.js"
 import { prepareFFmpegPlan, deleteCompletedSources } from "../lib/ffmpeg_planner.js"
 import { normalizeCliOptions, toLegacyArgvOptions } from "../lib/ffmpeg_options.js"
 import { TIERS } from "../lib/hwaccel.js"
@@ -719,10 +720,32 @@ async function runFFmpegTasks({ tasks, testMode, preset, jobs, plan: preparedPla
         log.fileLog(`${tmTag}Fail <${failed.path}> ${failed.ffmpegError || ""}`, "FFConv")
     }
     for (const skipped of skippedResults) {
-        log.fileLog(`${tmTag}Skip[Strict] <${skipped.path}> ${skipped.skipReason || ""}`, "FFConv")
+        const isStrictSkip =
+            strict &&
+            (skipped.skipReason === SKIP_REASON.STRICT_MODE ||
+                skipped.skipReason === SKIP_REASON.STRICT_CODEC)
+        const tag = isStrictSkip ? "Skip[Strict]" : "Skip"
+        log.fileLog(`${tmTag}${tag} <${skipped.path}> ${skipped.skipReason || ""}`, "FFConv")
     }
     if (skippedResults.length > 0) {
-        log.showYellow(LOG_TAG, t("ffmpeg.strict.skip.count", { count: skippedResults.length }))
+        const strictSkips = skippedResults.filter(
+            (task) =>
+                strict &&
+                (task.skipReason === SKIP_REASON.STRICT_MODE ||
+                    task.skipReason === SKIP_REASON.STRICT_CODEC),
+        )
+        const regularSkips = skippedResults.filter(
+            (task) =>
+                !strict ||
+                (task.skipReason !== SKIP_REASON.STRICT_MODE &&
+                    task.skipReason !== SKIP_REASON.STRICT_CODEC),
+        )
+        if (strictSkips.length > 0) {
+            log.showYellow(LOG_TAG, t("ffmpeg.strict.skip.count", { count: strictSkips.length }))
+        }
+        if (regularSkips.length > 0) {
+            log.showYellow(LOG_TAG, t("ffmpeg.skip.count", { count: regularSkips.length }))
+        }
     }
 
     const deletion = await deleteCompletedSources({
