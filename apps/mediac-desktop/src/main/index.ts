@@ -4,6 +4,7 @@ import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { ffmpegEnvironment } from "./ffmpeg-service.js"
 import { toSerializable } from "./ipc-serializer.js"
+import { showItemInFolder, showNotification } from "./native.js"
 import { IPC_CHANNELS } from "../shared/ipc-channels.js"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -94,10 +95,24 @@ handleTrusted(IPC_CHANNELS.EXECUTION_START, async (taskIds: unknown) => {
   if (taskIds !== undefined && (!Array.isArray(taskIds) || taskIds.some((id) => typeof id !== "string"))) {
     throw new Error("taskIds must be an array of strings")
   }
-  return ffmpegEnvironment.startExecution((taskIds as string[] | undefined) || [])
+  return ffmpegEnvironment.startExecution(taskIds as string[] | undefined)
 })
 handleTrusted(IPC_CHANNELS.EXECUTION_STOP, () => ffmpegEnvironment.stopExecution())
 handleTrusted(IPC_CHANNELS.EXECUTION_SNAPSHOT, () => ffmpegEnvironment.getTaskSnapshot())
+handleTrusted(IPC_CHANNELS.SYSTEM_SHOW_IN_FOLDER, async (fullPath: unknown) => {
+  if (typeof fullPath !== "string") throw new Error("fullPath must be a string")
+  showItemInFolder(fullPath)
+})
+handleTrusted(IPC_CHANNELS.SYSTEM_NOTIFY, async (payload: unknown) => {
+  const p = payload as { title?: string; body?: string }
+  if (!p || typeof p !== "object") throw new Error("Invalid notify payload")
+  showNotification(p.title || "mediac", p.body || "", () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.focus()
+    }
+  })
+})
 handleTrusted(
   IPC_CHANNELS.DIALOG_SELECT_FILES,
   async (options: { mode?: "file" | "directory"; multiple?: boolean }) => {

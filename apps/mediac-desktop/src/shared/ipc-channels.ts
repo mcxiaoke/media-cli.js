@@ -7,6 +7,8 @@ export const IPC_CHANNELS = {
   EXECUTION_STOP: "execution:stop",
   EXECUTION_SNAPSHOT: "execution:snapshot",
   EXECUTION_EVENT: "execution:event",
+  SYSTEM_SHOW_IN_FOLDER: "system:show-in-folder",
+  SYSTEM_NOTIFY: "system:notify",
 } as const
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS]

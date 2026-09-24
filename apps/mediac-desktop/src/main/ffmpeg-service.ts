@@ -1,5 +1,5 @@
 import { app } from "electron"
-import { execFile } from "node:child_process"
+import { execFile, execFileSync } from "node:child_process"
 import { existsSync } from "node:fs"
 import { readFile, mkdir, rename, rm, writeFile } from "node:fs/promises"
 import path from "node:path"
@@ -7,6 +7,7 @@ import { promisify } from "node:util"
 import { resolveFFmpegBinary, resolveFFprobeBinary } from "../../../../lib/ffmpeg_bin.js"
 import presets from "../../../../lib/ffmpeg_presets.js"
 import { runFFmpeg, setFFmpegPath } from "../../../../lib/ffmpeg_run.js"
+import { createFFmpegArgs, flattenFFArgs } from "../../../../lib/ffmpeg_build.js"
 import { detectHardwareCapabilities } from "../../../../lib/hwdetect.js"
 import { normalizeWebOptions, toLegacyArgvOptions } from "../../../../lib/ffmpeg_options.js"
 import { scanWebInputFiles } from "../../../../lib/ffmpeg_scan.js"
@@ -14,6 +15,12 @@ import { getMediaInfo } from "../../../../lib/mediainfo.js"
 import { deleteCompletedSources, prepareFFmpegPlan } from "../../../../lib/ffmpeg_planner.js"
 import { createPublicPlanSnapshot } from "../../../../lib/ffmpeg_plan_snapshot.js"
 import { createFFmpegEngine } from "../../../../lib/ffmpeg_engine.js"
+import {
+  startPreventSuspension,
+  stopPreventSuspension,
+  updateTaskbarProgress,
+  setTaskbarProgressError,
+} from "./native.js"
 import type {
   EnvironmentSummary,
   PublicPlanSnapshot,
@@ -26,7 +33,7 @@ class FfmpegEnvironmentService {
   private ffprobePath: string | null = null
   private hardware: any = null
   private currentPlan: any = null
-  private status: "IDLE" | "PLANNING" | "READY" | "RUNNING" | "STOPPED" | "COMPLETED" | "FAILED" = "IDLE"
+  private status: "IDLE" | "PLANNING" | "READY" | "RUNNING" | "STOPPING" | "STOPPED" | "COMPLETED" | "FAILED" | "STALE" = "IDLE"
   private abortController: AbortController | null = null
   private eventSink: ((event: Record<string, unknown>) => void) | null = null
   private summary: Record<string, unknown> | null = null
@@ -111,6 +118,17 @@ class FfmpegEnvironmentService {
       this.hardware = await detectHardwareCapabilities({ ffmpegPath: this.ffmpegPath })
     }
 
+    const vendor = (this.hardware?.vendor || "").toLowerCase()
+    const encoders = Array.from(this.hardware?.encoders || []) as string[]
+    let tier: "nvidia" | "intel" | "amd" | "cpu" = "cpu"
+    if (vendor.includes("nvidia") || encoders.some((e: string) => e.includes("nvenc"))) {
+      tier = "nvidia"
+    } else if (vendor.includes("intel") || encoders.some((e: string) => e.includes("qsv"))) {
+      tier = "intel"
+    } else if (vendor.includes("amd") || encoders.some((e: string) => e.includes("amf"))) {
+      tier = "amd"
+    }
+
     return {
       ffmpegPath: this.ffmpegPath,
       ffprobePath: this.ffprobePath,
@@ -129,9 +147,14 @@ class FfmpegEnvironmentService {
         }
       }),
       hardware: {
-        gpus: this.hardware?.gpus || [],
-        encoders: Array.from(this.hardware?.encoders || []),
+        gpus: (this.hardware?.gpus || []).map((g: any) => ({
+          vendor: g.vendor || "Unknown",
+          model: g.model || g.name || "Unknown GPU",
+          generation: g.generation || undefined,
+        })),
+        encoders,
         hwaccels: Array.from(this.hardware?.hwaccels || []),
+        tier,
       },
     }
   }
@@ -190,6 +213,19 @@ class FfmpegEnvironmentService {
         },
       })) as any
       this.currentPlan = prepared.plan
+
+      // Generate previewCmd for the first task if missing
+      if (this.currentPlan?.tasks?.length > 0 && !this.currentPlan.previewCmd) {
+        try {
+          const firstTask = this.currentPlan.tasks[0]
+          const buildResult = createFFmpegArgs(firstTask, firstTask.hwPlan || null)
+          const flat = flattenFFArgs(buildResult?.args)
+          if (flat) this.currentPlan.previewCmd = `ffmpeg ${flat}`
+        } catch {
+          // Keep empty string fallback
+        }
+      }
+
       this.status = "READY"
       return createPublicPlanSnapshot(this.currentPlan)
     } catch (error) {
@@ -198,33 +234,54 @@ class FfmpegEnvironmentService {
     }
   }
 
-  private async killTrackedProcesses() {
+  private killTrackedProcessesSync() {
     const pids = [...this.activePids]
     this.activePids.clear()
-    await Promise.all(
-      pids.map(async (pid) => {
-        try {
-          if (process.platform === "win32") {
-            await execFileAsync("taskkill", ["/PID", String(pid), "/T", "/F"], {
-              windowsHide: true,
-            })
-          } else {
-            process.kill(pid, "SIGTERM")
-          }
-        } catch {
-          // Process may already have exited; onExit will normally untrack it.
+    for (const pid of pids) {
+      try {
+        if (process.platform === "win32") {
+          execFileSync("taskkill", ["/PID", String(pid), "/T", "/F"], {
+            windowsHide: true,
+            stdio: "ignore",
+            timeout: 2000,
+          })
+        } else {
+          process.kill(pid, "SIGKILL")
         }
-      }),
-    )
+      } catch {
+        // Process may already have terminated or been killed
+      }
+    }
   }
 
-  async startExecution(taskIds: string[] = []): Promise<{ runId: string }> {
+  async startExecution(taskIds?: string[]): Promise<{ runId: string }> {
     if (!this.currentPlan) throw new Error("No active plan to execute")
-    if (this.status === "RUNNING") throw new Error("An execution is already running")
-    const tasks = taskIds.length
+    if (this.status === "RUNNING" || this.status === "PLANNING" || this.status === "STOPPING") {
+      throw new Error(`Cannot start execution while in ${this.status} state`)
+    }
+    if (taskIds !== undefined && taskIds.length === 0) {
+      throw new Error("No selected tasks to execute")
+    }
+
+    const selectedTasks = taskIds && taskIds.length > 0
       ? this.currentPlan.tasks.filter((task: any) => taskIds.includes(task.id))
       : this.currentPlan.tasks
-    if (tasks.length === 0) throw new Error("No selected tasks to execute")
+    if (!selectedTasks || selectedTasks.length === 0) {
+      throw new Error("No selected tasks to execute")
+    }
+
+    // Clean cloned tasks to prevent previous run status contamination
+    const tasks = selectedTasks.map((task: any) => ({
+      ...task,
+      status: "pending",
+      ok: undefined,
+      ffmpegFailed: undefined,
+      ffmpegError: undefined,
+      error: null,
+      skipReason: null,
+      progress: 0,
+      speed: 0,
+    }))
 
     await this.recoverStaleTasks()
     await this.writeTaskManifest(tasks, this.currentPlan.id)
@@ -233,6 +290,12 @@ class FfmpegEnvironmentService {
     const signal = this.abortController.signal
     const runId = this.currentPlan.id
     const executionPlan = { ...this.currentPlan, tasks }
+
+    startPreventSuspension()
+    updateTaskbarProgress(0)
+
+    let lastProgressTime = 0
+
     const engine = createFFmpegEngine({
       runTask: (task: any, context: any) =>
         runFFmpeg(task, {
@@ -253,8 +316,19 @@ class FfmpegEnvironmentService {
             }
           },
         } as any),
-      onEvent: (event: Record<string, unknown>) => this.eventSink?.(event),
+      onEvent: (event: Record<string, unknown>) => {
+        if (event.type === "task.progress") {
+          const now = Date.now()
+          if (now - lastProgressTime < 100) return
+          lastProgressTime = now
+          if (typeof event.percent === "number") {
+            updateTaskbarProgress(event.percent / 100)
+          }
+        }
+        this.eventSink?.(event)
+      },
     })
+
     void engine
       .execute(
         executionPlan,
@@ -263,6 +337,15 @@ class FfmpegEnvironmentService {
           signal,
           concurrency: 1,
           onSummary: async (summary: Record<string, unknown>) => {
+            stopPreventSuspension()
+            const isCancelled = !!summary.isCancelled
+            const failedCount = Array.isArray(summary.failed) ? summary.failed.length : 0
+            if (failedCount > 0) {
+              setTaskbarProgressError()
+            } else {
+              updateTaskbarProgress(isCancelled ? -1 : 1)
+            }
+
             const deletion = await (deleteCompletedSources as any)({
               plan: executionPlan,
               confirmDeleteSource: executionPlan.argv?.deleteSourceConfirmed === true,
@@ -275,11 +358,13 @@ class FfmpegEnvironmentService {
                 failed: deletion.failed.length,
               },
             }
-            this.status = summary.isCancelled ? "STOPPED" : "COMPLETED"
+            this.status = isCancelled ? "STOPPED" : "COMPLETED"
           },
         },
       )
       .catch((error: unknown) => {
+        stopPreventSuspension()
+        setTaskbarProgressError()
         this.summary = { status: "failed", error: error instanceof Error ? error.message : String(error) }
         this.status = "FAILED"
       })
@@ -292,8 +377,11 @@ class FfmpegEnvironmentService {
 
   async stopExecution() {
     if (!this.abortController) return { ok: false, message: "No running task to stop" }
+    this.status = "STOPPING"
     this.abortController.abort()
-    await this.killTrackedProcesses()
+    this.killTrackedProcessesSync()
+    stopPreventSuspension()
+    updateTaskbarProgress(-1)
     return { ok: true, message: "Stop signal sent" }
   }
 
@@ -307,7 +395,9 @@ class FfmpegEnvironmentService {
 
   dispose() {
     this.abortController?.abort()
-    void this.killTrackedProcesses()
+    stopPreventSuspension()
+    updateTaskbarProgress(-1)
+    this.killTrackedProcessesSync()
     void this.clearTaskManifest()
     this.eventSink = null
   }

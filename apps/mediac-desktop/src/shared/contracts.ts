@@ -39,10 +39,30 @@ export interface EnvironmentSummary {
     dimension: number
   }>
   hardware: {
-    gpus: unknown[]
+    gpus: Array<{ vendor: string; model: string; generation?: string }>
     encoders: string[]
     hwaccels: string[]
+    tier: "nvidia" | "intel" | "amd" | "cpu"
   }
+}
+
+export interface PlanTask {
+  id: string
+  index: number
+  name: string
+  path: string
+  size: number
+  duration: number
+  fileDst: string
+  status: TaskStatus
+  error: string | null
+  skipReason: string | null
+  videoCodec?: string
+  width?: number
+  height?: number
+  fps?: number
+  srcSize?: number
+  srcDuration?: number
 }
 
 export interface PublicPlanSnapshot {
@@ -54,18 +74,7 @@ export interface PublicPlanSnapshot {
   totalDuration: number
   totalSize: number
   previewCmd: string
-  tasks: Array<{
-    id: string
-    index: number
-    name: string
-    path: string
-    size: number
-    duration: number
-    fileDst: string
-    status: TaskStatus
-    error: string | null
-    skipReason: string | null
-  }>
+  tasks: Array<PlanTask>
 }
 
 export interface SelectFileResult {
@@ -82,4 +91,6 @@ export interface DesktopApi {
   stopExecution(): Promise<{ ok: boolean; message?: string }>
   getTaskSnapshot(): Promise<Record<string, unknown>>
   onEngineEvent(callback: (event: Record<string, unknown>) => void): () => void
+  showInFolder(fullPath: string): Promise<void>
+  notify(title: string, body: string): Promise<void>
 }

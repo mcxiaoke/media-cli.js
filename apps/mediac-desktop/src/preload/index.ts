@@ -2,12 +2,21 @@ import { contextBridge, ipcRenderer, webUtils } from "electron"
 import { IPC_CHANNELS } from "../shared/ipc-channels.js"
 import type { DesktopApi } from "../shared/contracts.js"
 
+function safeClone<T>(val: T): T {
+  if (val === undefined || val === null) return val
+  try {
+    return JSON.parse(JSON.stringify(val))
+  } catch {
+    return val
+  }
+}
+
 const api: DesktopApi = {
   getPathForFile(file: File) {
     return webUtils.getPathForFile(file)
   },
   selectFiles(options) {
-    return ipcRenderer.invoke(IPC_CHANNELS.DIALOG_SELECT_FILES, options)
+    return ipcRenderer.invoke(IPC_CHANNELS.DIALOG_SELECT_FILES, safeClone(options))
   },
   getAppVersion() {
     return ipcRenderer.invoke(IPC_CHANNELS.APP_GET_VERSION)
@@ -16,10 +25,10 @@ const api: DesktopApi = {
     return ipcRenderer.invoke(IPC_CHANNELS.ENV_GET)
   },
   createPlan(body) {
-    return ipcRenderer.invoke(IPC_CHANNELS.PLAN_CREATE, body)
+    return ipcRenderer.invoke(IPC_CHANNELS.PLAN_CREATE, safeClone(body))
   },
   startExecution(taskIds) {
-    return ipcRenderer.invoke(IPC_CHANNELS.EXECUTION_START, taskIds || [])
+    return ipcRenderer.invoke(IPC_CHANNELS.EXECUTION_START, safeClone(taskIds))
   },
   stopExecution() {
     return ipcRenderer.invoke(IPC_CHANNELS.EXECUTION_STOP)
@@ -31,6 +40,12 @@ const api: DesktopApi = {
     const listener = (_event: unknown, data: Record<string, unknown>) => callback(data)
     ipcRenderer.on(IPC_CHANNELS.EXECUTION_EVENT, listener)
     return () => ipcRenderer.removeListener(IPC_CHANNELS.EXECUTION_EVENT, listener)
+  },
+  showInFolder(fullPath) {
+    return ipcRenderer.invoke(IPC_CHANNELS.SYSTEM_SHOW_IN_FOLDER, fullPath)
+  },
+  notify(title, body) {
+    return ipcRenderer.invoke(IPC_CHANNELS.SYSTEM_NOTIFY, safeClone({ title, body }))
   },
 }
 
