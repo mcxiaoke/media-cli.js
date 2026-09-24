@@ -404,7 +404,8 @@ npm test/check/lint 结果已记录；
 | 2026-09-24 | 阶段 1B/5C：稳定 AttemptResult 与 AbortSignal | 已完成 | mediainfo/ffprobe、硬件能力探测、任务构建和输出提交贯穿 AbortSignal；Engine 透传稳定 TaskAttemptResult；npm test 316/316 通过 |
 | 2026-09-24 | 阶段 1D：稳定 runFFmpeg 接口 | 已完成 | 新增 `runFFmpeg` 稳定结果包装，CLI、ffweb、Electron 不再直接消费可变 `runFFmpegCmd` entry；定向 Engine/ffweb 测试和 app typecheck 通过 |
 | 2026-09-24 | 阶段 1E：skipReason 与 EngineEvent | 已完成 | 统一 skip reason 值域，preflight skipped task 不启动 ffmpeg，ffweb 透传 EngineEvent；ffweb/engine/task 定向测试通过 |
-| 2026-09-24 | 阶段 2F：共享 Planner 与行为统一 | 已完成 | CLI/ffweb 共用 task/Plan preparation、retry/delete-source/override、空计划/全跳过/stale plan 语义；新增 parity 与回归测试，定向测试通过；全量门禁待本阶段提交前确认 |
+| 2026-09-24 | 阶段 2F：共享 Planner 与行为统一 | 已完成 | CLI/ffweb 共用 task/Plan preparation、retry/delete-source/override、空计划/全跳过/stale plan 语义；新增 parity 与回归测试，定向测试通过；全量门禁已通过（324/324、129 JS、lint） |
+| 2026-09-24 | 阶段 3A：共享 Web Scan 规则 | 已完成 | ffweb 改用 `scanWebInputFiles`，统一 preset 类型、文件名过滤、filelist、start/count；新增 Web scan 回归测试，定向测试通过 |
 | 2026-09-24 | 范围调整 | 已确认 | 核心功能优先；Electron 分发、许可、签名和干净机验收暂缓，不作为当前阶段门槛 |
 
 ---

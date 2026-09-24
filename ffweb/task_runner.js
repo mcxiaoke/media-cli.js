@@ -19,7 +19,7 @@ import { normalizeWebOptions, toLegacyArgvOptions } from "../lib/ffmpeg_options.
 import presets from "../lib/ffmpeg_presets.js"
 import { runFFmpeg, setFFmpegPath } from "../lib/ffmpeg_run.js"
 import { RUN_STATUS } from "../lib/ffmpeg_result.js"
-import { collectInputFiles as collectSharedInputFiles } from "../lib/ffmpeg_scan.js"
+import { scanWebInputFiles } from "../lib/ffmpeg_scan.js"
 import * as helper from "../lib/helper.js"
 import { TIERS } from "../lib/hwaccel.js"
 import { detectHardwareCapabilities } from "../lib/hwdetect.js"
@@ -179,8 +179,8 @@ export class TaskRunner {
      * 收集输入的媒体文件条目。
      * 具体扫描实现位于 lib/ffmpeg_scan.js，便于后续 CLI/Engine 复用和测试。
      */
-    async collectInputFiles(inputs) {
-        return collectSharedInputFiles(inputs)
+    async collectInputFiles(inputs, options = {}) {
+        return scanWebInputFiles({ inputs, ...options })
     }
 
     /**
@@ -199,15 +199,6 @@ export class TaskRunner {
         this.emit("STATUS_CHANGE", { status: this.status })
 
         try {
-            const files = await this.collectInputFiles(inputs)
-            if (files.length === 0) {
-                this.status = "IDLE"
-                this.emit("STATUS_CHANGE", { status: this.status })
-                const error = new Error("No media files found in specified inputs")
-                error.code = PLAN_ERROR_CODE.NO_INPUTS
-                throw error
-            }
-
             const allPresetNames = presets.getAllNames()
             const presetObj =
                 presets.getPreset(requestedPreset) ||
@@ -233,6 +224,18 @@ export class TaskRunner {
                 throw error
             }
             const activePreset = presets.createFromArgv(mergedArgv)
+            const files = await this.collectInputFiles(inputs, {
+                argv: normalized,
+                presetType: activePreset.type,
+                isAudioExtract: presets.isAudioExtract(activePreset),
+            })
+            if (files.length === 0) {
+                this.status = "IDLE"
+                this.emit("STATUS_CHANGE", { status: this.status })
+                const error = new Error("No media files found in specified inputs")
+                error.code = PLAN_ERROR_CODE.NO_INPUTS
+                throw error
+            }
 
             this.appendLog(
                 "info",

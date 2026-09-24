@@ -2,7 +2,7 @@ import assert from "assert"
 import fs from "fs-extra"
 import path from "path"
 import test from "node:test"
-import { collectInputFiles, scanFFmpegInputs } from "../lib/ffmpeg_scan.js"
+import { collectInputFiles, scanFFmpegInputs, scanWebInputFiles } from "../lib/ffmpeg_scan.js"
 
 const SAMPLE_VIDEO = path.resolve("data/videos/TEST2__mpeg4_avi_480.avi")
 
@@ -43,6 +43,29 @@ test("ffmpeg scan applies media type rules and start/count", async () => {
     })
     assert.strictEqual(entries.length, 1)
     assert.ok(entries[0].path)
+})
+
+test("ffmpeg web scan shares preset type, filename and filelist rules", async () => {
+    const filtered = await scanWebInputFiles({
+        inputs: [SAMPLE_VIDEO],
+        argv: { exclude: "TEST2__mpeg4_avi_480", regex: true },
+        presetType: "video",
+    })
+    assert.strictEqual(filtered.length, 0)
+
+    const listPath = path.resolve("temp/test_ffmpeg_web_scan_filelist.txt")
+    await fs.outputFile(listPath, `${SAMPLE_VIDEO}\n`)
+    try {
+        const entries = await scanWebInputFiles({
+            inputs: [],
+            argv: { filelist: listPath },
+            presetType: "video",
+        })
+        assert.strictEqual(entries.length, 1)
+        assert.strictEqual(entries[0].path, SAMPLE_VIDEO)
+    } finally {
+        await fs.remove(listPath)
+    }
 })
 
 test("ffmpeg scan keeps filelist input semantics", async () => {
