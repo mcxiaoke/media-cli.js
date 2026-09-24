@@ -10,6 +10,8 @@
 > - `docs/FFMPEG-EXTRACT-AND-LOG-PLAN-20260924.md`
 >
 > **执行原则**：先修安全/行为阻断项，再抽取共享核心；先让 CLI 和现有 ffweb 复用 Engine，再实现 Electron；不提前进行全局日志重构或独立 npm 抽包。
+>
+> **当前范围调整（2026-09-24）**：优先完成 CLI/ffweb 共享核心和真实功能回归。Electron 的 ffmpeg 分发、许可 notices、Authenticode 签名、NSIS/Portable 干净机验收暂缓，不作为当前阶段门槛。
 
 ---
 
@@ -402,6 +404,7 @@ npm test/check/lint 结果已记录；
 | 2026-09-24 | 阶段 1B/5C：稳定 AttemptResult 与 AbortSignal | 已完成 | mediainfo/ffprobe、硬件能力探测、任务构建和输出提交贯穿 AbortSignal；Engine 透传稳定 TaskAttemptResult；npm test 316/316 通过 |
 | 2026-09-24 | 阶段 1D：稳定 runFFmpeg 接口 | 已完成 | 新增 `runFFmpeg` 稳定结果包装，CLI、ffweb、Electron 不再直接消费可变 `runFFmpegCmd` entry；定向 Engine/ffweb 测试和 app typecheck 通过 |
 | 2026-09-24 | 阶段 1E：skipReason 与 EngineEvent | 已完成 | 统一 skip reason 值域，preflight skipped task 不启动 ffmpeg，ffweb 透传 EngineEvent；ffweb/engine/task 定向测试通过 |
+| 2026-09-24 | 范围调整 | 已确认 | 核心功能优先；Electron 分发、许可、签名和干净机验收暂缓，不作为当前阶段门槛 |
 
 ---
 
