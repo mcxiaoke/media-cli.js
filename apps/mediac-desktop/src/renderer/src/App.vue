@@ -120,6 +120,7 @@ async function stopExecution() {
       </div>
 
       <p v-if="environment">FFmpeg: {{ environment.ffmpegPath || "not found" }}</p>
+      <p v-if="environment">FFprobe: {{ environment.ffprobePath || "not found" }}</p>
       <p v-if="environment">Presets: {{ environment.presets.length }}</p>
       <p v-if="selectedFiles.length">Selected: {{ selectedFiles.length }}</p>
       <p v-if="outputDirectory">Output: {{ outputDirectory }}</p>

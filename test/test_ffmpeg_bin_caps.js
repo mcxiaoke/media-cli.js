@@ -14,14 +14,14 @@ import fsp from "fs/promises"
 import path from "path"
 import { after, before, describe, it } from "node:test"
 
-import { resolveFFmpegBinary } from "../lib/ffmpeg_bin.js"
+import { resolveFFmpegBinary, resolveFFprobeBinary } from "../lib/ffmpeg_bin.js"
 import { fallbackAudioEncoder } from "../lib/ffmpeg_build.js"
 import { parseEncoders, parseFilters, parseVersionInfo } from "../lib/hwdetect.js"
 
 const TMP_DIR = path.join("temp", "test_ffmpeg_bin")
 
 // 保存/恢复环境变量，避免污染其他用例或宿主环境
-const ENV_KEYS = ["FFMPEG_PATH", "FFMPEG_BINARY"]
+const ENV_KEYS = ["FFMPEG_PATH", "FFMPEG_BINARY", "FFPROBE_PATH", "FFPROBE_BINARY"]
 function saveEnv() {
     const saved = {}
     for (const k of ENV_KEYS) {
@@ -48,6 +48,7 @@ describe("ffmpeg binary resolution and capability probes", () => {
         await fsp.mkdir(TMP_DIR, { recursive: true })
         fakeBin = path.join(TMP_DIR, "ffmpeg_fake.exe")
         await fsp.writeFile(fakeBin, "fake")
+        await fsp.writeFile(path.join(TMP_DIR, "ffprobe.exe"), "fake-probe")
     })
 
     after(async () => {
@@ -79,6 +80,24 @@ describe("ffmpeg binary resolution and capability probes", () => {
                 assert.notStrictEqual(resolved, fakeBin)
                 assert.ok(typeof resolved === "string" && resolved.length > 0)
             }
+        })
+    })
+
+    describe("resolveFFprobeBinary", () => {
+        it("prefers the sibling of the selected ffmpeg", async () => {
+            delete process.env.FFPROBE_PATH
+            delete process.env.FFPROBE_BINARY
+            assert.strictEqual(
+                await resolveFFprobeBinary(fakeBin),
+                path.join(TMP_DIR, "ffprobe.exe"),
+            )
+        })
+
+        it("prefers FFPROBE_PATH when explicitly configured", async () => {
+            const explicit = path.join(TMP_DIR, "explicit-probe.exe")
+            await fsp.writeFile(explicit, "explicit")
+            process.env.FFPROBE_PATH = explicit
+            assert.strictEqual(await resolveFFprobeBinary(fakeBin), explicit)
         })
     })
 

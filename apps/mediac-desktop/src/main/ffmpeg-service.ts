@@ -3,12 +3,13 @@ import { execFile } from "node:child_process"
 import { readFile, mkdir, rename, rm, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { promisify } from "node:util"
-import { resolveFFmpegBinary } from "../../../../lib/ffmpeg_bin.js"
+import { resolveFFmpegBinary, resolveFFprobeBinary } from "../../../../lib/ffmpeg_bin.js"
 import presets from "../../../../lib/ffmpeg_presets.js"
 import { runFFmpegCmd, setFFmpegPath } from "../../../../lib/ffmpeg_run.js"
 import { detectHardwareCapabilities } from "../../../../lib/hwdetect.js"
 import { normalizeWebOptions, toLegacyArgvOptions } from "../../../../lib/ffmpeg_options.js"
 import { collectInputFiles } from "../../../../lib/ffmpeg_scan.js"
+import { getMediaInfo } from "../../../../lib/mediainfo.js"
 import { buildTask } from "../../../../lib/ffmpeg_task.js"
 import {
   createInternalExecutionPlan,
@@ -24,6 +25,7 @@ const execFileAsync = promisify(execFile)
 
 class FfmpegEnvironmentService {
   private ffmpegPath: string | null = null
+  private ffprobePath: string | null = null
   private hardware: any = null
   private currentPlan: any = null
   private status: "IDLE" | "PLANNING" | "READY" | "RUNNING" | "STOPPED" | "COMPLETED" | "FAILED" = "IDLE"
@@ -86,6 +88,9 @@ class FfmpegEnvironmentService {
       this.ffmpegPath = await resolveFFmpegBinary()
       if (this.ffmpegPath) setFFmpegPath(this.ffmpegPath)
     }
+    if (!this.ffprobePath) {
+      this.ffprobePath = await resolveFFprobeBinary(this.ffmpegPath || undefined)
+    }
     await presets.initPresetsAsync()
     if (this.ffmpegPath && !this.hardware) {
       this.hardware = await detectHardwareCapabilities({ ffmpegPath: this.ffmpegPath })
@@ -93,6 +98,7 @@ class FfmpegEnvironmentService {
 
     return {
       ffmpegPath: this.ffmpegPath,
+      ffprobePath: this.ffprobePath,
       presets: presets.getAllNames().map((name: string) => {
         const preset = presets.getPreset(name)
         return {
@@ -137,6 +143,11 @@ class FfmpegEnvironmentService {
           activePreset,
           argv,
           output: normalized.output,
+          getMediaInfo: (file: string) =>
+            getMediaInfo(file, {
+              useMediaInfo: false,
+              ...(this.ffprobePath ? { ffprobePath: this.ffprobePath } : {}),
+            }),
         })
         if (task) tasks.push(task)
       }

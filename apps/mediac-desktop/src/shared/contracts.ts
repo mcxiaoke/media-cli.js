@@ -25,6 +25,7 @@ export interface SelectFileOptions {
 
 export interface EnvironmentSummary {
   ffmpegPath: string | null
+  ffprobePath: string | null
   presets: Array<{
     name: string
     type: string
