@@ -136,6 +136,7 @@ Options -> Scan -> Task -> Plan -> Execute -> Result/Event
 - [x] 定义 `RunResult` 判别联合；
 - [x] 定义 `TaskAttemptResult`；
 - [x] 定义 `EngineEvent`；
+- [x] Engine/CLI/ffweb/Electron 统一调用稳定 `runFFmpeg`，旧 `runFFmpegCmd` 仅保留迁移适配；
 - [x] 事件包含 runId/taskId/seq/attempt/timestamp；
 - [x] 明确 success/failed/skipped/cancelled。
 
@@ -399,6 +400,7 @@ npm test/check/lint 结果已记录；
 | 2026-09-24 | 阶段 4G：ffmpeg/ffprobe 配对解析 | 已完成 | 新增 sibling/环境变量优先的 ffprobe resolver，mediainfo 支持显式 probePath，Electron environment/plan 复用配对路径；ffprobe 测试和 app typecheck 通过 |
 | 2026-09-24 | 阶段 4H：Electron 启动修复 | 已完成 | 修复 bundle 缺少 hanzi 数据文件导致的启动 Error；补充启动日志、ensure:electron、dev:debug 和 README；source/packaged 直接启动均通过 |
 | 2026-09-24 | 阶段 1B/5C：稳定 AttemptResult 与 AbortSignal | 已完成 | mediainfo/ffprobe、硬件能力探测、任务构建和输出提交贯穿 AbortSignal；Engine 透传稳定 TaskAttemptResult；npm test 316/316 通过 |
+| 2026-09-24 | 阶段 1D：稳定 runFFmpeg 接口 | 已完成 | 新增 `runFFmpeg` 稳定结果包装，CLI、ffweb、Electron 不再直接消费可变 `runFFmpegCmd` entry；定向 Engine/ffweb 测试和 app typecheck 通过 |
 
 ---
 

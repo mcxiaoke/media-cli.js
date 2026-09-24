@@ -25,7 +25,7 @@ import { buildCliTask } from "../lib/ffmpeg_task.js"
 import { normalizeCliOptions, toLegacyArgvOptions } from "../lib/ffmpeg_options.js"
 import { TIERS } from "../lib/hwaccel.js"
 import { createFFmpegArgs, flattenFFArgs } from "../lib/ffmpeg_build.js"
-import { LOG_TAG, runFFmpegCmd, setFFmpegPath } from "../lib/ffmpeg_run.js"
+import { LOG_TAG, runFFmpeg, setFFmpegPath } from "../lib/ffmpeg_run.js"
 import { createFFmpegEngine } from "../lib/ffmpeg_engine.js"
 import { resolveFFmpegBinary } from "../lib/ffmpeg_bin.js"
 import { detectHardwareCapabilities } from "../lib/hwdetect.js"
@@ -676,7 +676,7 @@ async function runFFmpegTasks({ tasks, testMode, preset, jobs }) {
     let retryApproval
     const engine = createFFmpegEngine({
         runTask: (entry, context) =>
-            runFFmpegCmd(entry, {
+            runFFmpeg(entry, {
                 showBar: context.attempt === 1 ? showBar : true,
                 signal: context.signal,
             }),

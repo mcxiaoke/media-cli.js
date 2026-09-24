@@ -5,7 +5,7 @@ import path from "node:path"
 import { promisify } from "node:util"
 import { resolveFFmpegBinary, resolveFFprobeBinary } from "../../../../lib/ffmpeg_bin.js"
 import presets from "../../../../lib/ffmpeg_presets.js"
-import { runFFmpegCmd, setFFmpegPath } from "../../../../lib/ffmpeg_run.js"
+import { runFFmpeg, setFFmpegPath } from "../../../../lib/ffmpeg_run.js"
 import { detectHardwareCapabilities } from "../../../../lib/hwdetect.js"
 import { normalizeWebOptions, toLegacyArgvOptions } from "../../../../lib/ffmpeg_options.js"
 import { collectInputFiles } from "../../../../lib/ffmpeg_scan.js"
@@ -208,7 +208,7 @@ class FfmpegEnvironmentService {
     const runId = this.currentPlan.id
     const engine = createFFmpegEngine({
       runTask: (task: any, context: any) =>
-        runFFmpegCmd(task, {
+        runFFmpeg(task, {
           showBar: false,
           signal: context.signal,
           onProgress: context.onProgress,

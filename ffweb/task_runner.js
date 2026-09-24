@@ -15,7 +15,7 @@ import {
 } from "../lib/ffmpeg_plan_snapshot.js"
 import { normalizeWebOptions, toLegacyArgvOptions } from "../lib/ffmpeg_options.js"
 import presets from "../lib/ffmpeg_presets.js"
-import { runFFmpegCmd, setFFmpegPath } from "../lib/ffmpeg_run.js"
+import { runFFmpeg, setFFmpegPath } from "../lib/ffmpeg_run.js"
 import { RUN_STATUS } from "../lib/ffmpeg_result.js"
 import { collectInputFiles as collectSharedInputFiles } from "../lib/ffmpeg_scan.js"
 import * as helper from "../lib/helper.js"
@@ -326,7 +326,7 @@ export class TaskRunner {
 
         const engine = createFFmpegEngine({
             runTask: (task, context) =>
-                runFFmpegCmd(task, {
+                runFFmpeg(task, {
                     showBar: false,
                     signal: context.signal,
                     onProgress: context.onProgress,
