@@ -1,11 +1,20 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, session, shell, type IpcMainInvokeEvent } from "electron"
-import { appendFileSync, mkdirSync, existsSync } from "node:fs"
+import { appendFileSync, mkdirSync } from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { ffmpegEnvironment } from "./ffmpeg-service.js"
 import { toSerializable } from "./ipc-serializer.js"
 import { openPath, showItemInFolder, showNotification } from "./native.js"
-import { IPC_CHANNELS } from "../shared/ipc-channels.js"
+import { IPC_CHANNELS, MENU_ACTIONS, MENU_ACTION_CHANNEL } from "../shared/ipc-channels.js"
+
+function summaryFfmpegPath() {
+  return ffmpegEnvironment.getFfmpegPath()
+}
+
+/** 菜单动作统一出口：字串取自共享常量，避免与渲染进程拼写漂移 */
+function sendMenuAction(window: BrowserWindow, action: (typeof MENU_ACTIONS)[keyof typeof MENU_ACTIONS]) {
+  window.webContents.send(MENU_ACTION_CHANNEL, action)
+}
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -62,17 +71,23 @@ function setupApplicationMenu(window: BrowserWindow) {
           label: "添加媒体文件 (&O)...",
           accelerator: "CmdOrCtrl+O",
           click: () => {
-            window.webContents.send("menu:action", "add-files")
+            sendMenuAction(window, MENU_ACTIONS.ADD_FILES)
           },
         },
         {
           label: "添加媒体目录 (&D)...",
           accelerator: "CmdOrCtrl+Shift+O",
           click: () => {
-            window.webContents.send("menu:action", "add-directory")
+            sendMenuAction(window, MENU_ACTIONS.ADD_DIRECTORY)
           },
         },
         { type: "separator" },
+        {
+          label: "打开输出目录 (&P)",
+          click: () => {
+            sendMenuAction(window, MENU_ACTIONS.OPEN_OUTPUT_DIR)
+          },
+        },
         {
           label: "打开日志目录",
           click: () => {
@@ -97,28 +112,28 @@ function setupApplicationMenu(window: BrowserWindow) {
           label: "生成 / 更新计划",
           accelerator: "CmdOrCtrl+Enter",
           click: () => {
-            window.webContents.send("menu:action", "create-plan")
+            sendMenuAction(window, MENU_ACTIONS.CREATE_PLAN)
           },
         },
         {
           label: "开始转码",
           accelerator: "F5",
           click: () => {
-            window.webContents.send("menu:action", "start-execution")
+            sendMenuAction(window, MENU_ACTIONS.START_EXECUTION)
           },
         },
         {
           label: "终止转码",
           accelerator: "Shift+F5",
           click: () => {
-            window.webContents.send("menu:action", "stop-execution")
+            sendMenuAction(window, MENU_ACTIONS.STOP_EXECUTION)
           },
         },
         { type: "separator" },
         {
           label: "清空任务清单",
           click: () => {
-            window.webContents.send("menu:action", "clear-tasks")
+            sendMenuAction(window, MENU_ACTIONS.CLEAR_TASKS)
           },
         },
       ],
@@ -130,20 +145,20 @@ function setupApplicationMenu(window: BrowserWindow) {
           label: "收起 / 展开左侧配置栏",
           accelerator: "CmdOrCtrl+B",
           click: () => {
-            window.webContents.send("menu:action", "toggle-sidebar")
+            sendMenuAction(window, MENU_ACTIONS.TOGGLE_SIDEBAR)
           },
         },
         {
           label: "运行日志面板",
           accelerator: "CmdOrCtrl+L",
           click: () => {
-            window.webContents.send("menu:action", "toggle-log")
+            sendMenuAction(window, MENU_ACTIONS.TOGGLE_LOG)
           },
         },
         {
           label: "切换界面主题 (暗黑 / 明亮)",
           click: () => {
-            window.webContents.send("menu:action", "toggle-theme")
+            sendMenuAction(window, MENU_ACTIONS.TOGGLE_THEME)
           },
         },
         { type: "separator" },
@@ -165,23 +180,35 @@ function setupApplicationMenu(window: BrowserWindow) {
           label: "偏好设置 (&S)...",
           accelerator: "CmdOrCtrl+,",
           click: () => {
-            window.webContents.send("menu:action", "open-settings")
+            sendMenuAction(window, MENU_ACTIONS.OPEN_SETTINGS)
           },
         },
         { type: "separator" },
         {
-          label: "打开媒体素材目录",
+          // 原实现硬编码开发机 data/videos 路径，打包后必然失效且无声
+          label: "打开应用数据目录",
           click: () => {
-            const dataDir = path.resolve(__dirname, "../../../../data/videos")
-            if (existsSync(dataDir)) {
-              void shell.openPath(dataDir)
-            }
+            void shell.openPath(app.getPath("userData"))
           },
         },
         {
           label: "关于 mediac FFmpeg Studio",
           click: () => {
-            window.webContents.send("menu:action", "open-settings")
+            void dialog
+              .showMessageBox(window, {
+                type: "info",
+                title: "关于 mediac FFmpeg Studio",
+                message: "mediac FFmpeg Studio",
+                detail: [
+                  `版本 ${app.getVersion()}`,
+                  `Electron ${process.versions.electron} / Node ${process.versions.node}`,
+                  `ffmpeg: ${summaryFfmpegPath() || "未检测到"}`,
+                  "批量音视频转码工作台 · 基于 mediac CLI 的 ffmpeg 核心",
+                ].join("\n"),
+                buttons: ["确定"],
+                defaultId: 0,
+              })
+              .catch(() => undefined)
           },
         },
       ],
@@ -236,7 +263,12 @@ handleTrusted(IPC_CHANNELS.STAGE_INPUTS, async (paths: unknown) => {
   if (!Array.isArray(paths)) throw new Error("paths must be an array of strings")
   return ffmpegEnvironment.stageInputs(paths as string[])
 })
-handleTrusted(IPC_CHANNELS.PLAN_CREATE, (body: Record<string, unknown>) => ffmpegEnvironment.createPlan(body))
+handleTrusted(IPC_CHANNELS.PLAN_CREATE, (body: Record<string, unknown>) => {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw new Error("plan body must be a plain object")
+  }
+  return ffmpegEnvironment.createPlan(body)
+})
 handleTrusted(IPC_CHANNELS.EXECUTION_START, async (taskIds: unknown) => {
   if (taskIds !== undefined && (!Array.isArray(taskIds) || taskIds.some((id) => typeof id !== "string"))) {
     throw new Error("taskIds must be an array of strings")

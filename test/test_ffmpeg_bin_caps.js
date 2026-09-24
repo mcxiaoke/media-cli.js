@@ -70,6 +70,33 @@ describe("ffmpeg binary resolution and capability probes", () => {
             assert.strictEqual(await resolveFFmpegBinary(), fakeBin)
         })
 
+        it("uses explicit extra candidates (bundled resources) ahead of PATH", async () => {
+            delete process.env.FFMPEG_PATH
+            delete process.env.FFMPEG_BINARY
+            const bundled = path.join(TMP_DIR, "bundled", "ffmpeg.exe")
+            await fsp.mkdir(path.dirname(bundled), { recursive: true })
+            await fsp.writeFile(bundled, "fake-bundled")
+            assert.strictEqual(await resolveFFmpegBinary({ extraCandidates: [bundled] }), bundled)
+        })
+
+        it("keeps env vars ahead of extra candidates", async () => {
+            const bundled = path.join(TMP_DIR, "bundled", "ffmpeg.exe")
+            await fsp.mkdir(path.dirname(bundled), { recursive: true })
+            await fsp.writeFile(bundled, "fake-bundled")
+            process.env.FFMPEG_PATH = fakeBin
+            assert.strictEqual(await resolveFFmpegBinary({ extraCandidates: [bundled] }), fakeBin)
+        })
+
+        it("ignores missing or invalid extra candidates", async () => {
+            delete process.env.FFMPEG_PATH
+            delete process.env.FFMPEG_BINARY
+            const missing = path.join(TMP_DIR, "no-such-bundled.exe")
+            const resolved = await resolveFFmpegBinary({
+                extraCandidates: [missing, null, "", undefined],
+            })
+            assert.notStrictEqual(resolved, missing)
+        })
+
         it("returns null when no env var is set and ffmpeg is not on PATH", async () => {
             delete process.env.FFMPEG_PATH
             delete process.env.FFMPEG_BINARY

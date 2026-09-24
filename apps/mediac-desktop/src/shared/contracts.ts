@@ -7,6 +7,7 @@ export type RunnerState =
   | "STOPPED"
   | "COMPLETED"
   | "FAILED"
+  | "STALE"
 
 export type TaskStatus =
   | "staged"

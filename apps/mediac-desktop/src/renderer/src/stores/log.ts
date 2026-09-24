@@ -21,6 +21,11 @@ export const useLogStore = defineStore("log", () => {
   const filter = ref<"ALL" | "INFO" | "CMD" | "WARN" | "ERROR">("ALL")
   const focusedTaskId = ref<string | null>(null)
   const drawerOpen = ref(false)
+  /**
+   * 单调递增的日志序号。日志缓冲区满 500 条后 push+shift 会让 length 恒为 500，
+   * 以 length 作为 watch 源会导致长任务（日志最多）的自动滚动静默失效。
+   */
+  const seq = ref(0)
 
   function nowTs(): string {
     const d = new Date()
@@ -30,6 +35,7 @@ export const useLogStore = defineStore("log", () => {
 
   function addLog(level: "INFO" | "CMD" | "WARN" | "ERROR", text: string, taskId?: string) {
     logs.value.push({ level, text, ts: nowTs(), taskId })
+    seq.value++
     if (logs.value.length > 500) logs.value.shift()
     if (level === "ERROR") errCount.value++
   }
@@ -46,6 +52,7 @@ export const useLogStore = defineStore("log", () => {
       ts: opts.timestamp || nowTs(),
       taskId: opts.taskId,
     })
+    seq.value++
     if (logs.value.length > 500) logs.value.shift()
     if (lvl === "ERROR") errCount.value++
   }
@@ -53,6 +60,7 @@ export const useLogStore = defineStore("log", () => {
   function clearLogs() {
     logs.value = []
     errCount.value = 0
+    seq.value++
   }
 
   function viewTaskLog(taskId: string) {
@@ -85,6 +93,7 @@ export const useLogStore = defineStore("log", () => {
     filter,
     focusedTaskId,
     drawerOpen,
+    seq,
     filteredLogs,
     addLog,
     append,

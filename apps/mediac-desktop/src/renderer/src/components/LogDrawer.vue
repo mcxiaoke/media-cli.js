@@ -5,9 +5,12 @@ import { useLogStore } from "../stores/log"
 const logStore = useLogStore()
 const bodyRef = ref<HTMLElement | null>(null)
 
+// 监听递增序号而非 filteredLogs.length：缓冲区满 500 后长度恒定，
+// watch length 会让长任务的自动滚动彻底失效。
 watch(
-  () => logStore.filteredLogs.length,
+  () => `${logStore.seq}|${logStore.filter}|${logStore.focusedTaskId ?? ""}|${logStore.drawerOpen}`,
   async () => {
+    if (!logStore.drawerOpen) return
     await nextTick()
     if (bodyRef.value) {
       bodyRef.value.scrollTop = bodyRef.value.scrollHeight

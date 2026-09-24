@@ -1,15 +1,15 @@
 import { app } from "electron"
 import os from "node:os"
-import { execFile, execFileSync } from "node:child_process"
+import { execFileSync } from "node:child_process"
 import { existsSync } from "node:fs"
 import { readFile, mkdir, rename, rm, writeFile } from "node:fs/promises"
 import path from "node:path"
-import { promisify } from "node:util"
 import { resolveFFmpegBinary, resolveFFprobeBinary } from "../../../../lib/ffmpeg_bin.js"
 import presets from "../../../../lib/ffmpeg_presets.js"
 import { runFFmpeg, setFFmpegPath } from "../../../../lib/ffmpeg_run.js"
 import { createFFmpegArgs, flattenFFArgs } from "../../../../lib/ffmpeg_build.js"
 import { detectHardwareCapabilities } from "../../../../lib/hwdetect.js"
+import { TIERS } from "../../../../lib/hwaccel.js"
 import { normalizeWebOptions, toLegacyArgvOptions } from "../../../../lib/ffmpeg_options.js"
 import { collectInputFiles, scanWebInputFiles } from "../../../../lib/ffmpeg_scan.js"
 import { getMediaInfo } from "../../../../lib/mediainfo.js"
@@ -26,10 +26,13 @@ import type {
   EnvironmentSummary,
   PlanTask,
   PublicPlanSnapshot,
+  RunnerState,
   StageInputsResult,
 } from "../shared/contracts.js"
 
-const execFileAsync = promisify(execFile)
+/** 并发上限：probe 与转码并发共用进程/内存预算，超过后收益递减且易触发 OOM */
+const MAX_CONCURRENCY = 8
+const DEFAULT_CONCURRENCY = 1
 
 class FfmpegEnvironmentService {
   private ffmpegPath: string | null = null
@@ -37,7 +40,9 @@ class FfmpegEnvironmentService {
   private hardware: any = null
   private currentPlan: any = null
   private stagedEntries = new Map<string, { item: any; task: PlanTask; info: any }>()
-  private status: "IDLE" | "PLANNING" | "READY" | "RUNNING" | "STOPPING" | "STOPPED" | "COMPLETED" | "FAILED" | "STALE" = "IDLE"
+  private status: RunnerState = "IDLE"
+  /** 计划阶段解析出的并发数，执行阶段必须沿用，否则用户设置的 jobs 形同虚设 */
+  private plannedConcurrency: number = DEFAULT_CONCURRENCY
   private abortController: AbortController | null = null
   private eventSink: ((event: Record<string, unknown>) => void) | null = null
   private summary: Record<string, unknown> | null = null
@@ -67,6 +72,13 @@ class FfmpegEnvironmentService {
     } catch {
       // Do not block app startup on an unreadable manifest.
     }
+  }
+
+  /** 将用户/配置传入的 jobs 规范化到 [1, MAX_CONCURRENCY] */
+  private resolveConcurrency(jobs: unknown): number {
+    const value = Number(jobs)
+    if (!Number.isFinite(value) || value < 1) return DEFAULT_CONCURRENCY
+    return Math.min(MAX_CONCURRENCY, Math.floor(value))
   }
 
   private isManagedTempPath(filePath: string) {
@@ -107,9 +119,43 @@ class FfmpegEnvironmentService {
     return candidates.find((candidate) => existsSync(candidate)) || null
   }
 
+  /**
+   * 打包后的 ffmpeg 候选位置（electron-builder extraResources / resources）。
+   * 与预设文件的 resourcesPath 回退对称，避免「预设能找到、ffmpeg 找不到」。
+   */
+  private bundledFfmpegCandidates(): string[] {
+    const binary = process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg"
+    const roots = [process.resourcesPath, path.join(app.getAppPath(), "resources")].filter(
+      (root): root is string => typeof root === "string" && root.length > 0,
+    )
+    return roots.flatMap((root) => [
+      path.join(root, "ffmpeg", "bin", binary),
+      path.join(root, "ffmpeg", binary),
+      path.join(root, "bin", binary),
+    ])
+  }
+
+  /** 已解析到的 ffmpeg 路径（未解析时为 null），供「关于」等只读展示使用 */
+  getFfmpegPath(): string | null {
+    return this.ffmpegPath
+  }
+
+  /**
+   * 计划阶段的示意硬件分层。
+   * 任务真正的 hwPlan 要到执行期才由 runFFmpegCmd 注入，计划期传 null 会让
+   * createFFmpegArgs 直接返回空参数（无 -c:v、无缩放），预览命令与实际执行严重不符。
+   * 这里用 CPU 分层 + 本机已探测能力构造一份示意计划，保证预览至少含编码器与缩放段。
+   */
+  private buildPreviewHwPlan() {
+    const cpuTier = Array.isArray(TIERS)
+      ? (TIERS as any[]).find((tier: any) => tier?.name === "cpu")
+      : null
+    return { tier: cpuTier || { name: "cpu" }, caps: this.hardware }
+  }
+
   async getSummary(): Promise<EnvironmentSummary> {
     if (!this.ffmpegPath) {
-      this.ffmpegPath = await resolveFFmpegBinary()
+      this.ffmpegPath = await resolveFFmpegBinary({ extraCandidates: this.bundledFfmpegCandidates() })
       if (this.ffmpegPath) setFFmpegPath(this.ffmpegPath)
     }
     if (!this.ffprobePath) {
@@ -212,9 +258,9 @@ class FfmpegEnvironmentService {
       timestamp: new Date().toLocaleTimeString(),
     })
 
-    // 3. Concurrently probe stream metadata (concurrency limit = 8)
+    // 3. Concurrently probe stream metadata
     const added: PlanTask[] = []
-    const limit = 8
+    const limit = MAX_CONCURRENCY
     let cursor = 0
 
     const probeWorker = async () => {
@@ -318,6 +364,9 @@ class FfmpegEnvironmentService {
       ) {
         throw new Error("deleteSourceFiles requires explicit confirmation")
       }
+      // 记录用户选择的并发，执行阶段沿用（此前执行期硬编码 1，jobs 设置完全无效）
+      this.plannedConcurrency = this.resolveConcurrency(normalized.jobs)
+
       const argv = {
         ...toLegacyArgvOptions(normalized),
         output: normalized.output,
@@ -344,7 +393,7 @@ class FfmpegEnvironmentService {
         preset: activePreset,
         argv,
         mode: "plan",
-        concurrency: normalized.jobs || 1,
+        concurrency: this.resolveConcurrency(normalized.jobs),
         buildTaskDeps: {
           getMediaInfo: async (file: string, options?: { signal?: AbortSignal }) => {
             const canonical = path.resolve(file)
@@ -375,7 +424,7 @@ class FfmpegEnvironmentService {
       if (this.currentPlan?.tasks?.length > 0 && !this.currentPlan.previewCmd) {
         try {
           const firstTask = this.currentPlan.tasks[0]
-          const buildResult = createFFmpegArgs(firstTask, firstTask.hwPlan || null)
+          const buildResult = createFFmpegArgs(firstTask, this.buildPreviewHwPlan())
           const rawArgs = buildResult?.args ? buildResult.args.flat() : []
           const flat = rawArgs
             .map((arg: any) => {
@@ -455,6 +504,17 @@ class FfmpegEnvironmentService {
     if (this.status === "RUNNING" || this.status === "PLANNING" || this.status === "STOPPING") {
       throw new Error(`Cannot start execution while in ${this.status} state`)
     }
+    // 未解析到 ffmpeg 时不要裸调 "ffmpeg"：那会命中 PATH 里的另一个版本，
+    // 与能力探测结果不一致（探测说有编码器 -> 执行时 Unknown encoder）。
+    if (!this.ffmpegPath) {
+      this.ffmpegPath = await resolveFFmpegBinary({ extraCandidates: this.bundledFfmpegCandidates() })
+    }
+    if (!this.ffmpegPath) {
+      throw new Error(
+        "未找到可用的 ffmpeg 可执行文件。请安装 ffmpeg 后重启应用，或在环境变量 FFMPEG_PATH 中指定其绝对路径。",
+      )
+    }
+    setFFmpegPath(this.ffmpegPath)
     if (taskIds !== undefined && taskIds.length === 0) {
       throw new Error("No selected tasks to execute")
     }
@@ -536,13 +596,25 @@ class FfmpegEnvironmentService {
           if (typeof event.percent === "number") {
             updateTaskbarProgress(event.percent / 100)
           }
-        } else if (event.type === "task.done" || event.type === "task.started" || event.type === "task.failed" || event.type === "task.skipped") {
+        } else if (event.type === "task.started") {
+          const pt = this.currentPlan?.tasks?.find((x: any) => x.id === event.taskId)
+          if (pt) pt.status = "running"
+        } else if (event.type === "task.cancelled") {
+          // engine 取消任务发 task.cancelled；此前缺失该分支，取消后任务卡在 running
+          const pt = this.currentPlan?.tasks?.find((x: any) => x.id === event.taskId)
+          if (pt) pt.status = "cancelled"
+        } else if (event.type === "task.skipped") {
+          const pt = this.currentPlan?.tasks?.find((x: any) => x.id === event.taskId)
+          if (pt) pt.status = "skipped"
+        } else if (event.type === "task.done") {
+          // 失败任务同样走 task.done，靠 failed 标记区分（engine 无 task.failed 事件）
           const pt = this.currentPlan?.tasks?.find((x: any) => x.id === event.taskId)
           if (pt) {
-            if (event.type === "task.done") pt.status = "success"
-            else if (event.type === "task.started") pt.status = "running"
-            else if (event.type === "task.failed") pt.status = "failed"
-            else if (event.type === "task.skipped") pt.status = "skipped"
+            pt.status = event.failed === true ? "failed" : "success"
+            if (event.failed === true) {
+              pt.ffmpegFailed = true
+              pt.ffmpegError = (event.result as any)?.error || pt.ffmpegError
+            }
           }
         }
         this.eventSink?.(event)
@@ -555,33 +627,60 @@ class FfmpegEnvironmentService {
         {
           mode: "execute",
           signal,
-          concurrency: 1,
+          concurrency: this.plannedConcurrency,
           onSummary: async (summary: Record<string, unknown>) => {
-            stopPreventSuspension()
-            const isCancelled = !!summary.isCancelled
-            const failedCount = Array.isArray(summary.failed) ? summary.failed.length : 0
-            if (failedCount > 0) {
-              setTaskbarProgressError()
-            } else {
-              updateTaskbarProgress(isCancelled ? -1 : 1)
-            }
+            // engine 通过 safeCallAsync 调用 onSummary 并吞掉异常，
+            // 这里必须自己兜底，否则状态会永久停在 RUNNING 并把后续操作全部锁死。
+            try {
+              stopPreventSuspension()
+              const isCancelled = !!summary.isCancelled
+              // summary.failed 是数字计数，不是数组（此前 Array.isArray 判断恒为 false）
+              const failedCount = typeof summary.failed === "number" ? summary.failed : 0
+              if (failedCount > 0) {
+                setTaskbarProgressError()
+              } else {
+                updateTaskbarProgress(isCancelled ? -1 : 1)
+              }
 
-            const deletion = await (deleteCompletedSources as any)({
-              plan: executionPlan,
-              confirmDeleteSource: executionPlan.argv?.deleteSourceConfirmed === true,
-            })
-            this.summary = {
-              ...summary,
-              deletion: {
-                deleted: deletion.deleted.length,
-                kept: deletion.kept.length,
-                failed: deletion.failed.length,
-              },
+              let deletionStats = { deleted: 0, kept: 0, failed: 0 }
+              try {
+                const deletion = await (deleteCompletedSources as any)({
+                  plan: executionPlan,
+                  confirmDeleteSource: executionPlan.argv?.deleteSourceConfirmed === true,
+                })
+                deletionStats = {
+                  deleted: deletion.deleted.length,
+                  kept: deletion.kept.length,
+                  failed: deletion.failed.length,
+                }
+              } catch (deletionError) {
+                this.eventSink?.({
+                  type: "task.log",
+                  level: "ERROR",
+                  message: `源文件清理失败: ${deletionError instanceof Error ? deletionError.message : String(deletionError)}`,
+                  timestamp: new Date().toLocaleTimeString(),
+                })
+              }
+
+              this.summary = { ...summary, deletion: deletionStats }
+
+              const allFinished = this.currentPlan?.tasks?.every(
+                (t: any) => t.status === "success" || t.status === "done" || t.status === "skipped"
+              )
+              if (isCancelled) {
+                this.status = "STOPPED"
+              } else if (failedCount > 0) {
+                this.status = "FAILED"
+              } else {
+                this.status = allFinished ? "COMPLETED" : "STOPPED"
+              }
+            } catch (summaryError) {
+              this.status = "FAILED"
+              this.summary = {
+                ...summary,
+                error: summaryError instanceof Error ? summaryError.message : String(summaryError),
+              }
             }
-            const allFinished = this.currentPlan?.tasks?.every(
-              (t: any) => t.status === "success" || t.status === "done" || t.status === "skipped"
-            )
-            this.status = isCancelled ? "STOPPED" : (allFinished ? "COMPLETED" : "STOPPED")
           },
         },
       )

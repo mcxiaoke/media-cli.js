@@ -1,17 +1,10 @@
 import { defineStore } from "pinia"
 import { ref, shallowRef, computed } from "vue"
-import type { PublicPlanSnapshot, PlanTask } from "../../../shared/contracts"
+import type { PublicPlanSnapshot, PlanTask, RunnerState } from "../../../shared/contracts"
 
-export type RunnerState =
-  | "IDLE"
-  | "PLANNING"
-  | "READY"
-  | "RUNNING"
-  | "STOPPING"
-  | "STOPPED"
-  | "COMPLETED"
-  | "FAILED"
-  | "STALE"
+// RunnerState 的唯一事实源在 shared/contracts.ts；渲染层不再各自声明同名类型，
+// 否则主进程新增状态（如 STALE）时两边会静默漂移。
+export type { RunnerState }
 
 export const usePlanStore = defineStore("plan", () => {
   const status = ref<RunnerState>("IDLE")

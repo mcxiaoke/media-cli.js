@@ -16,6 +16,7 @@ import { useConfigStore } from "./stores/config"
 import { usePlanStore } from "./stores/plan"
 import { useLogStore } from "./stores/log"
 import { formatSize, formatDuration } from "./utils/format"
+import { MENU_ACTIONS } from "../../shared/ipc-channels"
 
 const envStore = useEnvStore()
 const configStore = useConfigStore()
@@ -65,8 +66,18 @@ const tbStatsText = computed(() => {
   return `${count} 个任务 · ${size} · ${duration}`
 })
 
+/**
+ * 运行中/规划中/终止中的状态守卫。
+ * 菜单加速键由主进程直接派发，绕过页面 keydown 拦截，
+ * 因此守卫必须落在动作函数本身，而不能只写在 keydown 里。
+ */
+function isBusy() {
+  return planStore.status === "RUNNING" || planStore.status === "PLANNING" || planStore.status === "STOPPING"
+}
+
 // Create / Update plan
 async function createPlan() {
+  if (isBusy()) return
   if (configStore.inputs.length === 0) {
     alert("请先添加至少一个媒体文件或目录")
     return
@@ -126,6 +137,8 @@ async function createPlan() {
 
 // Start execution
 async function startExecution() {
+  // 入口自检：菜单 F5 与页面按钮共用此函数，无守卫会把运行中的会话打成 FAILED
+  if (isBusy()) return
   if (planStore.tasks.length === 0) return
   planStore.status = "RUNNING"
   const selected = Array.from(planStore.selectedIds)
@@ -149,6 +162,7 @@ async function startExecution() {
 
 // Stop execution
 async function stopExecution() {
+  if (planStore.status !== "RUNNING" && planStore.status !== "STOPPING") return
   planStore.status = "STOPPING"
   try {
     await window.api.stopExecution()
@@ -168,7 +182,7 @@ async function stopExecution() {
 
 // Clear all tasks & inputs
 function clearAll() {
-  if (planStore.status === "RUNNING") return
+  if (isBusy()) return
   configStore.clearInputs()
   planStore.setPlan(null)
 }
@@ -254,41 +268,41 @@ onMounted(async () => {
   if (window.api?.onMenuAction) {
     unsubscribeMenu = window.api.onMenuAction((action: string) => {
       switch (action) {
-        case "add-files":
+        case MENU_ACTIONS.ADD_FILES:
           void pickFilesGlobal()
           break
-        case "add-dir":
+        case MENU_ACTIONS.ADD_DIRECTORY:
           void pickDirGlobal()
           break
-        case "open-output-dir":
+        case MENU_ACTIONS.OPEN_OUTPUT_DIR:
           openOutputDir()
           break
-        case "create-plan":
+        case MENU_ACTIONS.CREATE_PLAN:
           void createPlan()
           break
-        case "start-execution":
+        case MENU_ACTIONS.START_EXECUTION:
           void startExecution()
           break
-        case "stop-execution":
+        case MENU_ACTIONS.STOP_EXECUTION:
           void stopExecution()
           break
-        case "clear-tasks":
+        case MENU_ACTIONS.CLEAR_TASKS:
           clearAll()
           break
-        case "toggle-sidebar":
+        case MENU_ACTIONS.TOGGLE_SIDEBAR:
           toggleSidebar()
           break
-        case "toggle-log":
+        case MENU_ACTIONS.TOGGLE_LOG:
           logStore.drawerOpen = !logStore.drawerOpen
           break
-        case "toggle-theme": {
+        case MENU_ACTIONS.TOGGLE_THEME: {
           const cur = document.documentElement.getAttribute("data-theme") || "light"
           const next = cur === "dark" ? "light" : "dark"
           document.documentElement.setAttribute("data-theme", next)
           localStorage.setItem("mediac_theme", next)
           break
         }
-        case "open-settings":
+        case MENU_ACTIONS.OPEN_SETTINGS:
           showSettings.value = true
           break
       }
@@ -309,20 +323,35 @@ onMounted(async () => {
     } else if (event.type === "task.progress") {
       planStore.updateTaskProgress(event.taskId, event.percent || 0, event.speed)
     } else if (event.type === "task.done") {
-      planStore.updateTaskStatus(event.taskId, "success")
-    } else if (event.type === "task.failed") {
-      planStore.updateTaskStatus(event.taskId, "failed", event.error)
+      // 失败任务同样发 task.done（engine 无 task.failed 事件），靠 failed 标记区分
+      if (event.failed === true) {
+        planStore.updateTaskStatus(event.taskId, "failed", (event.result as any)?.error || "转码失败")
+      } else {
+        planStore.updateTaskStatus(event.taskId, "success")
+      }
     } else if (event.type === "task.skipped") {
       planStore.updateTaskStatus(event.taskId, "skipped", event.reason)
     } else if (event.type === "task.cancelled") {
       planStore.updateTaskStatus(event.taskId, "cancelled")
     } else if (event.type === "session.summary") {
       const summary = event.summary as any
-      planStore.status = summary?.isCancelled ? "STOPPED" : "COMPLETED"
+      const failedCount = typeof summary?.failed === "number" ? summary.failed : 0
+      planStore.status = summary?.isCancelled
+        ? "STOPPED"
+        : failedCount > 0
+          ? "FAILED"
+          : "COMPLETED"
+      const total = summary?.total || 0
+      const succeeded = typeof summary?.success === "number" ? summary.success : 0
+      logStore.append({
+        level: failedCount > 0 ? "ERROR" : "INFO",
+        message: `转码结束：共 ${total} 个任务，成功 ${succeeded} 个，失败 ${failedCount} 个，跳过 ${summary?.skipped || 0} 个，耗时 ${((summary?.elapsedMs || 0) / 1000).toFixed(1)} 秒`,
+        timestamp: new Date().toLocaleTimeString(),
+      })
       if (window.api?.notify) {
         void window.api.notify(
-          "转码任务完成",
-          `共处理 ${summary?.total || 0} 个文件，成功 ${summary?.succeeded || 0} 个`
+          failedCount > 0 ? "转码任务结束（含失败）" : "转码任务完成",
+          `共处理 ${total} 个文件，成功 ${succeeded} 个${failedCount > 0 ? `，失败 ${failedCount} 个` : ""}`
         )
       }
     }
