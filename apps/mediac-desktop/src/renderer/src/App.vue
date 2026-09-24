@@ -11,6 +11,11 @@ const selectedInputs = ref<string[]>([])
 const outputDirectory = ref("")
 const presetName = ref("hevc_2k")
 const outputMode = ref<"tree" | "dir" | "file">("dir")
+const fps = ref(0)
+const speed = ref(0)
+const dimension = ref(0)
+const videoBitrate = ref("")
+const audioBitrate = ref("")
 const override = ref(false)
 const strict = ref(false)
 const deleteSource = ref(false)
@@ -100,6 +105,11 @@ async function createPlan() {
       preset: presetName.value,
       options: {
         outputMode: outputMode.value,
+        fps: fps.value > 0 ? fps.value : undefined,
+        speed: speed.value > 0 ? speed.value : undefined,
+        dimension: dimension.value > 0 ? dimension.value : undefined,
+        videoBitrate: videoBitrate.value.trim() || undefined,
+        audioBitrate: audioBitrate.value.trim() || undefined,
         override: override.value,
         strict: strict.value,
         deleteSourceFiles: deleteSource.value,
@@ -226,6 +236,26 @@ onUnmounted(() => unsubscribe?.())
             <option value="dir">dir · 保留父目录名</option>
             <option value="file">file · 直接写入输出目录</option>
           </select>
+        </label>
+        <label>
+          FPS（0 = 保持源帧率）
+          <input v-model.number="fps" type="number" min="0" step="1" />
+        </label>
+        <label>
+          Speed（0 = 不变速）
+          <input v-model.number="speed" type="number" min="0" max="2" step="0.05" />
+        </label>
+        <label>
+          Dimension（0 = 预设值）
+          <input v-model.number="dimension" type="number" min="0" step="1" />
+        </label>
+        <label>
+          视频码率
+          <input v-model="videoBitrate" type="text" placeholder="例如 1500k" />
+        </label>
+        <label>
+          音频码率
+          <input v-model="audioBitrate" type="text" placeholder="例如 128k" />
         </label>
       </div>
 
@@ -404,7 +434,9 @@ h2 {
   font-size: 13px;
 }
 
-select {
+select,
+input[type="number"],
+input[type="text"] {
   padding: 10px 12px;
   border: 1px solid #334155;
   border-radius: 8px;
