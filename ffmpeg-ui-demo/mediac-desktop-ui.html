@@ -308,6 +308,54 @@ tbody tr.dim{opacity:.55}
 .ctx-item.danger:hover{background:var(--error-soft)}
 .ctx-sep{height:1px;background:var(--divider);margin:4px 6px}
 
+/* ============ 全域拖放蒙层 ============ */
+.global-drop-mask{position:fixed;inset:0;background:rgba(16,16,20,.82);backdrop-filter:blur(4px);z-index:200;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;border:3px dashed var(--primary);color:var(--primary-text);pointer-events:none;transition:opacity .15s ease}
+.global-drop-mask svg{width:56px;height:56px;color:var(--primary)}
+.global-drop-mask .g-title{font-size:18px;font-weight:600}
+.global-drop-mask .g-sub{font-size:13px;color:var(--text-2)}
+
+/* ============ 空态 Hero 画板 ============ */
+.hero-empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:30px;text-align:center;gap:12px;z-index:4}
+.hero-icon{width:64px;height:64px;border-radius:16px;background:var(--primary-soft);color:var(--primary-text);display:flex;align-items:center;justify-content:center;margin-bottom:4px}
+.hero-icon svg{width:36px;height:36px}
+.hero-title{font-size:16px;font-weight:600;color:var(--text-base)}
+.hero-desc{font-size:12px;color:var(--text-3);max-width:440px;line-height:1.6}
+.hero-actions{display:flex;gap:10px;margin-top:8px}
+.hero-chips{display:flex;gap:6px;margin-top:10px}
+.hero-chip{font-size:11px;padding:2px 8px;border-radius:10px;background:var(--bg-input);color:var(--text-3);border:1px solid var(--border)}
+
+/* ============ 脏状态指示与一键重置 ============ */
+.dot-dirty{width:6px;height:6px;border-radius:50%;background:var(--primary);display:inline-block;margin-left:4px;flex:none}
+.undo-btn{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:3px;border:none;background:transparent;color:var(--primary-text);cursor:pointer;margin-left:auto;padding:0;opacity:.8}
+.undo-btn:hover{opacity:1;background:var(--primary-soft)}
+.reset-link{font-size:11px;color:var(--primary-text);cursor:pointer;text-decoration:none;font-weight:400;margin-left:auto}
+.reset-link:hover{text-decoration:underline}
+
+/* ============ 过期（STALE）提示与任务表 ============ */
+.stale-alert{display:flex;align-items:center;gap:8px;padding:4px 10px;border-radius:4px;background:var(--warning-soft);color:var(--warning);font-size:12px;margin-bottom:8px}
+.stale-alert svg{width:14px;height:14px;flex:none}
+table.tasks.is-stale tbody{opacity:.75}
+
+/* ============ 任务检查器抽屉 ============ */
+.inspector-mask{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:95;display:flex;justify-content:flex-end}
+.inspector-drawer{width:460px;max-width:100%;height:100%;background:var(--bg-card);border-left:1px solid var(--border-strong);display:flex;flex-direction:column;box-shadow:var(--shadow);animation:slideIn .18s ease-out}
+.insp-head{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--divider);flex:none}
+.insp-title{font-size:14px;font-weight:600}
+.insp-body{flex:1;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:14px}
+.insp-card{background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px;display:flex;flex-direction:column;gap:8px}
+.insp-card-title{font-size:11px;font-weight:600;color:var(--text-3);text-transform:uppercase;letter-spacing:.03em;display:flex;align-items:center;justify-content:space-between}
+.insp-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;font-size:12px}
+.insp-grid .item{display:flex;flex-direction:column;gap:2px}
+.insp-grid .k{font-size:11px;color:var(--text-3)}
+.insp-grid .v{color:var(--text-base);font-family:var(--mono)}
+.cmd-box{font-family:var(--mono);font-size:11px;line-height:1.7;color:var(--text-2);background:var(--bg-body);border:1px solid var(--border);border-radius:var(--radius);padding:10px;white-space:pre-wrap;word-break:break-all;user-select:text}
+
+/* ============ 紧凑执行状态条 ============ */
+.exec-bar.compact{padding:6px 14px;gap:14px}
+.exec-bar.compact .bar{height:4px}
+.exec-bar.compact .exec-top{font-size:11px}
+.tag-err-act{margin-left:4px;cursor:pointer;text-decoration:underline;color:var(--error)}
+
 /* ============ 响应式 ============ */
 @media (max-width:900px){
   body{overflow:auto}
@@ -321,6 +369,12 @@ tbody tr.dim{opacity:.55}
 </head>
 <body>
 <div class="app" id="app">
+  <!-- ============ 全域拖放蒙层 ============ -->
+  <div class="global-drop-mask" id="globalDropMask" style="display:none">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v13"/><path d="M7 8l5-5 5 5"/><path d="M3 16v2.5A2.5 2.5 0 0 0 5.5 21h13a2.5 2.5 0 0 0 2.5-2.5V16"/></svg>
+    <div class="g-title">释放以添加媒体文件或目录</div>
+    <div class="g-sub">支持批量拖入音视频文件与文件夹 · 自动去重与计划推演</div>
+  </div>
 
   <!-- ============ 顶栏 ============ -->
   <header class="hdr">
@@ -410,34 +464,41 @@ tbody tr.dim{opacity:.55}
       <!-- 3 视频参数 -->
       <section class="card">
         <div class="card-title toggle" id="videoToggle">
-          <span>视频参数 <span class="sum" id="videoSummary">—</span></span>
+          <span style="display:flex;align-items:center;gap:6px">视频参数 <span class="sum" id="videoSummary">—</span></span>
+          <a class="reset-link" id="btnResetVideo" style="display:none" title="重置视频参数为预设默认">全部还原</a>
           <svg class="chev i sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
         </div>
         <div class="card-body hide" id="videoBody">
           <div class="field">
-            <label class="lbl">长边尺寸 <span class="hint">只缩不放大</span></label>
+            <div style="display:flex;align-items:center"><label class="lbl">长边尺寸 <span class="hint">只缩不放大</span><span class="dot-dirty" id="dotDimension" style="display:none"></span></label><button class="undo-btn" id="undoDimension" style="display:none" title="恢复预设默认">↺</button></div>
             <div class="inline-row">
               <div class="select grow" id="dimensionSel"></div>
               <input class="input num" id="dimensionCustom" placeholder="像素" title="自定义长边像素" autocomplete="off">
             </div>
           </div>
           <div class="field">
-            <label class="lbl">视频质量 <span class="hint" id="qualityRangeLbl">CRF · 0-51</span></label>
+            <div style="display:flex;align-items:center"><label class="lbl">视频质量 <span class="hint" id="qualityRangeLbl">CRF · 0-51</span><span class="dot-dirty" id="dotQuality" style="display:none"></span></label><button class="undo-btn" id="undoQuality" style="display:none" title="恢复预设默认">↺</button></div>
             <div class="quality-row">
               <input type="range" id="qualitySlider" min="0" max="51" step="1" value="0" aria-label="视频质量">
               <input class="input num" id="qualityNum" value="0" autocomplete="off">
             </div>
           </div>
           <div class="field">
-            <label class="lbl">视频码率</label>
+            <div style="display:flex;align-items:center"><label class="lbl">视频码率<span class="dot-dirty" id="dotBitrate" style="display:none"></span></label><button class="undo-btn" id="undoBitrate" style="display:none" title="恢复预设默认">↺</button></div>
             <div class="inline-row">
               <div class="select grow" id="bitrateSel"></div>
               <input class="input num" id="bitrateCustom" placeholder="k/M" title="自定义码率，如 3.5M" autocomplete="off">
             </div>
           </div>
           <div class="field-row two">
-            <div class="field"><label class="lbl">帧率</label><div class="select" id="fpsSel"></div></div>
-            <div class="field"><label class="lbl">倍速 <span class="hint">0.5-2.0</span></label><div class="select" id="speedSel"></div></div>
+            <div class="field">
+              <div style="display:flex;align-items:center"><label class="lbl">帧率<span class="dot-dirty" id="dotFps" style="display:none"></span></label><button class="undo-btn" id="undoFps" style="display:none" title="恢复预设默认">↺</button></div>
+              <div class="select" id="fpsSel"></div>
+            </div>
+            <div class="field">
+              <div style="display:flex;align-items:center"><label class="lbl">倍速 <span class="hint">0.5-2.0</span><span class="dot-dirty" id="dotSpeed" style="display:none"></span></label><button class="undo-btn" id="undoSpeed" style="display:none" title="恢复预设默认">↺</button></div>
+              <div class="select" id="speedSel"></div>
+            </div>
           </div>
         </div>
       </section>
@@ -445,12 +506,19 @@ tbody tr.dim{opacity:.55}
       <!-- 4 音频参数 -->
       <section class="card">
         <div class="card-title toggle" id="audioToggle">
-          <span>音频参数 <span class="sum" id="audioSummary">—</span></span>
+          <span style="display:flex;align-items:center;gap:6px">音频参数 <span class="sum" id="audioSummary">—</span></span>
+          <a class="reset-link" id="btnResetAudio" style="display:none" title="重置音频参数为预设默认">全部还原</a>
           <svg class="chev i sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
         </div>
         <div class="card-body hide" id="audioBody">
-          <div class="field"><label class="lbl">音频编码</label><div class="select" id="audioCodecSel"></div></div>
-          <div class="field"><label class="lbl">音频码率</label><div class="select" id="audioBitrateSel"></div></div>
+          <div class="field">
+            <div style="display:flex;align-items:center"><label class="lbl">音频编码<span class="dot-dirty" id="dotAudioCodec" style="display:none"></span></label><button class="undo-btn" id="undoAudioCodec" style="display:none" title="恢复预设默认">↺</button></div>
+            <div class="select" id="audioCodecSel"></div>
+          </div>
+          <div class="field">
+            <div style="display:flex;align-items:center"><label class="lbl">音频码率<span class="dot-dirty" id="dotAudioBitrate" style="display:none"></span></label><button class="undo-btn" id="undoAudioBitrate" style="display:none" title="恢复预设默认">↺</button></div>
+            <div class="select" id="audioBitrateSel"></div>
+          </div>
         </div>
       </section>
 
@@ -486,7 +554,7 @@ tbody tr.dim{opacity:.55}
         <div class="tb-left">
           <button class="btn btn-secondary" id="btnPlan">
             <svg class="i sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
-            生成计划
+            <span id="btnPlanText">生成计划</span>
           </button>
           <button class="btn btn-primary" id="btnStart" disabled>
             <svg class="i sm" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg>
@@ -497,6 +565,10 @@ tbody tr.dim{opacity:.55}
             终止
           </button>
           <button class="btn btn-ghost" id="btnClear" disabled>清空任务</button>
+          <div class="stale-alert" id="staleAlert" style="display:none">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            <span>参数已变更，请点击「更新计划」</span>
+          </div>
         </div>
         <div class="tb-right" id="tbStats"><span class="muted">尚无任务计划</span></div>
       </div>
@@ -504,7 +576,7 @@ tbody tr.dim{opacity:.55}
       <div class="table-wrap">
         <table class="tasks" id="tasksTable">
           <colgroup>
-            <col style="width:34px"><col style="width:34px"><col style="width:24%"><col style="width:86px"><col style="width:86px"><col style="width:132px"><col style="width:24%"><col style="width:130px"><col style="width:92px">
+            <col style="width:34px"><col style="width:34px"><col style="width:25%"><col style="width:84px"><col style="width:80px"><col style="width:130px"><col style="width:25%"><col style="width:120px"><col style="width:108px">
           </colgroup>
           <thead>
             <tr>
@@ -521,31 +593,32 @@ tbody tr.dim{opacity:.55}
           </thead>
           <tbody id="tasksBody"></tbody>
         </table>
-        <div class="empty" id="emptyState">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 13h6"/><path d="M9 17h4"/></svg>
-          <span>添加媒体文件并点击「生成计划」后，任务将在此列出</span>
+
+        <!-- 空态 Hero 引导画板 -->
+        <div class="hero-empty" id="heroEmpty">
+          <div class="hero-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          </div>
+          <div class="hero-title">拖入媒体文件或目录开始转码</div>
+          <div class="hero-desc">支持全域拖拽投放或点击下方按钮添加。预设自动按硬件优化分层推演。</div>
+          <div class="hero-actions">
+            <button class="btn btn-secondary" id="heroAddFiles"><svg class="i sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>选择文件</button>
+            <button class="btn btn-secondary" id="heroAddDir"><svg class="i sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 8a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>选择目录</button>
+          </div>
+          <div class="hero-chips">
+            <span class="hero-chip">MP4 / MKV / MOV</span>
+            <span class="hero-chip">HEVC / H.264 / AV1</span>
+            <span class="hero-chip">音频提取 / 压制</span>
+            <span class="hero-chip">NVENC 硬件加速</span>
+          </div>
         </div>
       </div>
 
-      <!-- 命令预览 -->
-      <div class="cmd-preview" id="cmdPreview">
-        <div class="cmd-head" id="cmdHead">
-          <span>命令预览 · <b id="cmdPresetName">—</b></span>
-          <span class="cmd-actions">
-            <button class="icon-btn" id="btnCmdCopy" title="复制命令" aria-label="复制命令">
-              <svg class="i sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
-            </button>
-            <svg class="chev i sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
-          </span>
-        </div>
-        <pre class="cmd-body" id="cmdBody"></pre>
-      </div>
-
-      <!-- 执行看板 -->
-      <div class="exec-bar" id="execBar">
+      <!-- 执行看板（常态紧凑，执行时展开） -->
+      <div class="exec-bar compact" id="execBar">
         <div class="exec-main">
           <div class="exec-top">
-            <span class="fname" id="execFile">等待开始</span>
+            <span class="fname" id="execFile">等待生成计划</span>
             <span class="exec-pct" id="execPct">0%</span>
           </div>
           <div class="bar"><div class="bar-fill" id="execBarFill"></div></div>
@@ -559,12 +632,60 @@ tbody tr.dim{opacity:.55}
     </main>
   </div>
 
+  <!-- ============ 任务检查器抽屉（右侧滑入，不占主面板） ============ -->
+  <div class="inspector-mask" id="inspectorMask" hidden>
+    <aside class="inspector-drawer" role="dialog" aria-modal="true" aria-label="任务检查器">
+      <div class="insp-head">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="insp-title" id="inspTaskTitle">任务详情</span>
+          <span class="tag info" id="inspTaskStatus">待处理</span>
+        </div>
+        <button class="icon-btn" id="btnInspClose" title="关闭（Esc）" aria-label="关闭任务详情">
+          <svg class="i sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <div class="insp-body">
+        <div class="insp-card">
+          <div class="insp-card-title"><span>媒体规格对比</span><span class="tag ok" id="inspTier">GPU 硬件加速</span></div>
+          <div class="insp-grid">
+            <div class="item"><span class="k">源视频流</span><span class="v" id="inspSrcMeta">—</span></div>
+            <div class="item"><span class="k">目标编码</span><span class="v" id="inspDstCodec">—</span></div>
+            <div class="item"><span class="k">源文件大小</span><span class="v" id="inspSrcSize">—</span></div>
+            <div class="item"><span class="k">目标分辨率</span><span class="v" id="inspDstDim">—</span></div>
+            <div class="item"><span class="k">源音频流</span><span class="v" id="inspSrcAudio">—</span></div>
+            <div class="item"><span class="k">目标音频</span><span class="v" id="inspDstAudio">—</span></div>
+          </div>
+        </div>
+
+        <div class="insp-card">
+          <div class="insp-card-title">
+            <span>FFmpeg 命令行（完整推演）</span>
+            <button class="btn btn-sm btn-secondary" id="btnInspCopyCmd">
+              <svg class="i sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+              复制命令
+            </button>
+          </div>
+          <div class="cmd-box" id="inspCmdBox"></div>
+        </div>
+
+        <div class="insp-card">
+          <div class="insp-card-title"><span>输入与输出路径</span></div>
+          <div style="font-size:11px;display:flex;flex-direction:column;gap:6px">
+            <div style="word-break:break-all"><span style="color:var(--text-3)">源文件：</span><span class="v" id="inspSrcPath">—</span></div>
+            <div style="word-break:break-all"><span style="color:var(--text-3)">目标路径：</span><span class="v" style="color:var(--primary-text)" id="inspDstPath">—</span></div>
+          </div>
+        </div>
+      </div>
+    </aside>
+  </div>
+
   <!-- ============ 日志面板（浮层抽屉，不占主面板） ============ -->
   <div class="log-mask" id="logMask" hidden>
     <aside class="log-drawer" role="dialog" aria-modal="true" aria-label="运行日志">
       <div class="log-head">
         <span class="log-title">运行日志</span>
         <span class="log-count" id="logCount">0 条</span>
+        <span class="tag warn" id="logTaskFocusTag" style="display:none;font-size:11px">已聚焦任务 <button id="btnClearLogFocus" style="border:none;background:transparent;cursor:pointer;color:inherit;font-weight:700">✕</button></span>
         <div class="log-actions">
           <select class="mini-select" id="logFilter" aria-label="日志等级过滤">
             <option value="ALL">全部</option>
@@ -865,8 +986,11 @@ function renderLogBadge() {
 }
 function renderLogs() {
   var f = S.logFilter;
-  var shown = S.logs.filter(function (l) { return f === "ALL" || l.level === f; });
-  $("logCount").textContent = S.logs.length + " 条";
+  var shown = S.logs.filter(function (l) {
+    if (focusedTaskId && l.text.indexOf("[" + focusedTaskId + "]") === -1 && l.level === "INFO") return false;
+    return f === "ALL" || l.level === f;
+  });
+  $("logCount").textContent = shown.length + " 条" + (focusedTaskId ? " (聚焦过滤)" : "");
   var body = $("logBody");
   var stick = body.scrollTop + body.clientHeight >= body.scrollHeight - 20;
   body.innerHTML = shown.map(function (l) {
@@ -877,14 +1001,39 @@ function renderLogs() {
 
 /* ---------- 顶栏状态 ---------- */
 var STATE_LABEL = {
-  IDLE: "待机", PLANNING: "分析中", READY: "待执行", RUNNING: "转码中",
+  IDLE: "待机", PLANNING: "分析中", READY: "待执行", STALE: "参数已修改", RUNNING: "转码中",
   STOPPING: "正在停止", STOPPED: "已停止", COMPLETED: "已完成", FAILED: "异常"
 };
 function setRunner(r) {
   S.runner = r;
   var tag = $("stateTag");
   tag.textContent = STATE_LABEL[r] || r;
-  tag.className = "tag state" + (r === "RUNNING" ? " info" : r === "COMPLETED" ? " ok" : r === "FAILED" ? " err" : "");
+  tag.className = "tag state" + (r === "RUNNING" ? " info" : r === "COMPLETED" ? " ok" : r === "FAILED" ? " err" : r === "STALE" ? " warn" : "");
+
+  /* 状态联动 */
+  var staleAlert = $("staleAlert");
+  var planBtn = $("btnPlan");
+  var planText = $("btnPlanText");
+  var tbl = $("tasksTable");
+
+  if (r === "STALE") {
+    if (staleAlert) staleAlert.style.display = "flex";
+    if (planText) planText.textContent = "更新计划";
+    if (planBtn) { planBtn.className = "btn btn-primary"; }
+    if (tbl) tbl.classList.add("is-stale");
+  } else {
+    if (staleAlert) staleAlert.style.display = "none";
+    if (planText) planText.textContent = "生成计划";
+    if (planBtn) { planBtn.className = "btn btn-secondary"; }
+    if (tbl) tbl.classList.remove("is-stale");
+  }
+
+  var execBar = $("execBar");
+  if (execBar) {
+    if (r === "RUNNING") execBar.classList.remove("compact");
+    else execBar.classList.add("compact");
+  }
+
   applyRunner();
 }
 function applyRunner() {
@@ -893,7 +1042,7 @@ function applyRunner() {
   $("btnStart").disabled = busy || !hasPlan || (r !== "READY" && r !== "COMPLETED");
   $("btnStop").disabled = r !== "RUNNING";
   $("btnClear").disabled = busy || !hasPlan;
-  var locked = busy || r === "READY";
+  var locked = busy;
   $$(".side .card").forEach(function (c) { c.style.opacity = locked ? 0.55 : 1; c.style.pointerEvents = locked ? "none" : "auto"; });
 }
 /* ---------- 工具：任务与统计 ---------- */
@@ -998,14 +1147,59 @@ function updateParamSummaries() {
   }
   $("videoSummary").textContent = vSum;
   $("audioSummary").textContent = aSum;
+  checkDirty();
 }
 
-function invalidatePlan(msg) {
-  if (S.tasks.length) {
-    S.tasks = []; S.selected = {};
-    renderTasks(); renderStats(); updateCmdPreview();
-    setRunner("IDLE");
+/* ---------- 脏状态指示与检查 ---------- */
+function checkDirty() {
+  var t = S.tune;
+  var dDim = t.dimension !== 0;
+  var dQ = t.quality !== 0;
+  var dBr = t.bitrate !== "";
+  var dFps = t.fps !== 0;
+  var dSp = t.speed !== 0;
+  var dAc = t.audioCodec !== "";
+  var dAb = t.audioBitrate !== "";
+
+  if ($("dotDimension")) $("dotDimension").style.display = dDim ? "inline-block" : "none";
+  if ($("undoDimension")) $("undoDimension").style.display = dDim ? "inline-flex" : "none";
+  if ($("dotQuality")) $("dotQuality").style.display = dQ ? "inline-block" : "none";
+  if ($("undoQuality")) $("undoQuality").style.display = dQ ? "inline-flex" : "none";
+  if ($("dotBitrate")) $("dotBitrate").style.display = dBr ? "inline-block" : "none";
+  if ($("undoBitrate")) $("undoBitrate").style.display = dBr ? "inline-flex" : "none";
+  if ($("dotFps")) $("dotFps").style.display = dFps ? "inline-block" : "none";
+  if ($("undoFps")) $("undoFps").style.display = dFps ? "inline-flex" : "none";
+  if ($("dotSpeed")) $("dotSpeed").style.display = dSp ? "inline-block" : "none";
+  if ($("undoSpeed")) $("undoSpeed").style.display = dSp ? "inline-flex" : "none";
+
+  if ($("dotAudioCodec")) $("dotAudioCodec").style.display = dAc ? "inline-block" : "none";
+  if ($("undoAudioCodec")) $("undoAudioCodec").style.display = dAc ? "inline-flex" : "none";
+  if ($("dotAudioBitrate")) $("dotAudioBitrate").style.display = dAb ? "inline-block" : "none";
+  if ($("undoAudioBitrate")) $("undoAudioBitrate").style.display = dAb ? "inline-flex" : "none";
+
+  var vCount = (dDim?1:0) + (dQ?1:0) + (dBr?1:0) + (dFps?1:0) + (dSp?1:0);
+  var aCount = (dAc?1:0) + (dAb?1:0);
+
+  if ($("btnResetVideo")) {
+    $("btnResetVideo").style.display = vCount > 0 ? "inline" : "none";
+    if (vCount > 0) $("btnResetVideo").textContent = "还原 " + vCount + " 项";
+  }
+  if ($("btnResetAudio")) {
+    $("btnResetAudio").style.display = aCount > 0 ? "inline" : "none";
+    if (aCount > 0) $("btnResetAudio").textContent = "还原 " + aCount + " 项";
+  }
+}
+
+/* ---------- 平滑计划失效机制（STALE 状态，不暴力清空任务表） ---------- */
+function markPlanStale(msg) {
+  checkDirty();
+  if (S.tasks.length && (S.runner === "READY" || S.runner === "STALE")) {
+    setRunner("STALE");
     if (msg) toast(msg, "warn");
+  } else if (!S.inputs.length) {
+    S.tasks = []; S.selected = {};
+    renderTasks(); renderStats();
+    setRunner("IDLE");
   }
 }
 
@@ -1043,7 +1237,7 @@ function renderStats() {
   $("tbStats").innerHTML = "<b>" + n + "</b> 个任务<span class='sep'>·</span><b>" + fmtSize(sz) + "</b><span class='sep'>·</span><b>" + fmtDur(du) + "</b>";
 }
 
-/* ---------- 任务表 ---------- */
+/* ---------- 任务表与检查器 ---------- */
 var STATUS_UI = {
   pending: { t: "待处理", cls: "" },
   running: { t: "转码中", cls: "info" },
@@ -1052,12 +1246,22 @@ var STATUS_UI = {
   failed: { t: "失败", cls: "err" },
   cancelled: { t: "已取消", cls: "" }
 };
+var I_INFO = '<svg class="i sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>';
+
 function renderTasks() {
   var body = $("tasksBody");
   body.innerHTML = "";
-  var showEmpty = $("emptyState");
-  if (!S.tasks.length) { showEmpty.style.display = "flex"; return; }
-  showEmpty.style.display = "none";
+  var heroEmpty = $("heroEmpty");
+  var tableEl = $("tasksTable");
+
+  if (!S.tasks.length) {
+    if (heroEmpty) heroEmpty.style.display = "flex";
+    if (tableEl) tableEl.style.display = "none";
+    return;
+  }
+  if (heroEmpty) heroEmpty.style.display = "none";
+  if (tableEl) tableEl.style.display = "table";
+
   S.tasks.forEach(function (t, i) {
     var st = STATUS_UI[t.status] || STATUS_UI.pending;
     var tr = document.createElement("tr");
@@ -1070,11 +1274,16 @@ function renderTasks() {
         '<div class="t-sub">' + Math.round(t.progress) + "% · " + t.speed.toFixed(1) + "x</div>";
     } else {
       var tip = (t.status === "skipped" && t.skipReason) || (t.status === "failed" && t.error) || "";
-      statusCell = '<span class="tag ' + st.cls + '"' + (tip ? ' title="' + esc(tip) + '"' : "") + ">" + st.t + "</span>" +
-        (t.status === "failed" ? '<div class="t-sub" style="color:var(--error)">' + esc(t.error || "") + "</div>" : "") +
-        (t.status === "skipped" ? '<div class="t-sub">' + esc(t.skipReason || "") + "</div>" : "");
+      statusCell = '<span class="tag ' + st.cls + '"' + (tip ? ' title="' + esc(tip) + '"' : "") + ">" + st.t + "</span>";
+      if (t.status === "failed") {
+        statusCell += '<span class="tag-err-act" data-op="viewErrLog" title="点击直达日志抽屉查看错误详情">查看报错</span>' +
+          '<div class="t-sub" style="color:var(--error)">' + esc(t.error || "") + "</div>";
+      } else if (t.status === "skipped") {
+        statusCell += '<div class="t-sub">' + esc(t.skipReason || "") + "</div>";
+      }
     }
     var ops = "";
+    ops += '<button class="icon-btn" data-op="inspect" title="任务详情与完整命令">' + I_INFO + "</button>";
     ops += '<button class="icon-btn" data-op="locate" title="在文件夹中定位">' + I.locate + "</button>";
     if (t.status === "failed" || t.status === "cancelled") {
       ops += '<button class="icon-btn" data-op="retry" title="重试该任务">' + I.refresh + "</button>";
@@ -1089,6 +1298,7 @@ function renderTasks() {
       '<td><div class="t-main">' + esc(t.dst) + '</div><div class="t-sub">' + esc(t.dstDir) + "</div></td>" +
       "<td>" + statusCell + "</td>" +
       '<td><div class="t-ops">' + ops + "</div></td>";
+
     tr.addEventListener("click", function () {
       if (S.runner === "RUNNING" || S.runner === "STOPPING") return;
       var sel = !S.selected[t.id];
@@ -1096,7 +1306,10 @@ function renderTasks() {
       tr.classList.toggle("sel", sel);
       tr.querySelector(".ck").classList.toggle("on", sel);
       updateCkAll();
-      updateCmdPreview();
+    });
+    tr.addEventListener("dblclick", function (e) {
+      e.stopPropagation();
+      openInspector(t);
     });
     tr.querySelectorAll("[data-op]").forEach(function (b) {
       b.addEventListener("click", function (e) { e.stopPropagation(); doTaskOp(t, b.dataset.op); });
@@ -1116,17 +1329,20 @@ function updateCkAll() {
 
 /* ---------- 任务行操作 / 右键菜单（桌面范式） ---------- */
 function doTaskOp(t, op) {
+  if (op === "inspect") { openInspector(t); return; }
+  if (op === "viewErrLog") { viewTaskLog(t.id); return; }
   if (op === "locate") toast("演示：将在资源管理器中定位 " + (t.status === "done" ? "产物" : "源文件"));
   if (op === "retry") { t.outcome = "done"; t.status = "pending"; t.progress = 0; t.error = null; renderTasks(); toast("已重新加入队列：重试 " + t.name, "ok"); }
   if (op === "remove") {
     S.tasks = S.tasks.filter(function (x) { return x.id !== t.id; });
     delete S.selected[t.id];
-    renderTasks(); renderStats(); updateCmdPreview();
+    renderTasks(); renderStats();
     if (!S.tasks.length) { setRunner("IDLE"); toast("任务队列已清空"); }
   }
 }
 function ctxItemsFor(t) {
   var items = [];
+  items.push({ label: "查看详情与完整命令", icon: I_INFO, fn: function () { openInspector(t); } });
   items.push({ label: "在文件夹中定位", icon: I.locate, fn: function () { doTaskOp(t, "locate"); } });
   if (t.status === "failed" || t.status === "cancelled") items.push({ label: "重试该任务", icon: I.refresh, fn: function () { doTaskOp(t, "retry"); } });
   items.push({ label: "从队列移除", icon: I.trash, danger: true, fn: function () { doTaskOp(t, "remove"); } });
@@ -1150,11 +1366,60 @@ function hideCtx() { if (ctxEl) { ctxEl.remove(); ctxEl = null; } }
 document.addEventListener("click", hideCtx);
 document.addEventListener("keydown", function (e) { if (e.key === "Escape") hideCtx(); });
 
-/* ---------- 命令预览 ---------- */
+/* ---------- 任务检查器抽屉（Task Inspector） ---------- */
+var curInspTask = null;
+function openInspector(t) {
+  curInspTask = t;
+  var ps = presetObj();
+  $("inspTaskTitle").textContent = t.name;
+  var st = STATUS_UI[t.status] || STATUS_UI.pending;
+  var stEl = $("inspTaskStatus");
+  stEl.textContent = st.t;
+  stEl.className = "tag " + (st.cls || "info");
+
+  $("inspSrcMeta").textContent = t.meta;
+  $("inspDstCodec").textContent = t.outCodec + " · " + t.encoder;
+  $("inspSrcSize").textContent = t.size + " (" + t.durStr + ")";
+  $("inspDstDim").textContent = (S.tune.dimension > 0 ? S.tune.dimension + "p" : (ps.dim || 0) + "p") + " · CRF " + (S.tune.quality > 0 ? S.tune.quality : ps.q);
+  $("inspSrcAudio").textContent = t.srcCodec === "AAC" ? "AAC 2.0 · 48kHz" : "内置音轨";
+  $("inspDstAudio").textContent = (S.tune.audioCodec || ps.ac) + " · " + (S.tune.audioBitrate || ps.ab);
+
+  $("inspSrcPath").textContent = t.path;
+  $("inspDstPath").textContent = (S.outputDir ? S.outputDir + "\\" : "") + t.dst;
+  $("inspCmdBox").innerHTML = cmdHtml(buildCmd(t));
+
+  $("inspectorMask").hidden = false;
+}
+function closeInspector() {
+  $("inspectorMask").hidden = true;
+  curInspTask = null;
+}
+
+/* ---------- 失败任务日志直达聚焦 ---------- */
+var focusedTaskId = null;
+function viewTaskLog(taskId) {
+  focusedTaskId = taskId;
+  $("logTaskFocusTag").style.display = "inline-flex";
+  $("logTaskFocusTag").innerHTML = '已聚焦 [' + esc(taskId) + '] <button id="btnClearLogFocus" style="border:none;background:transparent;cursor:pointer;color:inherit;font-weight:700">✕</button>';
+  $("btnClearLogFocus").addEventListener("click", function(e) {
+    e.stopPropagation();
+    clearLogFocus();
+  });
+  $("logFilter").value = "ALL";
+  S.logFilter = "ALL";
+  openLog();
+}
+function clearLogFocus() {
+  focusedTaskId = null;
+  $("logTaskFocusTag").style.display = "none";
+  renderLogs();
+}
+
+/* ---------- 命令生成与着色 ---------- */
 function cmdHtml(cmdStr) {
   var s = esc(cmdStr);
-  s = s.replace(/(\s)(-[a-z0-9:_]+)(?=\s|$)/gi, '$1<span class="fl">$2</span>');
   s = s.replace(/"([^"]*)"/g, '<span class="path">"$1"</span>');
+  s = s.replace(/(\s)(-[a-z0-9:_]+)(?=\s|$)/gi, '$1<span class="fl">$2</span>');
   return s;
 }
 function buildCmd(t) {
@@ -1186,12 +1451,9 @@ function buildCmd(t) {
   return "ffmpeg " + p.join(" ");
 }
 function updateCmdPreview() {
-  var t = null;
-  if (S.tasks.length) {
-    t = S.tasks.filter(function (x) { return S.selected[x.id]; })[0] || S.tasks[0];
+  if (curInspTask) {
+    $("inspCmdBox").innerHTML = cmdHtml(buildCmd(curInspTask));
   }
-  $("cmdPresetName").textContent = t ? S.preset : "—";
-  $("cmdBody").innerHTML = t ? cmdHtml(buildCmd(t)) : "生成计划后，此处将展示选中任务的 FFmpeg 命令";
 }
 
 /* ---------- 执行看板 ---------- */
@@ -1365,26 +1627,79 @@ function bindAll() {
   $("btnManualAdd").addEventListener("click", addManual);
   $("manualPath").addEventListener("keydown", function (e) { if (e.key === "Enter") addManual(); });
 
+  /* Hero 空态画板操作 */
+  var heroFiles = $("heroAddFiles");
+  if (heroFiles) heroFiles.addEventListener("click", addMockFile);
+  var heroDir = $("heroAddDir");
+  if (heroDir) heroDir.addEventListener("click", addMockDir);
+
+  /* 全域拖放蒙层监听 */
+  var dragCount = 0;
+  var gd = $("globalDropMask");
+  document.addEventListener("dragenter", function (e) {
+    e.preventDefault();
+    dragCount++;
+    if (dragCount > 0 && gd) gd.style.display = "flex";
+  });
+  document.addEventListener("dragleave", function (e) {
+    e.preventDefault();
+    dragCount--;
+    if (dragCount <= 0 && gd) { dragCount = 0; gd.style.display = "none"; }
+  });
+  document.addEventListener("dragover", function (e) { e.preventDefault(); });
+  document.addEventListener("drop", function (e) {
+    e.preventDefault();
+    dragCount = 0;
+    if (gd) gd.style.display = "none";
+    addMockFile();
+  });
+
   /* 输出 */
-  $("outputDir").addEventListener("input", function () { S.outputDir = this.value.trim(); invalidatePlan(); });
+  $("outputDir").addEventListener("input", function () { S.outputDir = this.value.trim(); markPlanStale(); });
   $("btnOutput").addEventListener("click", function () {
     S.outputDir = "D:\\Media\\Output";
     $("outputDir").value = S.outputDir;
     toast("已选择输出目录（演示）");
-    invalidatePlan("输出目录已变更，请重新生成计划");
+    markPlanStale("输出目录已变更，请更新计划");
   });
-  $("prefix").addEventListener("input", function () { S.prefix = this.value.trim(); invalidatePlan(); });
-  $("suffix").addEventListener("input", function () { S.suffix = this.value.trim(); invalidatePlan(); });
+  $("prefix").addEventListener("input", function () { S.prefix = this.value.trim(); markPlanStale(); });
+  $("suffix").addEventListener("input", function () { S.suffix = this.value.trim(); markPlanStale(); });
 
-  /* 视频 / 音频参数折叠（默认收起，点击标题展开） */
+  /* 视频 / 音频参数折叠 */
   function bindFold(toggleId, bodyId) {
-    $(toggleId).addEventListener("click", function () {
+    $(toggleId).addEventListener("click", function (e) {
+      if (e.target.closest(".reset-link")) return;
       $(bodyId).classList.toggle("hide");
       this.querySelector(".chev").style.transform = $(bodyId).classList.contains("hide") ? "" : "rotate(180deg)";
     });
   }
   bindFold("videoToggle", "videoBody");
   bindFold("audioToggle", "audioBody");
+
+  /* 单项重置与全部重置（Dirty State Undo） */
+  if ($("undoDimension")) $("undoDimension").addEventListener("click", function () { S.tune.dimension = 0; if (selectMap.dimension) selectMap.dimension.set(0); $("dimensionCustom").value = ""; renderPresetInfo(); markPlanStale(); toast("长边尺寸已恢复预设默认"); });
+  if ($("undoQuality")) $("undoQuality").addEventListener("click", function () { S.tune.quality = 0; $("qualitySlider").value = 0; $("qualityNum").value = 0; renderPresetInfo(); markPlanStale(); toast("视频质量已恢复预设默认"); });
+  if ($("undoBitrate")) $("undoBitrate").addEventListener("click", function () { S.tune.bitrate = ""; if (selectMap.bitrate) selectMap.bitrate.set(""); $("bitrateCustom").value = ""; renderPresetInfo(); markPlanStale(); toast("视频码率已恢复预设默认"); });
+  if ($("undoFps")) $("undoFps").addEventListener("click", function () { S.tune.fps = 0; if (selectMap.fps) selectMap.fps.set(0); renderPresetInfo(); markPlanStale(); toast("帧率已恢复预设默认"); });
+  if ($("undoSpeed")) $("undoSpeed").addEventListener("click", function () { S.tune.speed = 0; if (selectMap.speed) selectMap.speed.set(0); renderPresetInfo(); markPlanStale(); toast("倍速已恢复预设默认"); });
+  if ($("undoAudioCodec")) $("undoAudioCodec").addEventListener("click", function () { S.tune.audioCodec = ""; if (selectMap.audioCodec) selectMap.audioCodec.set(""); renderPresetInfo(); markPlanStale(); toast("音频编码已恢复预设默认"); });
+  if ($("undoAudioBitrate")) $("undoAudioBitrate").addEventListener("click", function () { S.tune.audioBitrate = ""; if (selectMap.audioBitrate) selectMap.audioBitrate.set(""); renderPresetInfo(); markPlanStale(); toast("音频码率已恢复预设默认"); });
+
+  if ($("btnResetVideo")) $("btnResetVideo").addEventListener("click", function (e) {
+    e.stopPropagation();
+    S.tune.dimension = 0; if (selectMap.dimension) selectMap.dimension.set(0); $("dimensionCustom").value = "";
+    S.tune.quality = 0; $("qualitySlider").value = 0; $("qualityNum").value = 0;
+    S.tune.bitrate = ""; if (selectMap.bitrate) selectMap.bitrate.set(""); $("bitrateCustom").value = "";
+    S.tune.fps = 0; if (selectMap.fps) selectMap.fps.set(0);
+    S.tune.speed = 0; if (selectMap.speed) selectMap.speed.set(0);
+    renderPresetInfo(); markPlanStale(); toast("所有视频微调已重置为预设默认");
+  });
+  if ($("btnResetAudio")) $("btnResetAudio").addEventListener("click", function (e) {
+    e.stopPropagation();
+    S.tune.audioCodec = ""; if (selectMap.audioCodec) selectMap.audioCodec.set("");
+    S.tune.audioBitrate = ""; if (selectMap.audioBitrate) selectMap.audioBitrate.set("");
+    renderPresetInfo(); markPlanStale(); toast("所有音频微调已重置为预设默认");
+  });
 
   /* 高级选项折叠 */
   $("advancedToggle").addEventListener("click", function () {
@@ -1408,18 +1723,20 @@ function bindAll() {
   $("btnClear").addEventListener("click", function () {
     if (S.runner === "RUNNING" || S.runner === "STOPPING") return;
     S.tasks = []; S.selected = {};
-    renderTasks(); renderStats(); updateCmdPreview();
+    renderTasks(); renderStats();
     setRunner("IDLE");
     toast("任务队列已清空");
   });
 
-  /* 命令预览 */
-  $("cmdHead").addEventListener("click", function () { $("cmdPreview").classList.toggle("open"); });
-  $("btnCmdCopy").addEventListener("click", function (e) {
-    e.stopPropagation();
-    var t = S.tasks.filter(function (x) { return S.selected[x.id]; })[0] || S.tasks[0];
-    if (!t) { toast("暂无命令可复制", "warn"); return; }
-    try { navigator.clipboard.writeText(buildCmd(t)); toast("命令已复制", "ok"); } catch (err) { toast("复制失败", "err"); }
+  /* 任务检查器抽屉 */
+  var btnInspClose = $("btnInspClose");
+  if (btnInspClose) btnInspClose.addEventListener("click", closeInspector);
+  var inspMask = $("inspectorMask");
+  if (inspMask) inspMask.addEventListener("click", function (e) { if (e.target === inspMask) closeInspector(); });
+  var btnInspCopyCmd = $("btnInspCopyCmd");
+  if (btnInspCopyCmd) btnInspCopyCmd.addEventListener("click", function () {
+    if (!curInspTask) return;
+    try { navigator.clipboard.writeText(buildCmd(curInspTask)); toast("命令已复制", "ok"); } catch (err) { toast("复制失败", "err"); }
   });
 
   /* 全选 */
@@ -1444,11 +1761,15 @@ function bindAll() {
   $("btnLog").addEventListener("click", openLog);
   $("logMask").addEventListener("click", function (e) { if (e.target === $("logMask")) closeLog(); });
   $("btnSideToggle").addEventListener("click", toggleSide);
+
   document.addEventListener("keydown", function (e) {
     if ((e.ctrlKey || e.metaKey) && (e.key === "b" || e.key === "B")) { e.preventDefault(); toggleSide(); }
-    if (e.key === "Escape" && !$("logMask").hidden) {
-      var openModal = $$(".modal-mask").some(function (m) { return !m.hidden; });
-      if (!openModal) closeLog();
+    if (e.key === "Escape") {
+      if (!$("inspectorMask").hidden) { closeInspector(); return; }
+      if (!$("logMask").hidden) {
+        var openModal = $$(".modal-mask").some(function (m) { return !m.hidden; });
+        if (!openModal) closeLog();
+      }
     }
   });
 
@@ -1517,6 +1838,7 @@ function bindAll() {
 }
 
 /* ---------- 初始化 ---------- */
+var selectMap = {};
 function init() {
   S.inputs = seedInputs();
   renderInputs();
@@ -1529,7 +1851,7 @@ function init() {
       }) };
     }),
     value: S.preset,
-    onChange: function (v) { S.preset = v; renderPresetInfo(); invalidatePlan(); }
+    onChange: function (v) { S.preset = v; renderPresetInfo(); markPlanStale(); }
   });
 
   /* 输出模式下拉 */
@@ -1540,45 +1862,50 @@ function init() {
       { value: "file", label: "file · 全部扁平输出" }
     ],
     value: S.outputMode,
-    onChange: function (v) { S.outputMode = v; invalidatePlan(); }
+    onChange: function (v) { S.outputMode = v; markPlanStale(); }
   });
 
   /* 参数下拉 */
-  createSelect($("dimensionSel"), { options: DIM_OPTS.map(function (o) { return { value: o[0], label: o[1] }; }), value: S.tune.dimension, onChange: function (v) {
+  selectMap.dimension = createSelect($("dimensionSel"), { options: DIM_OPTS.map(function (o) { return { value: o[0], label: o[1] }; }), value: S.tune.dimension, onChange: function (v) {
     S.tune.dimension = v === "custom" ? 0 : v;
     if (v === "custom") { $("dimensionCustom").focus(); }
-    invalidatePlan();
+    markPlanStale();
   } });
-  createSelect($("bitrateSel"), { options: BR_OPTS.map(function (o) { return { value: o[0], label: o[1] }; }), value: S.tune.bitrate, onChange: function (v) {
+  selectMap.bitrate = createSelect($("bitrateSel"), { options: BR_OPTS.map(function (o) { return { value: o[0], label: o[1] }; }), value: S.tune.bitrate, onChange: function (v) {
     S.tune.bitrate = v === "custom" ? "" : v;
     if (v === "custom") { $("bitrateCustom").focus(); }
-    invalidatePlan();
+    markPlanStale();
   } });
-  createSelect($("fpsSel"), { options: FPS_OPTS.map(function (o) { return { value: o[0], label: o[1] }; }), value: S.tune.fps, onChange: function (v) { S.tune.fps = v; invalidatePlan(); } });
-  createSelect($("speedSel"), { options: SPEED_OPTS.map(function (o) { return { value: o[0], label: o[1] }; }), value: S.tune.speed, onChange: function (v) { S.tune.speed = v; invalidatePlan(); } });
-  createSelect($("audioCodecSel"), { options: ACODEC_OPTS.map(function (o) { return { value: o[0], label: o[1] }; }), value: S.tune.audioCodec, onChange: function (v) { S.tune.audioCodec = v; invalidatePlan(); } });
-  createSelect($("audioBitrateSel"), { options: ABR_OPTS.map(function (o) { return { value: o[0], label: o[1] }; }), value: S.tune.audioBitrate, onChange: function (v) { S.tune.audioBitrate = v; invalidatePlan(); } });
-  createSelect($("hwaccelSel"), { options: HW_OPTS.map(function (o) { return { value: o[0], label: o[1] }; }), value: S.adv.hwaccel, onChange: function (v) { S.adv.hwaccel = v; invalidatePlan(); } });
-  createSelect($("decodeSel"), { options: DECODE_OPTS.map(function (o) { return { value: o[0], label: o[1] }; }), value: S.adv.decodeMode, onChange: function (v) { S.adv.decodeMode = v; invalidatePlan(); } });
+  selectMap.fps = createSelect($("fpsSel"), { options: FPS_OPTS.map(function (o) { return { value: o[0], label: o[1] }; }), value: S.tune.fps, onChange: function (v) { S.tune.fps = v; markPlanStale(); } });
+  selectMap.speed = createSelect($("speedSel"), { options: SPEED_OPTS.map(function (o) { return { value: o[0], label: o[1] }; }), value: S.tune.speed, onChange: function (v) { S.tune.speed = v; markPlanStale(); } });
+  selectMap.audioCodec = createSelect($("audioCodecSel"), { options: ACODEC_OPTS.map(function (o) { return { value: o[0], label: o[1] }; }), value: S.tune.audioCodec, onChange: function (v) { S.tune.audioCodec = v; markPlanStale(); } });
+  selectMap.audioBitrate = createSelect($("audioBitrateSel"), { options: ABR_OPTS.map(function (o) { return { value: o[0], label: o[1] }; }), value: S.tune.audioBitrate, onChange: function (v) { S.tune.audioBitrate = v; markPlanStale(); } });
+  createSelect($("hwaccelSel"), { options: HW_OPTS.map(function (o) { return { value: o[0], label: o[1] }; }), value: S.adv.hwaccel, onChange: function (v) { S.adv.hwaccel = v; markPlanStale(); } });
+  createSelect($("decodeSel"), { options: DECODE_OPTS.map(function (o) { return { value: o[0], label: o[1] }; }), value: S.adv.decodeMode, onChange: function (v) { S.adv.decodeMode = v; markPlanStale(); } });
 
   /* 质量滑块联动 */
   function syncQ() {
     var v = Math.max(0, Math.min(qualityMax, parseInt($("qualityNum").value || "0", 10)));
     $("qualitySlider").value = v; $("qualityNum").value = v;
     S.tune.quality = v;
-    invalidatePlan();
+    markPlanStale();
   }
-  $("qualitySlider").addEventListener("input", function () { $("qualityNum").value = this.value; S.tune.quality = parseInt(this.value, 10); invalidatePlan(); });
+  $("qualitySlider").addEventListener("input", function () { $("qualityNum").value = this.value; S.tune.quality = parseInt(this.value, 10); markPlanStale(); });
   $("qualityNum").addEventListener("change", syncQ);
-  $("dimensionCustom").addEventListener("change", function () { var v = parseInt(this.value, 10); if (!isNaN(v) && v > 0) S.tune.dimension = v; invalidatePlan(); });
-  $("bitrateCustom").addEventListener("change", function () { var v = this.value.trim(); if (v) S.tune.bitrate = v; invalidatePlan(); });
+  $("dimensionCustom").addEventListener("change", function () { var v = parseInt(this.value, 10); if (!isNaN(v) && v > 0) S.tune.dimension = v; markPlanStale(); });
+  $("bitrateCustom").addEventListener("change", function () { var v = this.value.trim(); if (v) S.tune.bitrate = v; markPlanStale(); });
 
   renderPresetInfo();
   bindAll();
-  setRunner("IDLE");
+  S.inputs = seedInputs();
+  renderInputs();
+  buildPlan();
+  renderStats();
+  renderTasks();
+  setRunner("READY");
   renderExec();
   log("INFO", "应用启动：ffmpeg 6.1.1 · ffprobe 6.1.1 · 硬件 NVENC 可用");
-  log("CMD", "mediac-desktop v0.2.0 — 演示原型，数据为模拟数据，不执行真实转码");
+  log("CMD", "mediac-desktop v0.3.0 — 进阶交互原型，支持全域拖放、任务检查器与脏状态感知");
 }
 
 function doPlan() {
@@ -1596,7 +1923,6 @@ function doPlan() {
     buildPlan();
     renderStats();
     renderTasks();
-    updateCmdPreview();
     setRunner("READY");
     log("CMD", "Plan ready · " + S.tasks.length + " tasks · preset=" + S.preset + " · outputMode=" + S.outputMode);
     toast("计划已生成：" + S.tasks.length + " 个任务，请检查后开始转码", "ok");
