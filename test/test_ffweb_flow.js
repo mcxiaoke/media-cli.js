@@ -110,7 +110,7 @@ test("FFmpeg WebUI (ffweb) End-to-End Real Flow", async (t) => {
                     }
                 }
             }
-            readLoop()
+            const readLoopPromise = readLoop()
 
             // 触发开始转码
             const startRes = await apiFetch(`${baseUrl}/api/task/start`, { method: "POST" })
@@ -119,12 +119,15 @@ test("FFmpeg WebUI (ffweb) End-to-End Real Flow", async (t) => {
             assert.strictEqual(startData.ok, true)
 
             // 等待转码完成（最多 60 秒）
-            const timeout = new Promise((_, reject) =>
-                setTimeout(() => reject(new Error("Transcode timeout")), 60000),
-            )
+            let timeoutId
+            const timeout = new Promise((_, reject) => {
+                timeoutId = setTimeout(() => reject(new Error("Transcode timeout")), 60000)
+            })
             await Promise.race([donePromise, timeout])
+            clearTimeout(timeoutId)
 
-            reader.cancel()
+            await reader.cancel()
+            await readLoopPromise.catch(() => {})
 
             // 验证收到了进度与完成事件
             assert.ok(eventsReceived.includes("PROGRESS"), "Should receive PROGRESS event")

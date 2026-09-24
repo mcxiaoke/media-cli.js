@@ -41,6 +41,31 @@ test("ffmpeg task builder is injectable and returns a pending task", async () =>
     assert.strictEqual(task.argv.override, true)
 })
 
+test("ffmpeg task builder forwards AbortSignal to media probing", async () => {
+    const controller = new AbortController()
+    let receivedSignal
+    const task = await buildTask(
+        { path: "C:/media/sample.mp4", name: "sample.mp4", size: 1 },
+        {
+            index: 0,
+            total: 1,
+            activePreset: { name: "test", type: "video", format: ".mp4" },
+            argv: {},
+            signal: controller.signal,
+            fsApi: { pathExists: async () => false },
+            getMediaInfo: async (_file, options) => {
+                receivedSignal = options.signal
+                return { duration: 1, bitrate: 1, video: { format: "h264" } }
+            },
+            calculate: () => ({}),
+            createBaseName: () => ["sample"],
+            chooseSubtitle: () => null,
+        },
+    )
+    assert.strictEqual(receivedSignal, controller.signal)
+    assert.strictEqual(task.status, "pending")
+})
+
 test("ffmpeg task builder skips a file without the required stream", async () => {
     const task = await buildTask(
         { path: "C:/media/sample.mp4", name: "sample.mp4", size: 1 },

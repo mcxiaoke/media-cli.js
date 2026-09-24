@@ -187,9 +187,24 @@ export class WebServer {
      */
     async close() {
         if (this.idleTimer) clearTimeout(this.idleTimer)
+        for (const client of this.sseClients) {
+            try {
+                client.end()
+            } catch {
+                // Ignore clients that disconnected while the server was closing.
+            }
+        }
+        this.sseClients.clear()
         await log.flushFileLog()
         if (this.server) {
-            return new Promise((resolve) => this.server.close(resolve))
+            this.server.closeAllConnections?.()
+            return new Promise((resolve) => {
+                if (!this.server.listening) {
+                    resolve()
+                    return
+                }
+                this.server.close(resolve)
+            })
         }
     }
 

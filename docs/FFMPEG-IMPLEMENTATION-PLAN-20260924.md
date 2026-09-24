@@ -134,7 +134,7 @@ Options -> Scan -> Task -> Plan -> Execute -> Result/Event
 ### 3.3 Result/Event
 
 - [x] 定义 `RunResult` 判别联合；
-- [ ] 定义 `TaskAttemptResult`；
+- [x] 定义 `TaskAttemptResult`；
 - [x] 定义 `EngineEvent`；
 - [x] 事件包含 runId/taskId/seq/attempt/timestamp；
 - [x] 明确 success/failed/skipped/cancelled。
@@ -398,6 +398,7 @@ npm test/check/lint 结果已记录；
 | 2026-09-24 | 阶段 5B：Electron 临时文件恢复 | 已完成 | userData/active-tasks.json 原子写入 run/task/temp/output 信息；启动按 manifest 精确清理，完成/失败/取消清理记录；app typecheck/build 通过 |
 | 2026-09-24 | 阶段 4G：ffmpeg/ffprobe 配对解析 | 已完成 | 新增 sibling/环境变量优先的 ffprobe resolver，mediainfo 支持显式 probePath，Electron environment/plan 复用配对路径；ffprobe 测试和 app typecheck 通过 |
 | 2026-09-24 | 阶段 4H：Electron 启动修复 | 已完成 | 修复 bundle 缺少 hanzi 数据文件导致的启动 Error；补充启动日志、ensure:electron、dev:debug 和 README；source/packaged 直接启动均通过 |
+| 2026-09-24 | 阶段 1B/5C：稳定 AttemptResult 与 AbortSignal | 已完成 | mediainfo/ffprobe、硬件能力探测、任务构建和输出提交贯穿 AbortSignal；Engine 透传稳定 TaskAttemptResult；npm test 316/316 通过 |
 
 ---
 
