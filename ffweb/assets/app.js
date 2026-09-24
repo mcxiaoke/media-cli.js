@@ -13,6 +13,20 @@ const state = {
     logs: [],
 }
 
+const authToken = new URLSearchParams(window.location.search).get("token") || ""
+
+function apiUrl(pathname) {
+    const url = new URL(pathname, window.location.href)
+    if (authToken) url.searchParams.set("token", authToken)
+    return url
+}
+
+async function apiFetch(pathname, options = {}) {
+    const headers = new Headers(options.headers || {})
+    if (authToken) headers.set("X-Token", authToken)
+    return fetch(apiUrl(pathname), { ...options, headers })
+}
+
 // DOM 元素引用
 const el = {
     hwBadge: document.getElementById("hwBadge"),
@@ -58,7 +72,7 @@ async function init() {
 
 // 建立 SSE 实时通道
 function setupSSE() {
-    const es = new EventSource("/api/events")
+    const es = new EventSource(apiUrl("/api/events").toString())
 
     es.addEventListener("SNAPSHOT", (e) => {
         const snap = JSON.parse(e.data)
@@ -105,7 +119,7 @@ function setupSSE() {
 // 加载系统与预设环境
 async function loadEnv() {
     try {
-        const res = await fetch("/api/env")
+        const res = await apiFetch("/api/env")
         const data = await res.json()
         if (!data.ok) return
 
@@ -188,7 +202,7 @@ function bindEvents() {
         btnBrowseFiles.disabled = true
         btnBrowseFiles.textContent = "⏳ 打开中..."
         try {
-            const res = await fetch("/api/dialog/select", {
+            const res = await apiFetch("/api/dialog/select", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ mode: "file", multi: true, title: "选择媒体文件" }),
@@ -212,7 +226,7 @@ function bindEvents() {
         btnBrowseDir.disabled = true
         btnBrowseDir.textContent = "⏳ 打开中..."
         try {
-            const res = await fetch("/api/dialog/select", {
+            const res = await apiFetch("/api/dialog/select", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ mode: "directory", title: "选择源媒体文件夹" }),
@@ -270,7 +284,7 @@ function bindEvents() {
         btnBrowseOutput.disabled = true
         btnBrowseOutput.textContent = "⏳ 打开中..."
         try {
-            const res = await fetch("/api/dialog/select", {
+            const res = await apiFetch("/api/dialog/select", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ mode: "directory", title: "选择输出目录" }),
@@ -335,7 +349,7 @@ function bindEvents() {
         try {
             el.btnPlan.disabled = true
             el.btnPlan.textContent = "分析中..."
-            const res = await fetch("/api/plan", {
+            const res = await apiFetch("/api/plan", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
@@ -364,7 +378,7 @@ function bindEvents() {
     // 开始执行
     el.btnStart.addEventListener("click", async () => {
         if (!state.plan) return
-        const res = await fetch("/api/task/start", { method: "POST" })
+        const res = await apiFetch("/api/task/start", { method: "POST" })
         const data = await res.json()
         if (!data.ok) {
             alert(`启动失败: ${data.error}`)
@@ -374,7 +388,7 @@ function bindEvents() {
     // 终止任务
     el.btnStop.addEventListener("click", async () => {
         if (!confirm("确定要终止正在运行的转码任务吗？")) return
-        const res = await fetch("/api/task/stop", { method: "POST" })
+        const res = await apiFetch("/api/task/stop", { method: "POST" })
         const data = await res.json()
         if (!data.ok) {
             alert(`终止失败: ${data.message || data.error}`)

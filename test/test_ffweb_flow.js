@@ -22,6 +22,12 @@ test("FFmpeg WebUI (ffweb) End-to-End Real Flow", async (t) => {
 
     const info = await server.start()
     const baseUrl = `http://${info.host}:${info.port}`
+    const apiFetch = (url, options = {}) => {
+        const headers = new Headers(options.headers || {})
+        headers.set("X-Token", info.token)
+        return fetch(url, { ...options, headers })
+    }
+    const eventsUrl = `${baseUrl}/api/events?token=${encodeURIComponent(info.token)}`
 
     t.after(async () => {
         await server.close()
@@ -29,7 +35,7 @@ test("FFmpeg WebUI (ffweb) End-to-End Real Flow", async (t) => {
     })
 
     await t.test("1. GET /api/env should return hardware and presets with metadata", async () => {
-        const res = await fetch(`${baseUrl}/api/env`)
+        const res = await apiFetch(`${baseUrl}/api/env`)
         assert.strictEqual(res.status, 200)
         const data = await res.json()
         assert.strictEqual(data.ok, true)
@@ -43,7 +49,7 @@ test("FFmpeg WebUI (ffweb) End-to-End Real Flow", async (t) => {
     })
 
     await t.test("2. POST /api/plan should analyze video and support custom options", async () => {
-        const res = await fetch(`${baseUrl}/api/plan`, {
+        const res = await apiFetch(`${baseUrl}/api/plan`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -78,7 +84,7 @@ test("FFmpeg WebUI (ffweb) End-to-End Real Flow", async (t) => {
                 doneResolve = resolve
             })
 
-            const sseRes = await fetch(`${baseUrl}/api/events`)
+            const sseRes = await fetch(eventsUrl)
             const reader = sseRes.body.getReader()
             const decoder = new TextDecoder()
 
@@ -107,7 +113,7 @@ test("FFmpeg WebUI (ffweb) End-to-End Real Flow", async (t) => {
             readLoop()
 
             // 触发开始转码
-            const startRes = await fetch(`${baseUrl}/api/task/start`, { method: "POST" })
+            const startRes = await apiFetch(`${baseUrl}/api/task/start`, { method: "POST" })
             assert.strictEqual(startRes.status, 200)
             const startData = await startRes.json()
             assert.strictEqual(startData.ok, true)
@@ -121,6 +127,7 @@ test("FFmpeg WebUI (ffweb) End-to-End Real Flow", async (t) => {
             reader.cancel()
 
             // 验证收到了进度与完成事件
+            assert.ok(eventsReceived.includes("PROGRESS"), "Should receive PROGRESS event")
             assert.ok(eventsReceived.includes("FILE_DONE"), "Should receive FILE_DONE event")
             assert.ok(eventsReceived.includes("ALL_DONE"), "Should receive ALL_DONE event")
 
@@ -145,9 +152,59 @@ test("FFmpeg WebUI (ffweb) End-to-End Real Flow", async (t) => {
         },
     )
 
-    await t.test("4. POST /api/task/stop should abort running transcode", async () => {
+    await t.test("4. POST /api/task/stop and override should preserve safe semantics", async () => {
+        const existingOutput = (await fs.readdir(TEST_OUT_DIR)).find(
+            (file) => !file.includes("_tmp@") && !file.endsWith(".error.txt"),
+        )
+        assert.ok(existingOutput, "The first transcode should leave an output file")
+        const existingPath = path.join(TEST_OUT_DIR, existingOutput)
+        const before = await fs.stat(existingPath)
+
+        const planRes = await apiFetch(`${baseUrl}/api/plan`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                inputs: [SAMPLE_VIDEO],
+                output: TEST_OUT_DIR,
+                preset: "h264_2k",
+                options: { override: true, videoQuality: 30 },
+            }),
+        })
+        assert.strictEqual(planRes.status, 200)
+        const planData = await planRes.json()
+        assert.strictEqual(planData.ok, true)
+
+        const startRes = await apiFetch(`${baseUrl}/api/task/start`, { method: "POST" })
+        assert.strictEqual(startRes.status, 200)
+
+        const deadline = Date.now() + 60000
+        let snapshot = null
+        while (Date.now() < deadline) {
+            const snapRes = await apiFetch(`${baseUrl}/api/snapshot`)
+            const snapData = await snapRes.json()
+            snapshot = snapData.snapshot
+            if (snapshot.status === "COMPLETED") break
+            await new Promise((r) => setTimeout(r, 50))
+        }
+        assert.strictEqual(snapshot?.status, "COMPLETED")
+        assert.strictEqual(snapshot.summary.failed, 0)
+        assert.strictEqual(snapshot.summary.success, 1)
+
+        const after = await fs.stat(existingPath)
+        assert.ok(after.size > 0)
+        assert.ok(
+            after.mtimeMs >= before.mtimeMs,
+            "override should commit a newly generated output",
+        )
+
+        // 取消测试必须从一个没有已有目标的计划开始，否则会混入 override 语义。
+        await fs.remove(TEST_OUT_DIR)
+        await fs.ensureDir(TEST_OUT_DIR)
+    })
+
+    await t.test("5. POST /api/task/stop should abort running transcode", async () => {
         // 先生成新计划（覆盖模式）
-        await fetch(`${baseUrl}/api/plan`, {
+        await apiFetch(`${baseUrl}/api/plan`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -159,21 +216,28 @@ test("FFmpeg WebUI (ffweb) End-to-End Real Flow", async (t) => {
         })
 
         // 开始
-        await fetch(`${baseUrl}/api/task/start`, { method: "POST" })
+        await apiFetch(`${baseUrl}/api/task/start`, { method: "POST" })
 
         // 稍等 150ms 启动子进程后发送停止
         await new Promise((r) => setTimeout(r, 150))
-        const stopRes = await fetch(`${baseUrl}/api/task/stop`, { method: "POST" })
+        const stopRes = await apiFetch(`${baseUrl}/api/task/stop`, { method: "POST" })
         const stopData = await stopRes.json()
         assert.strictEqual(stopData.ok, true)
 
-        // 再次查看状态
-        await new Promise((r) => setTimeout(r, 500))
-        const snapRes = await fetch(`${baseUrl}/api/snapshot`)
-        const snapData = await snapRes.json()
+        // 等待 session 完成清理，而不是依赖固定 sleep。
+        const deadline = Date.now() + 10000
+        let snapshot = null
+        while (Date.now() < deadline) {
+            const snapRes = await apiFetch(`${baseUrl}/api/snapshot`)
+            const snapData = await snapRes.json()
+            snapshot = snapData.snapshot
+            if (snapshot.status === "STOPPED") break
+            await new Promise((r) => setTimeout(r, 50))
+        }
+        assert.strictEqual(snapshot?.status, "STOPPED")
         assert.ok(
-            ["STOPPED", "COMPLETED", "IDLE"].includes(snapData.snapshot.status),
-            `Status should be stopped, got ${snapData.snapshot.status}`,
+            snapshot.currentPlan?.tasks?.some((task) => task.status === "cancelled"),
+            "At least the active task should be cancelled",
         )
 
         // 验证无任何残留的临时文件 _tmp@

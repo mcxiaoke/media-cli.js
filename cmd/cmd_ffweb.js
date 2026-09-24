@@ -32,7 +32,7 @@ const builder = function addOptions(ya) {
         .option("host", {
             type: "string",
             default: "127.0.0.1",
-            describe: "Server bind host (服务绑定地址，默认仅本地 127.0.0.1)",
+            describe: "Server bind host (仅允许 127.0.0.1、localhost 或 ::1；默认 127.0.0.1)",
         })
         .option("open", {
             type: "boolean",

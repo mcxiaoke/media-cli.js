@@ -5,20 +5,19 @@
  * 执行转码队列、解析进度、捕获日志、处理用户中断与临时清理。
  */
 import fs from "fs-extra"
-import path from "path"
 import { resolveFFmpegBinary } from "../lib/ffmpeg_bin.js"
 import { createFFmpegArgs, flattenFFArgs } from "../lib/ffmpeg_build.js"
-import { calculateDstArgs, createDstBaseName, selectPreferredSubtitle } from "../lib/ffmpeg_plan.js"
+import { buildTask } from "../lib/ffmpeg_task.js"
 import presets from "../lib/ffmpeg_presets.js"
 import { runFFmpegCmd, setFFmpegPath } from "../lib/ffmpeg_run.js"
-import * as mf from "../lib/file.js"
+import { RUN_STATUS, toRunResult } from "../lib/ffmpeg_result.js"
+import { collectInputFiles as collectSharedInputFiles } from "../lib/ffmpeg_scan.js"
 import * as helper from "../lib/helper.js"
 import { TIERS } from "../lib/hwaccel.js"
 import { detectHardwareCapabilities } from "../lib/hwdetect.js"
-import { getMediaInfo } from "../lib/mediainfo.js"
 import * as log from "../lib/debug.js"
 
-class TaskRunner {
+export class TaskRunner {
     constructor() {
         this.status = "IDLE" // IDLE | PLANNING | RUNNING | STOPPED | COMPLETED
         this.currentPlan = null
@@ -169,46 +168,11 @@ class TaskRunner {
     }
 
     /**
-     * 收集输入的媒体文件条目
+     * 收集输入的媒体文件条目。
+     * 具体扫描实现位于 lib/ffmpeg_scan.js，便于后续 CLI/Engine 复用和测试。
      */
     async collectInputFiles(inputs) {
-        const fileList = []
-        for (const inputPath of inputs) {
-            if (!inputPath || !(await fs.pathExists(inputPath))) continue
-            const stat = await fs.stat(inputPath)
-            if (stat.isFile()) {
-                if (helper.isMediaFile(inputPath)) {
-                    fileList.push({
-                        path: inputPath,
-                        name: path.basename(inputPath),
-                        size: stat.size,
-                    })
-                }
-            } else if (stat.isDirectory()) {
-                const files = await mf.walk(inputPath, {
-                    withFiles: true,
-                    needStats: true,
-                    entryFilter: (e) => e.isFile && helper.isMediaFile(e.name),
-                })
-                for (const f of files) {
-                    fileList.push({
-                        path: f.path,
-                        name: f.name,
-                        size: f.size,
-                    })
-                }
-            }
-        }
-        // 去重
-        const unique = []
-        const seen = new Set()
-        for (const item of fileList) {
-            if (!seen.has(item.path)) {
-                seen.add(item.path)
-                unique.push(item)
-            }
-        }
-        return unique
+        return collectSharedInputFiles(inputs)
     }
 
     /**
@@ -227,12 +191,12 @@ class TaskRunner {
                 throw new Error("No media files found in specified inputs")
             }
 
-            const allPresets = presets.getAllPresets()
+            const allPresetNames = presets.getAllNames()
             const presetObj =
                 presets.getPreset(preset) ||
                 presets.getPreset("hevc_2k") ||
                 presets.getPreset("h264_2k") ||
-                allPresets[0]
+                presets.getPreset(allPresetNames[0])
             const opt = { ...options }
             if (opt.fps > 0) {
                 opt.framerate = opt.fps
@@ -242,6 +206,8 @@ class TaskRunner {
             }
             const mergedArgv = {
                 output: output || "",
+                outputMode: "dir",
+                decodeMode: "auto",
                 preset: presetObj.name,
                 ...opt,
             }
@@ -253,63 +219,20 @@ class TaskRunner {
                 `Analyzing ${files.length} file(s) for preset [${activePreset.name}]...`,
             )
 
-            // 构建任务项
+            // 构建任务项：具体条目构造已抽到 lib/ffmpeg_task.js，便于单测和后续 Engine 复用。
             const tasks = []
             for (let i = 0; i < files.length; i++) {
                 const f = files[i]
                 try {
-                    const info = await getMediaInfo(f.path)
-                    const isAudio = activePreset.type === "audio"
-                    const ivideo = info?.video
-                    const iaudio = info?.audio
-                    const duration = info?.duration || ivideo?.duration || iaudio?.duration || 0
-
-                    if (isAudio && !iaudio) continue
-                    if (!isAudio && !ivideo) continue
-
-                    const entry = {
+                    const entry = await buildTask(f, {
                         index: i,
                         total: files.length,
-                        path: f.path,
-                        name: f.name,
-                        size: f.size,
-                        info,
-                        preset: activePreset,
+                        activePreset,
                         argv: mergedArgv,
-                        duration,
-                    }
-
-                    const dstArgs = calculateDstArgs(entry)
-                    entry.dstArgs = dstArgs
-
-                    const srcDir = path.dirname(f.path)
-                    const srcBase = path.parse(f.name).name
-                    const dstDir = output ? path.resolve(output) : srcDir
-                    const [fileDstBase] = createDstBaseName(entry)
-                    const dstExt = activePreset.ext || path.extname(f.name) || ".mp4"
-                    const fileDst = path.join(dstDir, `${fileDstBase}${dstExt}`)
-                    const fileDstTemp = path.join(
-                        dstDir,
-                        `${fileDstBase}_tmp@${helper.textHash(f.path)}@tmp_${dstExt}`,
-                    )
-
-                    // 检索字幕
-                    const subExts = [".ass", ".ssa", ".srt"]
-                    const subtitles = []
-                    for (const ext of subExts) {
-                        const sub1 = path.join(srcDir, `${srcBase}${ext}`)
-                        if (await fs.pathExists(sub1)) subtitles.push(sub1)
-                    }
-                    const selectedSubtitle = selectPreferredSubtitle(subtitles)
-
-                    entry.fileDstDir = dstDir
-                    entry.fileDst = fileDst
-                    entry.fileDstTemp = fileDstTemp
-                    entry.subtitles = subtitles
-                    entry.selectedSubtitle = selectedSubtitle
-                    entry.status = "pending"
-
-                    tasks.push(entry)
+                        output,
+                        fsApi: fs,
+                    })
+                    if (entry) tasks.push(entry)
                 } catch (err) {
                     this.appendLog("warn", "Plan", `Skip ${f.name}: ${err.message}`)
                 }
@@ -447,22 +370,41 @@ class TaskRunner {
                         },
                     })
 
-                    if (res && res.ok) {
+                    const result = toRunResult(res)
+                    if (signal.aborted || result.status === RUN_STATUS.CANCELLED) {
+                        task.status = "cancelled"
+                        this.emit("FILE_DONE", {
+                            index: i,
+                            name: task.name,
+                            ok: false,
+                            cancelled: true,
+                            status: result.status,
+                        })
+                        this.appendLog("warn", "Stop", `Task cancelled by user: ${task.name}`)
+                        break
+                    } else if (result.status === RUN_STATUS.SUCCESS) {
                         task.status = "done"
                         successCount++
-                        this.emit("FILE_DONE", { index: i, name: task.name, ok: true })
+                        this.emit("FILE_DONE", {
+                            index: i,
+                            name: task.name,
+                            ok: true,
+                            status: result.status,
+                        })
                         this.appendLog(
                             "info",
                             "Done",
                             `[${i + 1}/${tasks.length}] Done: ${task.name}`,
                         )
-                    } else if (res && res.dstExists) {
+                    } else if (result.status === RUN_STATUS.SKIPPED) {
                         task.status = "skipped"
                         this.emit("FILE_DONE", {
                             index: i,
                             name: task.name,
                             ok: true,
                             skipped: true,
+                            status: result.status,
+                            reason: result.reason,
                         })
                         this.appendLog(
                             "warn",
@@ -471,12 +413,13 @@ class TaskRunner {
                         )
                     } else {
                         task.status = "failed"
-                        task.error = res?.ffmpegError || "Conversion failed"
+                        task.error = result.error
                         failedCount++
                         this.emit("FILE_DONE", {
                             index: i,
                             name: task.name,
                             ok: false,
+                            status: result.status,
                             error: task.error,
                         })
                         this.appendLog(
@@ -486,8 +429,19 @@ class TaskRunner {
                         )
                     }
                 } catch (err) {
-                    if (signal.aborted) {
+                    if (
+                        signal.aborted ||
+                        err?.name === "AbortError" ||
+                        err?.code === "ABORT_ERR" ||
+                        err?.isCanceled
+                    ) {
                         task.status = "cancelled"
+                        this.emit("FILE_DONE", {
+                            index: i,
+                            name: task.name,
+                            ok: false,
+                            cancelled: true,
+                        })
                         this.appendLog("warn", "Stop", `Task cancelled by user: ${task.name}`)
                         break
                     }
@@ -509,6 +463,20 @@ class TaskRunner {
 
                 await log.flushFileLog()
             }
+
+            if (signal.aborted) {
+                for (let j = Math.max(this.currentTaskIndex + 1, 0); j < tasks.length; j++) {
+                    if (tasks[j].status === "pending") {
+                        tasks[j].status = "cancelled"
+                        this.emit("FILE_DONE", {
+                            index: j,
+                            name: tasks[j].name,
+                            ok: false,
+                            cancelled: true,
+                        })
+                    }
+                }
+            }
         } finally {
             const elapsedMs = Date.now() - startTime
             const isCancelled = signal.aborted
@@ -523,6 +491,8 @@ class TaskRunner {
             }
 
             this.currentProgress = null
+            this.activeAbortController = null
+            this.currentTaskIndex = -1
             this.emit("STATUS_CHANGE", { status: this.status })
             this.emit("ALL_DONE", this.summary)
             this.appendLog(

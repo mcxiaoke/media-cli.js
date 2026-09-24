@@ -7,6 +7,17 @@
 import { execa } from "execa"
 import * as log from "../lib/debug.js"
 
+export function sanitizeDialogTitle(title) {
+    return [...String(title ?? "Select")]
+        .map((char) => {
+            const code = char.charCodeAt(0)
+            return code <= 0x1f || code === 0x7f ? " " : char
+        })
+        .join("")
+        .trim()
+        .slice(0, 200)
+}
+
 /**
  * 调起系统原生文件或目录选择对话框
  * @param {Object} options
@@ -20,19 +31,20 @@ export async function openNativeDialog({
     multi = true,
     title = "Select File or Directory",
 } = {}) {
+    const safeTitle = sanitizeDialogTitle(title)
     if (process.platform === "win32") {
-        return openWindowsDialog({ mode, multi, title })
+        return openWindowsDialog({ mode, multi, title: safeTitle })
     }
     if (process.platform === "darwin") {
-        return openMacDialog({ mode, multi, title })
+        return openMacDialog({ mode, multi, title: safeTitle })
     }
-    return openLinuxDialog({ mode, multi, title })
+    return openLinuxDialog({ mode, multi, title: safeTitle })
 }
 
 /**
  * 通过 PowerShell 运行脚本并确保 Base64 编码与 STA 运行环境
  */
-async function runPowerShell(script) {
+async function runPowerShell(script, env = {}) {
     const b64 = Buffer.from(script, "utf16le").toString("base64")
     const { stdout } = await execa(
         "powershell",
@@ -40,6 +52,7 @@ async function runPowerShell(script) {
         {
             encoding: "utf8",
             timeout: 120000,
+            env: { ...process.env, ...env },
         },
     )
     return stdout
@@ -50,38 +63,9 @@ async function runPowerShell(script) {
  */
 async function openWindowsDialog({ mode, multi, title }) {
     try {
-        if (mode === "directory") {
-            const cleanTitle = String(title).replaceAll('"', '`"')
-            const psScript = `
-Add-Type -AssemblyName System.Windows.Forms
-$form = New-Object System.Windows.Forms.Form
-$form.TopMost = $true
-$form.Opacity = 0
-$form.ShowInTaskbar = $false
-$form.WindowState = [System.Windows.Forms.FormWindowState]::Minimized
-$form.Show()
-$form.WindowState = [System.Windows.Forms.FormWindowState]::Normal
-$form.Activate()
-$form.BringToFront()
-
-$dlg = New-Object System.Windows.Forms.FolderBrowserDialog
-$dlg.Description = "${cleanTitle}"
-$dlg.ShowNewFolderButton = $true
-$res = $dlg.ShowDialog($form)
-if ($res -eq [System.Windows.Forms.DialogResult]::OK) {
-    [Console]::Out.WriteLine($dlg.SelectedPath)
-}
-$form.Dispose()
-`
-            const stdout = await runPowerShell(psScript)
-            const selected = stdout.trim()
-            return selected ? [selected] : []
-        }
-
-        // 文件模式
         const filterStr =
             "Media Files (*.mp4;*.mkv;*.mov;*.flv;*.avi;*.ts;*.webm;*.mp3;*.m4a;*.flac;*.wav)|*.mp4;*.mkv;*.mov;*.flv;*.avi;*.ts;*.webm;*.mp3;*.m4a;*.flac;*.wav|Video Files (*.mp4;*.mkv;*.mov;*.avi;*.flv;*.ts;*.webm)|*.mp4;*.mkv;*.mov;*.avi;*.flv;*.ts;*.webm|Audio Files (*.mp3;*.m4a;*.flac;*.wav;*.aac)|*.mp3;*.m4a;*.flac;*.wav;*.aac|All Files (*.*)|*.*"
-        const cleanTitle = String(title).replaceAll('"', '`"')
+        const isDirectory = mode === "directory"
         const psScript = `
 Add-Type -AssemblyName System.Windows.Forms
 $form = New-Object System.Windows.Forms.Form
@@ -93,9 +77,21 @@ $form.Show()
 $form.WindowState = [System.Windows.Forms.FormWindowState]::Normal
 $form.Activate()
 $form.BringToFront()
-
+$title = [Environment]::GetEnvironmentVariable("MEDIAC_DIALOG_TITLE")
+${
+    isDirectory
+        ? `
+$dlg = New-Object System.Windows.Forms.FolderBrowserDialog
+$dlg.Description = $title
+$dlg.ShowNewFolderButton = $true
+$res = $dlg.ShowDialog($form)
+if ($res -eq [System.Windows.Forms.DialogResult]::OK) {
+    [Console]::Out.WriteLine($dlg.SelectedPath)
+}
+`
+        : `
 $dlg = New-Object System.Windows.Forms.OpenFileDialog
-$dlg.Title = "${cleanTitle}"
+$dlg.Title = $title
 $dlg.Multiselect = ${multi ? "$true" : "$false"}
 $dlg.Filter = "${filterStr}"
 $res = $dlg.ShowDialog($form)
@@ -104,9 +100,11 @@ if ($res -eq [System.Windows.Forms.DialogResult]::OK) {
         [Console]::Out.WriteLine($f)
     }
 }
+`
+}
 $form.Dispose()
 `
-        const stdout = await runPowerShell(psScript)
+        const stdout = await runPowerShell(psScript, { MEDIAC_DIALOG_TITLE: title })
         const lines = stdout
             .split(/\r?\n/)
             .map((l) => l.trim())
@@ -123,13 +121,24 @@ $form.Dispose()
  */
 async function openMacDialog({ mode, multi, title }) {
     try {
-        let script = ""
-        if (mode === "directory") {
-            script = `choose folder with prompt "${title}"`
-        } else {
-            script = `choose file with prompt "${title}" ${multi ? "multiple selections allowed true" : ""}`
-        }
-        const { stdout } = await execa("osascript", ["-e", script])
+        const script = `on run argv
+set theTitle to item 1 of argv
+set theMode to item 2 of argv
+set allowMultiple to item 3 of argv
+if theMode is "directory" then
+    choose folder with prompt theTitle
+else
+    choose file with prompt theTitle multiple selections allowed allowMultiple
+end if
+end run`
+        const { stdout } = await execa("osascript", [
+            "-e",
+            script,
+            "--",
+            title,
+            mode,
+            multi ? "true" : "false",
+        ])
         const res = stdout.trim()
         return res ? [res] : []
     } catch {
