@@ -22,7 +22,8 @@
         "cmd",
         "assets",
         "presets",
-        "presets.example.yaml"
+        "presets.example.yaml",
+        "ffweb"
     ],
     "bin": {
         "mediac": "./index.js"

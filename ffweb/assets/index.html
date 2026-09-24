@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>mediac ffweb - 音视频转码工作台</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <div class="logo-area">
+            <span class="logo-icon">⚡</span>
+            <div>
+                <span class="logo-title">mediac ffweb</span>
+                <span class="logo-subtitle">FFmpeg Web Studio</span>
+            </div>
+        </div>
+        <div class="status-area">
+            <span id="hwBadge" class="hw-badge">GPU: 探测中...</span>
+            <span id="stateBadge" class="state-badge state-IDLE">IDLE</span>
+        </div>
+    </header>
+
+    <main>
+        <!-- 左侧配置列 -->
+        <section class="col-config">
+            <!-- 1. 输入输出配置 -->
+            <div class="card">
+                <div class="card-title">
+                    <span>1. 输入与输出路径</span>
+                    <button id="btnClearInputs" class="btn" style="padding: 2px 8px; font-size: 11px;">清空</button>
+                </div>
+                
+                <div class="form-group">
+                    <label>输入源 (文件或目录)</label>
+                    <div class="btn-group">
+                        <button id="btnBrowseFiles" class="btn btn-primary">📁 浏览文件...</button>
+                        <button id="btnBrowseDir" class="btn">📂 浏览目录...</button>
+                    </div>
+                    <div style="display: flex; gap: 8px; margin-top: 6px;">
+                        <input type="text" id="inputManual" class="input-text" placeholder="输入或粘贴文件/目录物理路径后回车...">
+                        <button id="btnAddManual" class="btn">添加</button>
+                    </div>
+                    <div id="inputsList" class="tag-list"></div>
+                </div>
+
+                <div class="form-group" style="margin-top: 12px;">
+                    <label>输出目录 (默认与源文件同目录)</label>
+                    <div style="display: flex; gap: 8px;">
+                        <input type="text" id="outputDir" class="input-text" placeholder="留空默认同源目录">
+                        <button id="btnBrowseOutput" class="btn">选择目录...</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 2. 转码参数调节 -->
+            <div class="card">
+                <div class="card-title">
+                    <span>2. 转码预设与参数</span>
+                </div>
+
+                <div class="form-group">
+                    <label>预设模板 (Presets)</label>
+                    <select id="presetSelect"></select>
+                    <div id="presetBadges" class="preset-badges"></div>
+                </div>
+
+                <!-- 视频参数调节 -->
+                <div class="grid-2">
+                    <div class="form-group">
+                        <label>视频质量 (CRF / CQ)</label>
+                        <input type="number" id="videoQuality" class="input-text" placeholder="默认跟随预设">
+                    </div>
+                    <div class="form-group">
+                        <label>分辨率长边 (Dimension)</label>
+                        <select id="dimensionSelect">
+                            <option value="0">0 (保持原始分辨率)</option>
+                            <option value="3840">3840 (4K UHD)</option>
+                            <option value="2560">2560 (2K QHD)</option>
+                            <option value="1920">1920 (1080p FHD)</option>
+                            <option value="1280">1280 (720p HD)</option>
+                            <option value="854">854 (480p SD)</option>
+                            <option value="custom">自定义数值...</option>
+                        </select>
+                        <input type="number" id="dimensionCustom" class="input-text" style="display: none; margin-top: 4px;" placeholder="输入长边像素，如 1600">
+                    </div>
+                </div>
+
+                <div class="grid-3">
+                    <div class="form-group">
+                        <label>视频码率 (Bitrate)</label>
+                        <select id="videoBitrateSelect">
+                            <option value="">自动 / 跟随预设</option>
+                            <option value="1.5M">1.5 Mbps (720p)</option>
+                            <option value="2.5M">2.5 Mbps (1080p标准)</option>
+                            <option value="4M">4.0 Mbps (1080p高清)</option>
+                            <option value="6M">6.0 Mbps (1080p极清)</option>
+                            <option value="10M">10 Mbps (2K/4K)</option>
+                            <option value="16M">16 Mbps (4K高码)</option>
+                            <option value="custom">自定义码率...</option>
+                        </select>
+                        <input type="text" id="videoBitrateCustom" class="input-text" style="display: none; margin-top: 4px;" placeholder="如 3.5M 或 2500k">
+                    </div>
+                    <div class="form-group">
+                        <label>帧率 (FPS)</label>
+                        <select id="fpsSelect">
+                            <option value="0">保持原帧率 (0)</option>
+                            <option value="23.976">23.976 fps (电影)</option>
+                            <option value="24">24 fps</option>
+                            <option value="25">25 fps (PAL)</option>
+                            <option value="29.97">29.97 fps (NTSC)</option>
+                            <option value="30">30 fps</option>
+                            <option value="50">50 fps</option>
+                            <option value="60">60 fps (高刷)</option>
+                            <option value="120">120 fps (极速)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>倍速 (Speed)</label>
+                        <select id="speedSelect">
+                            <option value="0">原始速度 (1.0x)</option>
+                            <option value="1.25">1.25x (加速)</option>
+                            <option value="1.5">1.5x (快进)</option>
+                            <option value="2.0">2.0x (双倍速)</option>
+                            <option value="0.75">0.75x (慢放)</option>
+                            <option value="0.5">0.5x (半速)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- 音频参数 -->
+                <div class="grid-2" style="margin-top: 4px;">
+                    <div class="form-group">
+                        <label>音频处理 (Audio Codec)</label>
+                        <select id="audioCodecSelect">
+                            <option value="">跟随预设</option>
+                            <option value="copy">直接复制流 (copy / 无损)</option>
+                            <option value="aac">AAC (通用高质量)</option>
+                            <option value="libopus">Opus (高保真)</option>
+                            <option value="mp3">MP3 (高兼容)</option>
+                            <option value="flac">FLAC (无损格式)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>音频码率 (Audio Bitrate)</label>
+                        <select id="audioBitrateSelect">
+                            <option value="">跟随预设</option>
+                            <option value="96k">96 kbps (低码语音)</option>
+                            <option value="128k">128 kbps (标准)</option>
+                            <option value="192k">192 kbps (推荐高保真)</option>
+                            <option value="256k">256 kbps (极高音质)</option>
+                            <option value="320k">320 kbps (最高规格)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-group" style="margin-top: 4px;">
+                    <label>特性开关</label>
+                    <div class="grid-3">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="optAnime">
+                            <span>动漫调优 (--anime)</span>
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="optOverride">
+                            <span>覆盖同名 (--override)</span>
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="optStrict">
+                            <span>严格模式 (--strict)</span>
+                        </label>
+                    </div>
+                </div>
+
+                <button id="btnPlan" class="btn btn-primary" style="width: 100%; margin-top: 10px; padding: 10px;">
+                    🔍 分析并生成转码计划
+                </button>
+            </div>
+        </section>
+
+        <!-- 右侧监控与计划列 -->
+        <section class="col-monitor">
+            <!-- 3. 转码计划清单 -->
+            <div class="card">
+                <div class="card-title">
+                    <span>3. 转码任务计划</span>
+                    <span id="planSummary" style="font-size: 12px; color: var(--text-secondary); font-weight: normal;">无待处理计划</span>
+                </div>
+
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th style="width: 40px;">#</th>
+                                <th>源文件</th>
+                                <th style="width: 80px;">大小</th>
+                                <th style="width: 80px;">时长</th>
+                                <th style="width: 80px;">状态</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tasksTableBody">
+                            <tr>
+                                <td colspan="5" style="text-align: center; color: var(--text-muted); padding: 24px;">
+                                    请在左侧选择文件并点击“分析并生成转码计划”
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="cmd-preview" id="cmdPreview">// 生成计划后在此处预览底层 FFmpeg 命令</div>
+            </div>
+
+            <!-- 4. 实时执行看板 -->
+            <div class="card">
+                <div class="card-title">
+                    <span>4. 实时执行看板</span>
+                    <div style="display: flex; gap: 8px;">
+                        <button id="btnStart" class="btn btn-success" disabled>▶ 开始转码</button>
+                        <button id="btnStop" class="btn btn-danger" disabled>■ 终止任务</button>
+                    </div>
+                </div>
+
+                <div class="progress-box">
+                    <div class="progress-header">
+                        <span id="progressCurrentFile" style="font-weight: 500;">等待开始</span>
+                        <span id="progressPercent" style="font-family: var(--font-mono); font-weight: 700; color: var(--accent);">0%</span>
+                    </div>
+                    <div class="progress-bar-bg">
+                        <div id="progressBarFill" class="progress-bar-fill"></div>
+                    </div>
+                </div>
+
+                <div class="progress-stats">
+                    <div class="stat-item">
+                        <div class="stat-label">处理速度</div>
+                        <div id="progressSpeed" class="stat-val" style="color: var(--accent);">0x</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">处理进度</div>
+                        <div id="progressCurrentTime" class="stat-val">00:00:00</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">硬件状态</div>
+                        <div class="stat-val" style="color: var(--success); font-size: 12px; line-height: 24px;">Ready</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">连接状态</div>
+                        <div class="stat-val" style="color: var(--success); font-size: 12px; line-height: 24px;">SSE Online</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- 底部实时日志终端 -->
+    <div class="terminal-card">
+        <div class="terminal-header">
+            <span style="font-size: 12px; font-weight: 600; color: var(--text-secondary);">📜 实时运行与 FFmpeg 日志</span>
+            <button id="btnClearLogs" class="btn" style="padding: 2px 8px; font-size: 11px;">清屏</button>
+        </div>
+        <div id="terminalLogs" class="terminal-logs"></div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
