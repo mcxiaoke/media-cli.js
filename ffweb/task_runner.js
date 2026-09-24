@@ -190,6 +190,11 @@ export class TaskRunner {
         if (this.status === "RUNNING") {
             throw new Error("Cannot create a new plan while execution is running")
         }
+        // A new planning request invalidates the previous executable plan.
+        this.currentPlan = null
+        this.summary = null
+        this.currentProgress = null
+        this.currentTaskIndex = -1
         const normalized = normalizeWebOptions(body)
         const inputs = normalized.inputs
         const output = normalized.output
