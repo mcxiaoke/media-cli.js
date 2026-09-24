@@ -172,8 +172,9 @@ Options -> Scan -> Task -> Plan -> Execute -> Result/Event
 
 - [x] 新增 `lib/ffmpeg_task.js`；
 - [x] 抽取单文件任务构建；
-- [ ] 保留 outputMode、字幕、audio extract、metadata、prefix/suffix；
-- [ ] 保留临时文件和 skipReason；
+- [x] 保留 outputMode、字幕、audio extract、metadata、prefix/suffix；
+- [x] 保留临时文件；
+- [ ] 统一 skipReason 字段和值域；
 - [x] 移除对 GUI/CLI 原始 body 的隐式依赖。
 
 ### 4.3 Engine
@@ -384,6 +385,7 @@ npm test/check/lint 结果已记录；
 | 2026-09-24 | 阶段 1A：领域契约 | 已完成 | FFmpeg Options adapters、Internal/Public Plan、EngineEvent、PublicSnapshot；ffweb 已接入 Options/PublicSnapshot；npm test 304/304 通过；Attempt/fake runner/完整 Engine 留待后续 |
 | 2026-09-24 | 阶段 2A：共享执行 Engine | 已完成 | 新增实例化 `ffmpeg_engine`，统一队列、状态、取消、summary、RunResult 和 EngineEvent；ffweb 执行循环已切换；npm test 307/307 通过；retry/delete-source/完整 prepare 留待后续 |
 | 2026-09-24 | 阶段 2B：统一扫描管线 | 已完成 | `ffmpeg_scan` 接管 filelist、目录/额外目录、去重、媒体类型、扩展名/include/exclude、start/count；CLI 已切换；完整 task/engine/retry 留待后续 |
+| 2026-09-24 | 阶段 2C：统一任务构建 | 已完成 | CLI `prepareFFmpegCmd` 抽为 `buildCliTask`，CLI/WebUI 共用 `ffmpeg_task`；npm test 311/311 通过；skipReason/Attempt 仍待统一 |
 
 ---
 
