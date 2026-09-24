@@ -1,0 +1,27 @@
+{
+  "name": "mediac-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MediaCli FFmpeg desktop client",
+  "type": "module",
+  "main": "./out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "typecheck": "vue-tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.node.json",
+    "package:win": "npm run build && electron-builder --win"
+  },
+  "dependencies": {
+    "vue": "^3.5.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "@vitejs/plugin-vue": "^6.0.1",
+    "electron": "^44.4.5",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
+    "typescript": "^5.9.3",
+    "vite": "^7.0.0",
+    "vue-tsc": "^3.0.0"
+  }
+}

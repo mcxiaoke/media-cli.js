@@ -1,0 +1,27 @@
+appId: com.mediac.desktop
+productName: MediaCli
+asar: true
+directories:
+  output: release
+  buildResources: build
+files:
+  - out/**/*
+  - package.json
+  - '!**/*.map'
+extraResources:
+  - from: ../../presets
+    to: presets
+    filter:
+      - '**/*'
+asarUnpack:
+  - resources/**
+win:
+  target:
+    - nsis
+    - portable
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  perMachine: false
+portable:
+  artifactName: ${productName}-${version}-portable.${ext}

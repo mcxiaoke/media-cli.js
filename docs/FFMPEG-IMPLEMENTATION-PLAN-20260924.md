@@ -228,18 +228,18 @@ Options -> Scan -> Task -> Plan -> Execute -> Result/Event
 
 ### 6.1 独立 app package
 
-- [ ] 新建 `apps/mediac-desktop`；
-- [ ] 根 CLI 包的 main/bin/files 不变；
-- [ ] 配置 electron-vite；
-- [ ] 配置 TypeScript/Vue typecheck；
-- [ ] preload 使用安全 sandbox 方案；
-- [ ] main 设置 contextIsolation/sandbox/nodeIntegration 策略。
+- [x] 新建 `apps/mediac-desktop`；
+- [x] 根 CLI 包的 main/bin/files 不变；
+- [x] 配置 electron-vite；
+- [x] 配置 TypeScript/Vue typecheck；
+- [x] preload 使用安全 sandbox 方案；
+- [x] main 设置 contextIsolation/sandbox/nodeIntegration 策略。
 
 ### 6.2 安全 IPC
 
-- [ ] `src/shared/contracts.ts`；
+- [x] `src/shared/contracts.ts`；
 - [ ] `src/shared/ipc-channels.ts`；
-- [ ] preload 暴露 webUtils 窄接口；
+- [x] preload 暴露 webUtils 窄接口；
 - [ ] 所有 IPC 校验 sender；
 - [ ] 所有参数运行时校验；
 - [ ] 禁止任意导航/新窗口/外部 URL；
@@ -267,7 +267,7 @@ Options -> Scan -> Task -> Plan -> Execute -> Result/Event
 - [ ] 拖拽文件可获得真实路径；
 - [ ] Electron 不出现隐式 Node integration；
 - [ ] Engine 与 CLI 行为一致；
-- [ ] main/preload/renderer build 通过；
+- [x] main/preload/renderer build 通过；
 - [ ] Electron E2E 通过。
 
 ---
@@ -388,6 +388,7 @@ npm test/check/lint 结果已记录；
 | 2026-09-24 | 阶段 2C：统一任务构建 | 已完成 | CLI `prepareFFmpegCmd` 抽为 `buildCliTask`，CLI/WebUI 共用 `ffmpeg_task`；npm test 311/311 通过；skipReason/Attempt 仍待统一 |
 | 2026-09-24 | 阶段 2D：统一 CLI 执行 | 已完成 | CLI `runFFmpegTasks` 改用共享 Engine，支持 confirmed retry/Attempt 和统一 summary；CLI 保留 delete-source 适配；真实 CLI dry-run 通过；npm test 312/312 通过 |
 | 2026-09-24 | 阶段 2E：CLI Options 适配 | 已完成 | CLI 使用 `normalizeCliOptions` + legacy argv projection，保留 ffargs 优先级和旧 CLI 行为；真实 CLI dry-run 通过；npm test 312/312 通过 |
+| 2026-09-24 | 阶段 4A：Electron 工程骨架 | 已完成 | 新建 `apps/mediac-desktop`、electron-vite、Vue/TS、sandbox preload、shared contracts、基础安全窗口和 preset extraResources；app typecheck/build 通过 |
 
 ---
 
