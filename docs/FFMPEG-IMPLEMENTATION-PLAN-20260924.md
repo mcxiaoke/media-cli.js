@@ -387,6 +387,7 @@ npm test/check/lint 结果已记录；
 | 2026-09-24 | 阶段 2B：统一扫描管线 | 已完成 | `ffmpeg_scan` 接管 filelist、目录/额外目录、去重、媒体类型、扩展名/include/exclude、start/count；CLI 已切换；完整 task/engine/retry 留待后续 |
 | 2026-09-24 | 阶段 2C：统一任务构建 | 已完成 | CLI `prepareFFmpegCmd` 抽为 `buildCliTask`，CLI/WebUI 共用 `ffmpeg_task`；npm test 311/311 通过；skipReason/Attempt 仍待统一 |
 | 2026-09-24 | 阶段 2D：统一 CLI 执行 | 已完成 | CLI `runFFmpegTasks` 改用共享 Engine，支持 confirmed retry/Attempt 和统一 summary；CLI 保留 delete-source 适配；真实 CLI dry-run 通过；npm test 312/312 通过 |
+| 2026-09-24 | 阶段 2E：CLI Options 适配 | 已完成 | CLI 使用 `normalizeCliOptions` + legacy argv projection，保留 ffargs 优先级和旧 CLI 行为；真实 CLI dry-run 通过；npm test 312/312 通过 |
 
 ---
 

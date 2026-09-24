@@ -22,6 +22,7 @@ import { getMediaInfo } from "../lib/mediainfo.js"
 import { addEntryProps } from "../lib/rename.js"
 import { scanFFmpegInputs } from "../lib/ffmpeg_scan.js"
 import { buildCliTask } from "../lib/ffmpeg_task.js"
+import { normalizeCliOptions, toLegacyArgvOptions } from "../lib/ffmpeg_options.js"
 import { TIERS } from "../lib/hwaccel.js"
 import { createFFmpegArgs, flattenFFArgs } from "../lib/ffmpeg_build.js"
 import { LOG_TAG, runFFmpegCmd, setFFmpegPath } from "../lib/ffmpeg_run.js"
@@ -431,8 +432,22 @@ async function planFFmpegTasks(argv) {
     // fps = framerate
     const ffargs = argparser.parseArgs(argv.ffargs)
     log.logDebug(LOG_TAG, "FFARGS:", ffargs)
-    // 合并 ffargs 到 argv (ffargs 优先级低于命令行单独参数)
-    const mergedArgv = presets.applyFfargs(argv, ffargs)
+    const normalizedOptions = normalizeCliOptions(argv, {
+        parseFfargs: () => ffargs,
+        applyFfargs: presets.applyFfargs,
+    })
+    const mergedArgv = {
+        ...toLegacyArgvOptions(normalizedOptions),
+        input: argv.input,
+        directories: argv.directories,
+        output: argv.output,
+        preset: argv.preset,
+        showPresets: argv.showPresets,
+        info: argv.info,
+        doit: argv.doit,
+        autoConfirm: argv.autoConfirm,
+        A: argv.A,
+    }
     log.logDebug(LOG_TAG, "MERGED ARGV:", mergedArgv)
     // 解析Preset，根据argv参数修改preset，返回对象
     const preset = presets.createFromArgv(mergedArgv)
