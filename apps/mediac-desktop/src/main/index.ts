@@ -45,6 +45,9 @@ function createWindow() {
   })
 
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }))
+  ffmpegEnvironment.setEventSink((event) => {
+    mainWindow?.webContents.send(IPC_CHANNELS.EXECUTION_EVENT, event)
+  })
   mainWindow.webContents.on("will-navigate", (event) => event.preventDefault())
 
   if (process.env.ELECTRON_RENDERER_URL) {
@@ -56,6 +59,15 @@ function createWindow() {
 
 handleTrusted(IPC_CHANNELS.APP_GET_VERSION, () => app.getVersion())
 handleTrusted(IPC_CHANNELS.ENV_GET, () => ffmpegEnvironment.getSummary())
+handleTrusted(IPC_CHANNELS.PLAN_CREATE, (body: Record<string, unknown>) => ffmpegEnvironment.createPlan(body))
+handleTrusted(IPC_CHANNELS.EXECUTION_START, async (taskIds: unknown) => {
+  if (taskIds !== undefined && (!Array.isArray(taskIds) || taskIds.some((id) => typeof id !== "string"))) {
+    throw new Error("taskIds must be an array of strings")
+  }
+  return ffmpegEnvironment.startExecution((taskIds as string[] | undefined) || [])
+})
+handleTrusted(IPC_CHANNELS.EXECUTION_STOP, () => ffmpegEnvironment.stopExecution())
+handleTrusted(IPC_CHANNELS.EXECUTION_SNAPSHOT, () => ffmpegEnvironment.getTaskSnapshot())
 handleTrusted(
   IPC_CHANNELS.DIALOG_SELECT_FILES,
   async (options: { mode?: "file" | "directory"; multiple?: boolean }) => {
@@ -85,6 +97,10 @@ app.whenReady().then(() => {
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
+})
+
+app.on("before-quit", () => {
+  ffmpegEnvironment.dispose()
 })
 
 app.on("window-all-closed", () => {

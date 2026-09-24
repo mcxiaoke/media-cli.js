@@ -247,10 +247,10 @@ Options -> Scan -> Task -> Plan -> Execute -> Result/Event
 
 ### 6.3 Engine 接入
 
-- [ ] Electron 不直接调用 runFFmpegCmd；
-- [ ] Electron 只调用 Engine；
-- [ ] 订阅 EngineEvent；
-- [ ] 支持 plan snapshot、task status、取消、summary；
+- [x] Electron 不直接调用 runFFmpegCmd；
+- [x] Electron 只调用 Engine；
+- [x] 订阅 EngineEvent；
+- [x] 支持 plan snapshot、task status、取消、summary；
 - [ ] 支持 renderer reload 后的状态恢复；
 - [ ] 处理窗口关闭、托盘、before-quit 和 dispose。
 
@@ -390,6 +390,7 @@ npm test/check/lint 结果已记录；
 | 2026-09-24 | 阶段 2E：CLI Options 适配 | 已完成 | CLI 使用 `normalizeCliOptions` + legacy argv projection，保留 ffargs 优先级和旧 CLI 行为；真实 CLI dry-run 通过；npm test 312/312 通过 |
 | 2026-09-24 | 阶段 4A：Electron 工程骨架 | 已完成 | 新建 `apps/mediac-desktop`、electron-vite、Vue/TS、sandbox preload、shared contracts、基础安全窗口和 preset extraResources；app typecheck/build 通过 |
 | 2026-09-24 | 阶段 4B：Electron 安全 IPC/环境骨架 | 已完成 | shared IPC contracts/channels、sender 校验、webUtils、原生文件选择、ffmpeg/preset/hardware environment service、mediac 本地依赖；app typecheck 通过 |
+| 2026-09-24 | 阶段 4C：Electron Engine 桥接 | 已完成 | Electron main service 接入 Options/Scan/Task/Engine，支持 plan/start/stop/snapshot 和 EngineEvent IPC；app typecheck/build 通过 |
 
 ---
 

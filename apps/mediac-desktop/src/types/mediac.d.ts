@@ -4,6 +4,7 @@ declare module "mediac/lib/ffmpeg_bin.js" {
 
 declare module "mediac/lib/ffmpeg_run.js" {
   export function setFFmpegPath(path: string | null): void
+  export function runFFmpegCmd(entry: any, options?: any): Promise<any>
 }
 
 declare module "mediac/lib/ffmpeg_presets.js" {
@@ -12,6 +13,7 @@ declare module "mediac/lib/ffmpeg_presets.js" {
     getAllNames(): string[]
     getPreset(name: string): any
     getAllPresets(): Map<string, any>
+    createFromArgv(argv: Record<string, any>): any
   }
   export default presets
 }
