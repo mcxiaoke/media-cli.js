@@ -144,7 +144,7 @@ Options -> Scan -> Task -> Plan -> Execute -> Result/Event
 
 - [ ] 为 buildTask 注入 mediaInfo/musicMeta/fs/hardware/logger；
 - [x] 为 scan 注入文件遍历和过滤依赖；
-- [ ] 为 execute 注入 fake runner；
+- [x] 为 execute 注入 fake runner；
 - [x] 建立 feature/characterization tests；
 - [x] 私有函数测试通过公共测试入口完成，不依赖脆弱的 rewire。
 
@@ -175,7 +175,7 @@ Options -> Scan -> Task -> Plan -> Execute -> Result/Event
 - [x] 抽取单文件任务构建；
 - [x] 保留 outputMode、字幕、audio extract、metadata、prefix/suffix；
 - [x] 保留临时文件；
-- [ ] 统一 skipReason 字段和值域；
+- [x] 统一 skipReason 字段和值域；
 - [x] 移除对 GUI/CLI 原始 body 的隐式依赖。
 
 ### 4.3 Engine
@@ -213,7 +213,7 @@ Options -> Scan -> Task -> Plan -> Execute -> Result/Event
 - [ ] `ffweb/task_runner.js` 删除重复扫描和任务构建；
 - [ ] 只保留 HTTP/SSE transport 和状态映射；
 - [x] 使用 PublicPlanSnapshot；
-- [ ] 使用 EngineEvent；
+- [x] 使用 EngineEvent；
 - [ ] 补确认、retry、delete-source、override；
 - [ ] 保留 WebUI 功能回归。
 
@@ -279,7 +279,7 @@ Options -> Scan -> Task -> Plan -> Execute -> Result/Event
 
 - [x] `runFFmpegCmd` 支持 onSpawn/onExit；
 - [x] PID 注册/注销可靠；
-- [ ] AbortSignal 贯穿 media probe/hardware probe/encode/commit；
+- [x] AbortSignal 贯穿 media probe/hardware probe/encode/commit；
 - [x] pending task 正确 cancelled；
 - [ ] 停止后无 ffmpeg 子进程；
 - [ ] 用户 Stop、正常退出和 before-quit 可清理。
@@ -401,6 +401,7 @@ npm test/check/lint 结果已记录；
 | 2026-09-24 | 阶段 4H：Electron 启动修复 | 已完成 | 修复 bundle 缺少 hanzi 数据文件导致的启动 Error；补充启动日志、ensure:electron、dev:debug 和 README；source/packaged 直接启动均通过 |
 | 2026-09-24 | 阶段 1B/5C：稳定 AttemptResult 与 AbortSignal | 已完成 | mediainfo/ffprobe、硬件能力探测、任务构建和输出提交贯穿 AbortSignal；Engine 透传稳定 TaskAttemptResult；npm test 316/316 通过 |
 | 2026-09-24 | 阶段 1D：稳定 runFFmpeg 接口 | 已完成 | 新增 `runFFmpeg` 稳定结果包装，CLI、ffweb、Electron 不再直接消费可变 `runFFmpegCmd` entry；定向 Engine/ffweb 测试和 app typecheck 通过 |
+| 2026-09-24 | 阶段 1E：skipReason 与 EngineEvent | 已完成 | 统一 skip reason 值域，preflight skipped task 不启动 ffmpeg，ffweb 透传 EngineEvent；ffweb/engine/task 定向测试通过 |
 
 ---
 

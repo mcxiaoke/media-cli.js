@@ -248,12 +248,20 @@ export class TaskRunner {
                 throw new Error("None of the scanned files can be processed with current preset")
             }
 
-            // 生成命令预览（以首个任务为例）
+            if (!tasks.some((task) => task.status !== "skipped" && task.fileDst)) {
+                this.status = "IDLE"
+                this.emit("STATUS_CHANGE", { status: this.status })
+                throw new Error("All scanned files were skipped")
+            }
+
+            // 生成命令预览（以首个可执行任务为例）
             const previewPlan = {
                 tier: TIERS.find((t) => t.name === "cpu"),
                 caps: this.hwCaps,
             }
-            const sampleFFPlan = createFFmpegArgs(tasks[0], previewPlan)
+            const previewTask =
+                tasks.find((task) => task.status !== "skipped" && task.fileDst) || tasks[0]
+            const sampleFFPlan = createFFmpegArgs(previewTask, previewPlan)
             const previewCmd = `ffmpeg ${flattenFFArgs(sampleFFPlan.args)}`
 
             const totalDuration = tasks.reduce((acc, t) => acc + (t.duration || 0), 0)
@@ -325,6 +333,7 @@ export class TaskRunner {
         this.appendLog("info", "Run", `Starting execution of ${tasks.length} task(s)...`)
 
         const engine = createFFmpegEngine({
+            onEvent: (event) => this.emit("ENGINE_EVENT", event),
             runTask: (task, context) =>
                 runFFmpeg(task, {
                     showBar: false,

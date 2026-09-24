@@ -1,6 +1,11 @@
 import assert from "assert"
 import test from "node:test"
-import { createTaskAttemptResult, RUN_STATUS, toRunResult } from "../lib/ffmpeg_result.js"
+import {
+    createTaskAttemptResult,
+    RUN_STATUS,
+    SKIP_REASON,
+    toRunResult,
+} from "../lib/ffmpeg_result.js"
 
 test("ffmpeg result adapter distinguishes success, skip, cancel, and failure", () => {
     assert.deepStrictEqual(toRunResult({ ok: true, fileDst: "out.mp4" }), {
@@ -19,6 +24,16 @@ test("ffmpeg result adapter distinguishes success, skip, cancel, and failure", (
         status: RUN_STATUS.CANCELLED,
         reason: "user stop",
     })
+    assert.deepStrictEqual(
+        toRunResult({ status: RUN_STATUS.SKIPPED, skipReason: SKIP_REASON.MISSING_VIDEO }),
+        {
+            status: RUN_STATUS.SKIPPED,
+            stage: "execute",
+            outputPath: undefined,
+            reason: SKIP_REASON.MISSING_VIDEO,
+            error: undefined,
+        },
+    )
     assert.deepStrictEqual(toRunResult({ ffmpegFailed: true, ffmpegError: "plan: bad" }), {
         status: RUN_STATUS.FAILED,
         stage: "plan",

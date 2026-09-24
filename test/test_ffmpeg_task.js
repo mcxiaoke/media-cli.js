@@ -1,5 +1,6 @@
 import assert from "assert"
 import test from "node:test"
+import { SKIP_REASON } from "../lib/ffmpeg_result.js"
 import { buildCliTask, buildTask } from "../lib/ffmpeg_task.js"
 
 test("ffmpeg task builder is injectable and returns a pending task", async () => {
@@ -78,7 +79,8 @@ test("ffmpeg task builder skips a file without the required stream", async () =>
             getMediaInfo: async () => ({ duration: 1, bitrate: 1, video: {} }),
         },
     )
-    assert.strictEqual(task, null)
+    assert.strictEqual(task.status, "skipped")
+    assert.strictEqual(task.skipReason, SKIP_REASON.MISSING_AUDIO)
 })
 
 test("CLI task builder is injectable and preserves output/subtitle fields", async () => {
@@ -158,5 +160,7 @@ test("CLI task builder reports existing destinations as skip", async () => {
     )
     assert.strictEqual(task.dstExists, true)
     assert.strictEqual(task.dstExistsSize, 99)
+    assert.strictEqual(task.status, "skipped")
+    assert.strictEqual(task.skipReason, SKIP_REASON.DESTINATION_EXISTS)
     assert.strictEqual(task.fileDst, undefined)
 })
