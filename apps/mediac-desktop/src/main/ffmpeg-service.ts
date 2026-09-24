@@ -1,4 +1,7 @@
+import { app } from "electron"
 import { execFile } from "node:child_process"
+import { readFile, mkdir, rename, rm, writeFile } from "node:fs/promises"
+import path from "node:path"
 import { promisify } from "node:util"
 import { resolveFFmpegBinary } from "../../../../lib/ffmpeg_bin.js"
 import presets from "../../../../lib/ffmpeg_presets.js"
@@ -29,8 +32,53 @@ class FfmpegEnvironmentService {
   private summary: Record<string, unknown> | null = null
   private activePids = new Set<number>()
 
+  private get manifestPath() {
+    return path.join(app.getPath("userData"), "active-tasks.json")
+  }
+
   setEventSink(sink: ((event: Record<string, unknown>) => void) | null) {
     this.eventSink = sink
+  }
+
+  async initialize() {
+    await this.recoverStaleTasks()
+  }
+
+  private async recoverStaleTasks() {
+    try {
+      const raw = await readFile(this.manifestPath, "utf8")
+      const entries = JSON.parse(raw) as Array<{ tempPath?: string }>
+      for (const entry of entries) {
+        if (!entry.tempPath || !this.isManagedTempPath(entry.tempPath)) continue
+        await rm(entry.tempPath, { force: true })
+      }
+      await rm(this.manifestPath, { force: true })
+    } catch {
+      // Do not block app startup on an unreadable manifest.
+    }
+  }
+
+  private isManagedTempPath(filePath: string) {
+    const name = path.basename(filePath)
+    return name.includes("_tmp@") && name.includes("@tmp_")
+  }
+
+  private async writeTaskManifest(tasks: any[], runId: string) {
+    const manifest = tasks.map((task) => ({
+      runId,
+      taskId: task.id,
+      tempPath: task.fileDstTemp,
+      outputPath: task.fileDst,
+      createdAt: new Date().toISOString(),
+    }))
+    await mkdir(path.dirname(this.manifestPath), { recursive: true })
+    const tempManifest = `${this.manifestPath}.tmp`
+    await writeFile(tempManifest, JSON.stringify(manifest, null, 2), "utf8")
+    await rename(tempManifest, this.manifestPath)
+  }
+
+  private async clearTaskManifest() {
+    await rm(this.manifestPath, { force: true })
   }
 
   async getSummary(): Promise<EnvironmentSummary> {
@@ -141,6 +189,8 @@ class FfmpegEnvironmentService {
       : this.currentPlan.tasks
     if (tasks.length === 0) throw new Error("No selected tasks to execute")
 
+    await this.recoverStaleTasks()
+    await this.writeTaskManifest(tasks, this.currentPlan.id)
     this.status = "RUNNING"
     this.abortController = new AbortController()
     const signal = this.abortController.signal
@@ -184,8 +234,9 @@ class FfmpegEnvironmentService {
         this.summary = { status: "failed", error: error instanceof Error ? error.message : String(error) }
         this.status = "FAILED"
       })
-      .finally(() => {
+      .finally(async () => {
         this.abortController = null
+        await this.clearTaskManifest()
       })
     return { runId }
   }
@@ -208,6 +259,7 @@ class FfmpegEnvironmentService {
   dispose() {
     this.abortController?.abort()
     void this.killTrackedProcesses()
+    void this.clearTaskManifest()
     this.eventSink = null
   }
 }

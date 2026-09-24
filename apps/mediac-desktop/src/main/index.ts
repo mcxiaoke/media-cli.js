@@ -89,7 +89,8 @@ handleTrusted(
   },
 )
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  await ffmpegEnvironment.initialize()
   session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
     callback(false)
   })
