@@ -6,9 +6,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 test.describe("MediCli Desktop - Interaction & State Machine Spec", () => {
   test("input addition, plan generation, inspection, STALE state and drawers", async ({ appWindow }) => {
-    appWindow.on("console", (msg) => console.log("[BROWSER CONSOLE]", msg.type(), msg.text()))
+    const consoleErrors: string[] = []
+    appWindow.on("console", (msg) => {
+      if (msg.type() === "error") consoleErrors.push(msg.text())
+    })
+    appWindow.on("pageerror", (err) => consoleErrors.push(String(err)))
     appWindow.on("dialog", (dialog) => {
-      console.log("[BROWSER DIALOG]", dialog.type(), dialog.message())
       void dialog.accept()
     })
 
@@ -39,6 +42,14 @@ test.describe("MediCli Desktop - Interaction & State Machine Spec", () => {
     await expect(taskRow).toBeVisible()
     await expect(taskRow).toContainText("TEST2__h264_60fps_1080.mp4")
 
+    // Test row single click selection
+    await taskRow.click()
+    await expect(taskRow).toHaveClass(/sel/)
+
+    // Test row right click
+    await taskRow.click({ button: "right" })
+    await expect(taskRow).toHaveClass(/sel/)
+
     // Verify state is READY (待执行)
     const stateTag = appWindow.locator('[data-testid="state-tag"]')
     await expect(stateTag).toContainText("待执行")
@@ -46,14 +57,35 @@ test.describe("MediCli Desktop - Interaction & State Machine Spec", () => {
     const btnStart = appWindow.locator('[data-testid="btn-start"]')
     await expect(btnStart).toBeEnabled()
 
-    // 3. Inspect task details
+    // 3. Inspect task details & metadata
     const btnInspect = appWindow.locator('[data-testid="btn-inspect-task"]').first()
     await btnInspect.click()
 
     const inspector = appWindow.locator('[data-testid="inspector-mask"]')
     await expect(inspector).toBeVisible()
     await expect(inspector).toContainText("TEST2__h264_60fps_1080.mp4")
+    await expect(inspector).toContainText("1920×1080")
+    await expect(inspector).toContainText("8 bit")
     await expect(inspector).toContainText("FFmpeg 命令行")
+
+    // Test copy command button
+    const btnCopyCmd = appWindow.locator('[data-testid="btn-copy-cmd"]')
+    await expect(btnCopyCmd).toBeVisible()
+    await btnCopyCmd.click()
+    await expect(btnCopyCmd).toContainText("已复制")
+
+    // Test toggle and copy raw metadata
+    const btnToggleRaw = appWindow.locator('[data-testid="btn-toggle-raw-meta"]')
+    await expect(btnToggleRaw).toBeVisible()
+    await btnToggleRaw.click()
+
+    const rawMetaBox = appWindow.locator('[data-testid="insp-raw-meta-box"]')
+    await expect(rawMetaBox).toBeVisible()
+    await expect(rawMetaBox).toContainText('"video"')
+
+    const btnCopyRaw = appWindow.locator('[data-testid="btn-copy-raw-meta"]')
+    await btnCopyRaw.click()
+    await expect(btnCopyRaw).toContainText("已复制")
 
     // Close inspector drawer
     const btnCloseInspect = appWindow.locator('[data-testid="btn-close-inspector"]')
@@ -86,12 +118,17 @@ test.describe("MediCli Desktop - Interaction & State Machine Spec", () => {
     await expect(btnPlan).toContainText("生成计划")
     await expect(btnStart).toBeEnabled()
 
-    // 5. Test Log drawer
+    // 5. Test Log drawer & Copy log
     const btnOpenLog = appWindow.locator('[data-testid="btn-open-log"]')
     await btnOpenLog.click()
 
     const logDrawer = appWindow.locator('[data-testid="log-drawer"]')
     await expect(logDrawer).toBeVisible()
+
+    const btnCopyLog = appWindow.locator('[data-testid="btn-copy-log"]')
+    await expect(btnCopyLog).toBeVisible()
+    await btnCopyLog.click()
+    await expect(btnCopyLog).toContainText("已复制")
 
     const btnCloseLog = appWindow.locator('[data-testid="btn-close-log"]')
     await btnCloseLog.click()
@@ -108,6 +145,12 @@ test.describe("MediCli Desktop - Interaction & State Machine Spec", () => {
     const btnCloseSettings = settingsModal.locator(".icon-btn")
     await btnCloseSettings.click()
     await expect(settingsModal).not.toBeVisible()
+
+    // 7. Verify no fatal console errors
+    const fatalErrors = consoleErrors.filter((e) =>
+      /TypeError|ReferenceError|SyntaxError|Unhandled/i.test(e)
+    )
+    expect(fatalErrors).toEqual([])
   })
 
   test("two-phase pipeline: instant metadata probing, format tag, quick preview, and task deletion", async ({ appWindow }) => {

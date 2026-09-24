@@ -244,15 +244,25 @@ class FfmpegEnvironmentService {
           status: "staged",
           error: null,
           skipReason: null,
+          mediaInfo: info || undefined,
           videoCodec: info?.video?.format || "",
           audioCodec: info?.audio?.format || "",
           width: info?.video?.width || 0,
           height: info?.video?.height || 0,
           fps: info?.video?.framerate || 0,
-          bitrate: info?.bitrate || 0,
+          bitrate: info?.bitrate || info?.video?.bitrate || 0,
           srcSize: item.size || 0,
           srcDuration: info?.duration || 0,
           containerFormat: ext || "MEDIA",
+          bitDepth: info?.video?.bitDepth || 8,
+          pixelFormat: info?.video?.pixelFormat || "",
+          profile: info?.video?.profile || "",
+          level: info?.video?.level ? String(info.video.level) : "",
+          aspectRatio: info?.video?.aspectRatio || "",
+          audioChannels: info?.audio?.channels || 2,
+          audioSampleRate: info?.audio?.sampleRate || 48000,
+          audioBitrate: info?.audio?.bitrate || 0,
+          rawMetadata: info ? JSON.stringify(info, null, 2) : "",
         }
 
         this.stagedEntries.set(canonical, { item, task, info })
@@ -336,20 +346,28 @@ class FfmpegEnvironmentService {
         mode: "plan",
         concurrency: normalized.jobs || 1,
         buildTaskDeps: {
-          getMediaInfo: (file: string, options?: { signal?: AbortSignal }) =>
-            getMediaInfo(file, {
+          getMediaInfo: async (file: string, options?: { signal?: AbortSignal }) => {
+            const canonical = path.resolve(file)
+            const cached = this.stagedEntries.get(canonical)?.info
+            if (cached) return cached
+            return getMediaInfo(file, {
               useMediaInfo: false,
               ...(this.ffprobePath ? { ffprobePath: this.ffprobePath } : {}),
               ...(options?.signal ? { signal: options.signal } : {}),
-            }),
+            })
+          },
         },
       })) as any
       this.currentPlan = prepared.plan
 
+      const taskCount = this.currentPlan?.tasks?.length || 0
+      const totalSizeMb = ((this.currentPlan?.totalSize || 0) / 1e6).toFixed(1)
+      const totalDurationSec = (this.currentPlan?.totalDuration || 0).toFixed(0)
+
       this.eventSink?.({
         type: "task.log",
         level: "INFO",
-        message: `计划生成就绪：共编排 ${this.currentPlan.totalTasks} 个转码任务，预估总大小 ${(this.currentPlan.totalSize / 1e6).toFixed(1)} MB，预估总耗时 ${this.currentPlan.totalDuration.toFixed(0)} 秒`,
+        message: `计划生成就绪：共编排 ${taskCount} 个转码任务，预估总大小 ${totalSizeMb} MB，预估总耗时 ${totalDurationSec} 秒`,
         timestamp: new Date().toLocaleTimeString(),
       })
 
@@ -376,10 +394,31 @@ class FfmpegEnvironmentService {
       }
 
       if (this.currentPlan?.tasks) {
-        this.stagedEntries.clear()
         for (const t of this.currentPlan.tasks) {
           const canonical = path.resolve(t.path)
-          this.stagedEntries.set(canonical, { item: t, task: t, info: null })
+          const staged = this.stagedEntries.get(canonical)
+          const info = staged?.info || (t as any).info || null
+          const ext = path.extname(t.path).replace(/^\./, "").toUpperCase()
+          t.containerFormat = ext || "MEDIA"
+          t.mediaInfo = info || undefined
+          if (info) {
+            t.videoCodec = info.video?.format || ""
+            t.audioCodec = info.audio?.format || ""
+            t.width = info.video?.width || 0
+            t.height = info.video?.height || 0
+            t.fps = info.video?.framerate || 0
+            t.bitrate = info.bitrate || info.video?.bitrate || 0
+            t.bitDepth = info.video?.bitDepth || 8
+            t.pixelFormat = info.video?.pixelFormat || ""
+            t.profile = info.video?.profile || ""
+            t.level = info.video?.level ? String(info.video.level) : ""
+            t.aspectRatio = info.video?.aspectRatio || ""
+            t.audioChannels = info.audio?.channels || 2
+            t.audioSampleRate = info.audio?.sampleRate || 48000
+            t.audioBitrate = info.audio?.bitrate || 0
+            t.rawMetadata = JSON.stringify(info, null, 2)
+          }
+          this.stagedEntries.set(canonical, { item: t, task: t, info })
         }
       }
 
@@ -427,8 +466,24 @@ class FfmpegEnvironmentService {
       throw new Error("No selected tasks to execute")
     }
 
-    // Clean cloned tasks to prevent previous run status contamination
-    const tasks = selectedTasks.map((task: any) => ({
+    // Filter out tasks that are already completed or skipped
+    const uncompletedTasks = selectedTasks.filter(
+      (task: any) => task.status !== "success" && task.status !== "done" && task.status !== "skipped"
+    )
+
+    if (uncompletedTasks.length === 0) {
+      this.eventSink?.({
+        type: "task.log",
+        level: "INFO",
+        message: "所选任务均已全部转码完成，无需重复执行。",
+        timestamp: new Date().toLocaleTimeString(),
+      })
+      this.status = "COMPLETED"
+      return { runId: this.currentPlan.id }
+    }
+
+    // Clean cloned uncompleted tasks to prevent previous run status contamination
+    const tasks = uncompletedTasks.map((task: any) => ({
       ...task,
       status: "pending",
       ok: undefined,
@@ -481,6 +536,14 @@ class FfmpegEnvironmentService {
           if (typeof event.percent === "number") {
             updateTaskbarProgress(event.percent / 100)
           }
+        } else if (event.type === "task.done" || event.type === "task.started" || event.type === "task.failed" || event.type === "task.skipped") {
+          const pt = this.currentPlan?.tasks?.find((x: any) => x.id === event.taskId)
+          if (pt) {
+            if (event.type === "task.done") pt.status = "success"
+            else if (event.type === "task.started") pt.status = "running"
+            else if (event.type === "task.failed") pt.status = "failed"
+            else if (event.type === "task.skipped") pt.status = "skipped"
+          }
         }
         this.eventSink?.(event)
       },
@@ -515,7 +578,10 @@ class FfmpegEnvironmentService {
                 failed: deletion.failed.length,
               },
             }
-            this.status = isCancelled ? "STOPPED" : "COMPLETED"
+            const allFinished = this.currentPlan?.tasks?.every(
+              (t: any) => t.status === "success" || t.status === "done" || t.status === "skipped"
+            )
+            this.status = isCancelled ? "STOPPED" : (allFinished ? "COMPLETED" : "STOPPED")
           },
         },
       )

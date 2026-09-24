@@ -19,14 +19,23 @@ function close() {
   logStore.drawerOpen = false
 }
 
+const copied = ref(false)
+
 async function copyAll() {
-  const text = logStore.filteredLogs.map((l) => `[${l.ts}] [${l.level}] ${l.text}`).join("\n")
+  const text = logStore.filteredLogs.map((l) => `[${l.ts}] [${l.level}] ${l.text}`).join("\n") || "No logs"
   try {
-    await navigator.clipboard.writeText(text)
-    alert("已复制日志内容到剪贴板！")
+    if (window.api?.copyText) {
+      await window.api.copyText(text)
+    } else if (navigator?.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text)
+    }
   } catch (err) {
     console.error("Clipboard copy failed:", err)
   }
+  copied.value = true
+  setTimeout(() => {
+    copied.value = false
+  }, 2000)
 }
 </script>
 
@@ -56,7 +65,9 @@ async function copyAll() {
             <option value="ERROR">ERROR</option>
           </select>
 
-          <button class="btn btn-sm" @click="copyAll">复制</button>
+          <button class="btn btn-sm" data-testid="btn-copy-log" @click="copyAll">
+            {{ copied ? '已复制 ✓' : '复制' }}
+          </button>
           <button class="btn btn-sm" @click="logStore.clearLogs">清屏</button>
           <button class="close-btn" data-testid="btn-close-log" @click="close">✕</button>
         </div>
@@ -213,17 +224,23 @@ async function copyAll() {
   flex-direction: column;
   gap: 3px;
   color: #e6edf3;
+  user-select: text !important;
+  -webkit-user-select: text !important;
 }
 
 .log-line {
   display: flex;
   gap: 8px;
   word-break: break-all;
+  user-select: text !important;
+  -webkit-user-select: text !important;
 }
 
 .ts {
   color: #7d8590;
   flex-shrink: 0;
+  user-select: text !important;
+  -webkit-user-select: text !important;
 }
 
 .l-INFO .txt { color: #e6edf3; }

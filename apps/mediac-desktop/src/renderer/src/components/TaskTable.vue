@@ -50,6 +50,23 @@ function openInFolder(task: PlanTask, event: MouseEvent) {
   }
 }
 
+function handleRowClick(task: PlanTask, event: MouseEvent) {
+  if ((event.target as HTMLElement).closest(".ck, .icon-btn, .t-ops")) return
+  if (event.ctrlKey || event.metaKey) {
+    planStore.toggleTask(task.id)
+  } else {
+    const s = new Set<string>()
+    s.add(task.id)
+    planStore.selectedIds = s
+  }
+}
+
+function handleContextMenu(task: PlanTask, _event: MouseEvent) {
+  const s = new Set<string>()
+  s.add(task.id)
+  planStore.selectedIds = s
+}
+
 function inspectTask(task: PlanTask, event: MouseEvent) {
   event.stopPropagation()
   planStore.inspectedTask = task
@@ -164,7 +181,9 @@ const selectedTaskPreview = computed(() => {
           }"
           data-testid="task-row"
           :data-task-id="task.id"
+          @click="handleRowClick(task, $event)"
           @dblclick="handleRowDblClick(task)"
+          @contextmenu.prevent="handleContextMenu(task, $event)"
         >
           <td @click.stop>
             <span
@@ -210,7 +229,7 @@ const selectedTaskPreview = computed(() => {
                 {{ getStatusInfo(task.status).text }}
               </span>
               <div v-if="task.status === 'running'" class="row-bar">
-                <i :style="{ width: `${planStore.overallPercent}%` }"></i>
+                <i :style="{ width: `${task.progress || 0}%` }"></i>
               </div>
             </div>
           </td>

@@ -128,7 +128,6 @@ async function createPlan() {
 async function startExecution() {
   if (planStore.tasks.length === 0) return
   planStore.status = "RUNNING"
-  planStore.overallPercent = 0
   const selected = Array.from(planStore.selectedIds)
   try {
     await window.api.startExecution(selected.length > 0 ? selected : undefined)
@@ -309,9 +308,6 @@ onMounted(async () => {
       planStore.updateTaskStatus(event.taskId, "running")
     } else if (event.type === "task.progress") {
       planStore.updateTaskProgress(event.taskId, event.percent || 0, event.speed)
-      if (typeof event.percent === "number") {
-        planStore.overallPercent = event.percent
-      }
     } else if (event.type === "task.done") {
       planStore.updateTaskStatus(event.taskId, "success")
     } else if (event.type === "task.failed") {

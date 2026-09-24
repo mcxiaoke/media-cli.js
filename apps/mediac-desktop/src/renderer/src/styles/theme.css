@@ -68,10 +68,16 @@ html, body {
   font-family: var(--font);
   font-size: 13px;
   line-height: 1.45;
-  user-select: none;
+  user-select: auto;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
+}
+
+/* Allow text selection in code, logs, tables, inspector */
+pre, code, input, textarea, select, .selectable, .log-body, .insp-body, .cmd-box, table.tasks td {
+  user-select: text !important;
+  -webkit-user-select: text !important;
 }
 
 #app {

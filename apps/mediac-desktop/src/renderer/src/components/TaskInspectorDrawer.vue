@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from "vue"
+import { computed, ref } from "vue"
 import { usePlanStore } from "../stores/plan"
 import { useConfigStore } from "../stores/config"
 import { formatSize, formatDuration, highlightFfmpegCmd } from "../utils/format"
@@ -8,6 +8,9 @@ const plan = usePlanStore()
 const config = useConfigStore()
 
 const task = computed(() => plan.inspectedTask)
+const copiedCmd = ref(false)
+const copiedRaw = ref(false)
+const showRawMeta = ref(false)
 
 const cmdString = computed(() => {
   if (!task.value) return ""
@@ -23,11 +26,38 @@ const cmdString = computed(() => {
     }
     return base
   }
-  return `ffmpeg -i "${task.value.path}" -c:v libx265 -crf 23 -c:a aac -b:a 192k "${task.value.fileDst}"`
+  return `ffmpeg -i "${task.value.path}" -c:v libx265 -crf 23 -c:a aac -b:a 192k "${task.value.fileDst || 'output.mp4'}"`
 })
 
 const highlightedCmd = computed(() => {
   return highlightFfmpegCmd(cmdString.value)
+})
+
+const rawMetadataText = computed(() => {
+  if (!task.value) return ""
+  if (task.value.mediaInfo) {
+    return JSON.stringify(task.value.mediaInfo, null, 2)
+  }
+  if (task.value.rawMetadata) return task.value.rawMetadata
+  return JSON.stringify({
+    name: task.value.name,
+    path: task.value.path,
+    size: task.value.size,
+    duration: task.value.duration,
+    videoCodec: task.value.videoCodec,
+    profile: task.value.profile,
+    level: task.value.level,
+    width: task.value.width,
+    height: task.value.height,
+    aspectRatio: task.value.aspectRatio,
+    fps: task.value.fps,
+    pixelFormat: task.value.pixelFormat,
+    bitDepth: task.value.bitDepth,
+    audioCodec: task.value.audioCodec,
+    audioChannels: task.value.audioChannels,
+    audioSampleRate: task.value.audioSampleRate,
+    audioBitrate: task.value.audioBitrate
+  }, null, 2)
 })
 
 function close() {
@@ -35,12 +65,25 @@ function close() {
 }
 
 async function copyCmd() {
-  try {
+  if (!cmdString.value) return
+  if (window.api?.copyText) {
+    await window.api.copyText(cmdString.value)
+  } else {
     await navigator.clipboard.writeText(cmdString.value)
-    alert("已复制完整 FFmpeg 命令行到剪贴板！")
-  } catch (err) {
-    console.error("Clipboard copy failed:", err)
   }
+  copiedCmd.value = true
+  setTimeout(() => { copiedCmd.value = false }, 2000)
+}
+
+async function copyRaw() {
+  if (!rawMetadataText.value) return
+  if (window.api?.copyText) {
+    await window.api.copyText(rawMetadataText.value)
+  } else {
+    await navigator.clipboard.writeText(rawMetadataText.value)
+  }
+  copiedRaw.value = true
+  setTimeout(() => { copiedRaw.value = false }, 2000)
 }
 
 function locateFile() {
@@ -65,34 +108,61 @@ function locateFile() {
         <!-- 规格对比卡片 -->
         <div class="insp-card">
           <div class="insp-card-title">
-            <span>媒体规格对比</span>
-            <span class="tag ok">GPU 硬件加速</span>
+            <span>媒体规格详细解析</span>
+            <span v-if="task.bitDepth && task.bitDepth > 8" class="tag ok">{{ task.bitDepth }}bit HDR/Wide</span>
+            <span v-else class="tag ok">规格已解析</span>
           </div>
           <div class="insp-grid">
             <div class="insp-kv">
-              <span class="k">源视频流</span>
-              <span class="v">{{ task.videoCodec || "H.264" }} · {{ task.width || 3840 }}×{{ task.height || 2160 }} · {{ task.fps || 29.97 }}fps</span>
+              <span class="k">源视频编码</span>
+              <span class="v">{{ (task.videoCodec || "未知").toUpperCase() }} {{ task.profile ? `(${task.profile}${task.level ? '@' + task.level : ''})` : '' }}</span>
             </div>
             <div class="insp-kv">
-              <span class="k">目标编码</span>
-              <span class="v primary-text">{{ config.preset.toUpperCase() }}</span>
+              <span class="k">目标编码预设</span>
+              <span class="v primary-text">{{ plan.planSnapshot?.presetName || config.preset.toUpperCase() }}</span>
             </div>
             <div class="insp-kv">
-              <span class="k">源文件大小</span>
+              <span class="k">分辨率 / 宽高比</span>
+              <span class="v">{{ task.width && task.height ? `${task.width}×${task.height}` : '—' }} {{ task.aspectRatio ? `(${task.aspectRatio})` : '' }}</span>
+            </div>
+            <div class="insp-kv">
+              <span class="k">帧率 / 像素格式</span>
+              <span class="v">{{ task.fps ? `${task.fps} fps` : '—' }} · {{ task.pixelFormat || '—' }}</span>
+            </div>
+            <div class="insp-kv">
+              <span class="k">源文件大小 / 时长</span>
               <span class="v">{{ formatSize(task.size) }} ({{ formatDuration(task.duration) }})</span>
             </div>
             <div class="insp-kv">
-              <span class="k">目标质量</span>
-              <span class="v">CRF {{ config.tune.quality > 0 ? config.tune.quality : 23 }}</span>
+              <span class="k">色彩位深</span>
+              <span class="v">{{ task.bitDepth ? `${task.bitDepth} bit` : '8 bit' }}</span>
             </div>
             <div class="insp-kv">
-              <span class="k">音频格式</span>
-              <span class="v">内置音轨 · AAC</span>
+              <span class="k">源音频规格</span>
+              <span class="v">{{ task.audioCodec ? task.audioCodec.toUpperCase() : '无音频' }} {{ task.audioChannels ? `· ${task.audioChannels}声道` : '' }} {{ task.audioSampleRate ? `· ${task.audioSampleRate}Hz` : '' }}</span>
             </div>
             <div class="insp-kv">
-              <span class="k">目标音频</span>
+              <span class="k">目标音频参数</span>
               <span class="v">{{ config.tune.audioCodec || "aac" }} · {{ config.tune.audioBitrate || "192k" }}</span>
             </div>
+          </div>
+        </div>
+
+        <!-- 原始元数据 (纯文本 / JSON) 卡片 -->
+        <div class="insp-card">
+          <div class="insp-card-title">
+            <span>原始元数据 (ffprobe)</span>
+            <div style="display: flex; gap: 6px;">
+              <button class="btn btn-sm" data-testid="btn-toggle-raw-meta" @click="showRawMeta = !showRawMeta">
+                {{ showRawMeta ? '收起' : '展开' }}
+              </button>
+              <button class="btn btn-sm" data-testid="btn-copy-raw-meta" @click="copyRaw">
+                {{ copiedRaw ? '已复制 ✓' : '复制元数据' }}
+              </button>
+            </div>
+          </div>
+          <div v-show="showRawMeta" class="raw-meta-box" data-testid="insp-raw-meta-box">
+            <pre class="raw-meta-pre">{{ rawMetadataText }}</pre>
           </div>
         </div>
 
@@ -105,7 +175,7 @@ function locateFile() {
                 <rect x="9" y="9" width="13" height="13" rx="2" />
                 <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
               </svg>
-              复制命令
+              {{ copiedCmd ? '已复制 ✓' : '复制命令' }}
             </button>
           </div>
           <div class="cmd-box" data-testid="insp-cmd-box" v-html="highlightedCmd"></div>
@@ -337,5 +407,26 @@ function locateFile() {
 
 .path-label {
   color: var(--text-3);
+}
+
+.raw-meta-box {
+  background: #0d1117;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  max-height: 240px;
+  overflow-y: auto;
+  user-select: text;
+}
+
+.raw-meta-pre {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.5;
+  color: #c9d1d9;
+  white-space: pre-wrap;
+  word-break: break-all;
+  user-select: text;
 }
 </style>

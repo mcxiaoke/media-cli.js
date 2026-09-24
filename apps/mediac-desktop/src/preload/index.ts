@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer, webUtils } from "electron"
+import { contextBridge, ipcRenderer, webUtils, clipboard } from "electron"
 import { IPC_CHANNELS } from "../shared/ipc-channels.js"
 import type { DesktopApi } from "../shared/contracts.js"
 
@@ -49,6 +49,14 @@ const api: DesktopApi = {
   },
   openPath(fullPath) {
     return ipcRenderer.invoke(IPC_CHANNELS.SYSTEM_OPEN_PATH, fullPath)
+  },
+  copyText(text: string) {
+    try {
+      clipboard.writeText(text)
+      return Promise.resolve(true)
+    } catch {
+      return Promise.resolve(false)
+    }
   },
   notify(title, body) {
     return ipcRenderer.invoke(IPC_CHANNELS.SYSTEM_NOTIFY, safeClone({ title, body }))

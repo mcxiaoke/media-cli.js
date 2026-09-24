@@ -21,8 +21,24 @@ export const usePlanStore = defineStore("plan", () => {
   const selectedIds = ref<Set<string>>(new Set())
   const inspectedTask = ref<PlanTask | null>(null)
   const currentSpeed = ref(0)
-  const overallPercent = ref(0)
-  const completedCount = ref(0)
+  const planningProgress = ref("")
+
+  const allTasksCompleted = computed(() => {
+    return (
+      tasks.value.length > 0 &&
+      tasks.value.every((t) => t.status === "success" || t.status === "done" || t.status === "skipped")
+    )
+  })
+
+  const overallPercent = computed(() => {
+    if (tasks.value.length === 0) return 0
+    const finishedCount = tasks.value.filter(
+      (t) => t.status === "success" || t.status === "done" || t.status === "skipped"
+    ).length
+    const runningTask = tasks.value.find((t) => t.status === "running")
+    const runningProgress = runningTask?.progress || 0
+    return Math.min(100, Math.round(((finishedCount + runningProgress / 100) / tasks.value.length) * 100))
+  })
 
   const isAllSelected = computed(() => {
     return tasks.value.length > 0 && tasks.value.every((t) => selectedIds.value.has(t.id))
@@ -132,6 +148,8 @@ export const usePlanStore = defineStore("plan", () => {
       list[idx] = {
         ...list[idx],
         status: "running",
+        progress: percent,
+        speed: speed || list[idx].speed,
       }
       tasks.value = list
     }
@@ -146,6 +164,7 @@ export const usePlanStore = defineStore("plan", () => {
         ...list[idx],
         status: newStatus,
         error: error || list[idx].error,
+        progress: newStatus === "success" || newStatus === "done" ? 100 : list[idx].progress,
       }
       tasks.value = list
     }
@@ -159,7 +178,8 @@ export const usePlanStore = defineStore("plan", () => {
     inspectedTask,
     currentSpeed,
     overallPercent,
-    completedCount,
+    planningProgress,
+    allTasksCompleted,
     isAllSelected,
     totalDuration,
     totalSize,

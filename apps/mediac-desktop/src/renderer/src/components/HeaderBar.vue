@@ -137,7 +137,7 @@ function toggleTheme() {
 
       <button
         class="btn btn-primary"
-        :disabled="plan.status === 'RUNNING' || plan.tasks.length === 0 || plan.status === 'STALE' || plan.hasStaged || plan.status === 'PLANNING'"
+        :disabled="plan.status === 'RUNNING' || plan.tasks.length === 0 || plan.status === 'STALE' || plan.hasStaged || plan.status === 'PLANNING' || plan.status === 'COMPLETED' || plan.allTasksCompleted"
         data-testid="btn-start"
         @click="emit('start-execution')"
       >
@@ -384,12 +384,17 @@ function toggleTheme() {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 2px 10px;
+  padding: 2px 8px;
   border-radius: 4px;
   background: var(--warning-soft);
   color: var(--warning);
   font-size: 11px;
   font-weight: 500;
+  white-space: nowrap;
+  flex-shrink: 0;
+  max-width: 250px;
+  overflow: hidden;
+  text-overflow: ellipsis;
   animation: fadeIn 0.2s ease-out;
 }
 

@@ -53,6 +53,48 @@ export interface EnvironmentSummary {
   }
 }
 
+export interface MediaInfoPayload {
+  provider?: string
+  format?: string
+  size?: number
+  duration?: number
+  bitrate?: number
+  createdAt?: string
+  video?: {
+    type?: string
+    format?: string
+    codec?: string
+    profile?: string
+    level?: number | string
+    width?: number
+    height?: number
+    aspectRatio?: string
+    framerate?: number
+    pixelFormat?: string
+    bitDepth?: number
+    bitrate?: number
+    size?: number
+    duration?: number
+    tags?: Record<string, string>
+    [key: string]: unknown
+  }
+  audio?: {
+    type?: string
+    format?: string
+    codec?: string
+    profile?: string
+    bitrate?: number
+    sampleRate?: number
+    channels?: number
+    language?: string
+    tags?: Record<string, string>
+    [key: string]: unknown
+  }
+  subtitles?: Array<Record<string, unknown>>
+  raw?: unknown
+  [key: string]: unknown
+}
+
 export interface PlanTask {
   id: string
   index: number
@@ -64,6 +106,9 @@ export interface PlanTask {
   status: TaskStatus
   error: string | null
   skipReason: string | null
+  progress?: number
+  speed?: number
+  mediaInfo?: MediaInfoPayload
   videoCodec?: string
   audioCodec?: string
   width?: number
@@ -74,6 +119,15 @@ export interface PlanTask {
   srcDuration?: number
   containerFormat?: string
   cmdPreview?: string
+  bitDepth?: number
+  pixelFormat?: string
+  profile?: string
+  level?: string
+  aspectRatio?: string
+  audioChannels?: number
+  audioSampleRate?: number
+  audioBitrate?: number
+  rawMetadata?: string
 }
 
 export interface StageInputsResult {
@@ -111,6 +165,7 @@ export interface DesktopApi {
   onEngineEvent(callback: (event: Record<string, unknown>) => void): () => void
   showInFolder(fullPath: string): Promise<void>
   openPath(fullPath: string): Promise<string>
+  copyText(text: string): Promise<boolean>
   notify(title: string, body: string): Promise<void>
   onMenuAction(callback: (action: string) => void): () => void
 }
