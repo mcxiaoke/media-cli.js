@@ -156,6 +156,25 @@ watch(
   }
 )
 
+async function stageAddedPaths(paths: string[]) {
+  if (!paths || paths.length === 0) return
+  try {
+    const res = await window.api.stageInputs(paths)
+    if (res.added && res.added.length > 0) {
+      plan.addStagedTasks(res.added)
+    }
+    if (res.skippedDuplicates > 0) {
+      logStore.append({
+        level: "INFO",
+        message: `跳过 ${res.skippedDuplicates} 个重复添加的文件`,
+        timestamp: new Date().toLocaleTimeString(),
+      })
+    }
+  } catch (err) {
+    console.error("stageInputs error:", err)
+  }
+}
+
 async function pickFiles() {
   try {
     const res = await window.api.selectFiles({ mode: "file", multiple: true })
@@ -166,6 +185,7 @@ async function pickFiles() {
         message: `已添加 ${res.paths.length} 个媒体文件`,
         timestamp: new Date().toLocaleTimeString(),
       })
+      await stageAddedPaths(res.paths)
     }
   } catch (err) {
     console.error("selectFiles error:", err)
@@ -182,6 +202,7 @@ async function pickDirectory() {
         message: `已添加媒体目录: ${res.paths.join(", ")}`,
         timestamp: new Date().toLocaleTimeString(),
       })
+      await stageAddedPaths(res.paths)
     }
   } catch (err) {
     console.error("selectFiles directory error:", err)
@@ -204,7 +225,7 @@ async function pickOutputDir() {
   }
 }
 
-function addManualPath() {
+async function addManualPath() {
   const val = manualPathInput.value.trim()
   if (val) {
     config.addInputs([val])
@@ -214,6 +235,7 @@ function addManualPath() {
       message: `手动添加路径: ${val}`,
       timestamp: new Date().toLocaleTimeString(),
     })
+    await stageAddedPaths([val])
   }
 }
 
@@ -227,7 +249,7 @@ function removeInput(idx: number) {
   })
 }
 
-function handleDrop(event: DragEvent) {
+async function handleDrop(event: DragEvent) {
   event.preventDefault()
   const files = Array.from(event.dataTransfer?.files || [])
   const paths = files
@@ -246,6 +268,7 @@ function handleDrop(event: DragEvent) {
       message: `拖拽添加了 ${paths.length} 项路径`,
       timestamp: new Date().toLocaleTimeString(),
     })
+    await stageAddedPaths(paths)
   }
 }
 

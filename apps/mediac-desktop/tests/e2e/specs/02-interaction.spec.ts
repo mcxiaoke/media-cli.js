@@ -109,4 +109,46 @@ test.describe("MediCli Desktop - Interaction & State Machine Spec", () => {
     await btnCloseSettings.click()
     await expect(settingsModal).not.toBeVisible()
   })
+
+  test("two-phase pipeline: instant metadata probing, format tag, quick preview, and task deletion", async ({ appWindow }) => {
+    // 1. Initial empty state
+    await expect(appWindow.locator('[data-testid="hero-empty"]')).toBeVisible()
+
+    // 2. Add input file and verify immediate table display before clicking plan
+    const testVideoPath = path.resolve(__dirname, "../../../../../data/videos/TEST2__h264_60fps_1080.mp4")
+    const manualInput = appWindow.locator('[data-testid="input-manual-path"]')
+    await manualInput.fill(testVideoPath)
+    await appWindow.locator('[data-testid="btn-manual-add"]').click()
+
+    // Immediate appearance of TaskTable
+    const taskTable = appWindow.locator('[data-testid="tasks-table"]')
+    await expect(taskTable).toBeVisible({ timeout: 10000 })
+    await expect(appWindow.locator('[data-testid="hero-empty"]')).not.toBeVisible()
+
+    // Verify format tag (MP4) and staged status badge
+    const formatTag = appWindow.locator(".fmt-tag").first()
+    await expect(formatTag).toBeVisible()
+    await expect(formatTag).toHaveText("MP4")
+
+    const taskStatus = appWindow.locator('[data-testid="task-status"]').first()
+    await expect(taskStatus).toHaveText("待规划")
+
+    // Verify bottom preview bar
+    const bottomBar = appWindow.locator('[data-testid="table-bottom-bar"]')
+    await expect(bottomBar).toBeVisible()
+
+    // Verify bottom quick preview
+    const quickPreview = appWindow.locator('[data-testid="task-quick-preview"]')
+    await expect(quickPreview).toBeVisible()
+    await expect(quickPreview).toContainText("1920x1080")
+    await expect(quickPreview).toContainText("待推演")
+
+    // 3. Test single row deletion
+    const btnRemove = appWindow.locator('[data-testid="btn-remove-task"]').first()
+    await btnRemove.click()
+
+    // Verify table is empty and HeroEmpty returns
+    await expect(appWindow.locator('[data-testid="hero-empty"]')).toBeVisible()
+    await expect(taskTable).not.toBeVisible()
+  })
 })

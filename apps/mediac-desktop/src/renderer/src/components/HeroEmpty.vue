@@ -5,12 +5,25 @@ import { usePlanStore } from "../stores/plan"
 const config = useConfigStore()
 const plan = usePlanStore()
 
+async function stageAddedPaths(paths: string[]) {
+  if (!paths || paths.length === 0) return
+  try {
+    const res = await window.api.stageInputs(paths)
+    if (res.added && res.added.length > 0) {
+      plan.addStagedTasks(res.added)
+    }
+  } catch (err) {
+    console.error("HeroEmpty stageInputs error:", err)
+    plan.markStale()
+  }
+}
+
 async function pickFiles() {
   try {
     const res = await window.api.selectFiles({ mode: "file", multiple: true })
     if (res.paths.length > 0) {
       config.addInputs(res.paths)
-      plan.markStale()
+      await stageAddedPaths(res.paths)
     }
   } catch (err) {
     console.error("pickFiles error:", err)
@@ -22,7 +35,7 @@ async function pickDirectory() {
     const res = await window.api.selectFiles({ mode: "directory", multiple: false })
     if (res.paths.length > 0) {
       config.addInputs(res.paths)
-      plan.markStale()
+      await stageAddedPaths(res.paths)
     }
   } catch (err) {
     console.error("pickDirectory error:", err)

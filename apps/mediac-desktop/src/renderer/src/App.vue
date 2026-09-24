@@ -57,8 +57,11 @@ function startResizing(e: MouseEvent) {
 const tbStatsText = computed(() => {
   if (planStore.tasks.length === 0) return "尚无任务计划"
   const count = planStore.tasks.length
-  const size = formatSize(planStore.planSnapshot?.totalSize || 0)
-  const duration = formatDuration(planStore.planSnapshot?.totalDuration || 0)
+  const size = formatSize(planStore.totalSize || planStore.planSnapshot?.totalSize || 0)
+  const duration = formatDuration(planStore.totalDuration || planStore.planSnapshot?.totalDuration || 0)
+  if (planStore.hasStaged) {
+    return `${count} 个文件 (${planStore.stagedCount} 待推演) · ${size} · ${duration}`
+  }
   return `${count} 个任务 · ${size} · ${duration}`
 })
 
@@ -174,11 +177,24 @@ function clearAll() {
 let unsubscribeEvents: (() => void) | null = null
 let unsubscribeMenu: (() => void) | null = null
 
+async function stageAddedPaths(paths: string[]) {
+  if (!paths || paths.length === 0) return
+  try {
+    const res = await window.api.stageInputs(paths)
+    if (res.added && res.added.length > 0) {
+      planStore.addStagedTasks(res.added)
+    }
+  } catch (err) {
+    console.error("stageInputs error:", err)
+  }
+}
+
 async function pickFilesGlobal() {
   try {
     const res = await window.api.selectFiles({ mode: "file", multiple: true })
     if (res.paths.length > 0) {
       configStore.addInputs(res.paths)
+      await stageAddedPaths(res.paths)
     }
   } catch (err) {
     console.error("pickFilesGlobal error:", err)
@@ -190,6 +206,7 @@ async function pickDirGlobal() {
     const res = await window.api.selectFiles({ mode: "directory" })
     if (res.paths.length > 0) {
       configStore.addInputs(res.paths)
+      await stageAddedPaths(res.paths)
     }
   } catch (err) {
     console.error("pickDirGlobal error:", err)

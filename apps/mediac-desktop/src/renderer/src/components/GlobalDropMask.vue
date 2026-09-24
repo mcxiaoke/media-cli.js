@@ -29,7 +29,7 @@ function onDragOver(e: DragEvent) {
   e.preventDefault()
 }
 
-function onDrop(e: DragEvent) {
+async function onDrop(e: DragEvent) {
   e.preventDefault()
   dragCounter = 0
   isDragging.value = false
@@ -46,7 +46,15 @@ function onDrop(e: DragEvent) {
 
   if (paths.length > 0) {
     config.addInputs(paths)
-    plan.markStale()
+    try {
+      const res = await window.api.stageInputs(paths)
+      if (res.added && res.added.length > 0) {
+        plan.addStagedTasks(res.added)
+      }
+    } catch (err) {
+      console.error("Global drop stageInputs error:", err)
+      plan.markStale()
+    }
   }
 }
 

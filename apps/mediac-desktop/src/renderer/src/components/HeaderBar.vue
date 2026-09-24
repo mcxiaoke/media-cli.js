@@ -34,6 +34,9 @@ const STATE_CONFIG: Record<string, { label: string; cls: string }> = {
 }
 
 const stateInfo = computed(() => {
+  if (plan.hasStaged) {
+    return { label: "待规划", cls: "warn" }
+  }
   return STATE_CONFIG[plan.status] || { label: plan.status, cls: "" }
 })
 
@@ -118,8 +121,8 @@ function toggleTheme() {
       <button
         class="btn"
         :class="{
-          'btn-primary pulse': plan.status === 'STALE',
-          'btn-secondary': plan.status !== 'STALE'
+          'btn-primary pulse': plan.status === 'STALE' || plan.hasStaged,
+          'btn-secondary': plan.status !== 'STALE' && !plan.hasStaged
         }"
         :disabled="plan.status === 'RUNNING' || plan.status === 'PLANNING'"
         data-testid="btn-plan"
@@ -129,12 +132,12 @@ function toggleTheme() {
           <circle cx="11" cy="11" r="7" />
           <path d="M20 20l-3.5-3.5" />
         </svg>
-        <span>{{ plan.status === "PLANNING" ? "分析中…" : (plan.status === "STALE" ? "更新计划" : "生成计划") }}</span>
+        <span>{{ plan.status === "PLANNING" ? "分析中…" : (plan.hasStaged ? "生成计划" : (plan.status === "STALE" ? "更新计划" : "生成计划")) }}</span>
       </button>
 
       <button
         class="btn btn-primary"
-        :disabled="plan.status === 'RUNNING' || plan.tasks.length === 0 || plan.status === 'STALE' || plan.status === 'PLANNING'"
+        :disabled="plan.status === 'RUNNING' || plan.tasks.length === 0 || plan.status === 'STALE' || plan.hasStaged || plan.status === 'PLANNING'"
         data-testid="btn-start"
         @click="emit('start-execution')"
       >
@@ -165,8 +168,16 @@ function toggleTheme() {
         清空
       </button>
 
-      <!-- 参数变更 STALE 告警 -->
-      <div v-if="plan.status === 'STALE'" class="stale-alert" data-testid="stale-alert">
+      <!-- 待推演或参数变更 STALE 告警 -->
+      <div v-if="plan.hasStaged" class="stale-alert" data-testid="stale-alert">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10" />
+          <line x1="12" y1="8" x2="12" y2="12" />
+          <line x1="12" y1="16" x2="12.01" y2="16" />
+        </svg>
+        <span>已摄入新媒体，请点击「生成计划」</span>
+      </div>
+      <div v-else-if="plan.status === 'STALE'" class="stale-alert" data-testid="stale-alert">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <circle cx="12" cy="12" r="10" />
           <line x1="12" y1="8" x2="12" y2="12" />

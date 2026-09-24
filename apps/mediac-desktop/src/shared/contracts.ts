@@ -9,6 +9,7 @@ export type RunnerState =
   | "FAILED"
 
 export type TaskStatus =
+  | "staged"
   | "pending"
   | "preparing"
   | "running"
@@ -64,11 +65,21 @@ export interface PlanTask {
   error: string | null
   skipReason: string | null
   videoCodec?: string
+  audioCodec?: string
   width?: number
   height?: number
   fps?: number
+  bitrate?: number
   srcSize?: number
   srcDuration?: number
+  containerFormat?: string
+  cmdPreview?: string
+}
+
+export interface StageInputsResult {
+  added: PlanTask[]
+  skippedDuplicates: number
+  totalCount: number
 }
 
 export interface PublicPlanSnapshot {
@@ -90,6 +101,7 @@ export interface SelectFileResult {
 export interface DesktopApi {
   getPathForFile(file: File): string
   selectFiles(options: SelectFileOptions): Promise<SelectFileResult>
+  stageInputs(paths: string[]): Promise<StageInputsResult>
   getAppVersion(): Promise<string>
   getEnvironment(): Promise<EnvironmentSummary>
   createPlan(body: Record<string, unknown>): Promise<PublicPlanSnapshot>

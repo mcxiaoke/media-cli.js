@@ -11,7 +11,7 @@ import { runFFmpeg, setFFmpegPath } from "../../../../lib/ffmpeg_run.js"
 import { createFFmpegArgs, flattenFFArgs } from "../../../../lib/ffmpeg_build.js"
 import { detectHardwareCapabilities } from "../../../../lib/hwdetect.js"
 import { normalizeWebOptions, toLegacyArgvOptions } from "../../../../lib/ffmpeg_options.js"
-import { scanWebInputFiles } from "../../../../lib/ffmpeg_scan.js"
+import { collectInputFiles, scanWebInputFiles } from "../../../../lib/ffmpeg_scan.js"
 import { getMediaInfo } from "../../../../lib/mediainfo.js"
 import { deleteCompletedSources, prepareFFmpegPlan } from "../../../../lib/ffmpeg_planner.js"
 import { createPublicPlanSnapshot } from "../../../../lib/ffmpeg_plan_snapshot.js"
@@ -24,7 +24,9 @@ import {
 } from "./native.js"
 import type {
   EnvironmentSummary,
+  PlanTask,
   PublicPlanSnapshot,
+  StageInputsResult,
 } from "../shared/contracts.js"
 
 const execFileAsync = promisify(execFile)
@@ -34,6 +36,7 @@ class FfmpegEnvironmentService {
   private ffprobePath: string | null = null
   private hardware: any = null
   private currentPlan: any = null
+  private stagedEntries = new Map<string, { item: any; task: PlanTask; info: any }>()
   private status: "IDLE" | "PLANNING" | "READY" | "RUNNING" | "STOPPING" | "STOPPED" | "COMPLETED" | "FAILED" | "STALE" = "IDLE"
   private abortController: AbortController | null = null
   private eventSink: ((event: Record<string, unknown>) => void) | null = null
@@ -166,6 +169,114 @@ class FfmpegEnvironmentService {
     }
   }
 
+  async stageInputs(paths: string[]): Promise<StageInputsResult> {
+    if (!paths || paths.length === 0) {
+      return { added: [], skippedDuplicates: 0, totalCount: this.stagedEntries.size }
+    }
+    await this.getSummary()
+
+    // 1. Collect files from paths
+    const collected = (await (collectInputFiles as any)(paths)) as any[]
+    if (!collected || collected.length === 0) {
+      return { added: [], skippedDuplicates: 0, totalCount: this.stagedEntries.size }
+    }
+
+    // 2. Filter out already staged paths
+    const newItems: any[] = []
+    let skippedDuplicates = 0
+    for (const item of collected) {
+      const canonical = path.resolve(item.path)
+      if (this.stagedEntries.has(canonical)) {
+        skippedDuplicates++
+      } else {
+        newItems.push(item)
+      }
+    }
+
+    if (newItems.length === 0) {
+      if (skippedDuplicates > 0) {
+        this.eventSink?.({
+          type: "task.log",
+          level: "INFO",
+          message: `添加路径扫描完成：发现 ${collected.length} 个文件，全部已存在于列表中（已跳过 ${skippedDuplicates} 项）`,
+          timestamp: new Date().toLocaleTimeString(),
+        })
+      }
+      return { added: [], skippedDuplicates, totalCount: this.stagedEntries.size }
+    }
+
+    this.eventSink?.({
+      type: "task.log",
+      level: "INFO",
+      message: `发现 ${newItems.length} 个新媒体文件，开始快速提取元数据...${skippedDuplicates > 0 ? ` (跳过 ${skippedDuplicates} 个重复项)` : ""}`,
+      timestamp: new Date().toLocaleTimeString(),
+    })
+
+    // 3. Concurrently probe stream metadata (concurrency limit = 8)
+    const added: PlanTask[] = []
+    const limit = 8
+    let cursor = 0
+
+    const probeWorker = async () => {
+      while (cursor < newItems.length) {
+        const idx = cursor++
+        const item = newItems[idx]
+        const canonical = path.resolve(item.path)
+        let info: any = null
+        try {
+          info = await (getMediaInfo as any)(item.path, {
+            useMediaInfo: false,
+            ...(this.ffprobePath ? { ffprobePath: this.ffprobePath } : {}),
+          })
+        } catch {
+          // ignore or fallback
+        }
+
+        const ext = path.extname(item.path).replace(/^\./, "").toUpperCase()
+        const task: PlanTask = {
+          id: `task_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          index: this.stagedEntries.size,
+          name: item.name,
+          path: item.path,
+          size: item.size || 0,
+          duration: info?.duration || 0,
+          fileDst: "",
+          status: "staged",
+          error: null,
+          skipReason: null,
+          videoCodec: info?.video?.format || "",
+          audioCodec: info?.audio?.format || "",
+          width: info?.video?.width || 0,
+          height: info?.video?.height || 0,
+          fps: info?.video?.framerate || 0,
+          bitrate: info?.bitrate || 0,
+          srcSize: item.size || 0,
+          srcDuration: info?.duration || 0,
+          containerFormat: ext || "MEDIA",
+        }
+
+        this.stagedEntries.set(canonical, { item, task, info })
+        added.push(task)
+      }
+    }
+
+    const workers = Array.from({ length: Math.min(limit, newItems.length) }, () => probeWorker())
+    await Promise.all(workers)
+
+    this.eventSink?.({
+      type: "task.log",
+      level: "INFO",
+      message: `媒体元数据提取完成：已就绪新增 ${added.length} 项（当前共导入 ${this.stagedEntries.size} 个视频）`,
+      timestamp: new Date().toLocaleTimeString(),
+    })
+
+    return {
+      added,
+      skippedDuplicates,
+      totalCount: this.stagedEntries.size,
+    }
+  }
+
   async createPlan(body: Record<string, unknown> = {}): Promise<PublicPlanSnapshot> {
     if (this.status === "RUNNING") throw new Error("An execution is already running")
     this.status = "PLANNING"
@@ -261,6 +372,14 @@ class FfmpegEnvironmentService {
           if (flat) this.currentPlan.previewCmd = `ffmpeg ${flat}`
         } catch {
           // Keep empty string fallback
+        }
+      }
+
+      if (this.currentPlan?.tasks) {
+        this.stagedEntries.clear()
+        for (const t of this.currentPlan.tasks) {
+          const canonical = path.resolve(t.path)
+          this.stagedEntries.set(canonical, { item: t, task: t, info: null })
         }
       }
 

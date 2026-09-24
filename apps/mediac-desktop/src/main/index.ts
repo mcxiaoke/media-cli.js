@@ -232,6 +232,10 @@ function createWindow() {
 
 handleTrusted(IPC_CHANNELS.APP_GET_VERSION, () => app.getVersion())
 handleTrusted(IPC_CHANNELS.ENV_GET, () => ffmpegEnvironment.getSummary())
+handleTrusted(IPC_CHANNELS.STAGE_INPUTS, async (paths: unknown) => {
+  if (!Array.isArray(paths)) throw new Error("paths must be an array of strings")
+  return ffmpegEnvironment.stageInputs(paths as string[])
+})
 handleTrusted(IPC_CHANNELS.PLAN_CREATE, (body: Record<string, unknown>) => ffmpegEnvironment.createPlan(body))
 handleTrusted(IPC_CHANNELS.EXECUTION_START, async (taskIds: unknown) => {
   if (taskIds !== undefined && (!Array.isArray(taskIds) || taskIds.some((id) => typeof id !== "string"))) {

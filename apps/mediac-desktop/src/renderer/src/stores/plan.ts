@@ -28,6 +28,66 @@ export const usePlanStore = defineStore("plan", () => {
     return tasks.value.length > 0 && tasks.value.every((t) => selectedIds.value.has(t.id))
   })
 
+  const totalDuration = computed(() => {
+    return tasks.value.reduce((acc, t) => acc + (t.duration || 0), 0)
+  })
+
+  const totalSize = computed(() => {
+    return tasks.value.reduce((acc, t) => acc + (t.size || 0), 0)
+  })
+
+  const stagedCount = computed(() => {
+    return tasks.value.filter((t) => t.status === "staged").length
+  })
+
+  const hasStaged = computed(() => stagedCount.value > 0)
+
+  function addStagedTasks(newTasks: PlanTask[]) {
+    if (!newTasks || newTasks.length === 0) return
+    const current = [...tasks.value]
+    const seen = new Set(current.map((t) => t.path))
+    const trulyNew = newTasks.filter((t) => !seen.has(t.path))
+    if (trulyNew.length === 0) return
+
+    tasks.value = [...current, ...trulyNew]
+    const s = new Set(selectedIds.value)
+    for (const t of trulyNew) s.add(t.id)
+    selectedIds.value = s
+
+    if (status.value === "IDLE" || status.value === "READY") {
+      status.value = "STALE"
+    }
+  }
+
+  function removeTask(id: string) {
+    tasks.value = tasks.value.filter((t) => t.id !== id)
+    const s = new Set(selectedIds.value)
+    s.delete(id)
+    selectedIds.value = s
+    if (inspectedTask.value?.id === id) {
+      inspectedTask.value = null
+    }
+    if (tasks.value.length === 0) {
+      setPlan(null)
+    } else {
+      markStale()
+    }
+  }
+
+  function removeSelectedTasks() {
+    if (selectedIds.value.size === 0) return
+    tasks.value = tasks.value.filter((t) => !selectedIds.value.has(t.id))
+    if (inspectedTask.value && selectedIds.value.has(inspectedTask.value.id)) {
+      inspectedTask.value = null
+    }
+    selectedIds.value = new Set()
+    if (tasks.value.length === 0) {
+      setPlan(null)
+    } else {
+      markStale()
+    }
+  }
+
   function setPlan(plan: PublicPlanSnapshot | null) {
     planSnapshot.value = plan
     if (plan && plan.tasks) {
@@ -37,6 +97,7 @@ export const usePlanStore = defineStore("plan", () => {
     } else {
       tasks.value = []
       selectedIds.value = new Set()
+      inspectedTask.value = null
       status.value = "IDLE"
     }
   }
@@ -100,6 +161,13 @@ export const usePlanStore = defineStore("plan", () => {
     overallPercent,
     completedCount,
     isAllSelected,
+    totalDuration,
+    totalSize,
+    stagedCount,
+    hasStaged,
+    addStagedTasks,
+    removeTask,
+    removeSelectedTasks,
     setPlan,
     markStale,
     toggleTask,

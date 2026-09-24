@@ -18,6 +18,9 @@ const api: DesktopApi = {
   selectFiles(options) {
     return ipcRenderer.invoke(IPC_CHANNELS.DIALOG_SELECT_FILES, safeClone(options))
   },
+  stageInputs(paths) {
+    return ipcRenderer.invoke(IPC_CHANNELS.STAGE_INPUTS, safeClone(paths))
+  },
   getAppVersion() {
     return ipcRenderer.invoke(IPC_CHANNELS.APP_GET_VERSION)
   },
