@@ -8,6 +8,7 @@ export const IPC_CHANNELS = {
   EXECUTION_SNAPSHOT: "execution:snapshot",
   EXECUTION_EVENT: "execution:event",
   SYSTEM_SHOW_IN_FOLDER: "system:show-in-folder",
+  SYSTEM_OPEN_PATH: "system:open-path",
   SYSTEM_NOTIFY: "system:notify",
 } as const
 

@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ref, computed } from "vue"
 import { useEnvStore } from "../stores/env"
+import { useConfigStore } from "../stores/config"
+import { useLogStore } from "../stores/log"
 
 defineProps<{
   show: boolean
@@ -11,8 +13,10 @@ const emit = defineEmits<{
 }>()
 
 const envStore = useEnvStore()
+const configStore = useConfigStore()
+const logStore = useLogStore()
 
-const currentTheme = ref(document.documentElement.getAttribute("data-theme") || "dark")
+const currentTheme = ref(document.documentElement.getAttribute("data-theme") || "light")
 
 function setTheme(theme: "dark" | "light") {
   currentTheme.value = theme
@@ -23,6 +27,19 @@ function setTheme(theme: "dark" | "light") {
 const customFfmpeg = ref(localStorage.getItem("mediac_tool_ffmpeg") || "")
 const customFfprobe = ref(localStorage.getItem("mediac_tool_ffprobe") || "")
 const customMediainfo = ref(localStorage.getItem("mediac_tool_mediainfo") || "")
+
+async function pickToolPath(tool: "ffmpeg" | "ffprobe" | "mediainfo") {
+  try {
+    const res = await window.api.selectFiles({ mode: "file", multiple: false })
+    if (res.paths && res.paths.length > 0) {
+      if (tool === "ffmpeg") customFfmpeg.value = res.paths[0]
+      else if (tool === "ffprobe") customFfprobe.value = res.paths[0]
+      else if (tool === "mediainfo") customMediainfo.value = res.paths[0]
+    }
+  } catch (err) {
+    console.error("pickToolPath error:", err)
+  }
+}
 
 const isRechecking = ref(false)
 
@@ -64,6 +81,29 @@ const gpuList = computed(() => {
 const hwaccelsText = computed(() => {
   return envStore.summary?.hardware.hwaccels?.join(" · ") || "未探测到可用硬件加速"
 })
+
+function handleDeleteSourceToggle() {
+  if (!configStore.adv.deleteSource) {
+    const ok = window.confirm(
+      "【高危确认】转码成功且产物校验通过后，源文件将被移入 Mediac 安全回收目录（~/.mediac/deleted/日期），可随时恢复。请确认是否开启？"
+    )
+    if (ok) {
+      configStore.adv.deleteSource = true
+      logStore.append({
+        level: "WARN",
+        message: "已启用高危选项：转码后自动删除源文件（移入安全回收目录）",
+        timestamp: new Date().toLocaleTimeString(),
+      })
+    }
+  } else {
+    configStore.adv.deleteSource = false
+    logStore.append({
+      level: "INFO",
+      message: "已关闭转码后删除源文件选项",
+      timestamp: new Date().toLocaleTimeString(),
+    })
+  }
+}
 </script>
 
 <template>
@@ -140,6 +180,106 @@ const hwaccelsText = computed(() => {
           </div>
         </div>
 
+        <!-- 转码引擎与高级策略 -->
+        <div class="set-row">
+          <span class="lbl">转码引擎</span>
+          <div class="set-box" data-testid="advanced-settings-box">
+            <div class="field-row two">
+              <div class="field">
+                <label class="sub-lbl">硬件加速方式</label>
+                <select v-model="configStore.adv.hwaccel" class="select" data-testid="select-hwaccel">
+                  <option value="auto">auto · 自动推荐</option>
+                  <option value="cuda">cuda · NVIDIA NVENC</option>
+                  <option value="qsv">qsv · Intel QuickSync</option>
+                  <option value="amf">amf · AMD AMF</option>
+                  <option value="d3d11va">d3d11va · Windows D3D</option>
+                  <option value="cpu">cpu · 仅 CPU 软解软编</option>
+                </select>
+              </div>
+              <div class="field">
+                <label class="sub-lbl">解码模式</label>
+                <select v-model="configStore.adv.decodeMode" class="select" data-testid="select-decode-mode">
+                  <option value="auto">auto · 自动</option>
+                  <option value="gpu">gpu · 硬件硬解优先</option>
+                  <option value="cpu">cpu · CPU 软解</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="field" style="margin-top: 6px">
+              <label class="sub-lbl">并发任务数 <span class="hint">仅音频并行，视频始终串行</span></label>
+              <input
+                v-model.number="configStore.adv.jobs"
+                type="number"
+                min="1"
+                max="4"
+                class="input num"
+                data-testid="input-jobs"
+              />
+            </div>
+
+            <div class="switches-list" style="margin-top: 8px">
+              <div class="sw-row">
+                <span class="sw-lbl">覆盖已存在产物</span>
+                <span
+                  class="sw"
+                  :class="{ on: configStore.adv.override }"
+                  role="switch"
+                  :aria-checked="configStore.adv.override"
+                  data-testid="sw-override"
+                  tabindex="0"
+                  @click="configStore.adv.override = !configStore.adv.override"
+                ></span>
+              </div>
+
+              <div class="sw-row">
+                <span class="sw-lbl">
+                  动漫调优模式 <span class="hint">保线条，收紧质量</span>
+                </span>
+                <span
+                  class="sw"
+                  :class="{ on: configStore.adv.anime }"
+                  role="switch"
+                  :aria-checked="configStore.adv.anime"
+                  data-testid="sw-anime"
+                  tabindex="0"
+                  @click="configStore.adv.anime = !configStore.adv.anime"
+                ></span>
+              </div>
+
+              <div class="sw-row">
+                <span class="sw-lbl">
+                  严格模式 <span class="hint">禁用自动降级与重试</span>
+                </span>
+                <span
+                  class="sw"
+                  :class="{ on: configStore.adv.strict }"
+                  role="switch"
+                  :aria-checked="configStore.adv.strict"
+                  data-testid="sw-strict"
+                  tabindex="0"
+                  @click="configStore.adv.strict = !configStore.adv.strict"
+                ></span>
+              </div>
+
+              <div class="sw-row">
+                <span class="sw-lbl err">
+                  转码后删除源文件 <span class="hint">移入安全回收目录</span>
+                </span>
+                <span
+                  class="sw err-sw"
+                  :class="{ on: configStore.adv.deleteSource }"
+                  role="switch"
+                  :aria-checked="configStore.adv.deleteSource"
+                  data-testid="sw-delete-source"
+                  tabindex="0"
+                  @click="handleDeleteSourceToggle"
+                ></span>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- 自定义工具路径 -->
         <div class="set-row">
           <span class="lbl">工具路径</span>
@@ -151,6 +291,7 @@ const hwaccelsText = computed(() => {
                 class="input grow"
                 :placeholder="envStore.summary?.ffmpegPath || '留空使用默认探测路径'"
               />
+              <button class="btn btn-sm btn-secondary" title="浏览文件" @click="pickToolPath('ffmpeg')">浏览...</button>
               <button class="btn btn-sm" @click="customFfmpeg = ''">重置</button>
             </div>
             <div class="tool-row">
@@ -160,7 +301,18 @@ const hwaccelsText = computed(() => {
                 class="input grow"
                 :placeholder="envStore.summary?.ffprobePath || '留空使用默认探测路径'"
               />
+              <button class="btn btn-sm btn-secondary" title="浏览文件" @click="pickToolPath('ffprobe')">浏览...</button>
               <button class="btn btn-sm" @click="customFfprobe = ''">重置</button>
+            </div>
+            <div class="tool-row">
+              <span class="tl">mediainfo</span>
+              <input
+                v-model="customMediainfo"
+                class="input grow"
+                placeholder="留空使用默认探测路径"
+              />
+              <button class="btn btn-sm btn-secondary" title="浏览文件" @click="pickToolPath('mediainfo')">浏览...</button>
+              <button class="btn btn-sm" @click="customMediainfo = ''">重置</button>
             </div>
           </div>
         </div>
@@ -209,7 +361,7 @@ const hwaccelsText = computed(() => {
 }
 
 .modal {
-  width: 520px;
+  width: 580px;
   max-width: calc(100vw - 32px);
   background: var(--bg-card);
   border: 1px solid var(--border-strong);
@@ -412,5 +564,100 @@ const hwaccelsText = computed(() => {
 svg.i.sm {
   width: 14px;
   height: 14px;
+}
+
+.field-row.two {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sub-lbl {
+  font-size: 11px;
+  color: var(--text-2);
+}
+
+.select {
+  height: 28px;
+  padding: 0 8px;
+  font-size: 12px;
+  font-family: var(--font);
+  color: var(--text-base);
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  outline: none;
+}
+
+.select:focus {
+  border-color: var(--primary);
+}
+
+.input.num {
+  width: 100px;
+}
+
+.switches-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sw-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 0;
+}
+
+.sw-lbl {
+  font-size: 12px;
+  color: var(--text-base);
+}
+
+.sw-lbl.err {
+  color: var(--error);
+  font-weight: 500;
+}
+
+.sw {
+  width: 32px;
+  height: 18px;
+  border-radius: 9px;
+  background: var(--border-strong);
+  position: relative;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  flex-shrink: 0;
+}
+
+.sw::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.15s ease;
+}
+
+.sw.on {
+  background: var(--primary);
+}
+
+.sw.on::after {
+  transform: translateX(14px);
+}
+
+.sw.err-sw.on {
+  background: var(--error);
 }
 </style>

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from "vue"
 import HeaderBar from "./components/HeaderBar.vue"
+import StatusBar from "./components/StatusBar.vue"
 import GlobalDropMask from "./components/GlobalDropMask.vue"
 import ConfigPanel from "./components/ConfigPanel.vue"
 import HeroEmpty from "./components/HeroEmpty.vue"
@@ -171,6 +172,40 @@ function clearAll() {
 }
 
 let unsubscribeEvents: (() => void) | null = null
+let unsubscribeMenu: (() => void) | null = null
+
+async function pickFilesGlobal() {
+  try {
+    const res = await window.api.selectFiles({ mode: "file", multiple: true })
+    if (res.paths.length > 0) {
+      configStore.addInputs(res.paths)
+    }
+  } catch (err) {
+    console.error("pickFilesGlobal error:", err)
+  }
+}
+
+async function pickDirGlobal() {
+  try {
+    const res = await window.api.selectFiles({ mode: "directory" })
+    if (res.paths.length > 0) {
+      configStore.addInputs(res.paths)
+    }
+  } catch (err) {
+    console.error("pickDirGlobal error:", err)
+  }
+}
+
+function openOutputDir() {
+  const dir = configStore.outputDir || (planStore.tasks[0]?.fileDst ? planStore.tasks[0].fileDst.replace(/[/\\][^/\\]+$/, "") : "")
+  if (dir) {
+    if (window.api?.openPath) {
+      void window.api.openPath(dir)
+    } else if (window.api?.showInFolder) {
+      void window.api.showInFolder(dir)
+    }
+  }
+}
 
 function handleKeydown(e: KeyboardEvent) {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "b") {
@@ -187,8 +222,8 @@ function handleKeydown(e: KeyboardEvent) {
 onMounted(async () => {
   window.addEventListener("keydown", handleKeydown)
 
-  // Initialize theme
-  const savedTheme = localStorage.getItem("mediac_theme") || "dark"
+  // Initialize theme: default to light
+  const savedTheme = localStorage.getItem("mediac_theme") || "light"
   document.documentElement.setAttribute("data-theme", savedTheme)
 
   // Initialize environment & version
@@ -197,6 +232,51 @@ onMounted(async () => {
     if (!envStore.summary.presets.some((p) => p.name === configStore.preset)) {
       configStore.preset = envStore.summary.presets[0].name
     }
+  }
+
+  // Subscribe to system menu action events
+  if (window.api?.onMenuAction) {
+    unsubscribeMenu = window.api.onMenuAction((action: string) => {
+      switch (action) {
+        case "add-files":
+          void pickFilesGlobal()
+          break
+        case "add-dir":
+          void pickDirGlobal()
+          break
+        case "open-output-dir":
+          openOutputDir()
+          break
+        case "create-plan":
+          void createPlan()
+          break
+        case "start-execution":
+          void startExecution()
+          break
+        case "stop-execution":
+          void stopExecution()
+          break
+        case "clear-tasks":
+          clearAll()
+          break
+        case "toggle-sidebar":
+          toggleSidebar()
+          break
+        case "toggle-log":
+          logStore.drawerOpen = !logStore.drawerOpen
+          break
+        case "toggle-theme": {
+          const cur = document.documentElement.getAttribute("data-theme") || "light"
+          const next = cur === "dark" ? "light" : "dark"
+          document.documentElement.setAttribute("data-theme", next)
+          localStorage.setItem("mediac_theme", next)
+          break
+        }
+        case "open-settings":
+          showSettings.value = true
+          break
+      }
+    })
   }
 
   // Subscribe to engine IPC events
@@ -239,6 +319,7 @@ onMounted(async () => {
 onUnmounted(() => {
   window.removeEventListener("keydown", handleKeydown)
   unsubscribeEvents?.()
+  unsubscribeMenu?.()
 })
 </script>
 
@@ -249,8 +330,13 @@ onUnmounted(() => {
 
     <!-- 顶栏 HeaderBar -->
     <HeaderBar
+      :stats-text="tbStatsText"
       @toggle-sidebar="toggleSidebar"
       @open-settings="showSettings = true"
+      @create-plan="createPlan"
+      @start-execution="startExecution"
+      @stop-execution="stopExecution"
+      @clear-all="clearAll"
     />
 
     <!-- 主工作区双栏布局 -->
@@ -261,7 +347,7 @@ onUnmounted(() => {
         :class="{ collapsed: isSidebarCollapsed }"
         :style="{ width: isSidebarCollapsed ? '0px' : `${sidebarWidth}px` }"
       >
-        <ConfigPanel v-show="!isSidebarCollapsed" />
+        <ConfigPanel v-show="!isSidebarCollapsed" @collapse="toggleSidebar" />
       </aside>
 
       <!-- 拖拽手柄 -->
@@ -276,74 +362,19 @@ onUnmounted(() => {
 
       <!-- 右侧主任务区 -->
       <main class="main" data-testid="main-panel">
-        <!-- 任务操作工具栏 -->
-        <div class="toolbar" data-testid="toolbar">
-          <div class="tb-left">
-            <button
-              class="btn"
-              :class="{
-                'btn-primary pulse': planStore.status === 'STALE',
-                'btn-secondary': planStore.status !== 'STALE'
-              }"
-              :disabled="planStore.status === 'RUNNING' || planStore.status === 'PLANNING'"
-              data-testid="btn-plan"
-              @click="createPlan"
-            >
-              <svg class="i sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7">
-                <circle cx="11" cy="11" r="7" />
-                <path d="M20 20l-3.5-3.5" />
-              </svg>
-              <span>{{ planStore.status === "PLANNING" ? "分析中…" : (planStore.status === "STALE" ? "更新计划" : "生成计划") }}</span>
-            </button>
-
-            <button
-              class="btn btn-primary"
-              :disabled="planStore.status === 'RUNNING' || planStore.tasks.length === 0 || planStore.status === 'STALE' || planStore.status === 'PLANNING'"
-              data-testid="btn-start"
-              @click="startExecution"
-            >
-              <svg class="i sm" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M8 5.5v13l11-6.5z" />
-              </svg>
-              <span>开始转码</span>
-            </button>
-
-            <button
-              class="btn btn-danger"
-              :disabled="planStore.status !== 'RUNNING' && planStore.status !== 'STOPPING'"
-              data-testid="btn-stop"
-              @click="stopExecution"
-            >
-              <svg class="i sm" viewBox="0 0 24 24" fill="currentColor">
-                <rect x="6" y="6" width="12" height="12" rx="1.5" />
-              </svg>
-              <span>终止</span>
-            </button>
-
-            <button
-              class="btn btn-ghost"
-              :disabled="planStore.status === 'RUNNING' || (configStore.inputs.length === 0 && planStore.tasks.length === 0)"
-              data-testid="btn-clear"
-              @click="clearAll"
-            >
-              清空任务
-            </button>
-
-            <!-- 参数变更 STALE 告警条 -->
-            <div v-if="planStore.status === 'STALE'" class="stale-alert" data-testid="stale-alert">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="12" cy="12" r="10" />
-                <line x1="12" y1="8" x2="12" y2="12" />
-                <line x1="12" y1="16" x2="12.01" y2="16" />
-              </svg>
-              <span>参数已变更，请点击「更新计划」</span>
-            </div>
-          </div>
-
-          <div class="tb-right" data-testid="tb-stats">
-            <span class="muted">{{ tbStatsText }}</span>
-          </div>
-        </div>
+        <!-- 侧栏收起时的左边缘浮动展开按钮 -->
+        <button
+          v-if="isSidebarCollapsed"
+          class="btn-edge-expand"
+          data-testid="btn-edge-expand"
+          title="展开转码配置栏 (Ctrl+B)"
+          @click="toggleSidebar"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="9 18 15 12 9 6" />
+          </svg>
+          <span>配置</span>
+        </button>
 
         <!-- 表格或空态 -->
         <HeroEmpty v-if="planStore.tasks.length === 0" />
@@ -353,6 +384,9 @@ onUnmounted(() => {
         <ExecutionBoard />
       </main>
     </div>
+
+    <!-- 底部状态栏 StatusBar -->
+    <StatusBar />
 
     <!-- 侧拉式右侧检查器抽屉 -->
     <TaskInspectorDrawer />
@@ -438,6 +472,38 @@ onUnmounted(() => {
   flex-direction: column;
   background: var(--bg-body);
   position: relative;
+}
+
+.btn-edge-expand {
+  position: absolute;
+  top: 12px;
+  left: 0;
+  z-index: 30;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-left: none;
+  border-radius: 0 4px 4px 0;
+  padding: 6px 8px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-2);
+  cursor: pointer;
+  box-shadow: 2px 0 8px rgba(0, 0, 0, 0.1);
+  transition: all 0.12s ease;
+}
+
+.btn-edge-expand:hover {
+  background: var(--bg-hover);
+  color: var(--primary-text);
+  border-color: var(--border-strong);
+}
+
+.btn-edge-expand svg {
+  width: 12px;
+  height: 12px;
 }
 
 .toolbar {

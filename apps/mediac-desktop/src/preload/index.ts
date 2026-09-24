@@ -44,8 +44,16 @@ const api: DesktopApi = {
   showInFolder(fullPath) {
     return ipcRenderer.invoke(IPC_CHANNELS.SYSTEM_SHOW_IN_FOLDER, fullPath)
   },
+  openPath(fullPath) {
+    return ipcRenderer.invoke(IPC_CHANNELS.SYSTEM_OPEN_PATH, fullPath)
+  },
   notify(title, body) {
     return ipcRenderer.invoke(IPC_CHANNELS.SYSTEM_NOTIFY, safeClone({ title, body }))
+  },
+  onMenuAction(callback) {
+    const listener = (_event: unknown, action: string) => callback(action)
+    ipcRenderer.on("menu:action", listener)
+    return () => ipcRenderer.removeListener("menu:action", listener)
   },
 }
 

@@ -60,8 +60,12 @@ const etaStat = computed(() => {
 
 function openOutputDir() {
   const dir = configStore.outputDir || (planStore.tasks[0]?.fileDst ? planStore.tasks[0].fileDst.replace(/[/\\][^/\\]+$/, "") : "")
-  if (dir && window.api?.showInFolder) {
-    void window.api.showInFolder(dir)
+  if (dir) {
+    if (window.api?.openPath) {
+      void window.api.openPath(dir)
+    } else if (window.api?.showInFolder) {
+      void window.api.showInFolder(dir)
+    }
   }
 }
 </script>

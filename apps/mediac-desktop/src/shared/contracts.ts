@@ -44,6 +44,12 @@ export interface EnvironmentSummary {
     hwaccels: string[]
     tier: "nvidia" | "intel" | "amd" | "cpu"
   }
+  system?: {
+    cpuModel: string
+    cpuCores: number
+    totalMemGb: number
+    freeMemGb: number
+  }
 }
 
 export interface PlanTask {
@@ -92,5 +98,7 @@ export interface DesktopApi {
   getTaskSnapshot(): Promise<Record<string, unknown>>
   onEngineEvent(callback: (event: Record<string, unknown>) => void): () => void
   showInFolder(fullPath: string): Promise<void>
+  openPath(fullPath: string): Promise<string>
   notify(title: string, body: string): Promise<void>
+  onMenuAction(callback: (action: string) => void): () => void
 }

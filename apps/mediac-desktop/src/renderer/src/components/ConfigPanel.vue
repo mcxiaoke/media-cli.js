@@ -3,15 +3,47 @@ import { ref, computed, watch } from "vue"
 import { useConfigStore } from "../stores/config"
 import { usePlanStore } from "../stores/plan"
 import { useEnvStore } from "../stores/env"
+import { useLogStore } from "../stores/log"
+
+const emit = defineEmits<{
+  (e: "collapse"): void
+}>()
 
 const config = useConfigStore()
 const plan = usePlanStore()
 const env = useEnvStore()
+const logStore = useLogStore()
+
+function formatPresetOption(p: any): string {
+  const parts: string[] = []
+  if (p.type === "audio") {
+    parts.push(p.audioCodec ? p.audioCodec.toUpperCase() : "AUDIO")
+    if (p.audioBitrate) {
+      const br = p.audioBitrate >= 1000 ? Math.round(p.audioBitrate / 1000) : p.audioBitrate
+      parts.push(`${br}k`)
+    }
+    if (p.format) parts.push(p.format)
+    return `${p.name} [${parts.join(" · ")}]`
+  }
+  // video
+  if (p.videoCodecFamily) parts.push(p.videoCodecFamily.toUpperCase())
+  if (p.dimension) parts.push(`${p.dimension}p`)
+  if (p.videoQuality) parts.push(`CRF${p.videoQuality}`)
+  else if (p.videoBitrate) {
+    const br = p.videoBitrate >= 1000 ? Math.round(p.videoBitrate / 1000) : p.videoBitrate
+    parts.push(`${br}k`)
+  }
+  if (p.audioCodec || p.audioBitrate) {
+    const br = p.audioBitrate ? (p.audioBitrate >= 1000 ? Math.round(p.audioBitrate / 1000) : p.audioBitrate) : null
+    const a = [p.audioCodec?.toUpperCase(), br ? `${br}k` : ""].filter(Boolean).join(" ")
+    if (a) parts.push(a)
+  }
+  return `${p.name} [${parts.join(" · ")}]`
+}
 
 // Accordion collapse state
 const isVideoOpen = ref(false)
 const isAudioOpen = ref(false)
-const isAdvOpen = ref(false)
 
 // Manual input text
 const manualPathInput = ref("")
@@ -45,11 +77,95 @@ watch(
   }
 )
 
+// Watch preset & tune parameters to record live audit logs
+watch(
+  () => config.preset,
+  (newPreset, oldPreset) => {
+    if (newPreset && oldPreset && newPreset !== oldPreset) {
+      logStore.append({
+        level: "INFO",
+        message: `转码预设已切换: ${oldPreset} → ${newPreset}`,
+        timestamp: new Date().toLocaleTimeString(),
+      })
+    }
+  }
+)
+
+watch(
+  () => config.tune.dimension,
+  (newVal, oldVal) => {
+    if (newVal !== undefined && oldVal !== undefined && newVal !== oldVal) {
+      logStore.append({
+        level: "INFO",
+        message: `修改视频分辨率: ${newVal === 0 ? "保持源分辨率" : newVal + "p"}`,
+        timestamp: new Date().toLocaleTimeString(),
+      })
+    }
+  }
+)
+
+watch(
+  () => config.tune.quality,
+  (newVal, oldVal) => {
+    if (newVal !== undefined && oldVal !== undefined && newVal !== oldVal) {
+      logStore.append({
+        level: "INFO",
+        message: `修改视频质量 CRF: ${newVal === 0 ? "跟随预设" : newVal}`,
+        timestamp: new Date().toLocaleTimeString(),
+      })
+    }
+  }
+)
+
+watch(
+  () => config.tune.bitrate,
+  (newVal, oldVal) => {
+    if (newVal !== undefined && oldVal !== undefined && newVal !== oldVal) {
+      logStore.append({
+        level: "INFO",
+        message: `修改视频码率: ${newVal || "跟随预设"}`,
+        timestamp: new Date().toLocaleTimeString(),
+      })
+    }
+  }
+)
+
+watch(
+  () => config.tune.audioCodec,
+  (newVal, oldVal) => {
+    if (newVal !== undefined && oldVal !== undefined && newVal !== oldVal) {
+      logStore.append({
+        level: "INFO",
+        message: `修改音频编码: ${newVal || "跟随预设"}`,
+        timestamp: new Date().toLocaleTimeString(),
+      })
+    }
+  }
+)
+
+watch(
+  () => config.tune.audioBitrate,
+  (newVal, oldVal) => {
+    if (newVal !== undefined && oldVal !== undefined && newVal !== oldVal) {
+      logStore.append({
+        level: "INFO",
+        message: `修改音频码率: ${newVal || "跟随预设"}`,
+        timestamp: new Date().toLocaleTimeString(),
+      })
+    }
+  }
+)
+
 async function pickFiles() {
   try {
     const res = await window.api.selectFiles({ mode: "file", multiple: true })
     if (res.paths.length > 0) {
       config.addInputs(res.paths)
+      logStore.append({
+        level: "INFO",
+        message: `已添加 ${res.paths.length} 个媒体文件`,
+        timestamp: new Date().toLocaleTimeString(),
+      })
     }
   } catch (err) {
     console.error("selectFiles error:", err)
@@ -61,6 +177,11 @@ async function pickDirectory() {
     const res = await window.api.selectFiles({ mode: "directory", multiple: false })
     if (res.paths.length > 0) {
       config.addInputs(res.paths)
+      logStore.append({
+        level: "INFO",
+        message: `已添加媒体目录: ${res.paths.join(", ")}`,
+        timestamp: new Date().toLocaleTimeString(),
+      })
     }
   } catch (err) {
     console.error("selectFiles directory error:", err)
@@ -72,6 +193,11 @@ async function pickOutputDir() {
     const res = await window.api.selectFiles({ mode: "directory", multiple: false })
     if (res.paths.length > 0) {
       config.outputDir = res.paths[0]
+      logStore.append({
+        level: "INFO",
+        message: `输出目录已设置为: ${res.paths[0]}`,
+        timestamp: new Date().toLocaleTimeString(),
+      })
     }
   } catch (err) {
     console.error("selectOutputDir error:", err)
@@ -83,7 +209,22 @@ function addManualPath() {
   if (val) {
     config.addInputs([val])
     manualPathInput.value = ""
+    logStore.append({
+      level: "INFO",
+      message: `手动添加路径: ${val}`,
+      timestamp: new Date().toLocaleTimeString(),
+    })
   }
+}
+
+function removeInput(idx: number) {
+  const item = config.inputs[idx]
+  config.removeInput(idx)
+  logStore.append({
+    level: "INFO",
+    message: `已移除输入项: ${item}`,
+    timestamp: new Date().toLocaleTimeString(),
+  })
 }
 
 function handleDrop(event: DragEvent) {
@@ -100,6 +241,11 @@ function handleDrop(event: DragEvent) {
     .filter(Boolean)
   if (paths.length > 0) {
     config.addInputs(paths)
+    logStore.append({
+      level: "INFO",
+      message: `拖拽添加了 ${paths.length} 项路径`,
+      timestamp: new Date().toLocaleTimeString(),
+    })
   }
 }
 
@@ -141,27 +287,47 @@ const audioSummary = computed(() => {
   else if (selectedPresetObj.value?.audioCodec) parts.push(selectedPresetObj.value.audioCodec)
 
   if (config.tune.audioBitrate) parts.push(config.tune.audioBitrate)
-  else if (selectedPresetObj.value?.audioBitrate) parts.push(`${selectedPresetObj.value.audioBitrate}k`)
+  else if (selectedPresetObj.value?.audioBitrate) {
+    const br = selectedPresetObj.value.audioBitrate
+    const brStr = String(br).endsWith("k") ? String(br) : (Number(br) >= 1000 ? Math.round(Number(br) / 1000) + "k" : `${br}k`)
+    parts.push(brStr)
+  }
 
   return parts.length > 0 ? parts.join(" · ") : "默认"
 })
-
-function handleDeleteSourceToggle() {
-  if (!config.adv.deleteSource) {
-    const ok = window.confirm(
-      "【高危确认】转码成功且产物校验通过后，源文件将被移入 Mediac 安全回收目录（~/.mediac/deleted/日期），可随时恢复。请确认是否开启？"
-    )
-    if (ok) {
-      config.adv.deleteSource = true
-    }
-  } else {
-    config.adv.deleteSource = false
-  }
-}
 </script>
 
 <template>
   <aside class="side-panel" data-testid="config-panel">
+    <!-- 侧栏顶部收起栏 -->
+    <div class="side-top-bar">
+      <div class="side-top-title">
+        <svg class="side-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="4" y1="21" x2="4" y2="14" />
+          <line x1="4" y1="10" x2="4" y2="3" />
+          <line x1="12" y1="21" x2="12" y2="12" />
+          <line x1="12" y1="8" x2="12" y2="3" />
+          <line x1="20" y1="21" x2="20" y2="16" />
+          <line x1="20" y1="12" x2="20" y2="3" />
+          <line x1="1" y1="14" x2="7" y2="14" />
+          <line x1="9" y1="8" x2="15" y2="8" />
+          <line x1="17" y1="16" x2="23" y2="16" />
+        </svg>
+        <span>转码配置</span>
+      </div>
+      <button
+        class="side-collapse-btn"
+        data-testid="btn-sidebar-collapse"
+        title="收起配置栏 (Ctrl+B)"
+        @click="emit('collapse')"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="15 18 9 12 15 6" />
+        </svg>
+        <span>收起</span>
+      </button>
+    </div>
+
     <!-- 1 输入与输出 -->
     <section class="card" data-testid="card-input-output">
       <div class="card-title">
@@ -173,18 +339,18 @@ function handleDeleteSourceToggle() {
           class="dropzone"
           tabindex="0"
           role="button"
-          aria-label="拖入或点击添加媒体文件"
+          aria-label="拖入或点击添加媒体目录"
           data-testid="side-dropzone"
           @dragover.prevent
           @drop="handleDrop"
-          @click="pickFiles"
+          @click="pickDirectory"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
             <path d="M3 16v2.5A2.5 2.5 0 0 0 5.5 21h13a2.5 2.5 0 0 0 2.5-2.5V16" />
             <path d="M12 3v13" />
             <path d="M7 8l5-5 5 5" />
           </svg>
-          <span>拖入媒体文件或目录，或点击此处添加</span>
+          <span>拖入媒体文件或目录，或点击浏览目录</span>
         </div>
 
         <div class="btn-row">
@@ -225,7 +391,7 @@ function handleDeleteSourceToggle() {
               class="chip-x"
               title="移除该项"
               :data-testid="`btn-remove-input-${idx}`"
-              @click="config.removeInput(idx)"
+              @click="removeInput(idx)"
             >
               ✕
             </button>
@@ -283,7 +449,7 @@ function handleDeleteSourceToggle() {
           <select v-model="config.preset" class="select" data-testid="select-preset">
             <optgroup v-for="(presets, group) in presetGroups" :key="group" :label="group">
               <option v-for="p in presets" :key="p.name" :value="p.name">
-                {{ p.name }} · {{ p.format }} · {{ p.type }}
+                {{ formatPresetOption(p) }}
               </option>
             </optgroup>
           </select>
@@ -298,7 +464,7 @@ function handleDeleteSourceToggle() {
               CRF {{ selectedPresetObj.videoQuality }}
             </span>
             <span v-if="selectedPresetObj.audioCodec" class="badge a">
-              {{ selectedPresetObj.audioCodec }} {{ selectedPresetObj.audioBitrate ? `${selectedPresetObj.audioBitrate}k` : '' }}
+              {{ selectedPresetObj.audioCodec }} {{ selectedPresetObj.audioBitrate ? (String(selectedPresetObj.audioBitrate).endsWith('k') ? selectedPresetObj.audioBitrate : (selectedPresetObj.audioBitrate >= 1000 ? Math.round(selectedPresetObj.audioBitrate / 1000) + 'k' : selectedPresetObj.audioBitrate + 'k')) : '' }}
             </span>
           </div>
         </div>
@@ -554,120 +720,14 @@ function handleDeleteSourceToggle() {
           </div>
           <select v-model="config.tune.audioBitrate" class="select" data-testid="select-audio-bitrate">
             <option value="">留空 · 跟随预设</option>
+            <option value="48k">48k · 极低码率 (Opus 语音推荐)</option>
+            <option value="64k">64k · 低码率 (Opus 音乐推荐)</option>
             <option value="96k">96k · 语音/低码率</option>
             <option value="128k">128k · 标准清晰度</option>
             <option value="192k">192k · 高音质</option>
             <option value="256k">256k · 录音室级别</option>
             <option value="320k">320k · 极高码率</option>
           </select>
-        </div>
-      </div>
-    </section>
-
-    <!-- 5 高级选项 -->
-    <section class="card" data-testid="card-advanced">
-      <div class="card-title toggle" @click="isAdvOpen = !isAdvOpen">
-        <span>高级选项</span>
-        <svg class="chev i sm" :class="{ open: isAdvOpen }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <polyline points="6 9 12 15 18 9" />
-        </svg>
-      </div>
-
-      <div v-show="isAdvOpen" class="card-body" data-testid="advanced-body">
-        <div class="field-row two">
-          <div class="field">
-            <label class="lbl">硬件加速</label>
-            <select v-model="config.adv.hwaccel" class="select" data-testid="select-hwaccel">
-              <option value="auto">auto · 自动推荐</option>
-              <option value="cuda">cuda · NVIDIA NVENC</option>
-              <option value="qsv">qsv · Intel QuickSync</option>
-              <option value="amf">amf · AMD AMF</option>
-              <option value="d3d11va">d3d11va · Windows D3D</option>
-              <option value="cpu">cpu · 仅 CPU 软解软编</option>
-            </select>
-          </div>
-          <div class="field">
-            <label class="lbl">解码模式</label>
-            <select v-model="config.adv.decodeMode" class="select" data-testid="select-decode-mode">
-              <option value="auto">auto · 自动</option>
-              <option value="gpu">gpu · 硬件硬解优先</option>
-              <option value="cpu">cpu · CPU 软解</option>
-            </select>
-          </div>
-        </div>
-
-        <div class="field">
-          <label class="lbl">
-            并发任务数 <span class="hint">仅音频并行，视频始终串行</span>
-          </label>
-          <input
-            v-model.number="config.adv.jobs"
-            type="number"
-            min="1"
-            max="4"
-            class="input num"
-            data-testid="input-jobs"
-          />
-        </div>
-
-        <div class="switches-list">
-          <div class="sw-row">
-            <span class="lbl">覆盖已存在产物</span>
-            <span
-              class="sw"
-              :class="{ on: config.adv.override }"
-              role="switch"
-              :aria-checked="config.adv.override"
-              data-testid="sw-override"
-              tabindex="0"
-              @click="config.adv.override = !config.adv.override"
-            ></span>
-          </div>
-
-          <div class="sw-row">
-            <span class="lbl">
-              动漫调优 <span class="hint">保线条，收紧质量</span>
-            </span>
-            <span
-              class="sw"
-              :class="{ on: config.adv.anime }"
-              role="switch"
-              :aria-checked="config.adv.anime"
-              data-testid="sw-anime"
-              tabindex="0"
-              @click="config.adv.anime = !config.adv.anime"
-            ></span>
-          </div>
-
-          <div class="sw-row">
-            <span class="lbl">
-              严格模式 <span class="hint">禁用自动降级与重试</span>
-            </span>
-            <span
-              class="sw"
-              :class="{ on: config.adv.strict }"
-              role="switch"
-              :aria-checked="config.adv.strict"
-              data-testid="sw-strict"
-              tabindex="0"
-              @click="config.adv.strict = !config.adv.strict"
-            ></span>
-          </div>
-
-          <div class="sw-row">
-            <span class="lbl err">
-              转码后删除源文件 <span class="hint">移入安全回收目录</span>
-            </span>
-            <span
-              class="sw err-sw"
-              :class="{ on: config.adv.deleteSource }"
-              role="switch"
-              :aria-checked="config.adv.deleteSource"
-              data-testid="sw-delete-source"
-              tabindex="0"
-              @click="handleDeleteSourceToggle"
-            ></span>
-          </div>
         </div>
       </div>
     </section>
@@ -681,6 +741,58 @@ function handleDeleteSourceToggle() {
   gap: 10px;
   overflow-y: auto;
   height: 100%;
+}
+
+.side-top-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  flex-shrink: 0;
+}
+
+.side-top-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-base);
+}
+
+.side-icon {
+  width: 15px;
+  height: 15px;
+  color: var(--primary);
+}
+
+.side-collapse-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 8px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-2);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.side-collapse-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-base);
+  border-color: var(--border-strong);
+}
+
+.side-collapse-btn svg {
+  width: 12px;
+  height: 12px;
 }
 
 .card {

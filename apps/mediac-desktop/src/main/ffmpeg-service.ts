@@ -1,4 +1,5 @@
 import { app } from "electron"
+import os from "node:os"
 import { execFile, execFileSync } from "node:child_process"
 import { existsSync } from "node:fs"
 import { readFile, mkdir, rename, rm, writeFile } from "node:fs/promises"
@@ -156,6 +157,12 @@ class FfmpegEnvironmentService {
         hwaccels: Array.from(this.hardware?.hwaccels || []),
         tier,
       },
+      system: {
+        cpuModel: os.cpus()[0]?.model?.trim() || "CPU",
+        cpuCores: os.cpus().length,
+        totalMemGb: Math.round(os.totalmem() / (1024 * 1024 * 1024)),
+        freeMemGb: Math.round(os.freemem() / (1024 * 1024 * 1024)),
+      },
     }
   }
 
@@ -175,6 +182,13 @@ class FfmpegEnvironmentService {
         presets.getPreset("h264_2k") ||
         presets.getPreset(allPresetNames[0])
       if (!presetObject) throw new Error("No FFmpeg presets are available")
+
+      this.eventSink?.({
+        type: "task.log",
+        level: "INFO",
+        message: `开始分析输入源并构建转码计划（预设模板: ${presetObject.name}）...`,
+        timestamp: new Date().toLocaleTimeString(),
+      })
 
       if (
         normalized.deleteSourceFiles &&
@@ -197,6 +211,13 @@ class FfmpegEnvironmentService {
       })) as any[]
       if (files.length === 0) throw new Error("No media files found in specified inputs")
 
+      this.eventSink?.({
+        type: "task.log",
+        level: "INFO",
+        message: `输入扫描完成：匹配到 ${files.length} 个媒体文件，正在提取元数据与编排参数...`,
+        timestamp: new Date().toLocaleTimeString(),
+      })
+
       const prepared = (await (prepareFFmpegPlan as any)({
         entries: files,
         preset: activePreset,
@@ -214,12 +235,29 @@ class FfmpegEnvironmentService {
       })) as any
       this.currentPlan = prepared.plan
 
+      this.eventSink?.({
+        type: "task.log",
+        level: "INFO",
+        message: `计划生成就绪：共编排 ${this.currentPlan.totalTasks} 个转码任务，预估总大小 ${(this.currentPlan.totalSize / 1e6).toFixed(1)} MB，预估总耗时 ${this.currentPlan.totalDuration.toFixed(0)} 秒`,
+        timestamp: new Date().toLocaleTimeString(),
+      })
+
       // Generate previewCmd for the first task if missing
       if (this.currentPlan?.tasks?.length > 0 && !this.currentPlan.previewCmd) {
         try {
           const firstTask = this.currentPlan.tasks[0]
           const buildResult = createFFmpegArgs(firstTask, firstTask.hwPlan || null)
-          const flat = flattenFFArgs(buildResult?.args)
+          const rawArgs = buildResult?.args ? buildResult.args.flat() : []
+          const flat = rawArgs
+            .map((arg: any) => {
+              const s = String(arg)
+              if (s.length === 0) return '""'
+              if (/[\s"']/.test(s)) {
+                return `"${s.replace(/"/g, '\\"')}"`
+              }
+              return s
+            })
+            .join(" ")
           if (flat) this.currentPlan.previewCmd = `ffmpeg ${flat}`
         } catch {
           // Keep empty string fallback

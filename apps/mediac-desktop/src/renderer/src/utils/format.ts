@@ -22,10 +22,37 @@ export function escapeHtml(s: string): string {
 }
 
 export function highlightFfmpegCmd(cmdStr: string): string {
-  let s = escapeHtml(cmdStr)
-  // Highlight quoted paths first so HTML tag attributes are not matched
-  s = s.replace(/"([^"]*)"/g, '<span class="path">"$1"</span>')
-  // Then highlight CLI flags
-  s = s.replace(/(\s)(-[a-z0-9:_]+)(?=\s|$)/gi, '$1<span class="fl">$2</span>')
-  return s
+  if (!cmdStr) return ""
+  // Single-pass regex tokenizer:
+  // 1. Quoted string: "..."
+  // 2. CLI flag: -flag or -option:specifier
+  // 3. Any non-whitespace token
+  const regex = /"([^"\\]*(?:\\.[^"\\]*)*)"|(-[a-zA-Z0-9:_]+)|([^\s]+)/g
+  let match: RegExpExecArray | null
+  let lastIndex = 0
+  let html = ""
+
+  while ((match = regex.exec(cmdStr)) !== null) {
+    if (match.index > lastIndex) {
+      html += escapeHtml(cmdStr.slice(lastIndex, match.index))
+    }
+    lastIndex = regex.lastIndex
+
+    if (match[1] !== undefined) {
+      // Quoted string/path
+      html += `<span class="path">&quot;${escapeHtml(match[1])}&quot;</span>`
+    } else if (match[2] !== undefined) {
+      // CLI flag
+      html += `<span class="fl">${escapeHtml(match[2])}</span>`
+    } else if (match[3] !== undefined) {
+      // Regular parameter value
+      html += escapeHtml(match[3])
+    }
+  }
+
+  if (lastIndex < cmdStr.length) {
+    html += escapeHtml(cmdStr.slice(lastIndex))
+  }
+
+  return html
 }

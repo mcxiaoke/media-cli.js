@@ -205,13 +205,14 @@ async function copyAll() {
   flex: 1;
   overflow-y: auto;
   padding: 12px 14px;
-  background: #0d0d10;
+  background: #0d1117;
   font-family: var(--mono);
   font-size: 11px;
   line-height: 1.5;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
+  color: #e6edf3;
 }
 
 .log-line {
@@ -221,17 +222,17 @@ async function copyAll() {
 }
 
 .ts {
-  color: var(--text-3);
+  color: #7d8590;
   flex-shrink: 0;
 }
 
-.l-INFO .txt { color: var(--text-base); }
-.l-CMD .txt { color: var(--primary-text); }
-.l-WARN .txt { color: var(--warning); }
-.l-ERROR .txt { color: var(--error); font-weight: 600; }
+.l-INFO .txt { color: #e6edf3; }
+.l-CMD .txt { color: #7ee787; font-weight: 500; }
+.l-WARN .txt { color: #e3b341; }
+.l-ERROR .txt { color: #f85149; font-weight: 600; }
 
 .log-empty {
-  color: var(--text-3);
+  color: #7d8590;
   text-align: center;
   padding: 40px 0;
 }

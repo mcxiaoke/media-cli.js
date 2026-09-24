@@ -1,8 +1,24 @@
 import { BrowserWindow, Notification, powerSaveBlocker, shell } from "electron"
+import { existsSync, statSync } from "node:fs"
 
 let powerSaveBlockerId: number | null = null
 
+export async function openPath(fullPath: string): Promise<string> {
+  return shell.openPath(fullPath)
+}
+
 export function showItemInFolder(fullPath: string): void {
+  try {
+    if (existsSync(fullPath)) {
+      const stat = statSync(fullPath)
+      if (stat.isDirectory()) {
+        void shell.openPath(fullPath)
+        return
+      }
+    }
+  } catch {
+    // fallback to showItemInFolder
+  }
   shell.showItemInFolder(fullPath)
 }
 

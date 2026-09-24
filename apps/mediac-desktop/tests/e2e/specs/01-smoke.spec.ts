@@ -5,13 +5,14 @@ test.describe("MediCli Desktop - Smoke & Visual Spec", () => {
     // 1. HeaderBar check
     const headerBar = appWindow.locator('[data-testid="header-bar"]')
     await expect(headerBar).toBeVisible()
-    await expect(headerBar).toContainText("mediac FFmpeg Studio")
+    await expect(appWindow.locator('[data-testid="btn-plan"]')).toBeVisible()
+    await expect(appWindow.locator('[data-testid="btn-start"]')).toBeVisible()
 
     const stateTag = appWindow.locator('[data-testid="state-tag"]')
     await expect(stateTag).toBeVisible()
     await expect(stateTag).toContainText("待机")
 
-    // 2. ConfigPanel cards check
+    // 2. ConfigPanel cards check (4 core cards, advanced options moved to settings)
     const configPanel = appWindow.locator('[data-testid="config-panel"]')
     await expect(configPanel).toBeVisible()
 
@@ -19,7 +20,11 @@ test.describe("MediCli Desktop - Smoke & Visual Spec", () => {
     await expect(appWindow.locator('[data-testid="card-preset"]')).toBeVisible()
     await expect(appWindow.locator('[data-testid="card-video"]')).toBeVisible()
     await expect(appWindow.locator('[data-testid="card-audio"]')).toBeVisible()
-    await expect(appWindow.locator('[data-testid="card-advanced"]')).toBeVisible()
+
+    // 3. StatusBar check
+    const statusBar = appWindow.locator('[data-testid="status-bar"]')
+    await expect(statusBar).toBeVisible()
+    await expect(statusBar).toContainText("ffmpeg:")
 
     // 3. HeroEmpty dropzone check
     const heroEmpty = appWindow.locator('[data-testid="hero-empty"]')

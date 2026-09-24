@@ -12,8 +12,16 @@ const task = computed(() => plan.inspectedTask)
 const cmdString = computed(() => {
   if (!task.value) return ""
   if (plan.planSnapshot?.previewCmd) {
-    // If we have a preview command from snapshot, adapt it with this task's path
-    return plan.planSnapshot.previewCmd
+    const base = plan.planSnapshot.previewCmd
+    const firstTask = plan.tasks[0]
+    if (firstTask && task.value.id !== firstTask.id) {
+      return base
+        .split(`"${firstTask.path}"`).join(`"${task.value.path}"`)
+        .split(firstTask.path).join(task.value.path)
+        .split(`"${firstTask.fileDst}"`).join(`"${task.value.fileDst}"`)
+        .split(firstTask.fileDst).join(task.value.fileDst)
+    }
+    return base
   }
   return `ffmpeg -i "${task.value.path}" -c:v libx265 -crf 23 -c:a aac -b:a 192k "${task.value.fileDst}"`
 })
@@ -293,27 +301,27 @@ function locateFile() {
 }
 
 .cmd-box {
-  background: #0d0d10;
-  border: 1px solid var(--border);
+  background: #0d1117;
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius);
   padding: 10px 12px;
   font-family: var(--mono);
   font-size: 11px;
   line-height: 1.6;
-  color: var(--text-2);
+  color: #e6edf3;
   word-break: break-all;
   white-space: pre-wrap;
-  max-height: 200px;
+  max-height: 220px;
   overflow-y: auto;
 }
 
 :deep(.fl) {
-  color: var(--primary-text);
+  color: #7ee787;
   font-weight: 600;
 }
 
 :deep(.path) {
-  color: var(--info);
+  color: #79c0ff;
 }
 
 .paths-box {

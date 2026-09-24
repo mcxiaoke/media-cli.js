@@ -30,7 +30,10 @@ function handleRowDblClick(task: PlanTask) {
 
 function openInFolder(task: PlanTask, event: MouseEvent) {
   event.stopPropagation()
-  const target = task.fileDst || task.path
+  // Before transcoding finishes, locate the existing source file;
+  // Once finished, locate the generated destination file.
+  const isDone = task.status === "success" || task.status === "done"
+  const target = isDone ? (task.fileDst || task.path) : task.path
   if (target && window.api?.showInFolder) {
     void window.api.showInFolder(target)
   }
@@ -163,13 +166,14 @@ function isSelected(id: string) {
             <div class="t-ops">
               <button
                 class="icon-btn"
-                title="检查任务详情与命令行"
+                title="查看源媒体规格与推演命令 (ffprobe)"
                 data-testid="btn-inspect-task"
                 @click="inspectTask(task, $event)"
               >
                 <svg class="i sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                  <circle cx="12" cy="12" r="3" />
+                  <circle cx="12" cy="12" r="10" />
+                  <line x1="12" y1="16" x2="12" y2="12" />
+                  <line x1="12" y1="8" x2="12.01" y2="8" />
                 </svg>
               </button>
               <button
@@ -183,16 +187,16 @@ function isSelected(id: string) {
                 </svg>
               </button>
               <button
-                class="icon-btn"
-                title="查看该任务日志"
+                v-if="task.status === 'failed'"
+                class="icon-btn err-icon"
+                title="查看失败错误日志"
                 data-testid="btn-task-log"
                 @click="focusTaskLog(task, $event)"
               >
                 <svg class="i sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                  <polyline points="14 2 14 8 20 8" />
-                  <line x1="16" y1="13" x2="8" y2="13" />
-                  <line x1="16" y1="17" x2="8" y2="17" />
+                  <polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2" />
+                  <line x1="12" y1="8" x2="12" y2="12" />
+                  <line x1="12" y1="16" x2="12.01" y2="16" />
                 </svg>
               </button>
             </div>
@@ -426,6 +430,14 @@ tbody tr.dim {
 .icon-btn:hover {
   background: var(--bg-hover);
   color: var(--text-base);
+}
+
+.icon-btn.err-icon {
+  color: var(--error);
+}
+
+.icon-btn.err-icon:hover {
+  background: var(--error-soft);
 }
 
 svg.i {
