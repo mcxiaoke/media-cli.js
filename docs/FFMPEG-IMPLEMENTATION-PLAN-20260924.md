@@ -178,13 +178,13 @@ Options -> Scan -> Task -> Plan -> Execute -> Result/Event
 
 ### 4.3 Engine
 
-- [ ] 新增 `lib/ffmpeg_engine.js`；
-- [ ] 使用实例化依赖，不使用模块级 configure；
+- [x] 新增 `lib/ffmpeg_engine.js`；
+- [x] 使用实例化依赖，不使用模块级 configure；
 - [ ] 统一 prepare/run concurrency；
 - [ ] 统一 retry/Attempt；
-- [ ] 统一 stop/cancel；
+- [x] 统一 stop/cancel；
 - [ ] 统一 delete-source 确认；
-- [ ] 统一 summary/result；
+- [x] 统一 summary/result；
 - [ ] 处理异常、取消、空计划、全部跳过和 stale plan。
 
 **阶段 2 验收**：
@@ -382,6 +382,7 @@ npm test/check/lint 结果已记录；
 | 2026-09-24 | 计划创建 | 已完成 | 综合三份评审报告建立实施计划 |
 | 2026-09-24 | 第一批 | 已完成 | ffweb 安全、stop/cancel、override、RunResult 过渡适配、scan/task seam；npm test 297/297 通过 |
 | 2026-09-24 | 阶段 1A：领域契约 | 已完成 | FFmpeg Options adapters、Internal/Public Plan、EngineEvent、PublicSnapshot；ffweb 已接入 Options/PublicSnapshot；npm test 304/304 通过；Attempt/fake runner/完整 Engine 留待后续 |
+| 2026-09-24 | 阶段 2A：共享执行 Engine | 已完成 | 新增实例化 `ffmpeg_engine`，统一队列、状态、取消、summary、RunResult 和 EngineEvent；ffweb 执行循环已切换；npm test 307/307 通过；retry/delete-source/完整 prepare 留待后续 |
 
 ---
 

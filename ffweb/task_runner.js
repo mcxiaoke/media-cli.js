@@ -8,6 +8,7 @@ import fs from "fs-extra"
 import { resolveFFmpegBinary } from "../lib/ffmpeg_bin.js"
 import { createFFmpegArgs, flattenFFArgs } from "../lib/ffmpeg_build.js"
 import { buildTask } from "../lib/ffmpeg_task.js"
+import { createFFmpegEngine } from "../lib/ffmpeg_engine.js"
 import {
     createInternalExecutionPlan,
     createPublicPlanSnapshot,
@@ -15,7 +16,7 @@ import {
 import { normalizeWebOptions, toLegacyArgvOptions } from "../lib/ffmpeg_options.js"
 import presets from "../lib/ffmpeg_presets.js"
 import { runFFmpegCmd, setFFmpegPath } from "../lib/ffmpeg_run.js"
-import { RUN_STATUS, toRunResult } from "../lib/ffmpeg_result.js"
+import { RUN_STATUS } from "../lib/ffmpeg_result.js"
 import { collectInputFiles as collectSharedInputFiles } from "../lib/ffmpeg_scan.js"
 import * as helper from "../lib/helper.js"
 import { TIERS } from "../lib/hwaccel.js"
@@ -321,183 +322,136 @@ export class TaskRunner {
         const plan = this.currentPlan
         const tasks = plan.tasks
         const startTime = Date.now()
-        let successCount = 0
-        let failedCount = 0
-
         this.appendLog("info", "Run", `Starting execution of ${tasks.length} task(s)...`)
 
+        const engine = createFFmpegEngine({
+            runTask: (task, context) =>
+                runFFmpegCmd(task, {
+                    showBar: false,
+                    signal: context.signal,
+                    onProgress: context.onProgress,
+                    onLog: context.onLog,
+                }),
+        })
+
         try {
-            for (let i = 0; i < tasks.length; i++) {
-                if (signal.aborted) {
-                    break
-                }
-                this.currentTaskIndex = i
-                const task = tasks[i]
-                task.status = "running"
-                this.emit("TASK_START", { index: i, taskName: task.name })
-                this.appendLog("info", "Run", `[${i + 1}/${tasks.length}] Processing: ${task.name}`)
-
-                try {
-                    const res = await runFFmpegCmd(task, {
-                        showBar: false,
-                        signal,
-                        onProgress: (p) => {
-                            this.currentProgress = {
-                                taskIndex: i,
-                                totalTasks: tasks.length,
-                                currentFile: task.name,
-                                percent: p.percent,
-                                speed: p.speed,
-                                currentTime: p.currentTime,
-                                srcDuration: p.srcDuration,
-                            }
-                            this.emit("PROGRESS", this.currentProgress)
-                        },
-                        onLog: (line) => {
-                            const trimmed = String(line || "").trim()
-                            if (trimmed.startsWith("[PREPARE]")) {
-                                this.appendLog("info", "Prepare", trimmed.replace("[PREPARE] ", ""))
-                            } else if (trimmed.startsWith("[CMD]")) {
-                                this.appendLog("info", "Command", trimmed.replace("[CMD] ", ""))
-                            } else if (trimmed.startsWith("[DONE]")) {
-                                this.appendLog("info", "Done", trimmed.replace("[DONE] ", ""))
-                            } else {
-                                this.appendLog("debug", "FFmpeg", trimmed)
-                            }
-                        },
-                    })
-
-                    const result = toRunResult(res)
-                    if (signal.aborted || result.status === RUN_STATUS.CANCELLED) {
-                        task.status = "cancelled"
+            const summary = await engine.execute(plan, {
+                mode: "execute",
+                signal,
+                concurrency: 1,
+                onTaskStart: ({ task, index, total }) => {
+                    this.currentTaskIndex = index
+                    this.emit("TASK_START", { index, taskName: task.name })
+                    this.appendLog(
+                        "info",
+                        "Run",
+                        `[${index + 1}/${total}] Processing: ${task.name}`,
+                    )
+                },
+                onTaskProgress: (progress, { task, index, total }) => {
+                    this.currentProgress = {
+                        taskIndex: index,
+                        totalTasks: total,
+                        currentFile: task.name,
+                        ...progress,
+                    }
+                    this.emit("PROGRESS", this.currentProgress)
+                },
+                onTaskLog: (line) => {
+                    const trimmed = String(line || "").trim()
+                    if (trimmed.startsWith("[PREPARE]")) {
+                        this.appendLog("info", "Prepare", trimmed.replace("[PREPARE] ", ""))
+                    } else if (trimmed.startsWith("[CMD]")) {
+                        this.appendLog("info", "Command", trimmed.replace("[CMD] ", ""))
+                    } else if (trimmed.startsWith("[DONE]")) {
+                        this.appendLog("info", "Done", trimmed.replace("[DONE] ", ""))
+                    } else {
+                        this.appendLog("debug", "FFmpeg", trimmed)
+                    }
+                },
+                onTaskDone: ({ task, index, result }) => {
+                    if (result.status === RUN_STATUS.CANCELLED) {
                         this.emit("FILE_DONE", {
-                            index: i,
+                            index,
                             name: task.name,
                             ok: false,
                             cancelled: true,
                             status: result.status,
                         })
                         this.appendLog("warn", "Stop", `Task cancelled by user: ${task.name}`)
-                        break
                     } else if (result.status === RUN_STATUS.SUCCESS) {
-                        task.status = "done"
-                        successCount++
                         this.emit("FILE_DONE", {
-                            index: i,
+                            index,
                             name: task.name,
                             ok: true,
                             status: result.status,
                         })
-                        this.appendLog(
-                            "info",
-                            "Done",
-                            `[${i + 1}/${tasks.length}] Done: ${task.name}`,
-                        )
+                        this.appendLog("info", "Done", `Done: ${task.name}`)
                     } else if (result.status === RUN_STATUS.SKIPPED) {
-                        task.status = "skipped"
                         this.emit("FILE_DONE", {
-                            index: i,
+                            index,
                             name: task.name,
                             ok: true,
                             skipped: true,
                             status: result.status,
                             reason: result.reason,
                         })
-                        this.appendLog(
-                            "warn",
-                            "Skip",
-                            `[${i + 1}/${tasks.length}] Output already exists: ${task.name}`,
-                        )
+                        this.appendLog("warn", "Skip", `Output already exists: ${task.name}`)
                     } else {
-                        task.status = "failed"
-                        task.error = result.error
-                        failedCount++
                         this.emit("FILE_DONE", {
-                            index: i,
+                            index,
                             name: task.name,
                             ok: false,
                             status: result.status,
-                            error: task.error,
+                            error: result.error,
                         })
-                        this.appendLog(
-                            "error",
-                            "Fail",
-                            `[${i + 1}/${tasks.length}] Failed: ${task.name} - ${task.error}`,
-                        )
+                        this.appendLog("error", "Fail", `Failed: ${task.name} - ${result.error}`)
                     }
-                } catch (err) {
-                    if (
-                        signal.aborted ||
-                        err?.name === "AbortError" ||
-                        err?.code === "ABORT_ERR" ||
-                        err?.isCanceled
-                    ) {
-                        task.status = "cancelled"
-                        this.emit("FILE_DONE", {
-                            index: i,
-                            name: task.name,
-                            ok: false,
-                            cancelled: true,
-                        })
-                        this.appendLog("warn", "Stop", `Task cancelled by user: ${task.name}`)
-                        break
+                },
+                onSummary: (summary) => {
+                    const isCancelled = summary.isCancelled
+                    this.status = isCancelled ? "STOPPED" : "COMPLETED"
+                    this.summary = {
+                        ...summary,
+                        humanElapsed: helper.humanTime(startTime),
                     }
-                    task.status = "failed"
-                    task.error = err.message
-                    failedCount++
-                    this.emit("FILE_DONE", {
-                        index: i,
-                        name: task.name,
-                        ok: false,
-                        error: err.message,
-                    })
+                    this.currentProgress = null
+                    this.activeAbortController = null
+                    this.currentTaskIndex = -1
+                    this.emit("STATUS_CHANGE", { status: this.status })
+                    this.emit("ALL_DONE", this.summary)
                     this.appendLog(
-                        "error",
-                        "Fail",
-                        `[${i + 1}/${tasks.length}] Error: ${err.message}`,
+                        isCancelled ? "warn" : "info",
+                        "Summary",
+                        `Execution ${this.status}: Total=${summary.total}, OK=${summary.success}, Fail=${summary.failed}, Cancelled=${summary.cancelled}, Time=${this.summary.humanElapsed}`,
                     )
-                }
-
-                await log.flushFileLog()
-            }
-
-            if (signal.aborted) {
-                for (let j = Math.max(this.currentTaskIndex + 1, 0); j < tasks.length; j++) {
-                    if (tasks[j].status === "pending") {
-                        tasks[j].status = "cancelled"
-                        this.emit("FILE_DONE", {
-                            index: j,
-                            name: tasks[j].name,
-                            ok: false,
-                            cancelled: true,
-                        })
-                    }
-                }
-            }
-        } finally {
-            const elapsedMs = Date.now() - startTime
+                },
+            })
+            await log.flushFileLog()
+            return summary
+        } catch (error) {
             const isCancelled = signal.aborted
             this.status = isCancelled ? "STOPPED" : "COMPLETED"
             this.summary = {
+                runId: plan.id,
                 total: tasks.length,
-                success: successCount,
-                failed: failedCount,
-                elapsedMs,
+                success: 0,
+                failed: tasks.filter((task) => task.status === "failed").length,
+                skipped: tasks.filter((task) => task.status === "skipped").length,
+                cancelled: tasks.filter((task) => task.status === "cancelled").length,
+                elapsedMs: Date.now() - startTime,
                 humanElapsed: helper.humanTime(startTime),
                 isCancelled,
+                error: error?.message || String(error),
             }
-
             this.currentProgress = null
             this.activeAbortController = null
             this.currentTaskIndex = -1
             this.emit("STATUS_CHANGE", { status: this.status })
             this.emit("ALL_DONE", this.summary)
-            this.appendLog(
-                isCancelled ? "warn" : "info",
-                "Summary",
-                `Execution ${this.status}: Total=${tasks.length}, OK=${successCount}, Fail=${failedCount}, Time=${this.summary.humanElapsed}`,
-            )
+            this.appendLog("error", "Summary", `Execution error: ${this.summary.error}`)
             await log.flushFileLog()
+            return this.summary
         }
     }
 
