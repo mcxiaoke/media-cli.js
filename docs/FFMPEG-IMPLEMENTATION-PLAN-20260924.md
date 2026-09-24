@@ -161,12 +161,12 @@ Options -> Scan -> Task -> Plan -> Execute -> Result/Event
 ### 4.1 Scan
 
 - [x] 新增 `lib/ffmpeg_scan.js`；
-- [ ] 抽取单文件/目录/多输入/filelist 收集；
+- [x] 抽取单文件/目录/多输入/filelist 收集；
 - [x] 抽取去重、排序、媒体类型过滤；
-- [ ] 抽取 extensions/include/exclude/regex；
-- [ ] 抽取 start/count；
+- [x] 抽取 extensions/include/exclude/regex；
+- [x] 抽取 start/count；
 - [x] 统一 ScanEntry 结构；
-- [ ] 明确不存在路径和无媒体文件语义。
+- [x] 明确不存在路径和无媒体文件语义。
 
 ### 4.2 Task
 
@@ -383,6 +383,7 @@ npm test/check/lint 结果已记录；
 | 2026-09-24 | 第一批 | 已完成 | ffweb 安全、stop/cancel、override、RunResult 过渡适配、scan/task seam；npm test 297/297 通过 |
 | 2026-09-24 | 阶段 1A：领域契约 | 已完成 | FFmpeg Options adapters、Internal/Public Plan、EngineEvent、PublicSnapshot；ffweb 已接入 Options/PublicSnapshot；npm test 304/304 通过；Attempt/fake runner/完整 Engine 留待后续 |
 | 2026-09-24 | 阶段 2A：共享执行 Engine | 已完成 | 新增实例化 `ffmpeg_engine`，统一队列、状态、取消、summary、RunResult 和 EngineEvent；ffweb 执行循环已切换；npm test 307/307 通过；retry/delete-source/完整 prepare 留待后续 |
+| 2026-09-24 | 阶段 2B：统一扫描管线 | 已完成 | `ffmpeg_scan` 接管 filelist、目录/额外目录、去重、媒体类型、扩展名/include/exclude、start/count；CLI 已切换；完整 task/engine/retry 留待后续 |
 
 ---
 

@@ -16,11 +16,11 @@ import * as core from "../lib/core.js"
 import * as log from "../lib/debug.js"
 import { ErrorTypes, createError } from "../lib/errors.js"
 import presets from "../lib/ffmpeg_presets.js"
-import * as mf from "../lib/file.js"
 import * as helper from "../lib/helper.js"
 import { t } from "../lib/i18n.js"
 import { getMediaInfo } from "../lib/mediainfo.js"
-import { addEntryProps, applyFileNameRules } from "../lib/rename.js"
+import { addEntryProps } from "../lib/rename.js"
+import { scanFFmpegInputs } from "../lib/ffmpeg_scan.js"
 import { TIERS } from "../lib/hwaccel.js"
 import {
     calculateDstArgs,
@@ -377,80 +377,12 @@ async function cmdConvert(argv) {
 }
 
 /**
- * 收集输入媒体文件条目。
- *
- * 两种来源：
- *   1. 文件清单（--filelist）：解析清单文件，委托给通用工具 `mf.parseFilelist`；
- *   2. 目录遍历（默认）：`mf.walk` 遍历根目录 + argv.directories 额外目录。
- *
- * @param {Object} argv - 命令行参数（filelist / directories）
- * @param {string} root - 已 resolve 的输入根目录
- * @param {Object} walkOpts - mf.walk 的选项
- * @returns {Promise<Object[]>} 文件条目数组
- */
-async function collectInputEntries(argv, root, walkOpts) {
-    // 显式文件清单：以清单为输入集，不遍历目录
-    if (typeof argv.filelist === "string" && argv.filelist.length > 0) {
-        const listPath = path.resolve(argv.filelist)
-        if (!(await fs.pathExists(listPath))) {
-            throw createError(
-                ErrorTypes.INVALID_ARGUMENT,
-                t("ffmpeg.error.filelist", { path: listPath }),
-            )
-        }
-        return mf.parseFilelist(listPath, root)
-    }
-
-    // 输入为单个文件：直接封装单个条目，避免 mf.walk 对文件 scandir 报错
-    const rootStat = await fs.stat(root)
-    let fileEntries = []
-    if (rootStat.isFile()) {
-        const filter = walkOpts.entryFilter || Boolean
-        const entry = {
-            root: path.dirname(root),
-            name: path.basename(root),
-            path: root,
-            stats: rootStat,
-            ctime: rootStat.ctime || 0,
-            mtime: rootStat.mtime || 0,
-            size: rootStat.size || 0,
-            isDir: false,
-            isFile: true,
-            index: 0,
-        }
-        if (filter(entry)) {
-            fileEntries = [entry]
-        }
-    } else {
-        // 默认：遍历根目录
-        fileEntries = await mf.walk(root, walkOpts)
-    }
-    // 处理额外目录参数
-    if (argv.directories?.length > 0) {
-        const extraDirs = new Set(argv.directories.map((d) => path.resolve(d)))
-        for (const dirPath of extraDirs) {
-            const st = await fs.stat(dirPath)
-            if (st.isDirectory()) {
-                const dirFiles = await mf.walk(dirPath, walkOpts)
-                if (dirFiles.length > 0) {
-                    log.logInfo(
-                        LOG_TAG,
-                        t("ffmpeg.add.files", { count: dirFiles.length, path: dirPath }),
-                    )
-                    fileEntries = fileEntries.concat(dirFiles)
-                }
-            }
-        }
-    }
-    return fileEntries
-}
-
-/**
  * 计划阶段：校验参数、扫描文件、收集任务并确认。返回计划对象供 runFFmpegTasks 执行；
  * 取消确认、无文件或只展示信息时返回 null（调用方直接结束）。
  * @param {Object} argv - yargs 解析后的命令行参数
  * @returns {Promise<{tasks: Object[], testMode: boolean, preset: Object, jobs: number}|null>}
  */
+
 async function planFFmpegTasks(argv) {
     log.logDebug(LOG_TAG, "ARGV:", argv)
     // 初始化全局自动确认开关（--auto-confirm / -A / MEDIAC_AUTO_CONFIRM）
@@ -520,29 +452,22 @@ async function planFFmpegTasks(argv) {
         needStats: true,
         entryFilter: (e) => e.isFile && helper.isMediaFile(e.name),
     }
-    let fileEntries = await collectInputEntries(argv, root, walkOpts)
-    fileEntries = core.uniqueByFields(fileEntries, "path")
-    log.logInfo(
-        LOG_TAG,
-        `Total ${fileEntries.length} files found [${preset.name}] (${helper.humanTime(startMs)})`,
-    )
-    if (preset.type === "video" || presets.isAudioExtract(preset)) {
-        fileEntries = fileEntries.filter((e) => helper.isVideoFile(e.name))
-    } else if (preset.type === "audio") {
-        fileEntries = fileEntries.filter((e) => helper.isAudioFile(e.name))
-    }
+    let fileEntries = await scanFFmpegInputs({
+        argv,
+        root,
+        walkOpts,
+        presetType: preset.type,
+        isAudioExtract: presets.isAudioExtract(preset),
+    })
     log.logInfo(
         LOG_TAG,
         `Total ${fileEntries.length} files left [${preset.name}] (${helper.humanTime(startMs)})`,
     )
-    fileEntries = await applyFileNameRules(fileEntries, argv)
     log.logWarn(LOG_TAG, t("ffmpeg.total.files", { count: fileEntries.length }))
     if (fileEntries.length === 0) {
         log.logWarn(LOG_TAG, t("ffmpeg.no.files.left"))
         return null
     }
-
-    fileEntries = fileEntries.slice(argv.start, argv.start + argv.count)
     log.logInfo(
         LOG_TAG,
         `Total ${fileEntries.length} files left in (${argv.start}-${argv.start + argv.count})`,
