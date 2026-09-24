@@ -182,7 +182,7 @@ Options -> Scan -> Task -> Plan -> Execute -> Result/Event
 - [x] 新增 `lib/ffmpeg_engine.js`；
 - [x] 使用实例化依赖，不使用模块级 configure；
 - [ ] 统一 prepare/run concurrency；
-- [ ] 统一 retry/Attempt；
+- [x] 统一 retry/Attempt；
 - [x] 统一 stop/cancel；
 - [ ] 统一 delete-source 确认；
 - [x] 统一 summary/result；
@@ -386,6 +386,7 @@ npm test/check/lint 结果已记录；
 | 2026-09-24 | 阶段 2A：共享执行 Engine | 已完成 | 新增实例化 `ffmpeg_engine`，统一队列、状态、取消、summary、RunResult 和 EngineEvent；ffweb 执行循环已切换；npm test 307/307 通过；retry/delete-source/完整 prepare 留待后续 |
 | 2026-09-24 | 阶段 2B：统一扫描管线 | 已完成 | `ffmpeg_scan` 接管 filelist、目录/额外目录、去重、媒体类型、扩展名/include/exclude、start/count；CLI 已切换；完整 task/engine/retry 留待后续 |
 | 2026-09-24 | 阶段 2C：统一任务构建 | 已完成 | CLI `prepareFFmpegCmd` 抽为 `buildCliTask`，CLI/WebUI 共用 `ffmpeg_task`；npm test 311/311 通过；skipReason/Attempt 仍待统一 |
+| 2026-09-24 | 阶段 2D：统一 CLI 执行 | 已完成 | CLI `runFFmpegTasks` 改用共享 Engine，支持 confirmed retry/Attempt 和统一 summary；CLI 保留 delete-source 适配；真实 CLI dry-run 通过；npm test 312/312 通过 |
 
 ---
 

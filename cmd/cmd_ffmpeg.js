@@ -25,6 +25,7 @@ import { buildCliTask } from "../lib/ffmpeg_task.js"
 import { TIERS } from "../lib/hwaccel.js"
 import { createFFmpegArgs, flattenFFArgs } from "../lib/ffmpeg_build.js"
 import { LOG_TAG, runFFmpegCmd, setFFmpegPath } from "../lib/ffmpeg_run.js"
+import { createFFmpegEngine } from "../lib/ffmpeg_engine.js"
 import { resolveFFmpegBinary } from "../lib/ffmpeg_bin.js"
 import { detectHardwareCapabilities } from "../lib/hwdetect.js"
 
@@ -639,98 +640,111 @@ async function planFFmpegTasks(argv) {
  * @param {{tasks: Object[], testMode: boolean, preset: Object, jobs: number}} plan - planFFmpegTasks 的产出
  */
 async function runFFmpegTasks({ tasks, testMode, preset, jobs }) {
-    let startMs = Date.now()
+    const startMs = Date.now()
     const tmTag = testMode ? "[TestMode] " : ""
     addEntryProps(tasks)
     await log.flushFileLog()
     const jobCount = jobs || (preset.type === "video" ? 1 : 4)
-    // 并发 > 1 时多个任务同时渲染进度条会与逐文件日志混写：
-    // 改用每文件一行（Processing/Done/Failed 日志已有），串行才保留进度条。
     const showBar = jobCount <= 1
+
     if (testMode && tasks.length > 20) {
         const totalBefore = tasks.length
         const step = Math.floor(tasks.length / 10)
         tasks = core.takeEveryNth(tasks, step)
-        // dry-run 大批量任务只抽样预览约 1/10，显著提示用户避免误解为全部处理
         log.logWarn(
             LOG_TAG,
             t("ffmpeg.test.sample", { total: totalBefore, count: tasks.length, step }),
         )
     }
-    const results = await pMap(tasks, (entry) => runFFmpegCmd(entry, { showBar }), {
-        concurrency: jobCount,
-    })
-    let failedTasks = results.filter((r) => r && r.ffmpegFailed && !r.retryOnFailed)
-    let rOKCount = 0
-    const retryOKTasks = []
-    // 严格模式：跳过 CPU 降级重试（失败即失败，不允许自动降级）
+
     const strict = tasks[0]?.argv?.strict === true
-    // testMode 下任务统一按 failed 收尾（见 runFFmpegCmd），但没有真正转码失败，
-    // 重试/严格跳过提示只对真实执行有意义，dry-run 一律跳过
-    if (failedTasks.length > 0 && !testMode && strict) {
-        log.logWarn(LOG_TAG, t("ffmpeg.strict.retry"))
-        log.fileLog(t("ffmpeg.strict.retry"), "FFConv")
-    } else if (failedTasks.length > 0 && !testMode) {
-        const answer = await confirmDangerousAction(
-            t("ffmpeg.confirm.retry", { count: failedTasks.length }),
-        )
-        if (answer) {
-            for (const ft of failedTasks) {
-                log.logWarn(LOG_TAG, `Retrying task: ${ft.path}`)
+    let retryApproval
+    const engine = createFFmpegEngine({
+        runTask: (entry, context) =>
+            runFFmpegCmd(entry, {
+                showBar: context.attempt === 1 ? showBar : true,
+                signal: context.signal,
+            }),
+    })
+
+    const summary = await engine.execute(
+        {
+            id: `plan_${Date.now()}`,
+            tasks,
+        },
+        {
+            mode: "execute",
+            concurrency: jobCount,
+            maxAttempts: testMode || strict ? 1 : 2,
+            shouldRetry: ({ result }) => result.status === "failed",
+            confirmRetry: async () => {
+                if (retryApproval === undefined) {
+                    retryApproval = await confirmDangerousAction(
+                        t("ffmpeg.confirm.retry", { count: 1 }),
+                    )
+                }
+                return retryApproval
+            },
+            prepareAttempt: async ({ task, result, attempt }) => {
+                if (attempt === 1) return task
+                log.logWarn(LOG_TAG, `Retrying task: ${task.path}`)
                 log.fileLog(
-                    `Retry <${ft.path}> [${ft.preset.name}] ${ft.ffmpegError || ""}`,
+                    `Retry <${task.path}> [${task.preset.name}] ${result.error || ""}`,
                     "FFConv",
                 )
-                let newFT = core.omit(ft, "ffmpegArgs", "info")
-                newFT.argv.decodeMode = "cpu"
-                newFT.retryOnFailed = true
-                const task = await buildCliTask(newFT)
-                // 重试是顺序逐个执行，可以正常显示进度条
-                const rt = await runFFmpegCmd(task, { showBar: true })
-                if (rt && rt.ok) {
-                    rOKCount++
-                    retryOKTasks.push(rt)
-                }
-            }
-        }
-    }
+                const retryEntry = core.omit(
+                    task,
+                    "ffmpegArgs",
+                    "info",
+                    "hwPlan",
+                    "ok",
+                    "ffmpegFailed",
+                    "ffmpegError",
+                    "status",
+                    "error",
+                )
+                retryEntry.argv = { ...(retryEntry.argv || {}), decodeMode: "cpu" }
+                retryEntry.retryOnFailed = true
+                return buildCliTask(retryEntry)
+            },
+        },
+    )
 
+    if (summary.failed > 0 && !testMode && strict) {
+        log.logWarn(LOG_TAG, t("ffmpeg.strict.retry"))
+        log.fileLog(t("ffmpeg.strict.retry"), "FFConv")
+    }
     testMode && log.logWarn(LOG_TAG, t("common.test.mode.note", { count: tasks.length }))
-    const okResults = results.filter((r) => r && r.ok)
-    // 严格模式跳过的文件：不进失败名单（未标记 ffmpegFailed）、不重试，仅汇总提示
-    const skippedResults = results.filter((r) => r && r.skipped === true)
-    // 结束汇总落盘：哪些文件失败、失败原因是什么，此前只打印到控制台。
-    // dry-run 也全量落盘，带 [TestMode] 前缀区分（此时全部任务都按 failed 收尾）
-    const failedResults = results.filter((r) => r && r.ffmpegFailed && !r.ok)
-    const totalOK = okResults.length + rOKCount
+
+    const failedResults = tasks.filter((task) => task.status === "failed")
+    const skippedResults = tasks.filter((task) => task.status === "skipped")
     log.fileLog(
-        `${tmTag}Summary: total=${tasks.length} ok=${totalOK} error=${failedResults.length}` +
+        `${tmTag}Summary: total=${tasks.length} ok=${summary.success} error=${failedResults.length}` +
             (skippedResults.length > 0 ? ` skipped=${skippedResults.length}` : ""),
         "FFConv",
     )
-    for (const fr of failedResults) {
-        log.fileLog(`${tmTag}Fail <${fr.path}> ${fr.ffmpegError || ""}`, "FFConv")
+    for (const failed of failedResults) {
+        log.fileLog(`${tmTag}Fail <${failed.path}> ${failed.ffmpegError || ""}`, "FFConv")
     }
-    for (const sk of skippedResults) {
-        log.fileLog(`${tmTag}Skip[Strict] <${sk.path}> ${sk.skipReason || ""}`, "FFConv")
+    for (const skipped of skippedResults) {
+        log.fileLog(`${tmTag}Skip[Strict] <${skipped.path}> ${skipped.skipReason || ""}`, "FFConv")
     }
     if (skippedResults.length > 0) {
         log.showYellow(LOG_TAG, t("ffmpeg.strict.skip.count", { count: skippedResults.length }))
     }
 
-    // 转换成功后删除源文件：对转码成功且目标文件非空的文件执行安全删除
     if (!testMode && tasks[0]?.argv?.deleteSourceFiles) {
-        const allSuccess = [...okResults, ...retryOKTasks].filter((r) => r && r.fileDst)
-        if (allSuccess.length > 0) {
+        const successfulTasks = tasks.filter((task) => task.status === "done" && task.fileDst)
+        if (successfulTasks.length > 0) {
             log.logInfo(
                 LOG_TAG,
-                `DeleteSource: removing ${allSuccess.length} converted source file(s)...`,
+                `DeleteSource: removing ${successfulTasks.length} converted source file(s)...`,
             )
             await pMap(
-                allSuccess,
+                successfulTasks,
                 async (entry) => {
-                    const st = await fs.stat(entry.fileDst).catch(() => null)
-                    if (st && st.size > 0) {
+                    const stat = await fs.stat(entry.fileDst).catch(() => null)
+                    if (stat && stat.size > 0) {
                         const dest = await helper.safeRemove(entry.path)
                         if (dest) {
                             log.logWarn(
@@ -754,8 +768,9 @@ async function runFFmpegTasks({ tasks, testMode, preset, jobs }) {
         log.logSuccess(
             LOG_TAG,
             t("ffmpeg.total.processed", {
-                count: okResults.length + rOKCount,
+                count: summary.success,
                 time: helper.humanTime(startMs),
             }),
         )
+    return summary
 }

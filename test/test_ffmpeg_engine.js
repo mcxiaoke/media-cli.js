@@ -78,3 +78,27 @@ test("ffmpeg engine marks queued tasks cancelled after abort", async () => {
     assert.strictEqual(summary.cancelled, 1)
     assert.strictEqual(summary.isCancelled, true)
 })
+
+test("ffmpeg engine supports confirmed retry attempts", async () => {
+    const attempts = []
+    const engine = createFFmpegEngine({
+        runTask: async (task, context) => {
+            attempts.push(context.attempt)
+            if (context.attempt === 1) throw new Error("hardware failed")
+            return { ok: true, fileDst: "cpu.mp4" }
+        },
+    })
+    const summary = await engine.execute(
+        { id: "plan-4", tasks: [makeTask(0)] },
+        {
+            maxAttempts: 2,
+            shouldRetry: () => true,
+            confirmRetry: () => true,
+            prepareAttempt: ({ task }) => ({ ...task, argv: { decodeMode: "cpu" } }),
+        },
+    )
+    assert.deepStrictEqual(attempts, [1, 2])
+    assert.strictEqual(summary.retryCount, 1)
+    assert.strictEqual(summary.success, 1)
+    assert.strictEqual(summary.failed, 0)
+})
