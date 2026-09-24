@@ -1,5 +1,7 @@
 # FFmpeg 桌面端图形界面实施方案：Electron 最佳实践指南
 
+> **⚠️ 已废弃**：本文档的架构与选型部分已被 [FFMPEG-ELECTRON-ARCHITECTURE-FINAL-20260924.md](./FFMPEG-ELECTRON-ARCHITECTURE-FINAL-20260924.md) 取代，仅供历史参考，实施以新文档为准。
+>
 > **文档版本**：v1.1.0（依据代码审计与架构评审进行 P0/P1 修正）  
 > **创建/修订日期**：2026-09-24  
 > **状态**：待评审 / 实施就绪  

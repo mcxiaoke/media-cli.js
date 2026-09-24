@@ -1,0 +1,1609 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>mediac FFmpeg Studio · UI 原型</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='4' fill='%2363e2b7'/%3E%3Cpath d='M9 7.5v9l7.5-4.5z' fill='%23101014'/%3E%3C/svg%3E">
+<style>
+/* ============ 设计令牌（对齐 Naive UI dark / light） ============ */
+:root{
+  --bg-body:#101014;
+  --bg-card:#18181c;
+  --bg-hover:rgba(255,255,255,.06);
+  --bg-active:rgba(255,255,255,.09);
+  --bg-input:rgba(255,255,255,.06);
+  --bg-table-head:rgba(255,255,255,.04);
+  --border:rgba(255,255,255,.12);
+  --border-strong:rgba(255,255,255,.2);
+  --divider:rgba(255,255,255,.09);
+  --text-base:rgba(255,255,255,.82);
+  --text-2:rgba(255,255,255,.6);
+  --text-3:rgba(255,255,255,.4);
+  --text-dis:rgba(255,255,255,.28);
+  --primary:#63e2b7;
+  --primary-hover:#7fe7c4;
+  --primary-press:#4ed3a5;
+  --primary-soft:rgba(99,226,183,.14);
+  --primary-text:#63e2b7;
+  --info:#70bfff; --info-soft:rgba(112,191,255,.14);
+  --warning:#f2c97d; --warning-soft:rgba(242,201,125,.14);
+  --error:#e88080; --error-soft:rgba(232,128,128,.14);
+  --shadow:0 2px 8px rgba(0,0,0,.3),0 1px 2px rgba(0,0,0,.28);
+  --radius:3px;
+  --font:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei","PingFang SC","Helvetica Neue",Arial,sans-serif;
+  --mono:Consolas,"Cascadia Mono","SF Mono",Menlo,monospace;
+}
+[data-theme="light"]{
+  --bg-body:#f5f5f5;
+  --bg-card:#ffffff;
+  --bg-hover:rgba(0,0,0,.05);
+  --bg-active:rgba(0,0,0,.08);
+  --bg-input:rgba(0,0,0,.04);
+  --bg-table-head:rgba(0,0,0,.03);
+  --border:rgba(0,0,0,.09);
+  --border-strong:rgba(0,0,0,.16);
+  --divider:rgba(0,0,0,.07);
+  --text-base:rgba(0,0,0,.82);
+  --text-2:rgba(0,0,0,.6);
+  --text-3:rgba(0,0,0,.4);
+  --text-dis:rgba(0,0,0,.28);
+  --primary:#18a058; --primary-hover:#1fb769; --primary-press:#15984f;
+  --primary-soft:rgba(24,160,88,.1); --primary-text:#18a058;
+  --info:#2080f0; --info-soft:rgba(32,128,240,.1);
+  --warning:#f0a020; --warning-soft:rgba(240,160,32,.12);
+  --error:#d03050; --error-soft:rgba(208,48,80,.1);
+  --shadow:0 2px 8px rgba(0,0,0,.08),0 1px 2px rgba(0,0,0,.06);
+}
+[hidden]{display:none!important}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{font-family:var(--font);font-size:13px;color:var(--text-base);background:var(--bg-body);overflow:hidden}
+:focus-visible{outline:2px solid var(--primary);outline-offset:1px}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:rgba(255,255,255,.14);border-radius:5px;border:2px solid transparent;background-clip:content-box}
+::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.24);border:2px solid transparent;background-clip:content-box}
+::-webkit-scrollbar-track{background:transparent}
+[data-theme="light"] ::-webkit-scrollbar-thumb{background:rgba(0,0,0,.16);border:2px solid transparent;background-clip:content-box}
+[data-theme="light"] ::-webkit-scrollbar-thumb:hover{background:rgba(0,0,0,.26);border:2px solid transparent;background-clip:content-box}
+
+/* ============ 顶栏 ============ */
+.hdr{height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 14px;border-bottom:1px solid var(--divider);background:var(--bg-body);flex:none}
+.hdr-left{display:flex;align-items:center;gap:10px}
+.brand-name{font-size:14px;font-weight:600;line-height:1.2}
+.brand-sub{font-size:11px;color:var(--text-3)}
+.hdr-right{display:flex;align-items:center;gap:8px}
+.tag{display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 9px;border-radius:4px;font-size:12px;background:var(--bg-hover);color:var(--text-2);white-space:nowrap}
+.tag.info{background:var(--info-soft);color:var(--info)}
+.tag.ok{background:var(--primary-soft);color:var(--primary-text)}
+.tag.err{background:var(--error-soft);color:var(--error)}
+.tag.warn{background:var(--warning-soft);color:var(--warning)}
+.tag.state{background:var(--bg-active);color:var(--text-base)}
+.dot{width:6px;height:6px;border-radius:50%;background:currentColor;flex:none}
+.icon-btn{position:relative;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border:none;border-radius:var(--radius);background:transparent;color:var(--text-2);cursor:pointer}
+.icon-btn:hover{background:var(--bg-hover);color:var(--text-base)}
+.icon-btn:disabled{opacity:.4;cursor:default}
+svg.i{width:16px;height:16px;flex:none}
+svg.i.sm{width:14px;height:14px}
+
+/* ============ 布局 ============ */
+.layout{display:flex;flex:1;min-height:0}
+.side{width:400px;flex:none;overflow-y:auto;padding:10px;display:flex;flex-direction:column;gap:10px;transition:width .16s ease}
+.side.collapsed{width:0!important;padding:0;overflow:hidden;border-right:none}
+.side .card{flex:none}
+.side-resizer{width:5px;flex:none;cursor:col-resize;background:transparent;position:relative;z-index:20}
+.side-resizer::after{content:"";position:absolute;left:2px;top:0;bottom:0;width:1px;background:var(--divider)}
+.side-resizer:hover,.side-resizer.drag{background:var(--primary-soft)}
+.side-resizer:hover::after,.side-resizer.drag::after{background:var(--primary)}
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+.app{display:flex;flex-direction:column;height:100vh}
+
+/* ============ 卡片 ============ */
+.card{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+.card-title{display:flex;align-items:center;justify-content:space-between;padding:9px 12px;font-size:13px;font-weight:600;border-bottom:1px solid var(--divider)}
+.card-title .sub{font-size:11px;color:var(--text-3);font-weight:400}
+.card-title .sum{font-size:11px;color:var(--text-3);font-weight:400;font-family:var(--mono);margin-left:4px}
+.card-title.toggle{cursor:pointer;user-select:none}
+.card-title.toggle:hover{background:var(--bg-hover)}
+.card-body{padding:10px 12px;display:flex;flex-direction:column;gap:9px}
+.card-body.hide{display:none}
+.divider{height:1px;background:var(--divider)}
+
+/* ============ 表单基础 ============ */
+.field{display:flex;flex-direction:column;gap:5px;min-width:0}
+.field-row{display:flex;gap:8px}
+.field-row.two>.field{flex:1}
+.lbl{font-size:12px;color:var(--text-2);display:flex;align-items:baseline;gap:4px}
+.hint{font-size:11px;color:var(--text-3)}
+.input{height:30px;padding:0 9px;font-size:13px;color:var(--text-base);background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius);font-family:var(--font)}
+.input::placeholder{color:var(--text-3)}
+.input:focus{outline:none;border-color:var(--primary)}
+.input.grow{flex:1;min-width:0}
+.input.num{width:52px;text-align:center}
+.inline-row{display:flex;gap:8px;align-items:center}
+.btn{height:30px;padding:0 12px;font-size:13px;font-family:var(--font);border-radius:var(--radius);border:1px solid transparent;cursor:pointer;display:inline-flex;align-items:center;gap:6px;color:var(--text-base);background:transparent;transition:background .12s,border-color .12s,color .12s;white-space:nowrap}
+.btn:hover{background:var(--bg-hover)}
+.btn:disabled{opacity:.38;cursor:not-allowed;background:transparent}
+.btn-primary{background:var(--primary);color:#101014;font-weight:600}
+.btn-primary:hover{background:var(--primary-hover)}
+.btn-primary:disabled{background:var(--primary);opacity:.38}
+[data-theme="light"] .btn-primary{color:#fff}
+[data-theme="light"] .btn-primary:hover{background:var(--primary-hover)}
+.btn-secondary{border-color:var(--border);background:var(--bg-input)}
+.btn-secondary:hover{border-color:var(--border-strong);background:var(--bg-hover)}
+.btn-ghost:hover{background:var(--bg-hover)}
+.btn-danger{border-color:transparent;color:var(--error)}
+.btn-danger:hover{background:var(--error-soft)}
+.btn-danger:disabled{opacity:.38;background:transparent}
+.btn-cancel{border:1px solid var(--border);color:var(--text-base);background:var(--bg-input)}
+.btn-cancel:hover{border-color:var(--border-strong);background:var(--bg-hover)}
+.btn-sm{height:26px;padding:0 8px;font-size:12px}
+.btn-row{display:flex;gap:8px}
+.btn-row>.btn{flex:1;justify-content:center}
+
+/* ============ 拖拽投放区 ============ */
+.dropzone{border:1px dashed var(--border-strong);border-radius:var(--radius);padding:10px 10px;text-align:center;color:var(--text-3);font-size:12px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px;transition:border-color .15s,background .15s}
+.dropzone:hover{border-color:var(--primary);color:var(--text-2)}
+.dropzone.drag{border-color:var(--primary);background:var(--primary-soft);color:var(--primary-text)}
+.dropzone svg{width:26px;height:26px;opacity:.7}
+
+/* ============ 输入清单 chips ============ */
+.chip-list{display:flex;flex-direction:column;gap:4px;max-height:156px;overflow-y:auto}
+.chip{display:flex;align-items:center;gap:8px;padding:4px 8px;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius);font-size:12px}
+.chip .chip-main{flex:1;min-width:0}
+.chip .chip-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:var(--mono);font-size:11px;color:var(--text-2)}
+.chip .chip-cnt{flex:none;font-size:11px;color:var(--text-3);padding:1px 6px;border-radius:4px;background:var(--bg-active);white-space:nowrap}
+.chip .chip-x{flex:none;border:none;background:transparent;color:var(--text-3);cursor:pointer;width:18px;height:18px;border-radius:3px;display:flex;align-items:center;justify-content:center}
+.chip .chip-x:hover{background:var(--bg-hover);color:var(--error)}
+
+/* ============ 自定义下拉 ============ */
+.select{position:relative;min-width:0}
+.select-btn{width:100%;height:30px;padding:0 28px 0 9px;display:flex;align-items:center;justify-content:space-between;gap:6px;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius);cursor:pointer;font-size:13px;color:var(--text-base);position:relative}
+.select-btn:hover{border-color:var(--border-strong)}
+.select-btn.open{border-color:var(--primary)}
+.select-btn .sv{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.select-btn .chev{width:14px;height:14px;flex:none;color:var(--text-3);transition:transform .12s}
+.select-btn.open .chev{transform:rotate(180deg)}
+.select-pop{position:absolute;top:calc(100% + 4px);left:0;right:0;background:var(--bg-card);border:1px solid var(--border-strong);border-radius:var(--radius);box-shadow:var(--shadow);max-height:264px;overflow-y:auto;z-index:60;display:none}
+.select-pop.open{display:block}
+.opt{display:flex;align-items:center;gap:8px;padding:7px 10px;font-size:13px;cursor:pointer;color:var(--text-base)}
+.opt .opt-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px;justify-content:center}
+.opt .opt-main .n{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:13px}
+.opt .opt-main .s{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:11px;color:var(--text-3)}
+.opt.on .opt-main .s{color:var(--text-2)}
+.opt:hover{background:var(--bg-hover)}
+.opt.on{color:var(--primary-text);background:var(--primary-soft)}
+.opt .ok{margin-left:auto;color:var(--primary-text);font-size:12px;visibility:hidden}
+.opt.on .ok{visibility:visible}
+.opt-group{padding:6px 10px 3px;font-size:11px;color:var(--text-3);letter-spacing:.02em;background:var(--bg-card);position:sticky;top:0}
+
+/* ============ 预设徽章 ============ */
+.preset-badges{display:flex;flex-wrap:wrap;gap:6px}
+.badge{display:inline-flex;align-items:center;height:22px;padding:0 8px;border-radius:4px;font-size:11px;background:var(--bg-active);color:var(--text-2);white-space:nowrap}
+.badge.k{background:var(--primary-soft);color:var(--primary-text);font-weight:600}
+.badge.a{background:var(--info-soft);color:var(--info)}
+.preset-desc{font-size:12px;color:var(--text-3);line-height:1.5}
+
+/* ============ 滑块 ============ */
+.quality-row{display:flex;align-items:center;gap:10px}
+.quality-row input[type=range]{flex:1;-webkit-appearance:none;height:4px;border-radius:2px;background:var(--bg-active);outline:none;cursor:pointer}
+.quality-row input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:var(--primary);border:2px solid var(--bg-card);box-shadow:0 0 0 1px var(--primary);cursor:pointer}
+.quality-row input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;background:var(--primary);border:2px solid var(--bg-card);box-shadow:0 0 0 1px var(--primary);cursor:pointer}
+
+/* ============ 开关 ============ */
+.sw{position:relative;width:38px;height:22px;border-radius:11px;background:var(--bg-active);border:1px solid var(--border-strong);cursor:pointer;flex:none;transition:background .15s,border-color .15s}
+.sw::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:left .15s}
+.sw.on{background:var(--primary);border-color:var(--primary)}
+.sw.on::after{left:18px}
+.sw-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 0}
+.sw-row .lbl{font-size:12px}
+.sw-row .lbl.err{color:var(--error)}
+.sw-row .hint{font-size:11px;color:var(--text-3)}
+
+/* 输出模式已改为下拉选择（.select），不再使用单选卡片 */
+
+/* ============ 工具栏 ============ */
+.toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 14px;border-bottom:1px solid var(--divider);flex:none;flex-wrap:wrap}
+.tb-left{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.tb-right{display:flex;gap:14px;align-items:center;font-size:12px;color:var(--text-2);white-space:nowrap}
+.tb-right b{color:var(--text-base);font-weight:600}
+.tb-right .sep{color:var(--text-3)}
+.muted{color:var(--text-3)}
+
+/* ============ 任务表 ============ */
+.table-wrap{flex:1;min-height:0;overflow:auto;position:relative}
+table.tasks{width:100%;border-collapse:collapse;table-layout:fixed}
+table.tasks th{position:sticky;top:0;background:var(--bg-table-head);z-index:5;text-align:left;font-size:11px;font-weight:500;color:var(--text-3);padding:8px 10px;border-bottom:1px solid var(--divider);white-space:nowrap}
+table.tasks td{padding:8px 10px;border-bottom:1px solid var(--divider);vertical-align:middle;font-size:12px}
+tbody tr{cursor:pointer}
+tbody tr:hover{background:var(--bg-hover)}
+tbody tr.sel{background:var(--primary-soft)}
+tbody tr.dim{opacity:.55}
+.t-main{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text-base)}
+.t-sub{font-size:11px;color:var(--text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px;font-family:var(--mono)}
+.t-num{color:var(--text-3);font-size:11px;width:30px}
+.ck{width:16px;height:16px;border:1px solid var(--border-strong);border-radius:3px;background:transparent;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;font-size:11px;color:transparent;flex:none;vertical-align:middle}
+.ck::after{content:"✓";font-size:11px;font-weight:700;opacity:0;transition:opacity .1s}
+.ck.on::after{opacity:1}
+.ck.on{background:var(--primary);border-color:var(--primary);color:#101014}
+[data-theme="light"] .ck.on{color:#fff}
+.t-ops{display:flex;gap:2px}
+.t-ops .icon-btn{width:24px;height:24px}
+.row-bar{height:3px;border-radius:2px;background:var(--bg-active);margin-top:5px;overflow:hidden;width:96px}
+.row-bar i{display:block;height:100%;background:var(--primary);transition:width .2s}
+.empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:var(--text-3);font-size:12px}
+.empty svg{width:34px;height:34px;opacity:.5}
+
+/* ============ 命令预览 ============ */
+.cmd-preview{flex:none;border-top:1px solid var(--divider);background:var(--bg-card)}
+.cmd-head{display:flex;align-items:center;justify-content:space-between;padding:7px 14px;font-size:12px;color:var(--text-2);cursor:pointer;user-select:none}
+.cmd-head:hover{background:var(--bg-hover)}
+.cmd-head b{color:var(--text-base)}
+.cmd-actions{display:flex;align-items:center;gap:2px}
+.cmd-body{display:none;padding:0 14px 10px;font-family:var(--mono);font-size:12px;line-height:1.7;color:var(--text-2);white-space:pre-wrap;word-break:break-all;max-height:120px;overflow-y:auto;user-select:text}
+.cmd-preview.open .cmd-body{display:block}
+.cmd-preview.open .chev{transform:rotate(180deg)}
+.cmd-body .fl{color:var(--primary-text)}
+.cmd-body .path{color:var(--warning)}
+
+/* ============ 执行看板 ============ */
+.exec-bar{flex:none;display:flex;align-items:center;gap:18px;padding:10px 14px;border-top:1px solid var(--divider);background:var(--bg-card)}
+.exec-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px}
+.exec-top{display:flex;justify-content:space-between;align-items:baseline;font-size:12px;color:var(--text-2);white-space:nowrap}
+.exec-top .fname{overflow:hidden;text-overflow:ellipsis}
+.exec-pct{font-family:var(--mono);font-weight:700;color:var(--primary-text);font-size:13px}
+.bar{height:6px;border-radius:3px;background:var(--bg-active);overflow:hidden}
+.bar-fill{height:100%;width:0;background:var(--primary);transition:width .2s;border-radius:3px}
+.exec-stats{display:flex;gap:20px;flex:none}
+.stat{display:flex;flex-direction:column;gap:2px;min-width:58px}
+.stat-lbl{font-size:11px;color:var(--text-3)}
+.stat-val{font-size:13px;font-weight:600;color:var(--text-base);font-family:var(--mono)}
+
+/* ============ 日志面板（浮层抽屉） ============ */
+.log-mask{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:90;display:flex;justify-content:flex-end}
+.log-drawer{width:480px;max-width:100%;height:100%;background:var(--bg-card);border-left:1px solid var(--border-strong);display:flex;flex-direction:column;box-shadow:var(--shadow);animation:slideIn .18s ease-out}
+@keyframes slideIn{from{transform:translateX(26px);opacity:.4}to{transform:none;opacity:1}}
+.log-head{display:flex;align-items:center;gap:10px;padding:10px 14px;flex:none;border-bottom:1px solid var(--divider)}
+.log-title{font-size:13px;font-weight:600}
+.log-count{font-size:11px;color:var(--text-3)}
+.log-actions{margin-left:auto;display:flex;align-items:center;gap:6px}
+.mini-select{height:26px;padding:0 6px;font-size:12px;font-family:var(--font);color:var(--text-base);background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius);outline:none;cursor:pointer}
+.log-body{overflow-y:auto;flex:1;padding:8px 14px;font-family:var(--mono);font-size:12px;line-height:1.75;user-select:text}
+.log-line{white-space:pre-wrap;word-break:break-all}
+.log-line .ts{color:var(--text-3);margin-right:8px}
+.log-line.l-INFO{color:rgba(112,191,255,.8)}
+.log-line.l-CMD{color:var(--primary-text)}
+.log-line.l-WARN{color:var(--warning)}
+.log-line.l-ERROR{color:var(--error)}
+.badge-num{position:absolute;top:-2px;right:-2px;min-width:14px;height:14px;border-radius:7px;background:var(--error);color:#fff;font-size:10px;line-height:14px;text-align:center;padding:0 4px}
+
+/* ============ 弹窗 / Toast ============ */
+.modal-mask{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:100;display:flex;align-items:center;justify-content:center}
+.modal{width:440px;max-width:calc(100vw - 40px);background:var(--bg-card);border:1px solid var(--border-strong);border-radius:var(--radius);box-shadow:var(--shadow)}
+.modal-title{padding:12px 16px;font-size:14px;font-weight:600;border-bottom:1px solid var(--divider)}
+.modal-body{padding:14px 16px;display:flex;flex-direction:column;gap:12px}
+.set-row{display:flex;align-items:flex-start;gap:14px}
+.set-row>.lbl{width:88px;flex:none;padding-top:5px}
+.set-box{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px}
+.set-box .kv{font-size:12px;color:var(--text-2);display:flex;gap:6px;align-items:baseline;word-break:break-all}
+.set-box .kv b{color:var(--text-base);font-weight:600;font-family:var(--mono);font-size:11px}
+.seg{display:inline-flex;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+.seg button{padding:6px 14px;font-size:12px;font-family:var(--font);background:transparent;border:none;color:var(--text-2);cursor:pointer}
+.seg button.on{background:var(--primary-soft);color:var(--primary-text)}
+.tool-row{display:flex;gap:8px;align-items:center}
+.tool-row .tl{width:64px;flex:none;font-size:12px;color:var(--text-2);font-family:var(--mono)}
+.modal-foot{padding:10px 16px;border-top:1px solid var(--divider);display:flex;justify-content:flex-end}
+.toast-wrap{position:fixed;right:16px;bottom:16px;display:flex;flex-direction:column;gap:8px;z-index:120}
+.toast{min-width:220px;max-width:360px;padding:9px 12px 9px 12px;font-size:13px;color:var(--text-base);background:var(--bg-card);border:1px solid var(--border-strong);border-radius:var(--radius);box-shadow:var(--shadow);border-left:3px solid var(--info);animation:tin .18s ease-out}
+.toast.ok{border-left-color:var(--primary)}
+.toast.err{border-left-color:var(--error)}
+.toast.warn{border-left-color:var(--warning)}
+@keyframes tin{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+/* ============ 右键菜单 ============ */
+.ctx-menu{position:fixed;min-width:150px;background:var(--bg-card);border:1px solid var(--border-strong);border-radius:var(--radius);box-shadow:var(--shadow);padding:4px;z-index:130;font-size:13px}
+.ctx-item{display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:var(--radius);cursor:pointer;color:var(--text-base)}
+.ctx-item:hover{background:var(--bg-hover)}
+.ctx-item.danger{color:var(--error)}
+.ctx-item.danger:hover{background:var(--error-soft)}
+.ctx-sep{height:1px;background:var(--divider);margin:4px 6px}
+
+/* ============ 响应式 ============ */
+@media (max-width:900px){
+  body{overflow:auto}
+  .app{height:auto;min-height:100vh}
+  .layout{flex-direction:column}
+  .side{width:100%!important;border-right:none;border-bottom:1px solid var(--divider);max-height:50vh}
+  .main{min-height:60vh}
+  .hdr-right .tag:nth-child(1),.hdr-right .tag:nth-child(2){display:none}
+}
+</style>
+</head>
+<body>
+<div class="app" id="app">
+
+  <!-- ============ 顶栏 ============ -->
+  <header class="hdr">
+    <div class="hdr-left">
+      <svg class="i" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><rect x="1" y="3" width="22" height="18" rx="3" fill="none" stroke="#63e2b7" stroke-width="1.6"/><path d="M9.5 8.5v7l6-3.5z" fill="#63e2b7"/></svg>
+      <div>
+        <div class="brand-name">mediac FFmpeg Studio</div>
+        <div class="brand-sub">批量音视频转码工作台</div>
+      </div>
+    </div>
+    <div class="hdr-right">
+      <span class="tag" title="本页面为 UI 原型，所有数据为模拟数据">演示数据</span>
+      <span class="tag ok" id="ffmpegTag"><span class="dot"></span>ffmpeg 6.1.1</span>
+      <span class="tag info" id="gpuTag">NVENC · RTX 4060 Ti</span>
+      <span class="tag state" id="stateTag">待机</span>
+      <button class="icon-btn" id="btnLog" title="运行日志" aria-label="运行日志">
+        <svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9h6"/><path d="M7 13h10"/><path d="M7 17h4"/></svg>
+        <span class="badge-num" id="logBadge" hidden></span>
+      </button>
+      <button class="icon-btn" id="btnSideToggle" title="收起左侧栏（Ctrl+B）" aria-label="收起或展开左侧栏">
+        <svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/><path d="M5 8h1.5"/><path d="M5 12h1.5"/><path d="M5 16h1.5"/></svg>
+      </button>
+      <button class="icon-btn" id="btnSettings" title="设置" aria-label="设置">
+        <svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.03-1.56 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.56-1.03 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34A1.7 1.7 0 0 0 10 5.09V5a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87V11a1.7 1.7 0 0 0 1.56 1.03H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.56 1.03z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <div class="layout">
+    <!-- ============ 左栏：配置 ============ -->
+    <aside class="side">
+      <!-- 1 输入与输出 -->
+      <section class="card">
+        <div class="card-title">输入与输出 <span class="sub">文件 / 目录 / 命名</span></div>
+        <div class="card-body">
+          <div class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="拖入或点击添加媒体文件">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 16v2.5A2.5 2.5 0 0 0 5.5 21h13a2.5 2.5 0 0 0 2.5-2.5V16"/><path d="M12 3v13"/><path d="M7 8l5-5 5 5"/></svg>
+            <span>拖入媒体文件或目录，或点击此处添加</span>
+          </div>
+          <div class="btn-row">
+            <button class="btn btn-secondary" id="btnAddFiles">
+              <svg class="i sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+              添加文件
+            </button>
+            <button class="btn btn-secondary" id="btnAddDir">
+              <svg class="i sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+              添加目录
+            </button>
+          </div>
+          <div class="inline-row">
+            <input class="input grow" id="manualPath" placeholder="粘贴文件/目录路径，回车添加" autocomplete="off">
+            <button class="btn" id="btnManualAdd">添加</button>
+          </div>
+          <div class="chip-list" id="inputList"></div>
+          <div class="divider"></div>
+          <div class="field">
+            <label class="lbl">输出目录 <span class="hint">留空 = 源文件同目录</span></label>
+            <div class="inline-row">
+              <input class="input grow" id="outputDir" placeholder="选择或输入输出目录" autocomplete="off">
+              <button class="btn" id="btnOutput">选择目录</button>
+            </div>
+          </div>
+          <div class="field">
+            <label class="lbl">输出模式</label>
+            <div class="select" id="outputModeSel"></div>
+          </div>
+          <div class="field-row two">
+            <div class="field"><label class="lbl">前缀</label><input class="input" id="prefix" placeholder="[SHANA] " autocomplete="off"></div>
+            <div class="field"><label class="lbl">后缀</label><input class="input" id="suffix" placeholder="_{preset}" autocomplete="off"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 2 预设 -->
+      <section class="card">
+        <div class="card-title">预设 <span class="sub">必选 · 决定输出编码与画质</span></div>
+        <div class="card-body">
+          <div class="field">
+            <label class="lbl">预设模板</label>
+            <div class="select" id="presetSel"></div>
+            <div class="preset-badges" id="presetBadges"></div>
+            <div class="preset-desc" id="presetDesc"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 3 视频参数 -->
+      <section class="card">
+        <div class="card-title toggle" id="videoToggle">
+          <span>视频参数 <span class="sum" id="videoSummary">—</span></span>
+          <svg class="chev i sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+        </div>
+        <div class="card-body hide" id="videoBody">
+          <div class="field">
+            <label class="lbl">长边尺寸 <span class="hint">只缩不放大</span></label>
+            <div class="inline-row">
+              <div class="select grow" id="dimensionSel"></div>
+              <input class="input num" id="dimensionCustom" placeholder="像素" title="自定义长边像素" autocomplete="off">
+            </div>
+          </div>
+          <div class="field">
+            <label class="lbl">视频质量 <span class="hint" id="qualityRangeLbl">CRF · 0-51</span></label>
+            <div class="quality-row">
+              <input type="range" id="qualitySlider" min="0" max="51" step="1" value="0" aria-label="视频质量">
+              <input class="input num" id="qualityNum" value="0" autocomplete="off">
+            </div>
+          </div>
+          <div class="field">
+            <label class="lbl">视频码率</label>
+            <div class="inline-row">
+              <div class="select grow" id="bitrateSel"></div>
+              <input class="input num" id="bitrateCustom" placeholder="k/M" title="自定义码率，如 3.5M" autocomplete="off">
+            </div>
+          </div>
+          <div class="field-row two">
+            <div class="field"><label class="lbl">帧率</label><div class="select" id="fpsSel"></div></div>
+            <div class="field"><label class="lbl">倍速 <span class="hint">0.5-2.0</span></label><div class="select" id="speedSel"></div></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 4 音频参数 -->
+      <section class="card">
+        <div class="card-title toggle" id="audioToggle">
+          <span>音频参数 <span class="sum" id="audioSummary">—</span></span>
+          <svg class="chev i sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+        </div>
+        <div class="card-body hide" id="audioBody">
+          <div class="field"><label class="lbl">音频编码</label><div class="select" id="audioCodecSel"></div></div>
+          <div class="field"><label class="lbl">音频码率</label><div class="select" id="audioBitrateSel"></div></div>
+        </div>
+      </section>
+
+      <!-- 5 高级选项 -->
+      <section class="card">
+        <div class="card-title toggle" id="advancedToggle">
+          <span>高级选项</span>
+          <svg class="chev i sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+        </div>
+        <div class="card-body hide" id="advancedBody">
+          <div class="field-row two">
+            <div class="field"><label class="lbl">硬件加速</label><div class="select" id="hwaccelSel"></div></div>
+            <div class="field"><label class="lbl">解码模式</label><div class="select" id="decodeSel"></div></div>
+          </div>
+          <div class="field">
+            <label class="lbl">并发任务数 <span class="hint">仅音频并行，视频始终串行</span></label>
+            <input class="input num" id="jobs" value="1" autocomplete="off">
+          </div>
+          <div>
+            <div class="sw-row"><span class="lbl">覆盖已存在产物</span><span class="sw" id="swOverride" role="switch" tabindex="0"></span></div>
+            <div class="sw-row"><span class="lbl">动漫调优 <span class="hint">保线条，收紧质量</span></span><span class="sw" id="swAnime" role="switch" tabindex="0"></span></div>
+            <div class="sw-row"><span class="lbl">严格模式 <span class="hint">禁用自动降级与重试</span></span><span class="sw" id="swStrict" role="switch" tabindex="0"></span></div>
+            <div class="sw-row"><span class="lbl err">转码后删除源文件 <span class="hint">移入安全回收目录</span></span><span class="sw" id="swDelete" role="switch" tabindex="0"></span></div>
+          </div>
+        </div>
+      </section>
+    </aside>
+    <div class="side-resizer" id="sideResizer" title="拖动调整左栏宽度"></div>
+
+    <!-- ============ 右栏：任务 ============ -->
+    <main class="main">
+      <div class="toolbar">
+        <div class="tb-left">
+          <button class="btn btn-secondary" id="btnPlan">
+            <svg class="i sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+            生成计划
+          </button>
+          <button class="btn btn-primary" id="btnStart" disabled>
+            <svg class="i sm" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg>
+            开始转码
+          </button>
+          <button class="btn btn-danger" id="btnStop" disabled>
+            <svg class="i sm" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>
+            终止
+          </button>
+          <button class="btn btn-ghost" id="btnClear" disabled>清空任务</button>
+        </div>
+        <div class="tb-right" id="tbStats"><span class="muted">尚无任务计划</span></div>
+      </div>
+
+      <div class="table-wrap">
+        <table class="tasks" id="tasksTable">
+          <colgroup>
+            <col style="width:34px"><col style="width:34px"><col style="width:24%"><col style="width:86px"><col style="width:86px"><col style="width:132px"><col style="width:24%"><col style="width:130px"><col style="width:92px">
+          </colgroup>
+          <thead>
+            <tr>
+              <th><span class="ck" id="ckAll" role="checkbox" tabindex="0"></span></th>
+              <th>#</th>
+              <th>源文件</th>
+              <th>大小</th>
+              <th>时长</th>
+              <th>解码 → 编码</th>
+              <th>目标文件</th>
+              <th>状态</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="tasksBody"></tbody>
+        </table>
+        <div class="empty" id="emptyState">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 13h6"/><path d="M9 17h4"/></svg>
+          <span>添加媒体文件并点击「生成计划」后，任务将在此列出</span>
+        </div>
+      </div>
+
+      <!-- 命令预览 -->
+      <div class="cmd-preview" id="cmdPreview">
+        <div class="cmd-head" id="cmdHead">
+          <span>命令预览 · <b id="cmdPresetName">—</b></span>
+          <span class="cmd-actions">
+            <button class="icon-btn" id="btnCmdCopy" title="复制命令" aria-label="复制命令">
+              <svg class="i sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+            </button>
+            <svg class="chev i sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+          </span>
+        </div>
+        <pre class="cmd-body" id="cmdBody"></pre>
+      </div>
+
+      <!-- 执行看板 -->
+      <div class="exec-bar" id="execBar">
+        <div class="exec-main">
+          <div class="exec-top">
+            <span class="fname" id="execFile">等待开始</span>
+            <span class="exec-pct" id="execPct">0%</span>
+          </div>
+          <div class="bar"><div class="bar-fill" id="execBarFill"></div></div>
+        </div>
+        <div class="exec-stats">
+          <div class="stat"><span class="stat-lbl">任务进度</span><span class="stat-val" id="statOverall">0 / 0</span></div>
+          <div class="stat"><span class="stat-lbl">实时速度</span><span class="stat-val" id="statSpeed">—</span></div>
+          <div class="stat"><span class="stat-lbl">剩余时间</span><span class="stat-val" id="statEta">—</span></div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- ============ 日志面板（浮层抽屉，不占主面板） ============ -->
+  <div class="log-mask" id="logMask" hidden>
+    <aside class="log-drawer" role="dialog" aria-modal="true" aria-label="运行日志">
+      <div class="log-head">
+        <span class="log-title">运行日志</span>
+        <span class="log-count" id="logCount">0 条</span>
+        <div class="log-actions">
+          <select class="mini-select" id="logFilter" aria-label="日志等级过滤">
+            <option value="ALL">全部</option>
+            <option value="INFO">INFO</option>
+            <option value="CMD">CMD</option>
+            <option value="WARN">WARN</option>
+            <option value="ERROR">ERROR</option>
+          </select>
+          <button class="btn btn-sm" id="btnLogOpenDir">日志目录</button>
+          <button class="btn btn-sm" id="btnLogCopy">复制</button>
+          <button class="btn btn-sm" id="btnLogClear">清屏</button>
+          <button class="icon-btn" id="btnLogClose" title="关闭（Esc）" aria-label="关闭日志面板">
+            <svg class="i sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="log-body" id="logBody"></div>
+    </aside>
+  </div>
+
+  <!-- ============ 设置弹窗 ============ -->
+  <div class="modal-mask" id="settingsMask" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-label="设置">
+      <div class="modal-title">设置</div>
+      <div class="modal-body">
+        <div class="set-row"><span class="lbl">主题</span>
+          <div class="set-box"><div class="seg" id="themeSeg">
+            <button data-v="dark" class="on">暗色</button><button data-v="light">亮色</button>
+          </div></div>
+        </div>
+        <div class="set-row"><span class="lbl">FFmpeg 环境</span>
+          <div class="set-box" id="envBox">
+            <div class="kv">路径 <b>ffmpegPath</b></div>
+            <div class="kv">ffmpeg <b>6.1.1</b> · ffprobe <b>6.1.1</b></div>
+            <button class="btn btn-sm" id="btnEnvRecheck" style="align-self:flex-start">重新检测</button>
+          </div>
+        </div>
+        <div class="set-row"><span class="lbl">硬件加速</span>
+          <div class="set-box" id="hwBox">
+            <div class="kv">GPU <b>NVIDIA GeForce RTX 4060 Ti</b></div>
+            <div class="kv">可用 <b>NVENC · QSV · DXVA2</b></div>
+          </div>
+        </div>
+        <div class="set-row"><span class="lbl">工具路径</span>
+          <div class="set-box">
+            <div class="tool-row"><span class="tl">ffmpeg</span><input class="input grow" id="toolFfmpeg" placeholder="留空 = 使用默认" autocomplete="off"><button class="btn btn-sm" data-tool="ffmpeg" title="恢复默认">恢复默认</button></div>
+            <div class="kv">默认（PATH / 环境变量探测）<b>C:\Home\Apps\ffmpeg\bin\ffmpeg.exe</b></div>
+            <div class="tool-row"><span class="tl">ffprobe</span><input class="input grow" id="toolFfprobe" placeholder="留空 = 使用默认" autocomplete="off"><button class="btn btn-sm" data-tool="ffprobe" title="恢复默认">恢复默认</button></div>
+            <div class="kv">默认（PATH / 环境变量探测）<b>C:\Home\Apps\ffmpeg\bin\ffprobe.exe</b></div>
+            <div class="tool-row"><span class="tl">mediainfo</span><input class="input grow" id="toolMediainfo" placeholder="留空 = 使用默认" autocomplete="off"><button class="btn btn-sm" data-tool="mediainfo" title="恢复默认">恢复默认</button></div>
+            <div class="kv">默认（PATH 探测）<b>C:\Home\Apps\mediainfo\mediainfo.exe</b></div>
+          </div>
+        </div>
+        <div class="set-row"><span class="lbl">关于</span>
+          <div class="set-box"><div class="kv">mediac-desktop <b>v0.2.0</b>（UI 原型 · 模拟数据）</div></div>
+        </div>
+      </div>
+      <div class="modal-foot" style="gap:8px"><button class="btn btn-cancel" id="btnModalCancel">取消</button><button class="btn btn-primary" id="btnModalClose">保存设置</button></div>
+    </div>
+  </div>
+
+  <div class="toast-wrap" id="toastWrap"></div>
+</div>
+
+<script>
+"use strict";
+/* =====================================================
+   mediac FFmpeg Studio · UI 原型（模拟数据）
+   布局/组件/状态/交互演示；无真实转码能力
+===================================================== */
+var $ = function (id) { return document.getElementById(id); };
+var $$ = function (sel) { return Array.prototype.slice.call(document.querySelectorAll(sel)); };
+function esc(s) { return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+function fmtSize(n) { if (n >= 1e9) return (n / 1e9).toFixed(1) + " GB"; if (n >= 1e6) return (n / 1e6).toFixed(0) + " MB"; return Math.round(n / 1e3) + " KB"; }
+function fmtDur(sec) { var h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = Math.floor(sec % 60); function p(x) { return (x < 10 ? "0" : "") + x; } return (h > 0 ? h + ":" : "") + p(m) + ":" + p(s); }
+function nowTs() { var d = new Date(); function p(x) { return (x < 10 ? "0" : "") + x; } return p(d.getHours()) + ":" + p(d.getMinutes()) + ":" + p(d.getSeconds()); }
+function basename(p) { var parts = p.split(/[\\/]/); return parts[parts.length - 1]; }
+function dirname(p) { var parts = p.split(/[\\/]/); parts.pop(); return parts.join("\\") || "."; }
+
+/* ---------- 图标 ---------- */
+var I = {
+  file: '<svg class="i sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>',
+  folder: '<svg class="i sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
+  trash: '<svg class="i sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M6 6l1 14h10l1-14"/><path d="M10 10v6"/><path d="M14 10v6"/></svg>',
+  refresh: '<svg class="i sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg>',
+  locate: '<svg class="i sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 12h6"/><path d="M12 9v6"/></svg>',
+  check: '<svg class="i sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>',
+  x: '<svg class="i sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>'
+};
+
+/* ---------- 预设数据（与 presets/default.yaml 公开预设一致，29 个；原型为演示固化，实现须动态获取） ---------- */
+function presetSub(p) {
+  if (p.family === "audio") return "输出 " + p.fmt + " · " + (p.ac === "copy" ? "音轨直拷" : p.ac + " " + p.ab);
+  var parts = [p.family.toUpperCase(), (p.dim || 0) + "p", "CRF " + p.q];
+  if (p.max && p.max !== "—") parts.push("峰值 " + p.max);
+  parts.push(p.ac + " " + (p.ab && p.ab !== "—" ? p.ab : ""));
+  return parts.join(" · ");
+}
+function mkP(name, family, dim, q, max, ab, ac, extra) {
+  var p = Object.assign({ name: name, family: family, dim: dim, q: q, max: max, ab: ab, ac: ac || "aac", fmt: family === "vp9" ? ".webm" : ".mp4", note: "" }, extra || {});
+  p.sub = presetSub(p);
+  return p;
+}
+var PRESETS = [
+  { label: "HEVC · H.265", items: [
+    mkP("hevc_4kh", "hevc", 3840, 22, "20M", "256k"), mkP("hevc_4k", "hevc", 3840, 25, "14M", "256k"),
+    mkP("hevc_4kl", "hevc", 3840, 28, "9M", "192k"), mkP("hevc_2kh", "hevc", 1920, 20, "12M", "256k"),
+    mkP("hevc_2k", "hevc", 1920, 23, "8M", "192k", "aac", { rec: true }),
+    mkP("hevc_2kl", "hevc", 1920, 26, "5M", "128k"), mkP("hevc_2kt", "hevc", 1920, 29, "3M", "96k", "aac", { note: "30fps 极限" })
+  ] },
+  { label: "H.264 · AVC", items: [
+    mkP("h264_2kh", "h264", 1920, 20, "12M", "256k"), mkP("h264_2k", "h264", 1920, 23, "8M", "192k"),
+    mkP("h264_2kl", "h264", 1920, 26, "5M", "128k"), mkP("h264_4kh", "h264", 3840, 22, "22M", "256k"),
+    mkP("h264_4k", "h264", 3840, 25, "16M", "192k"), mkP("h264_4kl", "h264", 3840, 28, "10M", "128k")
+  ] },
+  { label: "AV1", items: [
+    mkP("av1_2kh", "av1", 1920, 28, "10M", "256k"), mkP("av1_2k", "av1", 1920, 33, "6M", "192k", "aac", { rec: true }),
+    mkP("av1_2kl", "av1", 1920, 38, "3.5M", "128k"), mkP("av1_2kt", "av1", 1920, 42, "2M", "96k"),
+    mkP("av1_720p", "av1", 1280, 34, "3M", "128k"), mkP("av1_4kh", "av1", 3840, 30, "18M", "256k"),
+    mkP("av1_4k", "av1", 3840, 35, "12M", "192k"), mkP("av1_4kl", "av1", 3840, 40, "7M", "128k")
+  ] },
+  { label: "VP9", items: [
+    mkP("vp9_2k", "vp9", 1920, 36, "—", "192k", "libopus", { rec: true }),
+    mkP("vp9_4k", "vp9", 3840, 38, "—", "192k", "libopus")
+  ] },
+  { label: "音频", items: [
+    mkP("audio_extract", "audio", 0, 0, "—", "—", "copy", { note: "提取音轨" }),
+    mkP("aac_high", "audio", 0, 0, "—", "256k", "aac"), mkP("aac_medium", "audio", 0, 0, "—", "192k", "aac", { rec: true }),
+    mkP("aac_low", "audio", 0, 0, "—", "128k", "aac"), mkP("aac_he", "audio", 0, 0, "—", "96k", "aac", { note: "HE-AAC" }),
+    mkP("aac_voice", "audio", 0, 0, "—", "48k", "aac", { note: "人声" })
+  ] }
+];
+function getPreset(name) { for (var i = 0; i < PRESETS.length; i++) { var it = PRESETS[i].items; for (var j = 0; j < it.length; j++) if (it[j].name === name) return it[j]; } return PRESETS[1].items[1]; }
+
+/* ---------- 下拉选项数据 ---------- */
+var DIM_OPTS = [[0, "0 · 保持原分辨率"], [3840, "3840 · 4K UHD"], [2560, "2560 · 2K QHD"], [1920, "1920 · 1080p FHD"], [1280, "1280 · 720p HD"], [854, "854 · 480p SD"], ["custom", "自定义…"]];
+var BR_OPTS = [["", "自动 · 跟随预设"], ["1.5M", "1.5 Mbps"], ["2.5M", "2.5 Mbps"], ["4M", "4.0 Mbps"], ["6M", "6.0 Mbps"], ["10M", "10 Mbps"], ["16M", "16 Mbps"], ["custom", "自定义…"]];
+var FPS_OPTS = [[0, "保持原帧率"], [23.976, "23.976 fps"], [24, "24 fps"], [25, "25 fps"], [29.97, "29.97 fps"], [30, "30 fps"], [50, "50 fps"], [60, "60 fps"], [120, "120 fps"]];
+var SPEED_OPTS = [[0, "原始速度"], [0.5, "0.5x 慢放"], [0.75, "0.75x 慢放"], [1.25, "1.25x 加速"], [1.5, "1.5x 快进"], [2.0, "2.0x 双倍速"]];
+var ACODEC_OPTS = [["", "跟随预设"], ["copy", "copy · 流直拷"], ["aac", "AAC"], ["libopus", "Opus"], ["mp3", "MP3"], ["flac", "FLAC"]];
+var ABR_OPTS = [["", "跟随预设"], ["96k", "96 kbps"], ["128k", "128 kbps"], ["192k", "192 kbps"], ["256k", "256 kbps"], ["320k", "320 kbps"]];
+var HW_OPTS = [["auto", "auto · 自动选择"], ["cuda", "cuda · NVIDIA"], ["qsv", "qsv · Intel"], ["amf", "amf · AMD"], ["d3d", "d3d · 通用兜底"], ["cpu", "cpu · 纯软件"]];
+var DECODE_OPTS = [["auto", "auto · 逐层降级"], ["gpu", "gpu · 仅硬件解码"], ["cpu", "cpu · 纯软解"]];
+
+/* ---------- 状态 ---------- */
+var S = {
+  theme: "dark",
+  runner: "IDLE",           // IDLE PLANNING READY RUNNING STOPPING STOPPED COMPLETED
+  inputs: [],
+  outputDir: "",
+  outputMode: "dir",
+  prefix: "",
+  suffix: "",
+  preset: "hevc_2k",
+  tune: { dimension: 0, quality: 0, bitrate: "", fps: 0, speed: 0, audioCodec: "", audioBitrate: "" },
+  adv: { hwaccel: "auto", decodeMode: "auto", jobs: 1, override: false, anime: false, strict: false, deleteSource: false },
+  tasks: [],
+  selected: {},
+  logs: [],
+  errCount: 0,
+  logFilter: "ALL",
+  run: { timer: null, idx: 0, done: 0, percent: 0, speed: 0, eta: 0, activeId: null },
+  mockIdx: 0,
+  tools: {
+    ffmpeg: { def: "C:\\Home\\Apps\\ffmpeg\\bin\\ffmpeg.exe", cur: "" },
+    ffprobe: { def: "C:\\Home\\Apps\\ffmpeg\\bin\\ffprobe.exe", cur: "" },
+    mediainfo: { def: "C:\\Home\\Apps\\mediainfo\\mediainfo.exe", cur: "" }
+  },
+  sideWidth: 400
+};
+
+/* ---------- 示例输入（演示） ---------- */
+function seedInputs() {
+  return [
+    { path: "D:\\Media\\2026-09 假期素材", kind: "dir", count: 24 },
+    { path: "C:\\Users\\mcxiaoke\\Videos\\旅行合集.mp4", kind: "file" },
+    { path: "C:\\Users\\mcxiaoke\\Videos\\工作录屏_20260921.mkv", kind: "file" },
+    { path: "C:\\Users\\mcxiaoke\\Videos\\老电影修复.avi", kind: "file" },
+    { path: "C:\\Users\\mcxiaoke\\Music\\播客访谈_EP42.m4a", kind: "file" }
+  ];
+}
+var MOCK_POOL = [
+  "C:\\Users\\mcxiaoke\\Downloads\\sample_clip_01.mp4",
+  "D:\\Media\\素材\\空镜延时.mov",
+  "E:\\备份\\家庭录像2008.avi",
+  "C:\\Users\\mcxiaoke\\Videos\\会议纪要_0905.mkv",
+  "D:\\Media\\婚礼跟拍\\现场花絮.MP4",
+  "C:\\Users\\mcxiaoke\\Music\\原创demo_v3.wav"
+];
+function mockMeta(p) {
+  var ext = (p.split(".").pop() || "").toLowerCase();
+  if (ext === "m4a" || ext === "wav" || ext === "mp3" || ext === "flac") {
+    return { meta: "AAC · 48kHz · 24bit", size: "185 MB", dur: 3900, vc: null, srcCodec: "AAC" };
+  }
+  var set = [
+    { meta: "H.264 · 3840×2160 · 29.97fps", size: "2.1 GB", dur: 754, srcCodec: "H.264" },
+    { meta: "H.264 · 1920×1080 · 60fps", size: "856 MB", dur: 2712, srcCodec: "H.264" },
+    { meta: "MPEG-4 · 720×576 · 25fps", size: "1.3 GB", dur: 6127, srcCodec: "MPEG-4" },
+    { meta: "HEVC · 3840×2160 · 24fps", size: "3.4 GB", dur: 1830, srcCodec: "HEVC" },
+    { meta: "AV1 · 1920×1080 · 30fps", size: "512 MB", dur: 908, srcCodec: "AV1" }
+  ];
+  return set[Math.floor(Math.random() * set.length)];
+}
+
+/* ---------- 通用组件：自定义下拉 ---------- */
+var openSelect = null;
+function createSelect(container, opts) {
+  var cfg = opts.options || [], groups = opts.groups || null, value = opts.value, onChange = opts.onChange;
+  container.innerHTML = "";
+  container.classList.add("select");
+  var btn = document.createElement("div");
+  btn.className = "select-btn";
+  btn.tabIndex = 0;
+  btn.setAttribute("role", "button");
+  var sv = document.createElement("span"); sv.className = "sv";
+  var chev = '<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>';
+  btn.innerHTML = "";
+  btn.appendChild(sv);
+  btn.insertAdjacentHTML("beforeend", chev);
+  var pop = document.createElement("div"); pop.className = "select-pop";
+  function labelOf(v) {
+    if (groups) { for (var i = 0; i < groups.length; i++) { var its = groups[i].items; for (var j = 0; j < its.length; j++) if (its[j].value === v || its[j].name === v) return its[j].label || its[j].name; } }
+    for (var k = 0; k < cfg.length; k++) if (cfg[k].value === v) return cfg[k].label;
+    return String(v);
+  }
+  function render() {
+    pop.innerHTML = "";
+    if (groups) {
+      groups.forEach(function (g) {
+        var gl = document.createElement("div"); gl.className = "opt-group"; gl.textContent = g.label; pop.appendChild(gl);
+        g.items.forEach(function (it) {
+          var key = it.value !== undefined ? it.value : it.name;
+          var o = document.createElement("div"); o.className = "opt" + (key === value ? " on" : "");
+          o.innerHTML = '<span class="opt-main"><span class="n">' + esc(it.label) + "</span>" + (it.sub ? '<span class="s">' + esc(it.sub) + "</span>" : "") + '</span><span class="ok">' + I.check + '</span>';
+          o.addEventListener("mousedown", function (e) { e.preventDefault(); value = key; if (onChange) onChange(key); render(); closeSelect(); });
+          pop.appendChild(o);
+        });
+      });
+    } else {
+      cfg.forEach(function (it) {
+        var o = document.createElement("div"); o.className = "opt" + (it.value === value ? " on" : "");
+        o.textContent = it.label;
+        o.insertAdjacentHTML("beforeend", '<span class="ok">' + I.check + '</span>');
+        o.addEventListener("mousedown", function (e) { e.preventDefault(); value = it.value; if (onChange) onChange(it.value); render(); closeSelect(); });
+        pop.appendChild(o);
+      });
+    }
+    sv.textContent = labelOf(value);
+  }
+  function open() { closeSelect(); pop.classList.add("open"); btn.classList.add("open"); openSelect = { close: close }; }
+  function closeSelect() { pop.classList.remove("open"); btn.classList.remove("open"); if (openSelect) openSelect = null; }
+  function close() { closeSelect(); }
+  btn.addEventListener("click", function () { if (pop.classList.contains("open")) closeSelect(); else open(); });
+  btn.addEventListener("keydown", function (e) {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pop.classList.contains("open") ? closeSelect() : open(); }
+    if (e.key === "Escape") closeSelect();
+  });
+  container.appendChild(btn); container.appendChild(pop);
+  render();
+  return { get: function () { return value; }, set: function (v) { value = v; render(); }, close: close };
+}
+document.addEventListener("click", function (e) { if (openSelect && !e.target.closest(".select")) openSelect.close(); });
+
+/* ---------- 通用组件：开关 / 复选 ---------- */
+function bindSwitch(id, get, set) {
+  var el = $(id);
+  function sync() { el.classList.toggle("on", !!get()); el.setAttribute("aria-checked", get() ? "true" : "false"); }
+  el.addEventListener("click", function () { set(!get()); sync(); });
+  el.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); set(!get()); sync(); } });
+  sync();
+}
+function setCk(el, on) { el.classList.toggle("on", on); el.setAttribute("aria-checked", on ? "true" : "false"); }
+
+/* ---------- Toast ---------- */
+function toast(msg, type) {
+  var wrap = $("toastWrap");
+  var t = document.createElement("div");
+  t.className = "toast" + (type ? " " + type : "");
+  t.textContent = msg;
+  wrap.appendChild(t);
+  setTimeout(function () { t.style.opacity = "0"; t.style.transition = "opacity .2s"; }, 2600);
+  setTimeout(function () { t.remove(); }, 2900);
+}
+
+/* ---------- 日志 ---------- */
+function log(level, text) {
+  S.logs.push({ level: level, text: text, ts: nowTs() });
+  if (S.logs.length > 500) S.logs.shift();
+  if (level === "ERROR") S.errCount++;
+  renderLogs();
+  renderLogBadge();
+}
+function renderLogBadge() {
+  var b = $("logBadge");
+  if (!S.errCount) { b.hidden = true; return; }
+  b.hidden = false;
+  b.textContent = S.errCount > 99 ? "99+" : String(S.errCount);
+}
+function renderLogs() {
+  var f = S.logFilter;
+  var shown = S.logs.filter(function (l) { return f === "ALL" || l.level === f; });
+  $("logCount").textContent = S.logs.length + " 条";
+  var body = $("logBody");
+  var stick = body.scrollTop + body.clientHeight >= body.scrollHeight - 20;
+  body.innerHTML = shown.map(function (l) {
+    return '<div class="log-line l-' + l.level + '"><span class="ts">' + l.ts + '</span>' + esc(l.text) + "</div>";
+  }).join("");
+  if (stick) body.scrollTop = body.scrollHeight;
+}
+
+/* ---------- 顶栏状态 ---------- */
+var STATE_LABEL = {
+  IDLE: "待机", PLANNING: "分析中", READY: "待执行", RUNNING: "转码中",
+  STOPPING: "正在停止", STOPPED: "已停止", COMPLETED: "已完成", FAILED: "异常"
+};
+function setRunner(r) {
+  S.runner = r;
+  var tag = $("stateTag");
+  tag.textContent = STATE_LABEL[r] || r;
+  tag.className = "tag state" + (r === "RUNNING" ? " info" : r === "COMPLETED" ? " ok" : r === "FAILED" ? " err" : "");
+  applyRunner();
+}
+function applyRunner() {
+  var r = S.runner, hasPlan = S.tasks.length > 0, busy = r === "RUNNING" || r === "STOPPING" || r === "PLANNING";
+  $("btnPlan").disabled = busy;
+  $("btnStart").disabled = busy || !hasPlan || (r !== "READY" && r !== "COMPLETED");
+  $("btnStop").disabled = r !== "RUNNING";
+  $("btnClear").disabled = busy || !hasPlan;
+  var locked = busy || r === "READY";
+  $$(".side .card").forEach(function (c) { c.style.opacity = locked ? 0.55 : 1; c.style.pointerEvents = locked ? "none" : "auto"; });
+}
+/* ---------- 工具：任务与统计 ---------- */
+function parseSize(s) { var m = String(s).match(/([\d.]+)\s*(GB|MB|KB)/i); if (!m) return 0; var v = parseFloat(m[1]); return m[2].toUpperCase() === "GB" ? v * 1e9 : m[2].toUpperCase() === "MB" ? v * 1e6 : v * 1e3; }
+function mkTask(n, src) {
+  var ps = getPreset(S.preset);
+  var isAudio = ps.family === "audio";
+  var pre = isAudio ? (S.prefix || "") : (S.prefix || "[SHANA] ");
+  var suf;
+  if (isAudio) { suf = S.suffix || (ps.name === "audio_extract" ? "_audio" : ""); }
+  else { suf = (S.suffix || "_{preset}").replace("{preset}", ps.name); }
+  var base = src.name.replace(/\.[^.]+$/, "");
+  var srcCodec = src.srcCodec || "—";
+  var outCodec = ps.family === "audio" ? (ps.ac === "copy" ? "copy" : ps.ac) : ps.family.toUpperCase();
+  var encoder = ps.family === "audio" ? (ps.ac === "copy" ? "流直拷" : "libavcodec") : ({ hevc: "libx265", h264: "libx264", av1: "libsvtav1", vp9: "libvpx-vp9" }[ps.family] || "libx265");
+  return {
+    id: "t" + n, name: src.name, path: src.path, rel: src.rel, meta: src.meta,
+    size: src.size, sizeNum: parseSize(src.size), dur: src.dur, durStr: fmtDur(src.dur),
+    dst: pre + base + suf + ps.fmt, dstDir: S.outputDir || "同源目录",
+    srcCodec: srcCodec, outCodec: outCodec, encoder: encoder,
+    status: "pending", progress: 0, speed: 0, outcome: src.outcome || "done",
+    error: null, skipReason: null
+  };
+}
+function presetObj() { return getPreset(S.preset); }
+
+/* ---------- 输入区 ---------- */
+function addInputs(list) {
+  list.forEach(function (it) {
+    var same = S.inputs.some(function (x) { return x.path === it.path; });
+    if (!same) S.inputs.push(it);
+  });
+  renderInputs();
+  invalidatePlan("输入已变更，请重新生成计划");
+}
+function renderInputs() {
+  var box = $("inputList");
+  box.innerHTML = "";
+  if (!S.inputs.length) {
+    box.innerHTML = '<div style="font-size:11px;color:var(--text-3);padding:2px 0">尚未添加输入</div>';
+    return;
+  }
+  S.inputs.forEach(function (it, i) {
+    var chip = document.createElement("div"); chip.className = "chip";
+    chip.innerHTML = (it.kind === "dir" ? I.folder : I.file) +
+      '<div class="chip-main"><span class="chip-name" title="' + esc(it.path) + '">' + esc(it.path) + "</span></div>" +
+      (it.kind === "dir" ? '<span class="chip-cnt">' + it.count + " 个文件</span>" : "");
+    var x = document.createElement("button"); x.className = "chip-x"; x.title = "移除"; x.setAttribute("aria-label", "移除");
+    x.innerHTML = I.x;
+    x.addEventListener("click", function () { S.inputs.splice(i, 1); renderInputs(); invalidatePlan("输入已变更，请重新生成计划"); });
+    chip.appendChild(x);
+    box.appendChild(chip);
+  });
+}
+function addMockFile() {
+  var p = MOCK_POOL[S.mockIdx % MOCK_POOL.length]; S.mockIdx++;
+  addInputs([{ path: p, kind: "file" }]);
+  toast("已添加文件（演示）");
+}
+function addMockDir() {
+  var dirs = [
+    { path: "D:\\Media\\2024 婚礼素材", count: 18 },
+    { path: "E:\\Archive\\2023 纪录片工程", count: 42 },
+    { path: "C:\\Users\\mcxiaoke\\Videos\\直播回放", count: 7 }
+  ];
+  var d = dirs[S.mockIdx % dirs.length]; S.mockIdx++;
+  addInputs([d]);
+  toast("已添加目录（演示）");
+}
+
+/* ---------- 预设相关 UI ---------- */
+var qualityMax = 51;
+function qMaxOf(ps) { return (ps.family === "av1" || ps.family === "vp9") ? 63 : 51; }
+function renderPresetInfo() {
+  var ps = presetObj();
+  var b = $("presetBadges"), d = $("presetDesc");
+  b.innerHTML = "";
+  function add(txt, cls) { var s = document.createElement("span"); s.className = "badge" + (cls ? " " + cls : ""); s.textContent = txt; b.appendChild(s); }
+  add(ps.family.toUpperCase(), "k");
+  if (ps.family !== "audio") { add((ps.dim || 0) + "p"); add("CRF " + ps.q); if (ps.max && ps.max !== "—") add("峰值 " + ps.max); }
+  add(ps.ac === "copy" ? "音轨直拷" : ps.ac + " " + (ps.ab !== "—" ? ps.ab : ""), "a");
+  d.textContent = (ps.note ? ps.note + " · " : "") + (ps.family === "audio"
+    ? "输出 " + ps.fmt + " · 码率 " + ps.ab
+    : "输出 " + ps.fmt + " · 音频 " + ps.ac + " " + ps.ab + (ps.rec ? " · 推荐档" : ""));
+  qualityMax = qMaxOf(ps);
+  $("qualityRangeLbl").textContent = (ps.family === "av1" || ps.family === "vp9" ? "CQ" : "CRF") + " · 0-" + qualityMax;
+  $("qualitySlider").max = qualityMax;
+  if (S.tune.quality > qualityMax) { S.tune.quality = 0; $("qualitySlider").value = 0; $("qualityNum").value = 0; }
+  updateParamSummaries();
+  updateCmdPreview();
+}
+function updateParamSummaries() {
+  var ps = presetObj();
+  var vSum, aSum;
+  if (ps.family === "audio") {
+    vSum = "纯音频预设";
+    aSum = (S.tune.audioCodec || ps.ac) + " " + (S.tune.audioBitrate || (ps.ab && ps.ab !== "—" ? ps.ab : ""));
+  } else {
+    var enc = S.tune.dimension > 0 ? S.tune.dimension + "p" : (ps.dim || 0) + "p";
+    vSum = ps.family.toUpperCase() + " · " + enc + " · " + (S.tune.quality > 0 ? "CRF " + S.tune.quality : "CRF " + ps.q);
+    aSum = (S.tune.audioCodec || ps.ac) + " " + (S.tune.audioBitrate || (ps.ab && ps.ab !== "—" ? ps.ab : ""));
+  }
+  $("videoSummary").textContent = vSum;
+  $("audioSummary").textContent = aSum;
+}
+
+function invalidatePlan(msg) {
+  if (S.tasks.length) {
+    S.tasks = []; S.selected = {};
+    renderTasks(); renderStats(); updateCmdPreview();
+    setRunner("IDLE");
+    if (msg) toast(msg, "warn");
+  }
+}
+
+/* ---------- 计划生成 ---------- */
+function buildPlan() {
+  var n = 0, tasks = [];
+  S.inputs.forEach(function (inp) {
+    if (inp.kind === "dir") {
+      var names = ["IMG_0071.MP4", "IMG_0088.MP4", "IMG_0123.MOV"];
+      names.forEach(function (fn) {
+        n++;
+        tasks.push(mkTask(n, {
+          name: fn, path: inp.path + "\\" + fn, rel: inp.path + "（共 " + inp.count + " 个文件）",
+          meta: "H.264 · 3840×2160 · 29.97fps", srcCodec: "H.264", size: "412 MB", dur: 134,
+          outcome: fn === "IMG_0088.MP4" ? "skip" : "done"
+        }));
+      });
+    } else {
+      n++;
+      var m = mockMeta(inp.path);
+      var outcome = inp.path.indexOf("老电影修复") >= 0 ? "fail" : "done";
+      tasks.push(mkTask(n, { name: basename(inp.path), path: inp.path, rel: dirname(inp.path), meta: m.meta, size: m.size, dur: m.dur, outcome: outcome }));
+    }
+  });
+  S.tasks = tasks;
+  S.selected = {};
+  tasks.forEach(function (t) { S.selected[t.id] = true; });
+  $("ckAll") && setCk($("ckAll"), true);
+}
+function renderStats() {
+  var n = S.tasks.length;
+  if (!n) { $("tbStats").innerHTML = '<span style="color:var(--text-3)">尚无任务计划</span>'; return; }
+  var sz = 0, du = 0;
+  S.tasks.forEach(function (t) { sz += t.sizeNum; du += t.dur; });
+  $("tbStats").innerHTML = "<b>" + n + "</b> 个任务<span class='sep'>·</span><b>" + fmtSize(sz) + "</b><span class='sep'>·</span><b>" + fmtDur(du) + "</b>";
+}
+
+/* ---------- 任务表 ---------- */
+var STATUS_UI = {
+  pending: { t: "待处理", cls: "" },
+  running: { t: "转码中", cls: "info" },
+  done: { t: "已完成", cls: "ok" },
+  skipped: { t: "已跳过", cls: "warn" },
+  failed: { t: "失败", cls: "err" },
+  cancelled: { t: "已取消", cls: "" }
+};
+function renderTasks() {
+  var body = $("tasksBody");
+  body.innerHTML = "";
+  var showEmpty = $("emptyState");
+  if (!S.tasks.length) { showEmpty.style.display = "flex"; return; }
+  showEmpty.style.display = "none";
+  S.tasks.forEach(function (t, i) {
+    var st = STATUS_UI[t.status] || STATUS_UI.pending;
+    var tr = document.createElement("tr");
+    tr.className = (S.selected[t.id] ? "sel " : "") + ((t.status === "skipped" || t.status === "cancelled") ? "dim" : "");
+    tr.dataset.id = t.id;
+    var statusCell = "";
+    if (t.status === "running") {
+      statusCell = '<span class="tag info"><span class="dot"></span>' + st.t + "</span>" +
+        '<div class="row-bar"><i style="width:' + Math.round(t.progress) + '%"></i></div>' +
+        '<div class="t-sub">' + Math.round(t.progress) + "% · " + t.speed.toFixed(1) + "x</div>";
+    } else {
+      var tip = (t.status === "skipped" && t.skipReason) || (t.status === "failed" && t.error) || "";
+      statusCell = '<span class="tag ' + st.cls + '"' + (tip ? ' title="' + esc(tip) + '"' : "") + ">" + st.t + "</span>" +
+        (t.status === "failed" ? '<div class="t-sub" style="color:var(--error)">' + esc(t.error || "") + "</div>" : "") +
+        (t.status === "skipped" ? '<div class="t-sub">' + esc(t.skipReason || "") + "</div>" : "");
+    }
+    var ops = "";
+    ops += '<button class="icon-btn" data-op="locate" title="在文件夹中定位">' + I.locate + "</button>";
+    if (t.status === "failed" || t.status === "cancelled") {
+      ops += '<button class="icon-btn" data-op="retry" title="重试该任务">' + I.refresh + "</button>";
+    }
+    ops += '<button class="icon-btn" data-op="remove" title="从队列移除">' + I.trash + "</button>";
+    tr.innerHTML =
+      '<td><span class="ck' + (S.selected[t.id] ? " on" : "") + '"></span></td>' +
+      '<td class="t-num">' + (i + 1) + "</td>" +
+      '<td><div class="t-main">' + esc(t.name) + '</div><div class="t-sub">' + esc(t.meta + " · " + t.rel) + "</div></td>" +
+      "<td>" + esc(t.size) + "</td><td>" + esc(t.durStr) + "</td>" +
+      '<td><div class="t-main">' + esc(t.srcCodec + " → " + t.outCodec) + '</div><div class="t-sub">' + esc("解码 " + (S.adv.decodeMode || "auto") + " · " + t.encoder) + "</div></td>" +
+      '<td><div class="t-main">' + esc(t.dst) + '</div><div class="t-sub">' + esc(t.dstDir) + "</div></td>" +
+      "<td>" + statusCell + "</td>" +
+      '<td><div class="t-ops">' + ops + "</div></td>";
+    tr.addEventListener("click", function () {
+      if (S.runner === "RUNNING" || S.runner === "STOPPING") return;
+      var sel = !S.selected[t.id];
+      S.selected[t.id] = sel;
+      tr.classList.toggle("sel", sel);
+      tr.querySelector(".ck").classList.toggle("on", sel);
+      updateCkAll();
+      updateCmdPreview();
+    });
+    tr.querySelectorAll("[data-op]").forEach(function (b) {
+      b.addEventListener("click", function (e) { e.stopPropagation(); doTaskOp(t, b.dataset.op); });
+    });
+    tr.addEventListener("contextmenu", function (e) {
+      e.preventDefault(); e.stopPropagation();
+      showCtx(e.clientX, e.clientY, ctxItemsFor(t));
+    });
+    body.appendChild(tr);
+  });
+  updateCkAll();
+}
+function updateCkAll() {
+  var all = S.tasks.length > 0 && S.tasks.every(function (t) { return S.selected[t.id]; });
+  setCk($("ckAll"), all);
+}
+
+/* ---------- 任务行操作 / 右键菜单（桌面范式） ---------- */
+function doTaskOp(t, op) {
+  if (op === "locate") toast("演示：将在资源管理器中定位 " + (t.status === "done" ? "产物" : "源文件"));
+  if (op === "retry") { t.outcome = "done"; t.status = "pending"; t.progress = 0; t.error = null; renderTasks(); toast("已重新加入队列：重试 " + t.name, "ok"); }
+  if (op === "remove") {
+    S.tasks = S.tasks.filter(function (x) { return x.id !== t.id; });
+    delete S.selected[t.id];
+    renderTasks(); renderStats(); updateCmdPreview();
+    if (!S.tasks.length) { setRunner("IDLE"); toast("任务队列已清空"); }
+  }
+}
+function ctxItemsFor(t) {
+  var items = [];
+  items.push({ label: "在文件夹中定位", icon: I.locate, fn: function () { doTaskOp(t, "locate"); } });
+  if (t.status === "failed" || t.status === "cancelled") items.push({ label: "重试该任务", icon: I.refresh, fn: function () { doTaskOp(t, "retry"); } });
+  items.push({ label: "从队列移除", icon: I.trash, danger: true, fn: function () { doTaskOp(t, "remove"); } });
+  return items;
+}
+var ctxEl = null;
+function showCtx(x, y, items) {
+  hideCtx();
+  var m = document.createElement("div"); m.className = "ctx-menu";
+  items.forEach(function (it) {
+    var d = document.createElement("div"); d.className = "ctx-item" + (it.danger ? " danger" : "");
+    d.innerHTML = it.icon + "<span>" + esc(it.label) + "</span>";
+    d.addEventListener("click", function () { hideCtx(); it.fn(); });
+    m.appendChild(d);
+  });
+  m.style.left = Math.min(x, window.innerWidth - 170) + "px";
+  m.style.top = Math.min(y, window.innerHeight - items.length * 34 - 14) + "px";
+  document.body.appendChild(m); ctxEl = m;
+}
+function hideCtx() { if (ctxEl) { ctxEl.remove(); ctxEl = null; } }
+document.addEventListener("click", hideCtx);
+document.addEventListener("keydown", function (e) { if (e.key === "Escape") hideCtx(); });
+
+/* ---------- 命令预览 ---------- */
+function cmdHtml(cmdStr) {
+  var s = esc(cmdStr);
+  s = s.replace(/(\s)(-[a-z0-9:_]+)(?=\s|$)/gi, '$1<span class="fl">$2</span>');
+  s = s.replace(/"([^"]*)"/g, '<span class="path">"$1"</span>');
+  return s;
+}
+function buildCmd(t) {
+  var ps = presetObj(), p = [];
+  p.push("-i", '"' + t.path + '"');
+  if (ps.family !== "audio") {
+    var enc = { hevc: "libx265", h264: "libx264", av1: "libsvtav1", vp9: "libvpx-vp9" }[ps.family] || "libx265";
+    p.push("-map_metadata", "0");
+    if (S.tune.dimension > 0) p.push("-vf", "scale=" + S.tune.dimension + ":-2");
+    p.push("-c:v", enc);
+    if (S.tune.quality > 0) p.push("-crf", String(S.tune.quality));
+    p.push("-preset", "medium");
+    if (S.tune.bitrate) p.push("-b:v", S.tune.bitrate);
+    if (ps.max && ps.max !== "—") p.push("-maxrate", ps.max);
+    var ac = S.tune.audioCodec || ps.ac;
+    if (ac && ac !== "copy") p.push("-c:a", ac);
+    var ab = S.tune.audioBitrate || ps.ab;
+    if (ab && ab !== "—") p.push("-b:a", ab);
+    p.push("-movflags", "+faststart +use_metadata_tags");
+  } else {
+    p.push("-vn", "-map", "0:a");
+    if (ps.name === "audio_extract") p.push("-c:a", "copy");
+    else {
+      var ac2 = S.tune.audioCodec || ps.ac; p.push("-c:a", ac2);
+      var ab2 = S.tune.audioBitrate || ps.ab; if (ab2 && ab2 !== "—") p.push("-b:a", ab2);
+    }
+  }
+  p.push('"' + (S.outputDir ? S.outputDir + "\\" : "") + t.dst + '"');
+  return "ffmpeg " + p.join(" ");
+}
+function updateCmdPreview() {
+  var t = null;
+  if (S.tasks.length) {
+    t = S.tasks.filter(function (x) { return S.selected[x.id]; })[0] || S.tasks[0];
+  }
+  $("cmdPresetName").textContent = t ? S.preset : "—";
+  $("cmdBody").innerHTML = t ? cmdHtml(buildCmd(t)) : "生成计划后，此处将展示选中任务的 FFmpeg 命令";
+}
+
+/* ---------- 执行看板 ---------- */
+function renderExec() {
+  var total = S.tasks.length, done = 0, cur = 0;
+  S.tasks.forEach(function (t) {
+    if (t.status === "done" || t.status === "failed" || t.status === "skipped" || t.status === "cancelled") done++;
+    if (t.status === "running") cur = t.progress;
+  });
+  var frac = total ? ((done + (cur / 100)) / total) : 0;
+  $("execBarFill").style.width = Math.round(frac * 100) + "%";
+  $("execPct").textContent = Math.round(frac * 100) + "%";
+  var active = S.tasks.filter(function (t) { return t.status === "running"; })[0];
+  $("execFile").textContent = active ? active.name : (S.runner === "READY" ? "计划已就绪，等待开始" : S.runner === "COMPLETED" ? "全部任务处理完毕" : S.runner === "STOPPED" ? "执行已终止" : "等待开始");
+  $("statOverall").textContent = done + " / " + total;
+  $("statSpeed").textContent = S.runner === "RUNNING" && active ? active.speed.toFixed(1) + "x" : "—";
+  var eta = 0;
+  if (S.runner === "RUNNING" && active) {
+    var remainFrac = 1 - frac;
+    eta = Math.round((remainFrac * total * 40) / Math.max(active.speed, 0.5));
+  }
+  $("statEta").textContent = S.runner === "RUNNING" ? fmtDur(eta) : "—";
+}
+
+/* ---------- 执行模拟 ---------- */
+function startRun() {
+  var selIds = Object.keys(S.selected);
+  var runIds = selIds.length ? selIds : S.tasks.map(function (t) { return t.id; });
+  var runTasks = S.tasks.filter(function (t) { return runIds.indexOf(t.id) >= 0 && t.status !== "done"; });
+  if (!runTasks.length) { toast("请先勾选要执行的任务", "warn"); return; }
+  runTasks.forEach(function (t) {
+    if (t.outcome === "skip") { t.status = "skipped"; t.skipReason = "目标已存在，已跳过（Skip[Dst]）"; }
+    else { t.status = "pending"; t.progress = 0; }
+  });
+  S.run.queue = runTasks.filter(function (t) { return t.outcome !== "skip"; });
+  S.run.idx = 0; S.run.percent = 0;
+  var ps = presetObj();
+  var jobs = ps.family === "audio" ? Math.min(S.adv.jobs || 1, 4) : 1;
+  setRunner("RUNNING");
+  renderTasks(); renderExec();
+  toast("开始转码：" + S.run.queue.length + " 个任务");
+  log("CMD", "ffmpeg 6.1.1 — batch start · preset=" + S.preset + " · concurrency=" + jobs + (ps.family !== "audio" ? "（视频串行）" : ""));
+  S.run.timer = setInterval(tickRun, 140);
+}
+function tickRun() {
+  var q = S.run.queue;
+  if (S.run.idx >= q.length) { finishRun(); return; }
+  var t = q[S.run.idx];
+  if (t.status !== "running") {
+    t.status = "running"; t.progress = 0; t.speed = 0;
+    log("INFO", "[" + t.id + "] 开始转码：" + t.name);
+    log("CMD", "ffmpeg -i \"" + t.path + "\" … -c:v " + ({ hevc: "libx265", h264: "libx264", av1: "libsvtav1", vp9: "libvpx-vp9" }[presetObj().family] || "libx265") + " … \"" + t.dst + "\"");
+  }
+  t.progress = Math.min(100, t.progress + 1 + Math.random() * 3);
+  t.speed = 1.6 + Math.random() * 2.4;
+  if (t.outcome === "fail" && t.progress >= 62) { failTask(t); return; }
+  if (t.progress >= 100) { doneTask(t); return; }
+  if (Math.random() < 0.25) {
+    log("INFO", "frame= " + Math.floor(t.progress * 120) + " fps= " + Math.floor(t.speed * 30) + " q= 23.0 time= " + fmtDur(t.dur * t.progress / 100) + " bitrate= 4.5Mbits/s speed= " + t.speed.toFixed(1) + "x");
+  }
+  renderTasks(); renderExec();
+}
+function doneTask(t) {
+  t.status = "done"; t.speed = 0;
+  S.run.done++; S.run.idx++;
+  log("INFO", "[" + t.id + "] 完成：" + t.name + " → " + t.dst);
+  renderTasks(); renderExec();
+}
+function failTask(t) {
+  t.status = "failed"; t.error = "Error while encoding video: Invalid argument（演示失败）";
+  S.run.done++; S.run.idx++;
+  log("ERROR", "[" + t.id + "] 转码失败：" + t.name + " → " + t.error);
+  toast("任务失败：" + t.name, "err");
+  renderTasks(); renderExec();
+}
+function finishRun() {
+  clearInterval(S.run.timer); S.run.timer = null;
+  var ok = 0, failed = 0, skipped = 0, cancelled = 0;
+  S.tasks.forEach(function (t) {
+    if (t.status === "done") ok++;
+    else if (t.status === "failed") failed++;
+    else if (t.status === "skipped") skipped++;
+    else if (t.status === "cancelled") cancelled++;
+  });
+  log("INFO", "会话汇总：完成 " + ok + " · 失败 " + failed + " · 跳过 " + skipped + " · 取消 " + cancelled);
+  setRunner("COMPLETED");
+  renderTasks(); renderExec();
+  toast("转码完成：成功 " + ok + (failed ? " · 失败 " + failed : "") + (skipped ? " · 跳过 " + skipped : ""), failed ? "warn" : "ok");
+}
+function stopRun() {
+  if (S.runner !== "RUNNING") return;
+  clearInterval(S.run.timer); S.run.timer = null;
+  setRunner("STOPPING");
+  log("WARN", "用户请求终止，正在清理在途任务…");
+  setTimeout(function () {
+    S.tasks.forEach(function (t) {
+      if (t.status === "pending" || t.status === "running") { t.status = "cancelled"; t.progress = 0; }
+    });
+    var c = S.tasks.filter(function (t) { return t.status === "cancelled"; }).length;
+    setRunner("STOPPED");
+    renderTasks(); renderExec();
+    log("WARN", "已终止：" + c + " 个任务被取消，无残留临时文件");
+    toast("已终止：取消 " + c + " 个任务", "warn");
+  }, 450);
+}
+
+/* ---------- 确认弹窗 ---------- */
+function showConfirm(title, text, okText, danger, cb) {
+  var mask = document.createElement("div"); mask.className = "modal-mask";
+  mask.innerHTML = '<div class="modal" role="dialog" aria-modal="true">' +
+    '<div class="modal-title">' + esc(title) + "</div>" +
+    '<div class="modal-body"><div style="font-size:13px;line-height:1.7;color:var(--text-2)">' + esc(text) + "</div></div>" +
+    '<div class="modal-foot" style="gap:8px">' +
+    '<button class="btn btn-cancel">取消</button>' +
+    '<button class="btn ' + (danger ? "btn-danger" : "btn-primary") + ' btn-ok">' + esc(okText) + "</button></div></div>";
+  function rm() { mask.remove(); document.removeEventListener("keydown", onKey); }
+  function onKey(e) { if (e.key === "Escape") rm(); }
+  mask.querySelector(".btn-cancel").addEventListener("click", rm);
+  mask.querySelector(".btn-ok").addEventListener("click", function () { rm(); cb(); });
+  mask.addEventListener("click", function (e) { if (e.target === mask) rm(); });
+  document.addEventListener("keydown", onKey);
+  document.body.appendChild(mask);
+  var okBtn = mask.querySelector(".btn-ok");
+  setTimeout(function () { okBtn && okBtn.focus(); }, 30);
+}
+
+/* ---------- 设置弹窗 ---------- */
+function openSettings() {
+  ["ffmpeg", "ffprobe", "mediainfo"].forEach(function (k) {
+    $("tool" + k.charAt(0).toUpperCase() + k.slice(1)).value = S.tools[k].cur;
+  });
+  $("settingsMask").hidden = false;
+}
+function toggleSide() {
+  var side = $("side");
+  S.sideCollapsed = !S.sideCollapsed;
+  if (S.sideCollapsed) {
+    side.classList.add("collapsed");
+    side.style.width = "0px";
+    $("sideResizer").style.display = "none";
+    $("btnSideToggle").title = "展开左侧栏（Ctrl+B）";
+  } else {
+    side.classList.remove("collapsed");
+    side.style.width = S.sideWidth + "px";
+    $("sideResizer").style.display = "";
+    $("btnSideToggle").title = "收起左侧栏（Ctrl+B）";
+  }
+}
+function openLog() { $("logMask").hidden = false; renderLogs(); }
+function closeLog() { $("logMask").hidden = true; }
+function closeSettings() { $("settingsMask").hidden = true; }
+
+/* ---------- 事件绑定 ---------- */
+function bindAll() {
+  /* 输入 */
+  var dz = $("dropzone");
+  dz.addEventListener("click", addMockFile);
+  dz.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); addMockFile(); } });
+  ["dragover", "dragenter"].forEach(function (ev) { dz.addEventListener(ev, function (e) { e.preventDefault(); dz.classList.add("drag"); }); });
+  ["dragleave", "drop"].forEach(function (ev) { dz.addEventListener(ev, function (e) { e.preventDefault(); dz.classList.remove("drag"); }); });
+  dz.addEventListener("drop", function () { addMockFile(); });
+  $("btnAddFiles").addEventListener("click", addMockFile);
+  $("btnAddDir").addEventListener("click", addMockDir);
+  function addManual() {
+    var v = $("manualPath").value.trim();
+    if (!v) { toast("请输入路径", "warn"); return; }
+    addInputs([{ path: v, kind: "file" }]);
+    $("manualPath").value = "";
+    toast("已添加路径（演示）");
+  }
+  $("btnManualAdd").addEventListener("click", addManual);
+  $("manualPath").addEventListener("keydown", function (e) { if (e.key === "Enter") addManual(); });
+
+  /* 输出 */
+  $("outputDir").addEventListener("input", function () { S.outputDir = this.value.trim(); invalidatePlan(); });
+  $("btnOutput").addEventListener("click", function () {
+    S.outputDir = "D:\\Media\\Output";
+    $("outputDir").value = S.outputDir;
+    toast("已选择输出目录（演示）");
+    invalidatePlan("输出目录已变更，请重新生成计划");
+  });
+  $("prefix").addEventListener("input", function () { S.prefix = this.value.trim(); invalidatePlan(); });
+  $("suffix").addEventListener("input", function () { S.suffix = this.value.trim(); invalidatePlan(); });
+
+  /* 视频 / 音频参数折叠（默认收起，点击标题展开） */
+  function bindFold(toggleId, bodyId) {
+    $(toggleId).addEventListener("click", function () {
+      $(bodyId).classList.toggle("hide");
+      this.querySelector(".chev").style.transform = $(bodyId).classList.contains("hide") ? "" : "rotate(180deg)";
+    });
+  }
+  bindFold("videoToggle", "videoBody");
+  bindFold("audioToggle", "audioBody");
+
+  /* 高级选项折叠 */
+  $("advancedToggle").addEventListener("click", function () {
+    $("advancedBody").classList.toggle("hide");
+    this.querySelector(".chev").style.transform = $("advancedBody").classList.contains("hide") ? "" : "rotate(180deg)";
+  });
+  $("jobs").addEventListener("input", function () {
+    var v = parseInt(this.value, 10);
+    S.adv.jobs = isNaN(v) || v < 1 ? 1 : Math.min(v, 4);
+    this.value = S.adv.jobs;
+  });
+  bindSwitch("swOverride", function () { return S.adv.override; }, function (v) { S.adv.override = v; });
+  bindSwitch("swAnime", function () { return S.adv.anime; }, function (v) { S.adv.anime = v; });
+  bindSwitch("swStrict", function () { return S.adv.strict; }, function (v) { S.adv.strict = v; });
+  bindSwitch("swDelete", function () { return S.adv.deleteSource; }, function (v) { S.adv.deleteSource = v; if (!v) S.confirmedDelete = false; });
+
+  /* 工具栏 */
+  $("btnPlan").addEventListener("click", doPlan);
+  $("btnStart").addEventListener("click", startRun);
+  $("btnStop").addEventListener("click", stopRun);
+  $("btnClear").addEventListener("click", function () {
+    if (S.runner === "RUNNING" || S.runner === "STOPPING") return;
+    S.tasks = []; S.selected = {};
+    renderTasks(); renderStats(); updateCmdPreview();
+    setRunner("IDLE");
+    toast("任务队列已清空");
+  });
+
+  /* 命令预览 */
+  $("cmdHead").addEventListener("click", function () { $("cmdPreview").classList.toggle("open"); });
+  $("btnCmdCopy").addEventListener("click", function (e) {
+    e.stopPropagation();
+    var t = S.tasks.filter(function (x) { return S.selected[x.id]; })[0] || S.tasks[0];
+    if (!t) { toast("暂无命令可复制", "warn"); return; }
+    try { navigator.clipboard.writeText(buildCmd(t)); toast("命令已复制", "ok"); } catch (err) { toast("复制失败", "err"); }
+  });
+
+  /* 全选 */
+  var ckAll = $("ckAll");
+  ckAll.addEventListener("click", function () {
+    var on = !ckAll.classList.contains("on");
+    setCk(ckAll, on);
+    S.tasks.forEach(function (t) { S.selected[t.id] = on; });
+    renderTasks();
+  });
+  ckAll.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); ckAll.click(); } });
+
+  /* 日志 */
+  $("logFilter").addEventListener("change", function () { S.logFilter = this.value; renderLogs(); });
+  $("btnLogClear").addEventListener("click", function () { S.logs = []; S.errCount = 0; renderLogs(); renderLogBadge(); });
+  $("btnLogCopy").addEventListener("click", function () {
+    var txt = S.logs.filter(function (l) { return S.logFilter === "ALL" || l.level === S.logFilter; }).map(function (l) { return "[" + l.level + "] " + l.ts + " " + l.text; }).join("\n");
+    try { navigator.clipboard.writeText(txt || "（空日志）"); toast("日志已复制", "ok"); } catch (err) { toast("复制失败", "err"); }
+  });
+  $("btnLogOpenDir").addEventListener("click", function () { toast("演示：将在资源管理器中打开日志目录（~/.mediac/logs）", "ok"); });
+  $("btnLogClose").addEventListener("click", closeLog);
+  $("btnLog").addEventListener("click", openLog);
+  $("logMask").addEventListener("click", function (e) { if (e.target === $("logMask")) closeLog(); });
+  $("btnSideToggle").addEventListener("click", toggleSide);
+  document.addEventListener("keydown", function (e) {
+    if ((e.ctrlKey || e.metaKey) && (e.key === "b" || e.key === "B")) { e.preventDefault(); toggleSide(); }
+    if (e.key === "Escape" && !$("logMask").hidden) {
+      var openModal = $$(".modal-mask").some(function (m) { return !m.hidden; });
+      if (!openModal) closeLog();
+    }
+  });
+
+  /* 设置 */
+  $("btnSettings").addEventListener("click", openSettings);
+  $("btnModalCancel").addEventListener("click", closeSettings);
+  $("btnModalClose").addEventListener("click", function () {
+    ["ffmpeg", "ffprobe", "mediainfo"].forEach(function (k) {
+      S.tools[k].cur = $("tool" + k.charAt(0).toUpperCase() + k.slice(1)).value.trim();
+    });
+    closeSettings();
+    toast("设置已保存：工具路径已更新（演示）", "ok");
+  });
+  $("settingsMask").addEventListener("click", function (e) { if (e.target === $("settingsMask")) closeSettings(); });
+  $$("[data-tool]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      var k = b.dataset.tool;
+      S.tools[k].cur = "";
+      $("tool" + k.charAt(0).toUpperCase() + k.slice(1)).value = "";
+      toast("已恢复默认：" + k + "（PATH 探测）", "ok");
+    });
+  });
+
+  /* 左栏宽度拖拽（320~560px） */
+  var rz = $("sideResizer");
+  rz.addEventListener("mousedown", function (e) {
+    e.preventDefault();
+    rz.classList.add("drag");
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    function mv(ev) {
+      var rect = rz.parentElement.getBoundingClientRect();
+      var w = ev.clientX - rect.left - 5;
+      w = Math.max(320, Math.min(560, w));
+      $("side").style.width = w + "px";
+      S.sideWidth = w;
+    }
+    function up() {
+      rz.classList.remove("drag");
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      document.removeEventListener("mousemove", mv);
+      document.removeEventListener("mouseup", up);
+    }
+    document.addEventListener("mousemove", mv);
+    document.addEventListener("mouseup", up);
+  });
+
+  /* 快捷键：Ctrl+Enter 快速生成计划（桌面惯例） */
+  document.addEventListener("keydown", function (e) {
+    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+      e.preventDefault();
+      if (!$("btnPlan").disabled) doPlan();
+    }
+  });
+  $$("#themeSeg button").forEach(function (b) {
+    b.addEventListener("click", function () {
+      $$("#themeSeg button").forEach(function (x) { x.classList.remove("on"); });
+      b.classList.add("on");
+      S.theme = b.dataset.v;
+      document.documentElement.dataset.theme = S.theme;
+      toast("主题已切换为" + (S.theme === "dark" ? "暗色" : "亮色"));
+    });
+  });
+  $("btnEnvRecheck").addEventListener("click", function () { toast("检测完成：ffmpeg 6.1.1 · ffprobe 6.1.1 · NVENC 可用（演示）", "ok"); });
+}
+
+/* ---------- 初始化 ---------- */
+function init() {
+  S.inputs = seedInputs();
+  renderInputs();
+
+  /* 预设下拉（分组） */
+  createSelect($("presetSel"), {
+    groups: PRESETS.map(function (g) {
+      return { label: g.label, items: g.items.map(function (p) {
+        return { name: p.name, label: p.name + (p.rec ? " · 推荐" : "") + (p.note ? " · " + p.note : ""), sub: p.sub };
+      }) };
+    }),
+    value: S.preset,
+    onChange: function (v) { S.preset = v; renderPresetInfo(); invalidatePlan(); }
+  });
+
+  /* 输出模式下拉 */
+  createSelect($("outputModeSel"), {
+    options: [
+      { value: "tree", label: "tree · 保持源目录层级结构" },
+      { value: "dir", label: "dir · 仅保留父目录名（默认）" },
+      { value: "file", label: "file · 全部扁平输出" }
+    ],
+    value: S.outputMode,
+    onChange: function (v) { S.outputMode = v; invalidatePlan(); }
+  });
+
+  /* 参数下拉 */
+  createSelect($("dimensionSel"), { options: DIM_OPTS.map(function (o) { return { value: o[0], label: o[1] }; }), value: S.tune.dimension, onChange: function (v) {
+    S.tune.dimension = v === "custom" ? 0 : v;
+    if (v === "custom") { $("dimensionCustom").focus(); }
+    invalidatePlan();
+  } });
+  createSelect($("bitrateSel"), { options: BR_OPTS.map(function (o) { return { value: o[0], label: o[1] }; }), value: S.tune.bitrate, onChange: function (v) {
+    S.tune.bitrate = v === "custom" ? "" : v;
+    if (v === "custom") { $("bitrateCustom").focus(); }
+    invalidatePlan();
+  } });
+  createSelect($("fpsSel"), { options: FPS_OPTS.map(function (o) { return { value: o[0], label: o[1] }; }), value: S.tune.fps, onChange: function (v) { S.tune.fps = v; invalidatePlan(); } });
+  createSelect($("speedSel"), { options: SPEED_OPTS.map(function (o) { return { value: o[0], label: o[1] }; }), value: S.tune.speed, onChange: function (v) { S.tune.speed = v; invalidatePlan(); } });
+  createSelect($("audioCodecSel"), { options: ACODEC_OPTS.map(function (o) { return { value: o[0], label: o[1] }; }), value: S.tune.audioCodec, onChange: function (v) { S.tune.audioCodec = v; invalidatePlan(); } });
+  createSelect($("audioBitrateSel"), { options: ABR_OPTS.map(function (o) { return { value: o[0], label: o[1] }; }), value: S.tune.audioBitrate, onChange: function (v) { S.tune.audioBitrate = v; invalidatePlan(); } });
+  createSelect($("hwaccelSel"), { options: HW_OPTS.map(function (o) { return { value: o[0], label: o[1] }; }), value: S.adv.hwaccel, onChange: function (v) { S.adv.hwaccel = v; invalidatePlan(); } });
+  createSelect($("decodeSel"), { options: DECODE_OPTS.map(function (o) { return { value: o[0], label: o[1] }; }), value: S.adv.decodeMode, onChange: function (v) { S.adv.decodeMode = v; invalidatePlan(); } });
+
+  /* 质量滑块联动 */
+  function syncQ() {
+    var v = Math.max(0, Math.min(qualityMax, parseInt($("qualityNum").value || "0", 10)));
+    $("qualitySlider").value = v; $("qualityNum").value = v;
+    S.tune.quality = v;
+    invalidatePlan();
+  }
+  $("qualitySlider").addEventListener("input", function () { $("qualityNum").value = this.value; S.tune.quality = parseInt(this.value, 10); invalidatePlan(); });
+  $("qualityNum").addEventListener("change", syncQ);
+  $("dimensionCustom").addEventListener("change", function () { var v = parseInt(this.value, 10); if (!isNaN(v) && v > 0) S.tune.dimension = v; invalidatePlan(); });
+  $("bitrateCustom").addEventListener("change", function () { var v = this.value.trim(); if (v) S.tune.bitrate = v; invalidatePlan(); });
+
+  renderPresetInfo();
+  bindAll();
+  setRunner("IDLE");
+  renderExec();
+  log("INFO", "应用启动：ffmpeg 6.1.1 · ffprobe 6.1.1 · 硬件 NVENC 可用");
+  log("CMD", "mediac-desktop v0.2.0 — 演示原型，数据为模拟数据，不执行真实转码");
+}
+
+function doPlan() {
+  if (!S.inputs.length) { toast("请先添加输入文件或目录", "err"); return; }
+  if (!S.preset) { toast("请先选择预设", "err"); return; }
+  if (S.adv.deleteSource && !S.confirmedDelete) {
+    showConfirm("确认删除源文件？",
+      "转码成功且产物校验通过后，源文件将被移入 Mediac 安全回收目录（~/.mediac/deleted/日期），可随时恢复。请确认是否继续？",
+      "确认删除源", true, function () { S.confirmedDelete = true; doPlan(); });
+    return;
+  }
+  setRunner("PLANNING");
+  log("INFO", "开始生成转码计划（dry-run 预览）…");
+  setTimeout(function () {
+    buildPlan();
+    renderStats();
+    renderTasks();
+    updateCmdPreview();
+    setRunner("READY");
+    log("CMD", "Plan ready · " + S.tasks.length + " tasks · preset=" + S.preset + " · outputMode=" + S.outputMode);
+    toast("计划已生成：" + S.tasks.length + " 个任务，请检查后开始转码", "ok");
+  }, 700);
+}
+
+init();
+</script>
+</body>
+</html>
