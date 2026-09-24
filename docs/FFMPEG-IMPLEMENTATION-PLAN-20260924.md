@@ -261,17 +261,17 @@ Options -> Scan -> Task -> Plan -> Execute -> Result/Event
 
 - [x] 统一解析 ffmpeg/ffprobe；
 - [x] 能力探测和执行使用同一 binary context；
-- [ ] preset 从 resources 加载；
-- [ ] 不自动信任 cwd preset；
+- [x] preset 从 resources 加载；
+- [x] 不自动信任 cwd preset；
 - [ ] capability/probe cache 按 binary/version 隔离。
 
 **阶段 4 验收**：
 
 - [ ] 拖拽文件可获得真实路径；
 - [ ] Electron 不出现隐式 Node integration；
-- [ ] Engine 与 CLI 行为一致；
+- [x] Engine 与 CLI 行为一致；
 - [x] main/preload/renderer build 通过；
-- [ ] Electron E2E 通过。
+- [x] Electron E2E 通过。
 
 ---
 
@@ -407,6 +407,7 @@ npm test/check/lint 结果已记录；
 | 2026-09-24 | 阶段 2F：共享 Planner 与行为统一 | 已完成 | CLI/ffweb 共用 task/Plan preparation、retry/delete-source/override、空计划/全跳过/stale plan 语义；新增 parity 与回归测试，定向测试通过；全量门禁已通过（324/324、129 JS、lint） |
 | 2026-09-24 | 阶段 3A：共享 Web Scan 规则 | 已完成 | ffweb 改用 `scanWebInputFiles`，统一 preset 类型、文件名过滤、filelist、start/count；新增 Web scan 回归测试，定向测试通过 |
 | 2026-09-24 | 阶段 3B：stale plan 防护 | 已完成 | WebUI 新 planning 先失效旧 currentPlan；失败请求不能执行旧计划；新增 stale-plan 回归 |
+| 2026-09-24 | 阶段 4I：Electron UI/IPC 可用性修复 | 已完成 | 修复 IPC clone 错误和 bundled preset；Electron 接入共享 Scan/Planner，UI 支持文件/目录/输出目录/preset/options；真实 renderer CDP 单文件/目录 Analyze/Start 通过；typecheck/build 通过 |
 | 2026-09-24 | 范围调整 | 已确认 | 核心功能优先；Electron 分发、许可、签名和干净机验收暂缓，不作为当前阶段门槛 |
 
 ---

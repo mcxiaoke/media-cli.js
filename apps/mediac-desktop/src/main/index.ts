@@ -3,6 +3,7 @@ import { appendFileSync, mkdirSync } from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { ffmpegEnvironment } from "./ffmpeg-service.js"
+import { toSerializable } from "./ipc-serializer.js"
 import { IPC_CHANNELS } from "../shared/ipc-channels.js"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -47,7 +48,7 @@ function handleTrusted(channel: string, handler: (...args: any[]) => unknown) {
     if (!isTrustedSender(event)) {
       throw new Error("Untrusted IPC sender")
     }
-    return handler(...args)
+    return toSerializable(await handler(...args))
   })
 }
 
@@ -73,7 +74,9 @@ function createWindow() {
   })
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }))
   ffmpegEnvironment.setEventSink((event) => {
-    mainWindow?.webContents.send(IPC_CHANNELS.EXECUTION_EVENT, event)
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send(IPC_CHANNELS.EXECUTION_EVENT, toSerializable(event))
+    }
   })
   mainWindow.webContents.on("will-navigate", (event) => event.preventDefault())
 

@@ -22,6 +22,12 @@ const copyCoreData = {
     for (const fileName of coreDataFiles) {
       fs.copyFileSync(path.join(coreRoot, "lib", fileName), path.join(outputDir, fileName))
     }
+    const presetOutputDir = path.join(appRoot, "out/presets")
+    fs.mkdirSync(presetOutputDir, { recursive: true })
+    fs.copyFileSync(
+      path.join(coreRoot, "presets", "default.yaml"),
+      path.join(presetOutputDir, "default.yaml"),
+    )
   },
 }
 

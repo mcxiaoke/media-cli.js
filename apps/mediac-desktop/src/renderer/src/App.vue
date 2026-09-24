@@ -7,123 +7,249 @@ import type {
 
 const version = ref("loading")
 const environment = ref<EnvironmentSummary | null>(null)
-const selectedFiles = ref<string[]>([])
+const selectedInputs = ref<string[]>([])
 const outputDirectory = ref("")
+const presetName = ref("hevc_2k")
+const outputMode = ref<"tree" | "dir" | "file">("dir")
+const override = ref(false)
+const strict = ref(false)
+const deleteSource = ref(false)
 const plan = ref<PublicPlanSnapshot | null>(null)
 const status = ref("IDLE")
 const progress = ref<Record<string, unknown> | null>(null)
 const events = ref<Array<Record<string, unknown>>>([])
+const errorMessage = ref("")
+const busy = ref(false)
 let unsubscribe: (() => void) | null = null
 
-onMounted(async () => {
-  const [appVersion, env] = await Promise.all([
-    window.api.getAppVersion(),
-    window.api.getEnvironment(),
-  ])
-  version.value = appVersion
-  environment.value = env
-  unsubscribe = window.api.onEngineEvent((event) => {
-    events.value = [...events.value.slice(-99), event]
-    if (event.type === "task.progress") progress.value = event
-    if (typeof event.type === "string" && event.type.startsWith("session.")) {
-      status.value = event.type
-    }
-    void refreshSnapshot()
-  })
-  await refreshSnapshot()
-})
-
-onUnmounted(() => unsubscribe?.())
-
-async function refreshSnapshot() {
-  const snapshot = await window.api.getTaskSnapshot()
-  status.value = String(snapshot.status || "IDLE")
-  plan.value = (snapshot.plan as PublicPlanSnapshot | null) || null
+function errorText(error: unknown) {
+  return error instanceof Error ? error.message : String(error)
 }
 
-function addFiles(paths: string[]) {
-  selectedFiles.value = [...new Set([...selectedFiles.value, ...paths])]
+function addInputs(paths: string[]) {
+  selectedInputs.value = [...new Set([...selectedInputs.value, ...paths.filter(Boolean)])]
+  errorMessage.value = ""
 }
 
-async function chooseFiles() {
-  const result = await window.api.selectFiles({ mode: "file", multiple: true })
-  addFiles(result.paths)
+function removeInput(index: number) {
+  selectedInputs.value.splice(index, 1)
+  if (selectedInputs.value.length === 0) {
+    plan.value = null
+    status.value = "IDLE"
+  }
+}
+
+async function chooseInputs(mode: "file" | "directory") {
+  try {
+    const result = await window.api.selectFiles({ mode, multiple: mode === "file" })
+    addInputs(result.paths)
+  } catch (error) {
+    errorMessage.value = errorText(error)
+  }
 }
 
 function handleDrop(event: DragEvent) {
   const files = Array.from(event.dataTransfer?.files || [])
-  addFiles(files.map((file) => window.api.getPathForFile(file)).filter(Boolean))
+  const paths = files
+    .map((file) => {
+      try {
+        return window.api.getPathForFile(file)
+      } catch {
+        return ""
+      }
+    })
+    .filter(Boolean)
+  addInputs(paths)
 }
 
 async function chooseOutput() {
-  const result = await window.api.selectFiles({ mode: "directory", multiple: false })
-  outputDirectory.value = result.paths[0] || ""
+  try {
+    const result = await window.api.selectFiles({ mode: "directory", multiple: false })
+    outputDirectory.value = result.paths[0] || ""
+  } catch (error) {
+    errorMessage.value = errorText(error)
+  }
+}
+
+async function refreshSnapshot() {
+  try {
+    const snapshot = await window.api.getTaskSnapshot()
+    status.value = String(snapshot.status || "IDLE")
+    plan.value = (snapshot.plan as PublicPlanSnapshot | null) || null
+  } catch (error) {
+    errorMessage.value = errorText(error)
+  }
 }
 
 async function createPlan() {
-  if (selectedFiles.value.length === 0) return
+  if (selectedInputs.value.length === 0) {
+    errorMessage.value = "请先选择至少一个文件或目录"
+    return
+  }
+  if (deleteSource.value && !window.confirm("转码成功后要删除源文件，确定继续吗？")) {
+    return
+  }
+
+  busy.value = true
+  errorMessage.value = ""
   status.value = "PLANNING"
   try {
     plan.value = await window.api.createPlan({
-      inputs: selectedFiles.value,
+      inputs: selectedInputs.value,
       output: outputDirectory.value,
-      preset: "hevc_2k",
-      options: { override: false },
+      preset: presetName.value,
+      options: {
+        outputMode: outputMode.value,
+        override: override.value,
+        strict: strict.value,
+        deleteSourceFiles: deleteSource.value,
+        ...(deleteSource.value ? { deleteSourceConfirmed: true } : {}),
+      },
     })
     status.value = "READY"
   } catch (error) {
     status.value = "FAILED"
-    events.value = [...events.value, { type: "error", message: String(error) }]
+    errorMessage.value = errorText(error)
+    events.value = [
+      ...events.value,
+      { type: "error", message: errorMessage.value, timestamp: new Date().toISOString() },
+    ]
+  } finally {
+    busy.value = false
   }
 }
 
 async function startExecution() {
   if (!plan.value) return
+  busy.value = true
+  errorMessage.value = ""
   status.value = "RUNNING"
-  await window.api.startExecution()
+  try {
+    await window.api.startExecution()
+  } catch (error) {
+    status.value = "FAILED"
+    errorMessage.value = errorText(error)
+  } finally {
+    busy.value = false
+  }
 }
 
 async function stopExecution() {
-  await window.api.stopExecution()
+  try {
+    await window.api.stopExecution()
+  } catch (error) {
+    errorMessage.value = errorText(error)
+  }
 }
+
+onMounted(async () => {
+  unsubscribe = window.api.onEngineEvent((event) => {
+    events.value = [...events.value.slice(-99), event]
+    if (event.type === "task.progress") progress.value = event
+    if (event.type === "session.summary") {
+      const summary = event.summary as Record<string, unknown> | undefined
+      status.value = summary?.isCancelled ? "STOPPED" : "COMPLETED"
+      void refreshSnapshot()
+    }
+  })
+
+  try {
+    const [appVersion, env] = await Promise.all([
+      window.api.getAppVersion(),
+      window.api.getEnvironment(),
+    ])
+    version.value = appVersion
+    environment.value = env
+    if (env.presets.length > 0 && !env.presets.some((preset) => preset.name === presetName.value)) {
+      presetName.value = env.presets[0].name
+    }
+    await refreshSnapshot()
+  } catch (error) {
+    status.value = "FAILED"
+    errorMessage.value = errorText(error)
+  }
+})
+
+onUnmounted(() => unsubscribe?.())
 </script>
 
 <template>
   <main class="shell">
-    <header>
-      <p class="eyebrow">MEDIACLI DESKTOP</p>
-      <h1>FFmpeg workspace</h1>
-      <p class="muted">Shared FFmpeg Engine · {{ version }} · {{ status }}</p>
+    <header class="header">
+      <div>
+        <p class="eyebrow">MEDIACLI DESKTOP</p>
+        <h1>FFmpeg workspace</h1>
+        <p class="muted">Shared FFmpeg Engine · v{{ version }}</p>
+      </div>
+      <span class="status" :class="`status-${status.toLowerCase()}`">{{ status }}</span>
     </header>
+
+    <p v-if="errorMessage" class="error-banner">{{ errorMessage }}</p>
 
     <section
       class="dropzone"
       @dragover.prevent
       @drop.prevent="handleDrop"
-      @click="chooseFiles"
+      @click="chooseInputs('file')"
     >
-      <strong>Drop media files here</strong>
-      <span>or click to select files</span>
+      <strong>拖放媒体文件或目录到这里</strong>
+      <span>也可以点击选择文件</span>
     </section>
 
     <section class="card">
       <div class="toolbar">
-        <button type="button" @click="chooseFiles">Select media files</button>
-        <button type="button" @click="chooseOutput">Choose output folder</button>
-        <button type="button" :disabled="selectedFiles.length === 0" @click="createPlan">
-          Analyze
+        <button type="button" @click="chooseInputs('file')">选择媒体文件</button>
+        <button type="button" @click="chooseInputs('directory')">选择输入目录</button>
+        <button type="button" @click="chooseOutput">选择输出目录</button>
+      </div>
+
+      <div v-if="selectedInputs.length" class="input-list">
+        <div v-for="(input, index) in selectedInputs" :key="input" class="input-row">
+          <span :title="input">{{ input }}</span>
+          <button type="button" class="link-button" @click="removeInput(index)">移除</button>
+        </div>
+      </div>
+
+      <div class="form-grid">
+        <label>
+          Preset
+          <select v-model="presetName">
+            <option v-for="preset in environment?.presets || []" :key="preset.name" :value="preset.name">
+              {{ preset.name }} · {{ preset.type }} · {{ preset.format }}
+            </option>
+          </select>
+        </label>
+        <label>
+          输出模式
+          <select v-model="outputMode">
+            <option value="tree">tree · 保持目录树</option>
+            <option value="dir">dir · 保留父目录名</option>
+            <option value="file">file · 直接写入输出目录</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="options">
+        <label><input v-model="override" type="checkbox" /> 覆盖已有目标</label>
+        <label><input v-model="strict" type="checkbox" /> 严格模式</label>
+        <label><input v-model="deleteSource" type="checkbox" /> 成功后删除源文件</label>
+      </div>
+
+      <div class="toolbar action-toolbar">
+        <button type="button" :disabled="busy || selectedInputs.length === 0" @click="createPlan">
+          {{ busy && status === "PLANNING" ? "分析中…" : "Analyze" }}
         </button>
-        <button type="button" :disabled="!plan" @click="startExecution">Start</button>
-        <button type="button" :disabled="status !== 'RUNNING'" @click="stopExecution">
+        <button type="button" :disabled="busy || !plan" @click="startExecution">Start</button>
+        <button type="button" class="danger" :disabled="status !== 'RUNNING'" @click="stopExecution">
           Stop
         </button>
       </div>
 
-      <p v-if="environment">FFmpeg: {{ environment.ffmpegPath || "not found" }}</p>
-      <p v-if="environment">FFprobe: {{ environment.ffprobePath || "not found" }}</p>
-      <p v-if="environment">Presets: {{ environment.presets.length }}</p>
-      <p v-if="selectedFiles.length">Selected: {{ selectedFiles.length }}</p>
-      <p v-if="outputDirectory">Output: {{ outputDirectory }}</p>
+      <p v-if="environment" class="muted environment-line">
+        FFmpeg: {{ environment.ffmpegPath || "not found" }} · FFprobe:
+        {{ environment.ffprobePath || "not found" }} · Presets: {{ environment.presets.length }}
+      </p>
+      <p v-if="outputDirectory" class="muted">输出目录：{{ outputDirectory }}</p>
       <div v-if="progress" class="progress">
         <div :style="{ width: `${Number(progress.percent || 0)}%` }" />
       </div>
@@ -131,17 +257,25 @@ async function stopExecution() {
 
     <section v-if="plan" class="card">
       <h2>Plan · {{ plan.totalTasks }} task(s)</h2>
-      <p class="muted">{{ plan.presetName }} · {{ plan.totalDuration.toFixed(1) }}s</p>
+      <p class="muted">
+        {{ plan.presetName }} · {{ plan.totalDuration.toFixed(1) }}s · {{ plan.totalSize }} bytes
+      </p>
+      <pre class="command-preview">{{ plan.previewCmd || "（当前计划没有可执行任务）" }}</pre>
       <ul>
         <li v-for="task in plan.tasks" :key="task.id">
-          {{ task.name }} → {{ task.fileDst }} ({{ task.status }})
+          <strong>{{ task.name }}</strong>
+          <span>{{ task.status }} → {{ task.fileDst || "—" }}</span>
+          <small v-if="task.skipReason"> ({{ task.skipReason }})</small>
         </li>
       </ul>
     </section>
 
     <section class="card">
-      <h2>Events</h2>
-      <pre>{{ events.slice(-12).map((event) => JSON.stringify(event)).join("\n") }}</pre>
+      <div class="section-header">
+        <h2>Events</h2>
+        <button type="button" class="link-button" @click="events = []">清空</button>
+      </div>
+      <pre>{{ events.slice(-12).map((event) => JSON.stringify(event, null, 2)).join("\n") }}</pre>
     </section>
   </main>
 </template>
@@ -159,9 +293,16 @@ body {
 }
 
 .shell {
-  max-width: 1100px;
+  max-width: 1180px;
   margin: 0 auto;
-  padding: 48px 32px;
+  padding: 36px 32px 64px;
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
 }
 
 .eyebrow {
@@ -184,10 +325,38 @@ h2 {
   color: #94a3b8;
 }
 
+.status {
+  border: 1px solid #334155;
+  border-radius: 999px;
+  padding: 8px 14px;
+  color: #cbd5e1;
+  background: #111827;
+}
+
+.status-running,
+.status-planning {
+  color: #6ee7b7;
+  border-color: #10b981;
+}
+
+.status-failed {
+  color: #fda4af;
+  border-color: #f43f5e;
+}
+
+.error-banner {
+  padding: 12px 16px;
+  border: 1px solid #f43f5e;
+  border-radius: 8px;
+  color: #fecdd3;
+  background: #2b1118;
+}
+
 .dropzone {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  margin-top: 24px;
   padding: 28px;
   border: 1px dashed #34d399;
   border-radius: 12px;
@@ -209,11 +378,50 @@ h2 {
   background: #111827;
 }
 
-.toolbar {
+.toolbar,
+.options,
+.form-grid {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
-  margin-bottom: 16px;
+  gap: 12px;
+}
+
+.action-toolbar {
+  margin-top: 20px;
+}
+
+.form-grid {
+  align-items: end;
+  margin-top: 18px;
+}
+
+.form-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 240px;
+  color: #cbd5e1;
+  font-size: 13px;
+}
+
+select {
+  padding: 10px 12px;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  color: #e5e7eb;
+  background: #0f172a;
+}
+
+.options {
+  margin-top: 16px;
+  color: #cbd5e1;
+  font-size: 14px;
+}
+
+.options label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 button {
@@ -226,9 +434,62 @@ button {
   cursor: pointer;
 }
 
+button.danger {
+  color: #fff1f2;
+  background: #be123c;
+}
+
 button:disabled {
   cursor: not-allowed;
   opacity: 0.4;
+}
+
+.link-button {
+  padding: 2px 6px;
+  color: #93c5fd;
+  background: transparent;
+  font-size: 12px;
+}
+
+.input-list {
+  margin-top: 18px;
+  border: 1px solid #263241;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.input-row,
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.input-row {
+  padding: 8px 12px;
+  color: #cbd5e1;
+  background: #0f172a;
+  font-size: 13px;
+}
+
+.input-row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.section-header {
+  margin-bottom: 10px;
+}
+
+.section-header h2 {
+  margin: 0;
+}
+
+.environment-line {
+  margin-top: 18px;
+  overflow-wrap: anywhere;
 }
 
 .progress {
@@ -251,14 +512,28 @@ ul {
 }
 
 li {
-  margin: 6px 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0;
   word-break: break-all;
 }
 
+li span {
+  color: #94a3b8;
+}
+
 pre {
-  max-height: 260px;
+  max-height: 300px;
   overflow: auto;
   white-space: pre-wrap;
+  word-break: break-word;
   color: #a7f3d0;
+}
+
+.command-preview {
+  padding: 12px;
+  border-radius: 8px;
+  background: #0f172a;
 }
 </style>

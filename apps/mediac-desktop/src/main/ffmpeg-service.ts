@@ -1,5 +1,6 @@
 import { app } from "electron"
 import { execFile } from "node:child_process"
+import { existsSync } from "node:fs"
 import { readFile, mkdir, rename, rm, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { promisify } from "node:util"
@@ -8,13 +9,10 @@ import presets from "../../../../lib/ffmpeg_presets.js"
 import { runFFmpeg, setFFmpegPath } from "../../../../lib/ffmpeg_run.js"
 import { detectHardwareCapabilities } from "../../../../lib/hwdetect.js"
 import { normalizeWebOptions, toLegacyArgvOptions } from "../../../../lib/ffmpeg_options.js"
-import { collectInputFiles } from "../../../../lib/ffmpeg_scan.js"
+import { scanWebInputFiles } from "../../../../lib/ffmpeg_scan.js"
 import { getMediaInfo } from "../../../../lib/mediainfo.js"
-import { buildTask } from "../../../../lib/ffmpeg_task.js"
-import {
-  createInternalExecutionPlan,
-  createPublicPlanSnapshot,
-} from "../../../../lib/ffmpeg_plan_snapshot.js"
+import { deleteCompletedSources, prepareFFmpegPlan } from "../../../../lib/ffmpeg_planner.js"
+import { createPublicPlanSnapshot } from "../../../../lib/ffmpeg_plan_snapshot.js"
 import { createFFmpegEngine } from "../../../../lib/ffmpeg_engine.js"
 import type {
   EnvironmentSummary,
@@ -83,6 +81,21 @@ class FfmpegEnvironmentService {
     await rm(this.manifestPath, { force: true })
   }
 
+  private resolvePresetPath() {
+    const candidates = [
+      path.join(process.resourcesPath, "presets", "default.yaml"),
+      path.join(app.getAppPath(), "out", "presets", "default.yaml"),
+      path.join(app.getAppPath(), "presets", "default.yaml"),
+      path.join(app.getAppPath(), "..", "presets", "default.yaml"),
+      path.join(app.getAppPath(), "..", "..", "presets", "default.yaml"),
+      path.join(app.getAppPath(), "..", "..", "..", "..", "presets", "default.yaml"),
+      path.resolve(process.cwd(), "out", "presets", "default.yaml"),
+      path.resolve(process.cwd(), "presets", "default.yaml"),
+      path.resolve(process.cwd(), "..", "..", "presets", "default.yaml"),
+    ]
+    return candidates.find((candidate) => existsSync(candidate)) || null
+  }
+
   async getSummary(): Promise<EnvironmentSummary> {
     if (!this.ffmpegPath) {
       this.ffmpegPath = await resolveFFmpegBinary()
@@ -91,7 +104,9 @@ class FfmpegEnvironmentService {
     if (!this.ffprobePath) {
       this.ffprobePath = await resolveFFprobeBinary(this.ffmpegPath || undefined)
     }
-    await presets.initPresetsAsync()
+    const presetPath = this.resolvePresetPath()
+    if (!presetPath) throw new Error("Bundled FFmpeg preset file was not found")
+    await presets.initPresetsAsync(presetPath)
     if (this.ffmpegPath && !this.hardware) {
       this.hardware = await detectHardwareCapabilities({ ffmpegPath: this.ffmpegPath })
     }
@@ -124,47 +139,58 @@ class FfmpegEnvironmentService {
   async createPlan(body: Record<string, unknown> = {}): Promise<PublicPlanSnapshot> {
     if (this.status === "RUNNING") throw new Error("An execution is already running")
     this.status = "PLANNING"
+    this.currentPlan = null
+    this.summary = null
     try {
+      await this.getSummary()
       const normalized = normalizeWebOptions(body)
-      const files = await collectInputFiles(normalized.inputs)
+      const allPresetNames = presets.getAllNames()
+      const presetName = normalized.preset || "hevc_2k"
+      const presetObject =
+        presets.getPreset(presetName) ||
+        presets.getPreset("hevc_2k") ||
+        presets.getPreset("h264_2k") ||
+        presets.getPreset(allPresetNames[0])
+      if (!presetObject) throw new Error("No FFmpeg presets are available")
+
+      if (
+        normalized.deleteSourceFiles &&
+        !normalized.deleteSourceConfirmed &&
+        !normalized.autoConfirm
+      ) {
+        throw new Error("deleteSourceFiles requires explicit confirmation")
+      }
+      const argv = {
+        ...toLegacyArgvOptions(normalized),
+        output: normalized.output,
+        preset: presetObject.name,
+      }
+      const activePreset = presets.createFromArgv(argv)
+      const files = (await (scanWebInputFiles as any)({
+        inputs: normalized.inputs,
+        argv: normalized,
+        presetType: activePreset.type,
+        isAudioExtract: presets.isAudioExtract(activePreset),
+      })) as any[]
       if (files.length === 0) throw new Error("No media files found in specified inputs")
 
-      const argv = toLegacyArgvOptions(normalized)
-      const activePreset = presets.createFromArgv({
-        ...argv,
-        output: normalized.output,
-        preset: normalized.preset || "hevc_2k",
-      })
-      const tasks: any[] = []
-      for (const file of files) {
-        const task = await buildTask(file, {
-          index: tasks.length,
-          total: files.length,
-          activePreset,
-          argv,
-          output: normalized.output,
-          getMediaInfo: (file: string) =>
+      const prepared = (await (prepareFFmpegPlan as any)({
+        entries: files,
+        preset: activePreset,
+        argv,
+        mode: "plan",
+        concurrency: normalized.jobs || 1,
+        buildTaskDeps: {
+          getMediaInfo: (file: string, options?: { signal?: AbortSignal }) =>
             getMediaInfo(file, {
               useMediaInfo: false,
               ...(this.ffprobePath ? { ffprobePath: this.ffprobePath } : {}),
+              ...(options?.signal ? { signal: options.signal } : {}),
             }),
-        })
-        if (task) tasks.push(task)
-      }
-      if (tasks.length === 0) throw new Error("No tasks can be built from the input")
-
-      this.currentPlan = createInternalExecutionPlan({
-        id: `plan_${Date.now()}`,
-        presetName: activePreset.name,
-        preset: activePreset,
-        mode: "plan",
-        argv: normalized,
-        tasks: tasks as any,
-        totalDuration: tasks.reduce((sum, task) => sum + (task.duration || 0), 0),
-        totalSize: tasks.reduce((sum, task) => sum + (task.size || 0), 0),
-      } as any)
+        },
+      })) as any
+      this.currentPlan = prepared.plan
       this.status = "READY"
-      this.summary = null
       return createPublicPlanSnapshot(this.currentPlan)
     } catch (error) {
       this.status = "IDLE"
@@ -206,6 +232,7 @@ class FfmpegEnvironmentService {
     this.abortController = new AbortController()
     const signal = this.abortController.signal
     const runId = this.currentPlan.id
+    const executionPlan = { ...this.currentPlan, tasks }
     const engine = createFFmpegEngine({
       runTask: (task: any, context: any) =>
         runFFmpeg(task, {
@@ -230,13 +257,24 @@ class FfmpegEnvironmentService {
     })
     void engine
       .execute(
-        { ...this.currentPlan, tasks },
+        executionPlan,
         {
           mode: "execute",
           signal,
           concurrency: 1,
-          onSummary: (summary: Record<string, unknown>) => {
-            this.summary = summary
+          onSummary: async (summary: Record<string, unknown>) => {
+            const deletion = await (deleteCompletedSources as any)({
+              plan: executionPlan,
+              confirmDeleteSource: executionPlan.argv?.deleteSourceConfirmed === true,
+            })
+            this.summary = {
+              ...summary,
+              deletion: {
+                deleted: deletion.deleted.length,
+                kept: deletion.kept.length,
+                failed: deletion.failed.length,
+              },
+            }
             this.status = summary.isCancelled ? "STOPPED" : "COMPLETED"
           },
         },
