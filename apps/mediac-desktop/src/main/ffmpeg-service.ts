@@ -1,3 +1,5 @@
+import { execFile } from "node:child_process"
+import { promisify } from "node:util"
 import { resolveFFmpegBinary } from "../../../../lib/ffmpeg_bin.js"
 import presets from "../../../../lib/ffmpeg_presets.js"
 import { runFFmpegCmd, setFFmpegPath } from "../../../../lib/ffmpeg_run.js"
@@ -15,6 +17,8 @@ import type {
   PublicPlanSnapshot,
 } from "../shared/contracts.js"
 
+const execFileAsync = promisify(execFile)
+
 class FfmpegEnvironmentService {
   private ffmpegPath: string | null = null
   private hardware: any = null
@@ -23,6 +27,7 @@ class FfmpegEnvironmentService {
   private abortController: AbortController | null = null
   private eventSink: ((event: Record<string, unknown>) => void) | null = null
   private summary: Record<string, unknown> | null = null
+  private activePids = new Set<number>()
 
   setEventSink(sink: ((event: Record<string, unknown>) => void) | null) {
     this.eventSink = sink
@@ -108,6 +113,26 @@ class FfmpegEnvironmentService {
     }
   }
 
+  private async killTrackedProcesses() {
+    const pids = [...this.activePids]
+    this.activePids.clear()
+    await Promise.all(
+      pids.map(async (pid) => {
+        try {
+          if (process.platform === "win32") {
+            await execFileAsync("taskkill", ["/PID", String(pid), "/T", "/F"], {
+              windowsHide: true,
+            })
+          } else {
+            process.kill(pid, "SIGTERM")
+          }
+        } catch {
+          // Process may already have exited; onExit will normally untrack it.
+        }
+      }),
+    )
+  }
+
   async startExecution(taskIds: string[] = []): Promise<{ runId: string }> {
     if (!this.currentPlan) throw new Error("No active plan to execute")
     if (this.status === "RUNNING") throw new Error("An execution is already running")
@@ -127,6 +152,18 @@ class FfmpegEnvironmentService {
           signal: context.signal,
           onProgress: context.onProgress,
           onLog: context.onLog,
+          onSpawn: (child: any) => {
+            if (typeof child?.pid === "number") {
+              this.activePids.add(child.pid)
+              this.eventSink?.({ type: "process.spawn", pid: child.pid, taskId: task.id })
+            }
+          },
+          onExit: (metadata: any) => {
+            if (typeof metadata?.pid === "number") {
+              this.activePids.delete(metadata.pid)
+              this.eventSink?.({ type: "process.exit", ...metadata, taskId: task.id })
+            }
+          },
         } as any),
       onEvent: (event: Record<string, unknown>) => this.eventSink?.(event),
     })
@@ -153,9 +190,10 @@ class FfmpegEnvironmentService {
     return { runId }
   }
 
-  stopExecution() {
+  async stopExecution() {
     if (!this.abortController) return { ok: false, message: "No running task to stop" }
     this.abortController.abort()
+    await this.killTrackedProcesses()
     return { ok: true, message: "Stop signal sent" }
   }
 
@@ -169,6 +207,7 @@ class FfmpegEnvironmentService {
 
   dispose() {
     this.abortController?.abort()
+    void this.killTrackedProcesses()
     this.eventSink = null
   }
 }

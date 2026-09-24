@@ -276,18 +276,18 @@ Options -> Scan -> Task -> Plan -> Execute -> Result/Event
 
 ### 7.1 进程生命周期
 
-- [ ] `runFFmpegCmd` 支持 onSpawn/onExit；
-- [ ] PID 注册/注销可靠；
+- [x] `runFFmpegCmd` 支持 onSpawn/onExit；
+- [x] PID 注册/注销可靠；
 - [ ] AbortSignal 贯穿 media probe/hardware probe/encode/commit；
-- [ ] pending task 正确 cancelled；
+- [x] pending task 正确 cancelled；
 - [ ] 停止后无 ffmpeg 子进程；
 - [ ] 用户 Stop、正常退出和 before-quit 可清理。
 
 ### 7.2 Windows 进程树
 
-- [ ] 短期使用 `taskkill /T /F` fallback；
-- [ ] 不使用 shell 拼接 PID；
-- [ ] 不使用阻塞主进程的 execSync；
+- [x] 短期使用 `taskkill /T /F` fallback；
+- [x] 不使用 shell 拼接 PID；
+- [x] 不使用阻塞主进程的 execSync；
 - [ ] Job Object 作为独立可选增强；
 - [ ] 若实现 Job Object，使用 suspended spawn + assign + resume；
 - [ ] 不声称未经验证的“0 延迟强杀”。
@@ -304,11 +304,11 @@ Options -> Scan -> Task -> Plan -> Execute -> Result/Event
 
 - [ ] 决定是否捆绑 ffmpeg/ffprobe；
 - [ ] ffmpeg/ffprobe 使用 extraResources；
-- [ ] native modules 正确 rebuild/unpack；
+- [x] native modules 正确 rebuild/unpack；
 - [ ] 确认 FFmpeg GPL/nonfree/libfdk_aac 许可；
 - [ ] 生成 notices；
 - [ ] Windows Authenticode 签名；
-- [ ] NSIS/Portable 产物；
+- [x] NSIS/Portable 产物；
 - [ ] 干净机启动测试。
 
 **阶段 5 验收**：
@@ -394,6 +394,7 @@ npm test/check/lint 结果已记录；
 | 2026-09-24 | 阶段 4D：Electron 最小可用 UI | 已完成 | renderer 支持环境加载、文件选择、Analyze、Start/Stop、计划/任务列表和 EngineEvent 展示；app typecheck/build 通过 |
 | 2026-09-24 | 阶段 4E：Electron 交互增强 | 已完成 | 增加拖拽文件、输出目录选择、进度条和执行事件刷新；app typecheck/build 通过 |
 | 2026-09-24 | 阶段 4F：Electron 打包验证 | 已完成 | `npm run package:win` 成功生成 NSIS/Portable；移除递归本地 `mediac` 依赖，核心改为 bundle，避免把整个仓库打入安装包；ffmpeg 分发和正式签名仍待处理 |
+| 2026-09-24 | 阶段 5A：Electron 进程守护桥接 | 已完成 | Engine 透传 onSpawn/onExit；Electron service 登记/注销 PID，Stop 使用非 shell taskkill fallback；Engine 回调测试和 app build 通过 |
 
 ---
 

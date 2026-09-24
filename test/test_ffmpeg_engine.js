@@ -102,3 +102,26 @@ test("ffmpeg engine supports confirmed retry attempts", async () => {
     assert.strictEqual(summary.success, 1)
     assert.strictEqual(summary.failed, 0)
 })
+
+test("ffmpeg engine forwards process lifecycle callbacks", async () => {
+    const spawned = []
+    const exited = []
+    const engine = createFFmpegEngine({
+        runTask: async (task, context) => {
+            context.onSpawn({ pid: 1234 }, { pid: 1234 })
+            context.onExit({ pid: 1234, code: 0, signal: null })
+            return { ok: true }
+        },
+    })
+    await engine.execute(
+        { id: "plan-5", tasks: [makeTask(0)] },
+        {
+            onTaskSpawn: (child, metadata) => spawned.push({ child, metadata }),
+            onTaskExit: (metadata, context) => exited.push({ metadata, context }),
+        },
+    )
+    assert.strictEqual(spawned.length, 1)
+    assert.strictEqual(spawned[0].metadata.taskId, "task-0")
+    assert.strictEqual(exited.length, 1)
+    assert.strictEqual(exited[0].metadata.pid, 1234)
+})
