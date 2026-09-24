@@ -393,6 +393,7 @@ npm test/check/lint 结果已记录；
 | 2026-09-24 | 阶段 4C：Electron Engine 桥接 | 已完成 | Electron main service 接入 Options/Scan/Task/Engine，支持 plan/start/stop/snapshot 和 EngineEvent IPC；app typecheck/build 通过 |
 | 2026-09-24 | 阶段 4D：Electron 最小可用 UI | 已完成 | renderer 支持环境加载、文件选择、Analyze、Start/Stop、计划/任务列表和 EngineEvent 展示；app typecheck/build 通过 |
 | 2026-09-24 | 阶段 4E：Electron 交互增强 | 已完成 | 增加拖拽文件、输出目录选择、进度条和执行事件刷新；app typecheck/build 通过 |
+| 2026-09-24 | 阶段 4F：Electron 打包验证 | 已完成 | `npm run package:win` 成功生成 NSIS/Portable；移除递归本地 `mediac` 依赖，核心改为 bundle，避免把整个仓库打入安装包；ffmpeg 分发和正式签名仍待处理 |
 
 ---
 

@@ -6,6 +6,8 @@
     "moduleResolution": "Bundler",
     "strict": true,
     "skipLibCheck": true,
+    "allowJs": true,
+    "checkJs": false,
     "types": ["node", "electron-vite/node"],
     "allowSyntheticDefaultImports": true
   },
@@ -14,6 +16,7 @@
     "src/main/**/*.ts",
     "src/preload/**/*.ts",
     "src/shared/**/*.ts",
-    "src/types/**/*.d.ts"
+    "src/types/**/*.d.ts",
+    "../../lib/**/*.js"
   ]
 }

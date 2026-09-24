@@ -1,15 +1,15 @@
-import { resolveFFmpegBinary } from "mediac/lib/ffmpeg_bin.js"
-import presets from "mediac/lib/ffmpeg_presets.js"
-import { runFFmpegCmd, setFFmpegPath } from "mediac/lib/ffmpeg_run.js"
-import { detectHardwareCapabilities } from "mediac/lib/hwdetect.js"
-import { normalizeWebOptions, toLegacyArgvOptions } from "mediac/lib/ffmpeg_options.js"
-import { collectInputFiles } from "mediac/lib/ffmpeg_scan.js"
-import { buildTask } from "mediac/lib/ffmpeg_task.js"
+import { resolveFFmpegBinary } from "../../../../lib/ffmpeg_bin.js"
+import presets from "../../../../lib/ffmpeg_presets.js"
+import { runFFmpegCmd, setFFmpegPath } from "../../../../lib/ffmpeg_run.js"
+import { detectHardwareCapabilities } from "../../../../lib/hwdetect.js"
+import { normalizeWebOptions, toLegacyArgvOptions } from "../../../../lib/ffmpeg_options.js"
+import { collectInputFiles } from "../../../../lib/ffmpeg_scan.js"
+import { buildTask } from "../../../../lib/ffmpeg_task.js"
 import {
   createInternalExecutionPlan,
   createPublicPlanSnapshot,
-} from "mediac/lib/ffmpeg_plan_snapshot.js"
-import { createFFmpegEngine } from "mediac/lib/ffmpeg_engine.js"
+} from "../../../../lib/ffmpeg_plan_snapshot.js"
+import { createFFmpegEngine } from "../../../../lib/ffmpeg_engine.js"
 import type {
   EnvironmentSummary,
   PublicPlanSnapshot,
@@ -95,10 +95,10 @@ class FfmpegEnvironmentService {
         preset: activePreset,
         mode: "plan",
         argv: normalized,
-        tasks,
+        tasks: tasks as any,
         totalDuration: tasks.reduce((sum, task) => sum + (task.duration || 0), 0),
         totalSize: tasks.reduce((sum, task) => sum + (task.size || 0), 0),
-      })
+      } as any)
       this.status = "READY"
       this.summary = null
       return createPublicPlanSnapshot(this.currentPlan)
@@ -127,7 +127,7 @@ class FfmpegEnvironmentService {
           signal: context.signal,
           onProgress: context.onProgress,
           onLog: context.onLog,
-        }),
+        } as any),
       onEvent: (event: Record<string, unknown>) => this.eventSink?.(event),
     })
     void engine
