@@ -397,6 +397,7 @@ npm test/check/lint 结果已记录；
 | 2026-09-24 | 阶段 5A：Electron 进程守护桥接 | 已完成 | Engine 透传 onSpawn/onExit；Electron service 登记/注销 PID，Stop 使用非 shell taskkill fallback；Engine 回调测试和 app build 通过 |
 | 2026-09-24 | 阶段 5B：Electron 临时文件恢复 | 已完成 | userData/active-tasks.json 原子写入 run/task/temp/output 信息；启动按 manifest 精确清理，完成/失败/取消清理记录；app typecheck/build 通过 |
 | 2026-09-24 | 阶段 4G：ffmpeg/ffprobe 配对解析 | 已完成 | 新增 sibling/环境变量优先的 ffprobe resolver，mediainfo 支持显式 probePath，Electron environment/plan 复用配对路径；ffprobe 测试和 app typecheck 通过 |
+| 2026-09-24 | 阶段 4H：Electron 启动修复 | 已完成 | 修复 bundle 缺少 hanzi 数据文件导致的启动 Error；补充启动日志、ensure:electron、dev:debug 和 README；source/packaged 直接启动均通过 |
 
 ---
 

@@ -1,4 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, session, type IpcMainInvokeEvent } from "electron"
+import { appendFileSync, mkdirSync } from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { ffmpegEnvironment } from "./ffmpeg-service.js"
@@ -7,6 +8,26 @@ import { IPC_CHANNELS } from "../shared/ipc-channels.js"
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 let mainWindow: BrowserWindow | null = null
+
+function startupLog(message: string) {
+  try {
+    const logDir = app.getPath("logs")
+    mkdirSync(logDir, { recursive: true })
+    appendFileSync(path.join(logDir, "mediac-desktop-startup.log"), `${new Date().toISOString()} ${message}\n`)
+  } catch {
+    // Logging must never mask the original startup error.
+  }
+}
+
+process.on("uncaughtException", (error) => {
+  startupLog(`uncaughtException: ${error.stack || error}`)
+  console.error(error)
+})
+
+process.on("unhandledRejection", (error) => {
+  startupLog(`unhandledRejection: ${String(error)}`)
+  console.error(error)
+})
 
 function isTrustedSender(event: IpcMainInvokeEvent) {
   const frameUrl = event.senderFrame?.url || event.sender.getURL()
@@ -44,6 +65,12 @@ function createWindow() {
     },
   })
 
+  mainWindow.webContents.on("preload-error", (_event, preloadPath, error) => {
+    startupLog(`preload-error ${preloadPath}: ${error.stack || error}`)
+  })
+  mainWindow.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL) => {
+    startupLog(`did-fail-load ${errorCode} ${errorDescription} ${validatedURL}`)
+  })
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }))
   ffmpegEnvironment.setEventSink((event) => {
     mainWindow?.webContents.send(IPC_CHANNELS.EXECUTION_EVENT, event)
@@ -89,16 +116,25 @@ handleTrusted(
   },
 )
 
-app.whenReady().then(async () => {
-  await ffmpegEnvironment.initialize()
-  session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
-    callback(false)
+app.whenReady()
+  .then(async () => {
+    startupLog("app ready")
+    await ffmpegEnvironment.initialize()
+    startupLog("environment initialized")
+    session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
+      callback(false)
+    })
+    createWindow()
+    startupLog("main window created")
+    app.on("activate", () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    })
   })
-  createWindow()
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+  .catch((error) => {
+    startupLog(`whenReady failed: ${error.stack || error}`)
+    dialog.showErrorBox("MediaCli startup failed", error.stack || String(error))
+    app.exit(1)
   })
-})
 
 app.on("before-quit", () => {
   ffmpegEnvironment.dispose()

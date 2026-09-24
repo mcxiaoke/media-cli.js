@@ -7,7 +7,11 @@
   "type": "module",
   "main": "./out/main/index.js",
   "scripts": {
+    "ensure:electron": "electron --version",
+    "predev": "npm run ensure:electron",
     "dev": "electron-vite dev",
+    "dev:debug": "electron-vite dev --remote-debugging-port=9222",
+    "prebuild": "npm run ensure:electron",
     "build": "electron-vite build",
     "typecheck": "vue-tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.node.json",
     "package:win": "npm run build && electron-builder --win"
