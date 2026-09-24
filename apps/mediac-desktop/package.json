@@ -12,6 +12,7 @@
     "package:win": "npm run build && electron-builder --win"
   },
   "dependencies": {
+    "mediac": "file:../..",
     "vue": "^3.5.0"
   },
   "devDependencies": {

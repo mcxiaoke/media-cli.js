@@ -238,12 +238,12 @@ Options -> Scan -> Task -> Plan -> Execute -> Result/Event
 ### 6.2 安全 IPC
 
 - [x] `src/shared/contracts.ts`；
-- [ ] `src/shared/ipc-channels.ts`；
+- [x] `src/shared/ipc-channels.ts`；
 - [x] preload 暴露 webUtils 窄接口；
-- [ ] 所有 IPC 校验 sender；
-- [ ] 所有参数运行时校验；
-- [ ] 禁止任意导航/新窗口/外部 URL；
-- [ ] 配置 CSP 和 permission deny。
+- [x] 所有 IPC 校验 sender；
+- [x] 所有参数运行时校验；
+- [x] 禁止任意导航/新窗口/外部 URL；
+- [x] 配置 CSP 和 permission deny。
 
 ### 6.3 Engine 接入
 
@@ -389,6 +389,7 @@ npm test/check/lint 结果已记录；
 | 2026-09-24 | 阶段 2D：统一 CLI 执行 | 已完成 | CLI `runFFmpegTasks` 改用共享 Engine，支持 confirmed retry/Attempt 和统一 summary；CLI 保留 delete-source 适配；真实 CLI dry-run 通过；npm test 312/312 通过 |
 | 2026-09-24 | 阶段 2E：CLI Options 适配 | 已完成 | CLI 使用 `normalizeCliOptions` + legacy argv projection，保留 ffargs 优先级和旧 CLI 行为；真实 CLI dry-run 通过；npm test 312/312 通过 |
 | 2026-09-24 | 阶段 4A：Electron 工程骨架 | 已完成 | 新建 `apps/mediac-desktop`、electron-vite、Vue/TS、sandbox preload、shared contracts、基础安全窗口和 preset extraResources；app typecheck/build 通过 |
+| 2026-09-24 | 阶段 4B：Electron 安全 IPC/环境骨架 | 已完成 | shared IPC contracts/channels、sender 校验、webUtils、原生文件选择、ffmpeg/preset/hardware environment service、mediac 本地依赖；app typecheck 通过 |
 
 ---
 

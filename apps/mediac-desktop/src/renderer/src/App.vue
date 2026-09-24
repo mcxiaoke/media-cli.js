@@ -1,11 +1,18 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue"
+import type { EnvironmentSummary } from "../../shared/contracts"
 
 const version = ref("loading")
+const environment = ref<EnvironmentSummary | null>(null)
 const selectedFiles = ref<string[]>([])
 
 onMounted(async () => {
-  version.value = await window.api.getAppVersion()
+  const [appVersion, env] = await Promise.all([
+    window.api.getAppVersion(),
+    window.api.getEnvironment(),
+  ])
+  version.value = appVersion
+  environment.value = env
 })
 
 async function chooseFiles() {
@@ -25,6 +32,8 @@ async function chooseFiles() {
     <section class="card">
       <button type="button" @click="chooseFiles">Select media files</button>
       <p v-if="version">Desktop API version: {{ version }}</p>
+      <p v-if="environment">FFmpeg: {{ environment.ffmpegPath || "not found" }}</p>
+      <p v-if="environment">Presets: {{ environment.presets.length }}</p>
       <ul v-if="selectedFiles.length">
         <li v-for="file in selectedFiles" :key="file">{{ file }}</li>
       </ul>

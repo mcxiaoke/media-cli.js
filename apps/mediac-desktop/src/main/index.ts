@@ -1,10 +1,34 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from "electron"
+import { app, BrowserWindow, dialog, ipcMain, session, type IpcMainInvokeEvent } from "electron"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
+import { ffmpegEnvironment } from "./ffmpeg-service.js"
+import { IPC_CHANNELS } from "../shared/ipc-channels.js"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 let mainWindow: BrowserWindow | null = null
+
+function isTrustedSender(event: IpcMainInvokeEvent) {
+  const frameUrl = event.senderFrame?.url || event.sender.getURL()
+  const devUrl = process.env.ELECTRON_RENDERER_URL
+  if (devUrl) {
+    try {
+      return new URL(frameUrl).origin === new URL(devUrl).origin
+    } catch {
+      return false
+    }
+  }
+  return frameUrl.startsWith("file://") && frameUrl.includes("/out/renderer/")
+}
+
+function handleTrusted(channel: string, handler: (...args: any[]) => unknown) {
+  ipcMain.handle(channel, async (event, ...args) => {
+    if (!isTrustedSender(event)) {
+      throw new Error("Untrusted IPC sender")
+    }
+    return handler(...args)
+  })
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -20,16 +44,8 @@ function createWindow() {
     },
   })
 
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith("https://")) {
-      void shell.openExternal(url)
-    }
-    return { action: "deny" }
-  })
-
-  mainWindow.webContents.on("will-navigate", (event) => {
-    event.preventDefault()
-  })
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }))
+  mainWindow.webContents.on("will-navigate", (event) => event.preventDefault())
 
   if (process.env.ELECTRON_RENDERER_URL) {
     void mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
@@ -38,15 +54,33 @@ function createWindow() {
   }
 }
 
-ipcMain.handle("app:get-version", () => app.getVersion())
-ipcMain.handle("dialog:select-files", async (_event, options) => {
-  const properties: Array<"openDirectory" | "openFile" | "multiSelections"> =
-    options?.mode === "directory" ? ["openDirectory"] : ["openFile", "multiSelections"]
-  const result = await dialog.showOpenDialog(mainWindow!, { properties })
-  return { paths: result.canceled ? [] : result.filePaths }
-})
+handleTrusted(IPC_CHANNELS.APP_GET_VERSION, () => app.getVersion())
+handleTrusted(IPC_CHANNELS.ENV_GET, () => ffmpegEnvironment.getSummary())
+handleTrusted(
+  IPC_CHANNELS.DIALOG_SELECT_FILES,
+  async (options: { mode?: "file" | "directory"; multiple?: boolean }) => {
+    if (!options || typeof options !== "object") {
+      throw new Error("Invalid dialog options")
+    }
+    const mode = options.mode === "directory" ? "directory" : "file"
+    const properties: Array<"openDirectory" | "openFile" | "multiSelections"> =
+      mode === "directory"
+        ? ["openDirectory"]
+        : options.multiple === false
+          ? ["openFile"]
+          : ["openFile", "multiSelections"]
+    const dialogOptions = { properties }
+    const result = mainWindow
+      ? await dialog.showOpenDialog(mainWindow, dialogOptions)
+      : await dialog.showOpenDialog(dialogOptions)
+    return { paths: result.canceled ? [] : result.filePaths }
+  },
+)
 
 app.whenReady().then(() => {
+  session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
+    callback(false)
+  })
   createWindow()
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
