@@ -2,13 +2,13 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, session, shell, type IpcMain
 import { appendFileSync, mkdirSync } from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
-import { ffmpegEnvironment } from "./ffmpeg-service.js"
+import { transcodeService } from "./ffmpeg-service.js"
 import { toSerializable } from "./ipc-serializer.js"
 import { openPath, showItemInFolder, showNotification } from "./native.js"
 import { IPC_CHANNELS, MENU_ACTIONS, MENU_ACTION_CHANNEL } from "../shared/ipc-channels.js"
 
 function summaryFfmpegPath() {
-  return ffmpegEnvironment.getFfmpegPath()
+  return transcodeService.getFfmpegPath()
 }
 
 /** 菜单动作统一出口：字串取自共享常量，避免与渲染进程拼写漂移 */
@@ -243,7 +243,7 @@ function createWindow() {
     startupLog(`did-fail-load ${errorCode} ${errorDescription} ${validatedURL}`)
   })
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }))
-  ffmpegEnvironment.setEventSink((event) => {
+  transcodeService.setEventSink((event) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send(IPC_CHANNELS.EXECUTION_EVENT, toSerializable(event))
     }
@@ -258,36 +258,36 @@ function createWindow() {
 }
 
 handleTrusted(IPC_CHANNELS.APP_GET_VERSION, () => app.getVersion())
-handleTrusted(IPC_CHANNELS.ENV_GET, () => ffmpegEnvironment.getSummary())
+handleTrusted(IPC_CHANNELS.ENV_GET, () => transcodeService.getSummary())
 handleTrusted(IPC_CHANNELS.STAGE_INPUTS, async (paths: unknown) => {
   if (!Array.isArray(paths)) throw new Error("paths must be an array of strings")
-  return ffmpegEnvironment.stageInputs(paths as string[])
+  return transcodeService.stageInputs(paths as string[])
 })
 handleTrusted(IPC_CHANNELS.PLAN_CREATE, (body: Record<string, unknown>) => {
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     throw new Error("plan body must be a plain object")
   }
-  return ffmpegEnvironment.createPlan(body)
+  return transcodeService.createPlan(body)
 })
 handleTrusted(IPC_CHANNELS.EXECUTION_START, async (taskIds: unknown) => {
   if (taskIds !== undefined && (!Array.isArray(taskIds) || taskIds.some((id) => typeof id !== "string"))) {
     throw new Error("taskIds must be an array of strings")
   }
-  return ffmpegEnvironment.startExecution(taskIds as string[] | undefined)
+  return transcodeService.startExecution(taskIds as string[] | undefined)
 })
-handleTrusted(IPC_CHANNELS.EXECUTION_STOP, () => ffmpegEnvironment.stopExecution())
+handleTrusted(IPC_CHANNELS.EXECUTION_STOP, () => transcodeService.stopExecution())
 // S-1 加固：SYSTEM_OPEN_PATH / SYSTEM_SHOW_IN_FOLDER 仅接受主进程已知的路径
 // （staged 输入、计划产物、原生对话框授权根），防止被攻破的渲染层打开任意路径
 handleTrusted(IPC_CHANNELS.SYSTEM_SHOW_IN_FOLDER, async (fullPath: unknown) => {
   if (typeof fullPath !== "string") throw new Error("fullPath must be a string")
-  if (!ffmpegEnvironment.isKnownMediaPath(fullPath)) {
+  if (!transcodeService.isKnownMediaPath(fullPath)) {
     throw new Error("Path is not recognized by the main process")
   }
   showItemInFolder(fullPath)
 })
 handleTrusted(IPC_CHANNELS.SYSTEM_OPEN_PATH, async (fullPath: unknown) => {
   if (typeof fullPath !== "string") throw new Error("fullPath must be a string")
-  if (!ffmpegEnvironment.isKnownMediaPath(fullPath)) {
+  if (!transcodeService.isKnownMediaPath(fullPath)) {
     throw new Error("Path is not recognized by the main process")
   }
   return openPath(fullPath)
@@ -321,7 +321,7 @@ handleTrusted(
       : await dialog.showOpenDialog(dialogOptions)
     const picked = result.canceled ? [] : result.filePaths
     // 用户亲手选择的路径即视为授权（S-1 白名单的授权来源，主进程侧登记）
-    ffmpegEnvironment.authorizePaths(picked)
+    transcodeService.authorizePaths(picked)
     return { paths: picked }
   },
 )
@@ -329,7 +329,7 @@ handleTrusted(
 app.whenReady()
   .then(async () => {
     startupLog("app ready")
-    await ffmpegEnvironment.initialize()
+    await transcodeService.initialize()
     createWindow()
     session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
       callback(false)
@@ -354,7 +354,7 @@ app.on("activate", () => {
 
 app.on("before-quit", () => {
   try {
-    ffmpegEnvironment.dispose()
+    transcodeService.dispose()
   } catch (error) {
     startupLog(`dispose error: ${error instanceof Error ? error.stack : String(error)}`)
   }
