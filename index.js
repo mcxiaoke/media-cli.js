@@ -145,8 +145,6 @@ async function main() {
         .command(await import("./cmd/cmd_decode.js"))
         // 命令，用ffmpeg执行视频和音频压缩和格式转换
         .command(await import("./cmd/cmd_ffmpeg.js"))
-        // 命令，音视频转码 Web 图形界面 (GUI)
-        .command(await import("./cmd/cmd_ffweb.js"))
         .count("verbose")
         .alias("v", "verbose")
         .alias("h", "help")
