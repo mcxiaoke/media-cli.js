@@ -14,7 +14,12 @@
         "check": "node ./scripts/check_syntax.cjs",
         "lint": "eslint . --ext .js",
         "lint:fix": "eslint . --ext .js --fix",
-        "prettier:fix": "prettier --write ."
+        "prettier:fix": "prettier --write .",
+        "desktop:dev": "npm --prefix apps/mediac-desktop run dev",
+        "desktop:typecheck": "npm --prefix apps/mediac-desktop run typecheck",
+        "desktop:build": "npm --prefix apps/mediac-desktop run build",
+        "desktop:test:e2e": "npm --prefix apps/mediac-desktop run test:e2e",
+        "desktop:package:win": "npm --prefix apps/mediac-desktop run package:win"
     },
     "files": [
         "index.js",

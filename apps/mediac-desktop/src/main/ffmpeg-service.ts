@@ -4,7 +4,6 @@ import { execFileSync } from "node:child_process"
 import { existsSync } from "node:fs"
 import { readFile, mkdir, rename, rm, writeFile } from "node:fs/promises"
 import path from "node:path"
-import { getMediaInfo } from "../../../../lib/mediainfo.js"
 import {
   collectInputFiles,
   createFFmpegArgs,
@@ -12,6 +11,7 @@ import {
   createPublicPlanSnapshot,
   deleteCompletedSources,
   detectHardwareCapabilities,
+  getMediaInfo,
   normalizeWebOptions,
   presets,
   prepareFFmpegPlan,

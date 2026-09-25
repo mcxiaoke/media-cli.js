@@ -45,6 +45,8 @@ MediaCli（npm 包名 `mediac`，当前版本 2.0.0）是一个基于 Node.js �
 - 每个命令是独立的模块，导出 command、aliases、describe、builder、handler
 - `src/transcode/` 集中存放转码领域实现，CLI/Electron 统一从其 `index.js` facade 导入
 - `lib/` 暂存其余共享工具，是 legacy 平铺层；不再承接新的跨领域职责
+- 依赖边界由 `test/test_architecture_boundaries.js` 强制守卫：`lib/` 不得 import `cmd/`、`src/`、`apps/`；Electron main 不得 import `cmd/`；Electron renderer/preload 不得 import 根 `src/`、`lib/`、`cmd/`；Electron main 的媒体元数据探测必须经 transcode facade（禁止直连 `lib/mediainfo.js`）
+- 桌面端统一从根项目调用：`npm run desktop:dev|typecheck|build|test:e2e|package:win`
 
 ### 命令模式
 ```javascript

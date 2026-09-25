@@ -306,7 +306,7 @@ renderer / preload
    - `desktop:build`
    - `desktop:test:e2e`
    - `desktop:package:win`
-4. `scripts/check_syntax.cjs` 跳过 `out/`、`release/`、`test-results/`，避免扫描构建产物（实测当前被扫到的只有 `apps/mediac-desktop/out/` 的 5 个 JS，`release/`、`test-results/` 暂为空；规则属预防性收口）。
+4. `scripts/check_syntax.cjs` 跳过 `out/`、`release/`、`test-results/`，避免扫描构建产物（实测扫描文件数 125 → 121：实际被扫到的只有 `apps/mediac-desktop/out/` 的 4 个 JS，`out/renderer/assets/*.js` 因既有 `assets` 跳过规则本就不参与，`release/`、`test-results/` 暂为空；规则属预防性收口）。
 5. 更新 `AGENTS.md` 中关于新边界守卫的简短说明。
 
 #### 路径处理与防误触约定

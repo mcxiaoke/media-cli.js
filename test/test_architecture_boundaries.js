@@ -7,6 +7,13 @@ import { fileURLToPath } from "node:url"
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 const TRANSCODE_DIR = path.join(ROOT, "src", "transcode")
 const TRANSCODE_FACADE = path.join(TRANSCODE_DIR, "index.js")
+const LIB_DIR = path.join(ROOT, "lib")
+const CMD_DIR = path.join(ROOT, "cmd")
+const SRC_DIR = path.join(ROOT, "src")
+const APPS_DIR = path.join(ROOT, "apps")
+const DESKTOP_SRC = path.join(APPS_DIR, "mediac-desktop", "src")
+const APP_EXTENSIONS = new Set([".js", ".mjs", ".cjs", ".ts", ".vue"])
+const ESM_EXTENSIONS = new Set([".js", ".mjs"])
 
 function walk(dir, extensions) {
     if (!fs.existsSync(dir)) return []
@@ -47,27 +54,45 @@ function isWithin(file, directory) {
     return relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative)
 }
 
+function collectRelativeImports(file) {
+    const source = fs.readFileSync(file, "utf8")
+    return extractImports(source)
+        .filter((entry) => entry.specifier.startsWith("."))
+        .map((entry) => ({ ...entry, target: resolveRelativeImport(file, entry.specifier) }))
+        .filter((entry) => entry.target)
+}
+
+function findForbiddenImports(files, directories) {
+    const violations = []
+    for (const file of files) {
+        for (const { line, specifier, target } of collectRelativeImports(file)) {
+            if (directories.some((directory) => isWithin(target, directory))) {
+                violations.push(`${relative(file)}:${line} -> ${specifier}`)
+            }
+        }
+    }
+    return violations
+}
+
 function collectRootSources() {
-    const extensions = new Set([".js", ".mjs"])
     return [
         path.join(ROOT, "index.js"),
-        ...walk(path.join(ROOT, "lib"), extensions),
-        ...walk(path.join(ROOT, "cmd"), extensions),
-        ...walk(path.join(ROOT, "src"), extensions),
-        ...walk(path.join(ROOT, "test"), extensions),
-        ...walk(path.join(ROOT, "labs"), extensions),
+        ...walk(LIB_DIR, ESM_EXTENSIONS),
+        ...walk(CMD_DIR, ESM_EXTENSIONS),
+        ...walk(SRC_DIR, ESM_EXTENSIONS),
+        ...walk(path.join(ROOT, "test"), ESM_EXTENSIONS),
+        ...walk(path.join(ROOT, "labs"), ESM_EXTENSIONS),
     ].filter((file) => fs.existsSync(file))
 }
 
 function collectProtectedSources() {
-    const extensions = new Set([".js", ".mjs", ".cjs", ".ts", ".vue"])
     return [
         path.join(ROOT, "index.js"),
-        ...walk(path.join(ROOT, "cmd"), extensions),
-        ...walk(path.join(ROOT, "apps", "mediac-desktop", "src"), extensions),
-        ...walk(path.join(ROOT, "labs"), extensions),
-        ...walk(path.join(ROOT, "scripts"), extensions),
-        ...walk(path.join(ROOT, "tools"), extensions),
+        ...walk(CMD_DIR, APP_EXTENSIONS),
+        ...walk(DESKTOP_SRC, APP_EXTENSIONS),
+        ...walk(path.join(ROOT, "labs"), APP_EXTENSIONS),
+        ...walk(path.join(ROOT, "scripts"), APP_EXTENSIONS),
+        ...walk(path.join(ROOT, "tools"), APP_EXTENSIONS),
     ].filter((file) => fs.existsSync(file))
 }
 
@@ -106,4 +131,54 @@ test("relative imports in root ESM sources resolve to real files", () => {
         }
     }
     assert.deepEqual(violations, [], `Unresolved relative imports found:\n${violations.join("\n")}`)
+})
+
+test("legacy lib never imports cmd, src or apps", () => {
+    const violations = findForbiddenImports(walk(LIB_DIR, ESM_EXTENSIONS), [
+        CMD_DIR,
+        SRC_DIR,
+        APPS_DIR,
+    ])
+    assert.deepEqual(violations, [], `lib/ upward imports found:\n${violations.join("\n")}`)
+})
+
+test("electron main does not import CLI command modules", () => {
+    const violations = findForbiddenImports(walk(path.join(DESKTOP_SRC, "main"), APP_EXTENSIONS), [
+        CMD_DIR,
+    ])
+    assert.deepEqual(
+        violations,
+        [],
+        `Electron main to cmd/ imports found:\n${violations.join("\n")}`,
+    )
+})
+
+test("electron renderer and preload do not import root src, lib or cmd", () => {
+    const files = [
+        ...walk(path.join(DESKTOP_SRC, "renderer"), APP_EXTENSIONS),
+        ...walk(path.join(DESKTOP_SRC, "preload"), APP_EXTENSIONS),
+    ]
+    const violations = findForbiddenImports(files, [SRC_DIR, LIB_DIR, CMD_DIR])
+    assert.deepEqual(
+        violations,
+        [],
+        `Electron renderer/preload to root modules found:\n${violations.join("\n")}`,
+    )
+})
+
+test("electron main probes media info through the transcode facade", () => {
+    const forbidden = path.resolve(path.join(LIB_DIR, "mediainfo.js"))
+    const violations = []
+    for (const file of walk(path.join(DESKTOP_SRC, "main"), APP_EXTENSIONS)) {
+        for (const { line, specifier, target } of collectRelativeImports(file)) {
+            if (path.resolve(target) === forbidden) {
+                violations.push(`${relative(file)}:${line} -> ${specifier}`)
+            }
+        }
+    }
+    assert.deepEqual(
+        violations,
+        [],
+        `Electron main direct lib/mediainfo imports found:\n${violations.join("\n")}`,
+    )
 })
