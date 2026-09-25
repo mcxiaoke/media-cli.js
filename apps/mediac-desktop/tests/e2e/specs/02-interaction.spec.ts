@@ -318,5 +318,79 @@ test.describe("MediCli Desktop - Interaction & State Machine Spec", () => {
     await btnCloseLog.click()
     await expect(logDrawer).not.toBeVisible()
   })
+
+  test("Escape key dismissal, custom tool paths configuration, and dynamic command preview", async ({ appWindow }) => {
+    // 1. Test Escape key closes SettingsModal
+    const btnOpenSettings = appWindow.locator('[data-testid="btn-open-settings"]')
+    await btnOpenSettings.click()
+    const settingsModal = appWindow.locator('[data-testid="settings-modal"]')
+    await expect(settingsModal).toBeVisible()
+
+    await appWindow.keyboard.press("Escape")
+    await expect(settingsModal).not.toBeVisible()
+
+    // 2. Test Escape key closes LogDrawer
+    const btnOpenLog = appWindow.locator('[data-testid="btn-open-log"]')
+    await btnOpenLog.click()
+    const logDrawer = appWindow.locator('[data-testid="log-drawer"]')
+    await expect(logDrawer).toBeVisible()
+
+    await appWindow.keyboard.press("Escape")
+    await expect(logDrawer).not.toBeVisible()
+
+    // 3. Test Escape key closes AboutModal
+    const btnOpenAbout = appWindow.locator('[data-testid="status-about-btn"]')
+    await btnOpenAbout.click()
+    const aboutModal = appWindow.locator('[data-testid="about-modal"]')
+    await expect(aboutModal).toBeVisible()
+
+    await appWindow.keyboard.press("Escape")
+    await expect(aboutModal).not.toBeVisible()
+
+    // 4. Test dynamic command preview on staged task before plan generation
+    const video1 = path.resolve(__dirname, "../../../../../data/videos/TEST2__h264_60fps_1080.mp4")
+    const manualInput = appWindow.locator('[data-testid="input-manual-path"]')
+    await manualInput.fill(video1)
+    await appWindow.locator('[data-testid="btn-manual-add"]').click()
+
+    const taskRow = appWindow.locator('[data-testid="task-row"]').first()
+    await expect(taskRow).toBeVisible()
+
+    // Double click to inspect staged task
+    await taskRow.dblclick()
+    const inspector = appWindow.locator('[data-testid="inspector-mask"]')
+    await expect(inspector).toBeVisible()
+
+    // Check dynamic command preview
+    const cmdBox = appWindow.locator('[data-testid="insp-cmd-box"]')
+    await expect(cmdBox).toBeVisible()
+    await expect(cmdBox).toContainText("ffmpeg")
+    await expect(cmdBox).toContainText("-i")
+
+    // Test Escape key closes TaskInspectorDrawer
+    await appWindow.keyboard.press("Escape")
+    await expect(inspector).not.toBeVisible()
+
+    // 5. Test Custom Tool Paths in SettingsModal
+    await btnOpenSettings.click()
+    await expect(settingsModal).toBeVisible()
+
+    const ffmpegInput = appWindow.locator('[data-testid="input-custom-ffmpeg"]')
+    await expect(ffmpegInput).toBeVisible()
+    await ffmpegInput.fill("C:\\Custom\\ffmpeg.exe")
+
+    const btnSave = appWindow.locator('[data-testid="btn-save-settings"]')
+    await btnSave.click()
+    await expect(settingsModal).not.toBeVisible()
+
+    // Reopen and restore empty
+    await btnOpenSettings.click()
+    await expect(settingsModal).toBeVisible()
+    await expect(ffmpegInput).toHaveValue("C:\\Custom\\ffmpeg.exe")
+    await ffmpegInput.fill("")
+    await btnSave.click()
+    await expect(settingsModal).not.toBeVisible()
+  })
 })
+
 

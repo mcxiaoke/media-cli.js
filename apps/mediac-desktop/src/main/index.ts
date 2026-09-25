@@ -259,6 +259,10 @@ function createWindow() {
 
 handleTrusted(IPC_CHANNELS.APP_GET_VERSION, () => app.getVersion())
 handleTrusted(IPC_CHANNELS.ENV_GET, () => transcodeService.getSummary())
+handleTrusted(IPC_CHANNELS.ENV_SET_CUSTOM_PATHS, async (payload: unknown) => {
+  if (!payload || typeof payload !== "object") throw new Error("Invalid tool paths payload")
+  return transcodeService.setCustomToolPaths(payload as { ffmpeg?: string; ffprobe?: string })
+})
 handleTrusted(IPC_CHANNELS.STAGE_INPUTS, async (paths: unknown) => {
   if (!Array.isArray(paths)) throw new Error("paths must be an array of strings")
   return transcodeService.stageInputs(paths as string[])

@@ -26,7 +26,55 @@ const cmdString = computed(() => {
     }
     return base
   }
-  return `ffmpeg -i "${task.value.path}" -c:v libx265 -crf 23 -c:a aac -b:a 192k "${task.value.fileDst || 'output.mp4'}"`
+
+  // 动态根据当前配置与预设生成推演命令预览
+  const presetLower = (config.preset || "").toLowerCase()
+  let vcodec = "libx264"
+  let defaultCrf = "23"
+
+  if (presetLower.includes("hevc") || presetLower.includes("h265") || presetLower.includes("x265") || presetLower.includes("265")) {
+    vcodec = "libx265"
+    defaultCrf = "28"
+  } else if (presetLower.includes("av1") || presetLower.includes("svtav1")) {
+    vcodec = "libsvtav1"
+    defaultCrf = "30"
+  } else if (presetLower.includes("vp9")) {
+    vcodec = "libvpx-vp9"
+    defaultCrf = "30"
+  } else if (presetLower.includes("copy")) {
+    vcodec = "copy"
+  }
+
+  const parts: string[] = ["ffmpeg", "-hide_banner", "-i", `"${task.value.path}"`]
+
+  if (vcodec === "copy") {
+    parts.push("-c:v", "copy")
+  } else {
+    parts.push("-c:v", vcodec)
+    if (config.tune.bitrate.trim()) {
+      parts.push("-b:v", config.tune.bitrate.trim())
+    } else {
+      parts.push("-crf", config.tune.quality > 0 ? String(config.tune.quality) : defaultCrf)
+    }
+  }
+
+  if (config.tune.fps > 0) {
+    parts.push("-r", String(config.tune.fps))
+  }
+  if (config.tune.dimension > 0) {
+    parts.push("-vf", `"scale=-2:${config.tune.dimension}"`)
+  }
+
+  const acodec = config.tune.audioCodec || "aac"
+  parts.push("-c:a", acodec)
+  if (acodec !== "copy") {
+    parts.push("-b:a", config.tune.audioBitrate || "192k")
+  }
+
+  const outDst = task.value.fileDst || (task.value.path ? task.value.path.replace(/\.[^.]+$/, "_output.mp4") : "output.mp4")
+  parts.push(`"${outDst}"`)
+
+  return parts.join(" ")
 })
 
 const highlightedCmd = computed(() => {

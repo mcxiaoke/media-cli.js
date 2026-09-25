@@ -2,6 +2,7 @@
 import { ref, computed, watch } from "vue"
 import { useConfigStore } from "../stores/config"
 import { useLogStore } from "../stores/log"
+import { useEnvStore } from "../stores/env"
 
 const props = defineProps<{
   show: boolean
@@ -13,6 +14,7 @@ const emit = defineEmits<{
 
 const configStore = useConfigStore()
 const logStore = useLogStore()
+const envStore = useEnvStore()
 
 const currentTheme = ref(document.documentElement.getAttribute("data-theme") || "light")
 
@@ -49,23 +51,45 @@ async function pickToolPath(tool: "ffmpeg" | "ffprobe" | "mediainfo") {
   }
 }
 
-function saveSettings() {
-  if (customFfmpeg.value.trim()) {
-    localStorage.setItem("mediac_tool_ffmpeg", customFfmpeg.value.trim())
+async function saveSettings() {
+  const ffmpegVal = customFfmpeg.value.trim()
+  const ffprobeVal = customFfprobe.value.trim()
+  const mediainfoVal = customMediainfo.value.trim()
+
+  if (ffmpegVal) {
+    localStorage.setItem("mediac_tool_ffmpeg", ffmpegVal)
   } else {
     localStorage.removeItem("mediac_tool_ffmpeg")
   }
 
-  if (customFfprobe.value.trim()) {
-    localStorage.setItem("mediac_tool_ffprobe", customFfprobe.value.trim())
+  if (ffprobeVal) {
+    localStorage.setItem("mediac_tool_ffprobe", ffprobeVal)
   } else {
     localStorage.removeItem("mediac_tool_ffprobe")
   }
 
-  if (customMediainfo.value.trim()) {
-    localStorage.setItem("mediac_tool_mediainfo", customMediainfo.value.trim())
+  if (mediainfoVal) {
+    localStorage.setItem("mediac_tool_mediainfo", mediainfoVal)
   } else {
     localStorage.removeItem("mediac_tool_mediainfo")
+  }
+
+  try {
+    if (window.api?.setCustomToolPaths) {
+      await window.api.setCustomToolPaths({
+        ffmpeg: ffmpegVal,
+        ffprobe: ffprobeVal,
+        mediainfo: mediainfoVal,
+      })
+      await envStore.fetchEnv()
+    }
+  } catch (err: any) {
+    console.error("setCustomToolPaths error:", err)
+    logStore.append({
+      level: "WARN",
+      message: `更新外部工具路径失败: ${err?.message || err}`,
+      timestamp: new Date().toLocaleTimeString(),
+    })
   }
 
   emit("close")
@@ -239,6 +263,7 @@ function handleDeleteSourceToggle() {
               <input
                 v-model="customFfmpeg"
                 class="input grow"
+                data-testid="input-custom-ffmpeg"
                 placeholder="留空使用系统默认探测路径"
               />
               <button class="btn btn-sm btn-secondary" title="浏览文件" @click="pickToolPath('ffmpeg')">浏览...</button>
@@ -249,6 +274,7 @@ function handleDeleteSourceToggle() {
               <input
                 v-model="customFfprobe"
                 class="input grow"
+                data-testid="input-custom-ffprobe"
                 placeholder="留空使用系统默认探测路径"
               />
               <button class="btn btn-sm btn-secondary" title="浏览文件" @click="pickToolPath('ffprobe')">浏览...</button>

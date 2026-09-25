@@ -208,6 +208,13 @@ async function startExecution() {
         planStore.selectedIds.add(t.id)
       }
       const retryIds = failedTasks.map((t) => t.id)
+      if (configStore.adv.override) {
+        logStore.append({
+          level: "INFO",
+          message: "[配置提醒] 已启用覆盖已有产物模式（override: true），同名目标文件将被直接重写",
+          timestamp: new Date().toLocaleTimeString(),
+        })
+      }
       planStore.status = "RUNNING"
       try {
         await window.api.startExecution(retryIds)
@@ -228,6 +235,14 @@ async function startExecution() {
       return
     }
     return
+  }
+
+  if (configStore.adv.override) {
+    logStore.append({
+      level: "INFO",
+      message: "[配置提醒] 已启用覆盖已有产物模式（override: true），同名目标文件将被直接重写",
+      timestamp: new Date().toLocaleTimeString(),
+    })
   }
 
   planStore.status = "RUNNING"
@@ -313,7 +328,24 @@ function openOutputDir() {
 }
 
 function handleKeydown(e: KeyboardEvent) {
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "b") {
+  if (e.key === "Escape") {
+    if (showSettings.value) {
+      showSettings.value = false
+      return
+    }
+    if (showAbout.value) {
+      showAbout.value = false
+      return
+    }
+    if (logStore.drawerOpen) {
+      logStore.drawerOpen = false
+      return
+    }
+    if (planStore.inspectedTask) {
+      planStore.inspectedTask = null
+      return
+    }
+  } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "b") {
     e.preventDefault()
     toggleSidebar()
   } else if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
@@ -330,6 +362,19 @@ onMounted(async () => {
   // Initialize theme: default to light
   const savedTheme = localStorage.getItem("mediac_theme") || "light"
   document.documentElement.setAttribute("data-theme", savedTheme)
+
+  // Restore and sync custom external tool paths if saved in localStorage
+  const savedFfmpeg = localStorage.getItem("mediac_tool_ffmpeg") || ""
+  const savedFfprobe = localStorage.getItem("mediac_tool_ffprobe") || ""
+  if (savedFfmpeg || savedFfprobe) {
+    if (window.api?.setCustomToolPaths) {
+      try {
+        await window.api.setCustomToolPaths({ ffmpeg: savedFfmpeg, ffprobe: savedFfprobe })
+      } catch (err) {
+        console.error("Failed to restore custom tool paths:", err)
+      }
+    }
+  }
 
   // Initialize environment & version
   await envStore.fetchEnv()

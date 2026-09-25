@@ -23,6 +23,8 @@ export interface FfmpegEnvironmentDeps {
 export class FfmpegEnvironment {
   private ffmpegPath: string | null = null
   private ffprobePath: string | null = null
+  private customFfmpegPath: string | null = null
+  private customFfprobePath: string | null = null
   private hardware: any = null
   private readonly getAppPath: () => string
 
@@ -38,6 +40,45 @@ export class FfmpegEnvironment {
   /** 已解析到的 ffmpeg 路径（未解析时为 null），供「关于」等只读展示使用 */
   getFfmpegPath(): string | null {
     return this.ffmpegPath
+  }
+
+  async setCustomToolPaths(paths: { ffmpeg?: string; ffprobe?: string }): Promise<EnvironmentSummary> {
+    const rawFfmpeg = typeof paths?.ffmpeg === "string" ? paths.ffmpeg.trim() : ""
+    const rawFfprobe = typeof paths?.ffprobe === "string" ? paths.ffprobe.trim() : ""
+
+    let changed = false
+
+    if (rawFfmpeg) {
+      if (existsSync(rawFfmpeg)) {
+        this.customFfmpegPath = rawFfmpeg
+        this.ffmpegPath = rawFfmpeg
+        setFFmpegPath(rawFfmpeg)
+        this.hardware = null
+        changed = true
+      }
+    } else if (this.customFfmpegPath) {
+      this.customFfmpegPath = null
+      this.ffmpegPath = null
+      this.hardware = null
+      changed = true
+    }
+
+    if (rawFfprobe) {
+      if (existsSync(rawFfprobe)) {
+        this.customFfprobePath = rawFfprobe
+        this.ffprobePath = rawFfprobe
+        changed = true
+      }
+    } else if (this.customFfprobePath) {
+      this.customFfprobePath = null
+      this.ffprobePath = null
+      changed = true
+    }
+
+    if (changed || !this.ffmpegPath) {
+      await this.ensureFfmpegPath()
+    }
+    return this.getSummary()
   }
 
   private resolvePresetPath() {
@@ -86,6 +127,11 @@ export class FfmpegEnvironment {
 
   /** 兜底解析 ffmpeg（执行前置），未找到返回 null */
   async ensureFfmpegPath(): Promise<string | null> {
+    if (this.customFfmpegPath && existsSync(this.customFfmpegPath)) {
+      this.ffmpegPath = this.customFfmpegPath
+      setFFmpegPath(this.ffmpegPath)
+      return this.ffmpegPath
+    }
     if (!this.ffmpegPath) {
       this.ffmpegPath = await resolveFFmpegBinary({ extraCandidates: this.bundledFfmpegCandidates() })
       if (this.ffmpegPath) setFFmpegPath(this.ffmpegPath)
@@ -96,7 +142,9 @@ export class FfmpegEnvironment {
   /** 确保 ffmpeg/ffprobe 已定位并完成能力探测与预设加载，返回 EnvironmentSummary */
   async getSummary(): Promise<EnvironmentSummary> {
     await this.ensureFfmpegPath()
-    if (!this.ffprobePath) {
+    if (this.customFfprobePath && existsSync(this.customFfprobePath)) {
+      this.ffprobePath = this.customFfprobePath
+    } else if (!this.ffprobePath) {
       this.ffprobePath = await resolveFFprobeBinary(this.ffmpegPath || undefined)
     }
     const presetPath = this.resolvePresetPath()

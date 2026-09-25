@@ -165,12 +165,19 @@ export interface SelectFileResult {
   paths: string[]
 }
 
+export interface CustomToolPaths {
+  ffmpeg?: string
+  ffprobe?: string
+  mediainfo?: string
+}
+
 export interface DesktopApi {
   getPathForFile(file: File): string
   selectFiles(options: SelectFileOptions): Promise<SelectFileResult>
   stageInputs(paths: string[]): Promise<StageInputsResult>
   getAppVersion(): Promise<string>
   getEnvironment(): Promise<EnvironmentSummary>
+  setCustomToolPaths(paths: CustomToolPaths): Promise<EnvironmentSummary>
   createPlan(body: Record<string, unknown>): Promise<PublicPlanSnapshot>
   startExecution(taskIds?: string[]): Promise<{ runId: string }>
   stopExecution(): Promise<{ ok: boolean; message?: string }>

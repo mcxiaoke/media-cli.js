@@ -97,6 +97,11 @@ class DesktopTranscodeService {
     return this.environment.getSummary()
   }
 
+  /** 设置自定义工具路径并刷新环境探测 */
+  setCustomToolPaths(paths: { ffmpeg?: string; ffprobe?: string }): Promise<EnvironmentSummary> {
+    return this.environment.setCustomToolPaths(paths)
+  }
+
   /** 登记用户通过原生对话框明确选择的路径（委托 PathWhitelist 持久化） */
   authorizePaths(paths: unknown) {
     this.whitelist.authorizePaths(paths)
