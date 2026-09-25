@@ -10,7 +10,7 @@ export {
     normalizeDesktopOptions,
     toLegacyArgvOptions,
 } from "./ffmpeg_options.js"
-export { createPublicPlanSnapshot } from "./ffmpeg_plan_snapshot.js"
+export { createPublicPlanSnapshot, createPublicTaskSnapshot } from "./ffmpeg_plan_snapshot.js"
 export { deleteCompletedSources, prepareFFmpegPlan } from "./ffmpeg_planner.js"
 export { SKIP_REASON } from "./ffmpeg_result.js"
 export { LOG_TAG, runFFmpeg, setFFmpegPath } from "./ffmpeg_run.js"

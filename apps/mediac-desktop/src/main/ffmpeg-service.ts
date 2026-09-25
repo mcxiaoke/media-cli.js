@@ -9,6 +9,7 @@ import {
   createFFmpegArgs,
   createFFmpegEngine,
   createPublicPlanSnapshot,
+  createPublicTaskSnapshot,
   deleteCompletedSources,
   detectHardwareCapabilities,
   getMediaInfo,
@@ -374,37 +375,22 @@ class FfmpegEnvironmentService {
         }
 
         const ext = path.extname(item.path).replace(/^\./, "").toUpperCase()
-        const task: PlanTask = {
-          id: `task_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-          index: this.stagedEntries.size,
-          name: item.name,
-          path: item.path,
-          size: item.size || 0,
-          duration: info?.duration || 0,
-          fileDst: "",
-          status: "staged",
-          error: null,
-          skipReason: null,
-          mediaInfo: info || undefined,
-          videoCodec: info?.video?.format || "",
-          audioCodec: info?.audio?.format || "",
-          width: info?.video?.width || 0,
-          height: info?.video?.height || 0,
-          fps: info?.video?.framerate || 0,
-          bitrate: info?.bitrate || info?.video?.bitrate || 0,
-          srcSize: item.size || 0,
-          srcDuration: info?.duration || 0,
-          containerFormat: ext || "MEDIA",
-          bitDepth: info?.video?.bitDepth || 8,
-          pixelFormat: info?.video?.pixelFormat || "",
-          profile: info?.video?.profile || "",
-          level: info?.video?.level ? String(info.video.level) : "",
-          aspectRatio: info?.video?.aspectRatio || "",
-          audioChannels: info?.audio?.channels || 2,
-          audioSampleRate: info?.audio?.sampleRate || 48000,
-          audioBitrate: info?.audio?.bitrate || 0,
-          rawMetadata: info ? JSON.stringify(info, null, 2) : "",
-        }
+        // 统一经 createPublicTaskSnapshot 投影初始公开任务：元数据字段从 info 提取，
+        // 无需在此手工逐一映射。staged 状态显式传入，缺失数值由投影回退 undefined。
+        const task = createPublicTaskSnapshot(
+          {
+            id: `task_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            name: item.name,
+            path: item.path,
+            size: item.size || 0,
+            duration: info?.duration || 0,
+            fileDst: "",
+            status: "staged",
+            containerFormat: ext || "MEDIA",
+            mediaInfo: info || undefined,
+          },
+          this.stagedEntries.size,
+        ) as PlanTask
 
         this.stagedEntries.set(canonical, { item, task, info })
         added.push(task)
@@ -545,31 +531,14 @@ class FfmpegEnvironmentService {
         }
       }
 
+      // 公开投影统一由 createPublicPlanSnapshot / createPublicTaskSnapshot 从 task.info
+      // 提取元数据（buildTask 在任务构建期已填充 .info），此处不再手工补 metadata 字段；
+      // 仅将 stagedEntries 重登记为编排后的 plan task，供执行期 isKnownMediaPath / 去重使用。
       if (this.currentPlan?.tasks) {
         for (const t of this.currentPlan.tasks) {
           const canonical = path.resolve(t.path)
           const staged = this.stagedEntries.get(canonical)
           const info = staged?.info || (t as any).info || null
-          const ext = path.extname(t.path).replace(/^\./, "").toUpperCase()
-          t.containerFormat = ext || "MEDIA"
-          t.mediaInfo = info || undefined
-          if (info) {
-            t.videoCodec = info.video?.format || ""
-            t.audioCodec = info.audio?.format || ""
-            t.width = info.video?.width || 0
-            t.height = info.video?.height || 0
-            t.fps = info.video?.framerate || 0
-            t.bitrate = info.bitrate || info.video?.bitrate || 0
-            t.bitDepth = info.video?.bitDepth || 8
-            t.pixelFormat = info.video?.pixelFormat || ""
-            t.profile = info.video?.profile || ""
-            t.level = info.video?.level ? String(info.video.level) : ""
-            t.aspectRatio = info.video?.aspectRatio || ""
-            t.audioChannels = info.audio?.channels || 2
-            t.audioSampleRate = info.audio?.sampleRate || 48000
-            t.audioBitrate = info.audio?.bitrate || 0
-            t.rawMetadata = JSON.stringify(info, null, 2)
-          }
           this.stagedEntries.set(canonical, { item: t, task: t, info })
         }
       }
