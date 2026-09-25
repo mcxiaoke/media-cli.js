@@ -7,7 +7,7 @@ import {
     isPlanCurrent,
     PLAN_OUTCOME,
     prepareFFmpegPlan,
-} from "../lib/ffmpeg_planner.js"
+} from "../src/transcode/ffmpeg_planner.js"
 
 test("shared planner propagates preset/argv metadata to every task", async () => {
     const seen = []

@@ -22,7 +22,7 @@ import fs from "fs-extra"
 import os from "os"
 import path from "path"
 import { fileURLToPath } from "url"
-import * as log from "./debug.js"
+import * as log from "../../lib/debug.js"
 import { PRESET_FIELDS, hasPresetTypeMismatch } from "./preset_schema.js"
 
 const LOG_TAG = "PresetLoader"
@@ -45,7 +45,7 @@ async function loadYamlParser() {
 // 包内内置预设目录/文件：通过 import.meta.url 定位，不依赖 process.cwd()，
 // 因此从任意目录运行 mediac 都能命中（随 npm 包发布在 presets/ 目录）。
 const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url))
-export const DEFAULT_PRESET_DIR = path.join(MODULE_DIR, "..", "presets")
+export const DEFAULT_PRESET_DIR = path.join(MODULE_DIR, "..", "..", "presets")
 export const DEFAULT_PRESET_PATH = path.join(DEFAULT_PRESET_DIR, "default.yaml")
 
 // 用户层搜索路径（覆盖/新增层，优先级从低到高）

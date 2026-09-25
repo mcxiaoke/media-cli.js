@@ -4,12 +4,12 @@ import {
     normalizeCliOptions,
     normalizeWebOptions,
     toLegacyArgvOptions,
-} from "../lib/ffmpeg_options.js"
-import { createEventFactory, ENGINE_EVENT } from "../lib/ffmpeg_events.js"
+} from "../src/transcode/ffmpeg_options.js"
+import { createEventFactory, ENGINE_EVENT } from "../src/transcode/ffmpeg_events.js"
 import {
     createInternalExecutionPlan,
     createPublicPlanSnapshot,
-} from "../lib/ffmpeg_plan_snapshot.js"
+} from "../src/transcode/ffmpeg_plan_snapshot.js"
 
 test("normalizeWebOptions creates the shared domain shape", () => {
     const options = normalizeWebOptions({

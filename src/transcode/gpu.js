@@ -27,7 +27,7 @@
  * partial / unknown / 非 NVIDIA / 未知代次一律不预筛，保持探测行为安全。
  */
 
-import * as log from "./debug.js"
+import * as log from "../../lib/debug.js"
 
 // ---------------------------------------------------------------------------
 // GPU 型号 → NVIDIA 代次

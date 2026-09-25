@@ -12,7 +12,7 @@ jobs:
 
     strategy:
       matrix:
-        # 下限由依赖决定：exiftool-vendored@35 要求 >=20，glob@13 要求 18||20||>=22
+        # 与 package.json#engines 保持一致；测试入口使用 Node 21+ 的 glob 位置参数
         node-version: [22.x, 24.x]
 
     steps:

@@ -15,16 +15,17 @@
 | 文件 | 职责 |
 | ---- | ---- |
 | `cmd/cmd_ffmpeg.js` | 命令入口：解析参数、校验、扫描文件、任务编排、确认、执行汇总 |
+| `src/transcode/index.js` | CLI/Electron 使用的转码领域 facade；外部调用方不直接导入内部模块 |
 | `presets/default.yaml` | **内置预设的唯一事实源**（随 npm 包发布） |
-| `lib/preset_loader.js` | YAML 分层加载、`extends` 继承、`_override` 覆盖规则、字段校验 |
-| `lib/ffmpeg_presets.js` | 预设对象模型、`--ffargs` 别名映射、`createFromArgv`（命令行覆盖预设） |
+| `src/transcode/preset_loader.js` | YAML 分层加载、`extends` 继承、`_override` 覆盖规则、字段校验 |
+| `src/transcode/ffmpeg_presets.js` | 预设对象模型、`--ffargs` 别名映射、`createFromArgv`（命令行覆盖预设） |
 | `lib/arg_parser.js` | `--ffargs` 复合字符串解析器 |
-| `lib/hwaccel.js` | 硬件分层（TIERS）、编码器矩阵、质量归一化、滤镜/编码器参数组装、逐层探测 |
-| `lib/hwdetect.js` / `lib/gpu.js` | 本机能力探测（`-hwaccels`/`-encoders`/`-filters`、GPU 厂商、NVDEC 支持矩阵） |
-| `lib/ffmpeg_plan.js` | 目标码率/尺寸/帧率计算、输出命名、字幕优选 |
-| `lib/ffmpeg_build.js` | 纯函数拼装最终 ffmpeg 命令行参数（输入/滤镜/视频/音频/元数据/输出） |
-| `lib/ffmpeg_run.js` | 单文件执行、进度解析、临时文件管理、失败恢复、日志落盘 |
-| `lib/ffmpeg_bin.js` | 定位 ffmpeg 可执行文件（环境变量优先） |
+| `src/transcode/hwaccel.js` | 硬件分层（TIERS）、编码器矩阵、质量归一化、滤镜/编码器参数组装、逐层探测 |
+| `src/transcode/hwdetect.js` / `src/transcode/gpu.js` | 本机能力探测（`-hwaccels`/`-encoders`/`-filters`、GPU 厂商、NVDEC 支持矩阵） |
+| `src/transcode/ffmpeg_plan.js` | 目标码率/尺寸/帧率计算、输出命名、字幕优选 |
+| `src/transcode/ffmpeg_build.js` | 纯函数拼装最终 ffmpeg 命令行参数（输入/滤镜/视频/音频/元数据/输出） |
+| `src/transcode/ffmpeg_run.js` | 单文件执行、进度解析、临时文件管理、失败恢复、日志落盘 |
+| `src/transcode/ffmpeg_bin.js` | 定位 ffmpeg 可执行文件（环境变量优先） |
 
 执行链路：`planFFmpegTasks`（校验+扫描+建任务+dry-run 预览+确认）→ `runFFmpegTasks`（并发 `runFFmpegCmd`）→ 每文件 `resolveHwPlan`（选层）→ `createFFmpegArgs`（拼参数）→ `executeFFmpeg`（起子进程）。
 
@@ -333,7 +334,7 @@ mediac ffmpeg . --filelist samples.txt --preset vp9_2k --doit
 
 **9.3 `--video-args` / `--audio-args` / `--filters` 是"追加"不是"替换"。** 它们拼到对应参数块**末尾**，依赖 ffmpeg "后写覆盖" 取得最高优先级，同时**保留预设自带的基线参数**。旧版整体替换预设的语义已废弃。
 - `--video-args` **禁止出现 `-c:v`**，命中即硬报错——换编码器请用 `--video-codec` 或 `--ffargs "vc=..."`。这是为了防止产生"CPU 滤镜 + GPU 编码器"的畸形组合。
-- 在 `--decode-mode auto` 下，`--video-args` 里若放了**编码器专属**参数（`-tune` / `-cq` / `-qp` / `-preset` / `-pix_fmt` / `-global_quality` / `-b_ref_mode` 等，全表见 `lib/ffmpeg_args_known.js` 的 `ENCODER_SPECIFIC_ARGS`），会提前 warn 一次：换到其它硬件层可能不识别、导致真实编码报错或被重试拽回 CPU。含冒号形式（`-pix_fmt:v`）通过 base 匹配一并命中；`=` 形式（`-pix_fmt=...`）目前不命中——是已知的启发式局限，若在意请写成空格分隔。
+- `--video-args` 中如包含**编码器专属**参数（`-tune` / `-cq` / `-qp` / `-preset` / `-pix_fmt` / `-global_quality` / `-b_ref_mode` 等），会追加到最终编码器参数块末尾；切换硬件层后可能不兼容，应优先通过 `--ffargs` 或 `--video-codec` 表达转码参数。
    - **`-pix_fmt` 尤其要小心**：在 cuda / qsv 帧留在显存的链路上手动加 `-pix_fmt yuv420p` 会把帧拉出显存、破坏 0 拷贝路径，探测直接 rc≠0 → auto 静默降级到 swdec/cpu（实测错误文案 `Impossible to convert between the formats supported by the filter`）。位深对齐**本已由分层自动完成**（cuda/qsv 走 `scale_*:format=nv12`；swdec 层自动补 `-pix_fmt yuv420p`），无需用户再手写。
 
 **9.4 编码器由"硬件层 + 预设 codec 族"共同决定，不由输入位深决定。** `--hwaccel`/`--decode-mode` 改的是解码通路和所选层，具体编码器名由该层的编码器矩阵按输出族挑选。

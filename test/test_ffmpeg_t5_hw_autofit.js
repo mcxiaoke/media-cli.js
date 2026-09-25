@@ -29,8 +29,8 @@ import {
     resolveTiers,
     scaleFormatOverride,
     selectTier,
-} from "../lib/hwaccel.js"
-import { candidateTiers } from "../lib/hwdetect.js"
+} from "../src/transcode/hwaccel.js"
+import { candidateTiers } from "../src/transcode/hwdetect.js"
 
 const cudaTier = TIERS.find((t) => t.name === "cuda")
 const size = { w: 1920, h: 1080 }

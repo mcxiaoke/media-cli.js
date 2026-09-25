@@ -14,16 +14,16 @@
 import assert from "node:assert/strict"
 import { describe, it, before } from "node:test"
 
-import presetsDefault from "../lib/ffmpeg_presets.js"
-import { DEFAULT_PRESET_PATH } from "../lib/preset_loader.js"
+import presetsDefault from "../src/transcode/ffmpeg_presets.js"
+import { DEFAULT_PRESET_PATH } from "../src/transcode/preset_loader.js"
 import {
     createFFmpegArgs,
     buildVideoArgsFromPlan,
     buildScaleFiltersFromPlan,
     flattenFFArgs,
-} from "../lib/ffmpeg_build.js"
-import { TIERS, buildLayerArgs } from "../lib/hwaccel.js"
-import { calculateDstArgs } from "../lib/ffmpeg_plan.js"
+} from "../src/transcode/ffmpeg_build.js"
+import { TIERS, buildLayerArgs } from "../src/transcode/hwaccel.js"
+import { calculateDstArgs } from "../src/transcode/ffmpeg_plan.js"
 
 const cudaTier = TIERS.find((t) => t.name === "cuda")
 const cpuTier = TIERS.find((t) => t.name === "cpu")

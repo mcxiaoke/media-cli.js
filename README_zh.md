@@ -100,7 +100,7 @@ mediac ffmpeg ./video.mp4 --preset hevc_2k --doit
 
 ### 环境要求
 
-- Node.js (v18+)
+- Node.js (v22+)
 - 外部工具：为了使用完整功能，请确保系统中安装了 `ffmpeg`, `ffprobe`, 和 `exiftool`
   并已添加到 PATH。
 
@@ -108,6 +108,7 @@ mediac ffmpeg ./video.mp4 --preset hevc_2k --doit
 
 - `npm run check`: 语法检查。
 - `npm run lint`: 使用 ESLint 检查代码质量。
+- `npm run test:package`: 打包、隔离安装并冒烟测试 npm 发布产物。
 - `npm run lint:fix`: 自动修复 ESLint 问题。
 - `npm run prettier:fix`: 使用 Prettier 格式化代码。
 - `npm start`: 本地运行 CLI 工具。

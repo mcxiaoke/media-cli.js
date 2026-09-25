@@ -14,9 +14,9 @@ import fsp from "fs/promises"
 import path from "path"
 import { after, before, describe, it } from "node:test"
 
-import { resolveFFmpegBinary, resolveFFprobeBinary } from "../lib/ffmpeg_bin.js"
-import { fallbackAudioEncoder } from "../lib/ffmpeg_build.js"
-import { parseEncoders, parseFilters, parseVersionInfo } from "../lib/hwdetect.js"
+import { resolveFFmpegBinary, resolveFFprobeBinary } from "../src/transcode/ffmpeg_bin.js"
+import { fallbackAudioEncoder } from "../src/transcode/ffmpeg_build.js"
+import { parseEncoders, parseFilters, parseVersionInfo } from "../src/transcode/hwdetect.js"
 
 const TMP_DIR = path.join("temp", "test_ffmpeg_bin")
 

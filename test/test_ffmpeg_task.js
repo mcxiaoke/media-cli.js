@@ -1,7 +1,7 @@
 import assert from "assert"
 import test from "node:test"
-import { SKIP_REASON } from "../lib/ffmpeg_result.js"
-import { buildCliTask, buildTask } from "../lib/ffmpeg_task.js"
+import { SKIP_REASON } from "../src/transcode/ffmpeg_result.js"
+import { buildCliTask, buildTask } from "../src/transcode/ffmpeg_task.js"
 
 test("ffmpeg task builder is injectable and returns a pending task", async () => {
     const input = {

@@ -1,10 +1,10 @@
 import fs from "fs-extra"
 import path from "path"
 import pMap from "p-map"
-import { addEntryProps } from "./rename.js"
+import { addEntryProps } from "../../lib/rename.js"
 import { buildCliTask } from "./ffmpeg_task.js"
 import { createInternalExecutionPlan } from "./ffmpeg_plan_snapshot.js"
-import * as helper from "./helper.js"
+import * as helper from "../../lib/helper.js"
 
 export const PLAN_OUTCOME = Object.freeze({
     READY: "ready",

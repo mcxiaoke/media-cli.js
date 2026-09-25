@@ -13,11 +13,11 @@
 import assert from "node:assert/strict"
 import { describe, it } from "node:test"
 
-import presetsDefault from "../lib/ffmpeg_presets.js"
-import { DEFAULT_PRESET_PATH } from "../lib/preset_loader.js"
-import { buildVideoArgsFromPlan } from "../lib/ffmpeg_build.js"
-import { TIERS, codecFamilyOfPreset, probeCacheKey } from "../lib/hwaccel.js"
-import { candidateTiers } from "../lib/hwdetect.js"
+import presetsDefault from "../src/transcode/ffmpeg_presets.js"
+import { DEFAULT_PRESET_PATH } from "../src/transcode/preset_loader.js"
+import { buildVideoArgsFromPlan } from "../src/transcode/ffmpeg_build.js"
+import { TIERS, codecFamilyOfPreset, probeCacheKey } from "../src/transcode/hwaccel.js"
+import { candidateTiers } from "../src/transcode/hwdetect.js"
 
 const cudaTier = TIERS.find((t) => t.name === "cuda")
 const size = { w: 1920, h: 1080 }

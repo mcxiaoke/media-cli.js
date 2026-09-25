@@ -7,10 +7,10 @@
 import path from "path"
 import mm from "music-metadata"
 
-import * as core from "./core.js"
-import * as helper from "./helper.js"
-import * as log from "./debug.js"
-import { formatArgs } from "./core.js"
+import * as core from "../../lib/core.js"
+import * as helper from "../../lib/helper.js"
+import * as log from "../../lib/debug.js"
+import { formatArgs } from "../../lib/core.js"
 import { calcLongEdge, toEven } from "./hwaccel.js"
 
 /**

@@ -15,10 +15,8 @@ import * as log from "./lib/debug.js"
 import { t } from "./lib/i18n.js"
 
 // 最低支持的 Node 版本，与 package.json 的 engines 保持一致。
-// 下限由依赖决定：exiftool-vendored@35 要求 >=20，glob@13 要求 18||20||>=22。
-// 说明：此前代码使用 `using` 声明式资源管理（需 Node >= 24），
-// 已改为共享单例 + 进程退出时释放，因此不再需要 24。
-const MIN_NODE_MAJOR = 20
+// Node 20 已结束官方维护，且 Node 21+ 才支持测试入口使用的 glob 位置参数。
+const MIN_NODE_MAJOR = 22
 
 // yargs 的 .version() 需要从 cwd 向上查找 package.json，
 // 全局安装（bin 指向 index.js）时查找会失败并输出 "unknown"。

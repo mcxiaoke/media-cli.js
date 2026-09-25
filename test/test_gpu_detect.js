@@ -25,8 +25,8 @@ import {
     nvdecSupportOf,
     nvencSupportOf,
     nvidiaGenerationOf,
-} from "../lib/gpu.js"
-import { GPU_VENDOR_HWACCELS } from "../lib/hwdetect.js"
+} from "../src/transcode/gpu.js"
+import { GPU_VENDOR_HWACCELS } from "../src/transcode/hwdetect.js"
 
 describe("nvidiaGenerationOf: 型号 → 代次", () => {
     it("resolves all consumer generations", () => {

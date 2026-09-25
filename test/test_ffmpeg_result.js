@@ -5,7 +5,7 @@ import {
     RUN_STATUS,
     SKIP_REASON,
     toRunResult,
-} from "../lib/ffmpeg_result.js"
+} from "../src/transcode/ffmpeg_result.js"
 
 test("ffmpeg result adapter distinguishes success, skip, cancel, and failure", () => {
     assert.deepStrictEqual(toRunResult({ ok: true, fileDst: "out.mp4" }), {

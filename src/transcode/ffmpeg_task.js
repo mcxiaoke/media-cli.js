@@ -1,9 +1,9 @@
 import chalk from "chalk"
 import fs from "fs-extra"
 import path from "path"
-import { createError, ErrorTypes } from "./errors.js"
+import { createError, ErrorTypes } from "../../lib/errors.js"
 import { SKIP_REASON } from "./ffmpeg_result.js"
-import * as log from "./debug.js"
+import * as log from "../../lib/debug.js"
 import {
     calculateDstArgs,
     createDstBaseName,
@@ -11,10 +11,10 @@ import {
     readMusicMeta,
     selectPreferredSubtitle,
 } from "./ffmpeg_plan.js"
-import { getMediaInfo } from "./mediainfo.js"
+import { getMediaInfo } from "../../lib/mediainfo.js"
 import { detectHardwareCapabilities } from "./hwdetect.js"
-import { t } from "./i18n.js"
-import * as helper from "./helper.js"
+import { t } from "../../lib/i18n.js"
+import * as helper from "../../lib/helper.js"
 
 /**
  * 构建一个 WebUI/共享任务层使用的媒体任务条目。

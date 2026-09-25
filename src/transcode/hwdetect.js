@@ -24,7 +24,7 @@
  */
 
 import { execa } from "execa"
-import * as log from "./debug.js"
+import * as log from "../../lib/debug.js"
 import { resolveFFmpegBinary } from "./ffmpeg_bin.js"
 import { detectGpus, gpuProbeList } from "./gpu.js"
 

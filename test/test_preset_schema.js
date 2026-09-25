@@ -23,14 +23,14 @@ import {
     isPresetField,
     getPresetFieldMeta,
     hasPresetTypeMismatch,
-} from "../lib/preset_schema.js"
+} from "../src/transcode/preset_schema.js"
 import {
     loadPresetsFromYaml,
     mergePresets,
     processPresets,
     resolvePresetPath,
-} from "../lib/preset_loader.js"
-import presetsApi from "../lib/ffmpeg_presets.js"
+} from "../src/transcode/preset_loader.js"
+import presetsApi from "../src/transcode/ffmpeg_presets.js"
 
 const TMP = path.join(os.tmpdir(), `mediac-test-preset-schema-${process.pid}`)
 

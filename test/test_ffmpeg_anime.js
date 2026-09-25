@@ -5,10 +5,10 @@
 import assert from "assert"
 import { describe, it, before } from "node:test"
 
-import presets from "../lib/ffmpeg_presets.js"
-import { DEFAULT_PRESET_PATH } from "../lib/preset_loader.js"
-import { calculateDstArgs } from "../lib/ffmpeg_plan.js"
-import { buildEncoderArgs } from "../lib/hwaccel.js"
+import presets from "../src/transcode/ffmpeg_presets.js"
+import { DEFAULT_PRESET_PATH } from "../src/transcode/preset_loader.js"
+import { calculateDstArgs } from "../src/transcode/ffmpeg_plan.js"
+import { buildEncoderArgs } from "../src/transcode/hwaccel.js"
 
 describe("Anime mode & preset aliases", () => {
     before(async () => {

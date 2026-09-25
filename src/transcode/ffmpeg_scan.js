@@ -1,9 +1,9 @@
 import fs from "fs-extra"
 import path from "path"
-import * as core from "./core.js"
-import * as mf from "./file.js"
-import * as helper from "./helper.js"
-import { applyFileNameRules } from "./rename.js"
+import * as core from "../../lib/core.js"
+import * as mf from "../../lib/file.js"
+import * as helper from "../../lib/helper.js"
+import { applyFileNameRules } from "../../lib/rename.js"
 
 /**
  * 收集 WebUI/未来共享 Engine 使用的媒体文件条目。

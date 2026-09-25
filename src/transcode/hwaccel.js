@@ -20,7 +20,7 @@
 
 import { execa } from "execa"
 import which from "which"
-import * as log from "./debug.js"
+import * as log from "../../lib/debug.js"
 import { candidateTiers, primaryVendor, SWDEC_ENCODERS_BY_VENDOR } from "./hwdetect.js"
 import { nvdecSupportOf } from "./gpu.js"
 

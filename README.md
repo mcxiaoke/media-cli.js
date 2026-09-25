@@ -170,7 +170,7 @@ This makes it particularly effective for fixing filenames that were encoded in o
 
 ### Prerequisites
 
-- Node.js (v20+，见 `package.json` 的 `engines`)
+- Node.js (v22+，见 `package.json` 的 `engines`)
 - Tools: `ffmpeg`, `ffprobe`, `exiftool` must be installed and available in PATH for full
   functionality.
 
@@ -178,6 +178,7 @@ This makes it particularly effective for fixing filenames that were encoded in o
 
 - `npm run check`: Verify syntax.
 - `npm run lint`: Lint code with ESLint.
+- `npm run test:package`: Pack, install, and smoke-test the published CLI artifact.
 - `npm run lint:fix`: Fix linting errors.
 - `npm run prettier:fix`: Format code with Prettier.
 - `npm start`: Run the CLI locally.

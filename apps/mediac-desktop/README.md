@@ -1,6 +1,7 @@
 # MediaCli Desktop
 
-独立的 Electron 客户端实验包，根目录的 `mediac` CLI 保持不变。
+独立的 Electron 客户端实验包，根目录的 `mediac` CLI 保持不变。主进程经根项目
+`src/transcode/index.js` facade 使用转码能力，不直接依赖其内部模块。
 
 ## 开发运行
 

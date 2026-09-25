@@ -1,6 +1,6 @@
 import assert from "assert"
 import test from "node:test"
-import { createFFmpegEngine } from "../lib/ffmpeg_engine.js"
+import { createFFmpegEngine } from "../src/transcode/ffmpeg_engine.js"
 
 function makeTask(index, status = "pending") {
     return { id: `task-${index}`, index, name: `a${index}.mp4`, status }

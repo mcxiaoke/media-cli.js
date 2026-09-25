@@ -14,22 +14,29 @@ import config from "../lib/config.js"
 import * as core from "../lib/core.js"
 import * as log from "../lib/debug.js"
 import { ErrorTypes, createError } from "../lib/errors.js"
-import presets from "../lib/ffmpeg_presets.js"
 import * as helper from "../lib/helper.js"
 import { t } from "../lib/i18n.js"
 import { getMediaInfo } from "../lib/mediainfo.js"
 import { addEntryProps } from "../lib/rename.js"
-import { scanFFmpegInputs } from "../lib/ffmpeg_scan.js"
-import { buildCliTask } from "../lib/ffmpeg_task.js"
-import { SKIP_REASON } from "../lib/ffmpeg_result.js"
-import { prepareFFmpegPlan, deleteCompletedSources } from "../lib/ffmpeg_planner.js"
-import { normalizeCliOptions, toLegacyArgvOptions } from "../lib/ffmpeg_options.js"
-import { TIERS } from "../lib/hwaccel.js"
-import { createFFmpegArgs, flattenFFArgs } from "../lib/ffmpeg_build.js"
-import { LOG_TAG, runFFmpeg, setFFmpegPath } from "../lib/ffmpeg_run.js"
-import { createFFmpegEngine } from "../lib/ffmpeg_engine.js"
-import { resolveFFmpegBinary } from "../lib/ffmpeg_bin.js"
-import { detectHardwareCapabilities } from "../lib/hwdetect.js"
+import {
+    LOG_TAG,
+    SKIP_REASON,
+    TIERS,
+    buildCliTask,
+    createFFmpegArgs,
+    createFFmpegEngine,
+    deleteCompletedSources,
+    detectHardwareCapabilities,
+    flattenFFArgs,
+    normalizeCliOptions,
+    presets,
+    prepareFFmpegPlan,
+    resolveFFmpegBinary,
+    runFFmpeg,
+    scanFFmpegInputs,
+    setFFmpegPath,
+    toLegacyArgvOptions,
+} from "../src/transcode/index.js"
 
 // ===========================================
 // 命令内容执行

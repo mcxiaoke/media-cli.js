@@ -18,7 +18,7 @@
 
 import path from "path"
 import { getPresetSearchPaths, loadPresetLayers, mergePresets } from "./preset_loader.js"
-import { parseBitrate } from "./helper.js"
+import { parseBitrate } from "../../lib/helper.js"
 
 /**
  * FFmpeg命令参数预设类

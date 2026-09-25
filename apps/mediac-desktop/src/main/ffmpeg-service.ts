@@ -4,18 +4,25 @@ import { execFileSync } from "node:child_process"
 import { existsSync } from "node:fs"
 import { readFile, mkdir, rename, rm, writeFile } from "node:fs/promises"
 import path from "node:path"
-import { resolveFFmpegBinary, resolveFFprobeBinary } from "../../../../lib/ffmpeg_bin.js"
-import presets from "../../../../lib/ffmpeg_presets.js"
-import { runFFmpeg, setFFmpegPath } from "../../../../lib/ffmpeg_run.js"
-import { createFFmpegArgs, flattenFFArgs } from "../../../../lib/ffmpeg_build.js"
-import { detectHardwareCapabilities } from "../../../../lib/hwdetect.js"
-import { TIERS } from "../../../../lib/hwaccel.js"
-import { normalizeWebOptions, toLegacyArgvOptions } from "../../../../lib/ffmpeg_options.js"
-import { collectInputFiles, scanWebInputFiles } from "../../../../lib/ffmpeg_scan.js"
 import { getMediaInfo } from "../../../../lib/mediainfo.js"
-import { deleteCompletedSources, prepareFFmpegPlan } from "../../../../lib/ffmpeg_planner.js"
-import { createPublicPlanSnapshot } from "../../../../lib/ffmpeg_plan_snapshot.js"
-import { createFFmpegEngine } from "../../../../lib/ffmpeg_engine.js"
+import {
+  collectInputFiles,
+  createFFmpegArgs,
+  createFFmpegEngine,
+  createPublicPlanSnapshot,
+  deleteCompletedSources,
+  detectHardwareCapabilities,
+  normalizeWebOptions,
+  presets,
+  prepareFFmpegPlan,
+  resolveFFmpegBinary,
+  resolveFFprobeBinary,
+  runFFmpeg,
+  scanWebInputFiles,
+  setFFmpegPath,
+  TIERS,
+  toLegacyArgvOptions,
+} from "../../../../src/transcode/index.js"
 import {
   startPreventSuspension,
   stopPreventSuspension,
@@ -155,7 +162,7 @@ class FfmpegEnvironmentService {
   /**
    * Manifest 临时产物可信性校验（S-2 加固）。
    *
-   * 临时产物由 lib/ffmpeg_task.js 生成在**最终产物同目录**（并无统一 temp 根目录），
+   * 临时产物由 src/transcode/ffmpeg_task.js 生成在**最终产物同目录**（并无统一 temp 根目录），
    * 因此可强校验的结构约束是：tempPath 与 outputPath 同目录、同扩展名，
    * 且文件名严格形如 `xxx_tmp@<hash>@tmp_.ext`（hash 为 xxHash32 十进制/十六进制数字）。
    * 任一条件不满足即视为不可信、跳过删除——宁残留垃圾文件，勿误删用户文件。

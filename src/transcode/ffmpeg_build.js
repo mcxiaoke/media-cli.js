@@ -6,11 +6,11 @@
  */
 import path from "node:path"
 
-import * as core from "./core.js"
-import { formatArgs } from "./core.js"
-import * as enc from "./encoding.js"
-import * as helper from "./helper.js"
-import * as log from "./debug.js"
+import * as core from "../../lib/core.js"
+import { formatArgs } from "../../lib/core.js"
+import * as enc from "../../lib/encoding.js"
+import * as helper from "../../lib/helper.js"
+import * as log from "../../lib/debug.js"
 import presets from "./ffmpeg_presets.js"
 import {
     buildEncoderArgs,

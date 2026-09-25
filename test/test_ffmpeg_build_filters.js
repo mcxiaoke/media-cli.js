@@ -15,9 +15,9 @@ import {
     buildScaleFiltersFromPlan,
     buildVideoArgsFromPlan,
     splitPresetFilterSegments,
-} from "../lib/ffmpeg_build.js"
-import { buildVideoFilters } from "../lib/hwaccel.js"
-import { TIERS } from "../lib/hwaccel.js"
+} from "../src/transcode/ffmpeg_build.js"
+import { buildVideoFilters } from "../src/transcode/hwaccel.js"
+import { TIERS } from "../src/transcode/hwaccel.js"
 
 const cudaTier = TIERS.find((t) => t.name === "cuda")
 const cpuTier = TIERS.find((t) => t.name === "cpu")

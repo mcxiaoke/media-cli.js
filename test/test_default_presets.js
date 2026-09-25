@@ -23,9 +23,9 @@ import assert from "assert"
 import fs from "fs-extra"
 import { describe, it } from "node:test"
 
-import presetsDefault from "../lib/ffmpeg_presets.js"
-import { DEFAULT_PRESET_PATH } from "../lib/preset_loader.js"
-import { loadPresetsFromYaml, mergePresets } from "../lib/preset_loader.js"
+import presetsDefault from "../src/transcode/ffmpeg_presets.js"
+import { DEFAULT_PRESET_PATH } from "../src/transcode/preset_loader.js"
+import { loadPresetsFromYaml, mergePresets } from "../src/transcode/preset_loader.js"
 
 // 关键规范名：各 codec 族的代表 + 场景/音频核心名。
 // 语义是「这些名字不许悄悄消失」；新增同族预设不触发失败。

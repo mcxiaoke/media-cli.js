@@ -43,7 +43,8 @@ MediaCli（npm 包名 `mediac`，当前版本 2.0.0）是一个基于 Node.js �
 ### 模块结构
 - ES 模块（import/export 语法）
 - 每个命令是独立的模块，导出 command、aliases、describe、builder、handler
-- 共享工具按功能组织在 lib/ 目录中
+- `src/transcode/` 集中存放转码领域实现，CLI/Electron 统一从其 `index.js` facade 导入
+- `lib/` 暂存其余共享工具，是 legacy 平铺层；不再承接新的跨领域职责
 
 ### 命令模式
 ```javascript
@@ -83,6 +84,8 @@ const handler = async (argv) => {
 - 使用 Node.js 内置测试框架
 - 测试文件位于 `test/` 目录
 - 运行测试：`npm test`
+- 发布包安装态检查：`npm run test:package`
+- `data/` 为不入库的本地媒体测试语料；依赖其中的用例在目录缺失时会 skip
 
 ## 常见开发任务
 
@@ -98,12 +101,12 @@ const handler = async (argv) => {
 - 文件操作：`lib/file.js`
 - EXIF 元数据：`lib/exif.js`
 - 图像处理：`sharp` 库
-- 视频/音频转换（ffmpeg）：已从单文件演进为一套协作模块，**不再只对应 `lib/ffmpeg_presets.js`**
+- 视频/音频转换（ffmpeg）：实现集中在 `src/transcode/`，外部调用方只经该目录的 `index.js`
   - `cmd/cmd_ffmpeg.js`：命令入口（校验、扫描、任务编排、确认、汇总）
   - `presets/default.yaml`：内置预设唯一事实源（分层 YAML，支持 `extends` 继承与 `_override` 覆盖）
-  - `lib/preset_loader.js` / `lib/ffmpeg_presets.js` / `lib/arg_parser.js`：预设加载 / 参数覆盖 / `--ffargs` 解析
-  - `lib/hwaccel.js` / `lib/hwdetect.js` / `lib/gpu.js`：硬件分层与编码器矩阵 / 本机能力探测 / GPU 支持矩阵
-  - `lib/ffmpeg_plan.js` / `lib/ffmpeg_build.js` / `lib/ffmpeg_run.js` / `lib/ffmpeg_bin.js`：目标参数计算 / 命令行拼装 / 单文件执行 / 二进制定位
+  - `src/transcode/preset_loader.js` / `ffmpeg_presets.js`：预设加载与对象模型；`lib/arg_parser.js`：共享 `--ffargs` 解析
+  - `src/transcode/hwaccel.js` / `hwdetect.js` / `gpu.js`：硬件分层与编码器矩阵 / 本机能力探测 / GPU 支持矩阵
+  - `src/transcode/ffmpeg_plan.js` / `ffmpeg_build.js` / `ffmpeg_run.js` / `ffmpeg_bin.js`：目标参数计算 / 命令行拼装 / 单文件执行 / 二进制定位
   - 完整参数与注意事项见 **`docs/FFMPEG-USAGE.md`**
   - 改动 ffmpeg 编码/滤镜参数前，须用真机 `ffmpeg -h encoder=X` 与 1 帧 `-f null -` 逐选项核验，勿凭文档臆造调优项
 
@@ -115,7 +118,7 @@ const handler = async (argv) => {
 
 ## 环境要求
 
-- Node.js **>= 20**（见 `package.json` 的 `engines`，ES 模块）
+- Node.js **>= 22**（见 `package.json` 的 `engines`，ES 模块）
 - 外部工具：ffmpeg、ffprobe、exiftool（用于完整功能）
 - ffmpeg 二进制定位优先级：`FFMPEG_PATH` → `FFMPEG_BINARY` → `PATH`（`which`）；可用 `MEDIAC_AUTO_CONFIRM` 跳过交互确认
 - 开发机本机预装多版本 ffmpeg，位于 `C:\Home\Apps\ffmpeg`（每目录内含 `ffmpeg.exe`/`ffprobe.exe`）：
@@ -124,5 +127,5 @@ const handler = async (argv) => {
   - `nomercy-ffmpeg-8` → 8.1.2；`nomercy-ffmpeg-9` → 9.0（NoMercy MediaServer）
   - 另含 `NVEncC`/`QSVEncC`/`VCEEncC` 等视频编码 CLI、`presets`
   - 跨版本验证或复现版本差异时，直接以绝对路径调用对应版本（如 `C:\Home\Apps\ffmpeg\ff9\ffmpeg.exe`）
-  - 测试素材见 `data/videos/`（`TEST2__*` 覆盖 h264/hevc/av1/vp9 与 8/10bit/422 等组合）
+  - 测试素材见本地开发语料 `data/videos/`（该目录被 Git 忽略；`TEST2__*` 覆盖 h264/hevc/av1/vp9 与 8/10bit/422 等组合）
 - 建议全局安装以使用 CLI 功能
