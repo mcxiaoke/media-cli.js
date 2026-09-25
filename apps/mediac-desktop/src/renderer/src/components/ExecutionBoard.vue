@@ -35,14 +35,20 @@ const progressPercent = computed(() => {
     return Math.round(planStore.overallPercent)
   }
   if (planStore.status === "COMPLETED") return 100
+  // STOPPED/FAILED 冻结在本轮实际达到的进度，与完成数口径一致（不再归零）
+  if (planStore.status === "STOPPED" || planStore.status === "FAILED") {
+    return Math.round(planStore.overallPercent)
+  }
   return 0
 })
 
 const overallStat = computed(() => {
-  const total = planStore.tasks.length
-  if (total === 0) return "0 / 0"
+  // 分母用本轮实际执行的任务子集：部分执行时 "2 / 3" 而非误导性的 "2 / 10"
+  const executed = planStore.executedTasks.length
+  const denom = executed > 0 ? executed : planStore.tasks.length
+  if (denom === 0) return "0 / 0"
   const done = planStore.tasks.filter((t) => t.status === "success" || t.status === "done").length
-  return `${done} / ${total}`
+  return `${done} / ${denom}`
 })
 
 const speedStat = computed(() => {
@@ -52,9 +58,10 @@ const speedStat = computed(() => {
 
 const etaStat = computed(() => {
   if (!isRunning.value || planStore.currentSpeed <= 0) return "—"
-  const totalSec = planStore.planSnapshot?.totalDuration || 0
-  const doneSec = totalSec * (planStore.overallPercent / 100)
-  const remainingSec = Math.max(0, (totalSec - doneSec) / planStore.currentSpeed)
+  // 只按本轮实际执行的任务时长折算：部分执行时 ETA 不再被未选中任务拉长
+  const totalSec = planStore.executedDuration
+  if (totalSec <= 0) return "—"
+  const remainingSec = Math.max(0, (totalSec * (1 - planStore.overallPercent / 100)) / planStore.currentSpeed)
   return formatDuration(remainingSec)
 })
 

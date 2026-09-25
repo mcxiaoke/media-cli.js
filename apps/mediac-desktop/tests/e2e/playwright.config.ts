@@ -12,7 +12,9 @@ export default defineConfig({
   },
   fullyParallel: false,
   workers: 1,
-  retries: 0,
+  // Electron e2e 受系统调度/窗口焦点影响偶发超时，重试 1 次；
+  // trace: "on-first-retry" 会自动记录重试轨迹便于定位 flaky 根因
+  retries: 1,
   reporter: [
     ["list"],
     ["html", { open: "never", outputFolder: path.resolve(__dirname, "../../temp/e2e-report") }],

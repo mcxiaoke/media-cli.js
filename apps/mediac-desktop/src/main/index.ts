@@ -276,13 +276,20 @@ handleTrusted(IPC_CHANNELS.EXECUTION_START, async (taskIds: unknown) => {
   return ffmpegEnvironment.startExecution(taskIds as string[] | undefined)
 })
 handleTrusted(IPC_CHANNELS.EXECUTION_STOP, () => ffmpegEnvironment.stopExecution())
-handleTrusted(IPC_CHANNELS.EXECUTION_SNAPSHOT, () => ffmpegEnvironment.getTaskSnapshot())
+// S-1 加固：SYSTEM_OPEN_PATH / SYSTEM_SHOW_IN_FOLDER 仅接受主进程已知的路径
+// （staged 输入、计划产物、原生对话框授权根），防止被攻破的渲染层打开任意路径
 handleTrusted(IPC_CHANNELS.SYSTEM_SHOW_IN_FOLDER, async (fullPath: unknown) => {
   if (typeof fullPath !== "string") throw new Error("fullPath must be a string")
+  if (!ffmpegEnvironment.isKnownMediaPath(fullPath)) {
+    throw new Error("Path is not recognized by the main process")
+  }
   showItemInFolder(fullPath)
 })
 handleTrusted(IPC_CHANNELS.SYSTEM_OPEN_PATH, async (fullPath: unknown) => {
   if (typeof fullPath !== "string") throw new Error("fullPath must be a string")
+  if (!ffmpegEnvironment.isKnownMediaPath(fullPath)) {
+    throw new Error("Path is not recognized by the main process")
+  }
   return openPath(fullPath)
 })
 handleTrusted(IPC_CHANNELS.SYSTEM_NOTIFY, async (payload: unknown) => {
@@ -312,7 +319,10 @@ handleTrusted(
     const result = mainWindow
       ? await dialog.showOpenDialog(mainWindow, dialogOptions)
       : await dialog.showOpenDialog(dialogOptions)
-    return { paths: result.canceled ? [] : result.filePaths }
+    const picked = result.canceled ? [] : result.filePaths
+    // 用户亲手选择的路径即视为授权（S-1 白名单的授权来源，主进程侧登记）
+    ffmpegEnvironment.authorizePaths(picked)
+    return { paths: picked }
   },
 )
 

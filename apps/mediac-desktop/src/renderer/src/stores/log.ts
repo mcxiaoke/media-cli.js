@@ -17,7 +17,6 @@ export interface AppendLogOptions {
 
 export const useLogStore = defineStore("log", () => {
   const logs = ref<LogEntry[]>([])
-  const errCount = ref(0)
   const filter = ref<"ALL" | "INFO" | "CMD" | "WARN" | "ERROR">("ALL")
   const focusedTaskId = ref<string | null>(null)
   const drawerOpen = ref(false)
@@ -27,17 +26,13 @@ export const useLogStore = defineStore("log", () => {
    */
   const seq = ref(0)
 
+  /** 从缓冲区派生而非累加：滚动淘汰 ERROR 日志后计数同步收敛，不会与可见日志脱节 */
+  const errCount = computed(() => logs.value.filter((l) => l.level === "ERROR").length)
+
   function nowTs(): string {
     const d = new Date()
     const p = (x: number) => (x < 10 ? "0" : "") + x
     return p(d.getHours()) + ":" + p(d.getMinutes()) + ":" + p(d.getSeconds())
-  }
-
-  function addLog(level: "INFO" | "CMD" | "WARN" | "ERROR", text: string, taskId?: string) {
-    logs.value.push({ level, text, ts: nowTs(), taskId })
-    seq.value++
-    if (logs.value.length > 500) logs.value.shift()
-    if (level === "ERROR") errCount.value++
   }
 
   function append(opts: AppendLogOptions) {
@@ -54,12 +49,10 @@ export const useLogStore = defineStore("log", () => {
     })
     seq.value++
     if (logs.value.length > 500) logs.value.shift()
-    if (lvl === "ERROR") errCount.value++
   }
 
   function clearLogs() {
     logs.value = []
-    errCount.value = 0
     seq.value++
   }
 
@@ -77,10 +70,21 @@ export const useLogStore = defineStore("log", () => {
     focusedTaskId.value = null
   }
 
+  /**
+   * taskId 匹配必须带词边界：taskId 形如 task_1695..._ab12cd，前缀相同的 id
+   * （task_123 / task_1234）用裸 includes 会互相误匹配。
+   */
+  const focusPattern = computed(() => {
+    const id = focusedTaskId.value
+    if (!id) return null
+    const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    return new RegExp(`\\b${escaped}\\b`)
+  })
+
   const filteredLogs = computed(() => {
     return logs.value.filter((l) => {
       if (focusedTaskId.value) {
-        const matchesTask = l.taskId === focusedTaskId.value || l.text.includes(focusedTaskId.value)
+        const matchesTask = l.taskId === focusedTaskId.value || focusPattern.value?.test(l.text) === true
         if (!matchesTask) return false
       }
       return filter.value === "ALL" || l.level === filter.value
@@ -95,7 +99,6 @@ export const useLogStore = defineStore("log", () => {
     drawerOpen,
     seq,
     filteredLogs,
-    addLog,
     append,
     clearLogs,
     viewTaskLog,

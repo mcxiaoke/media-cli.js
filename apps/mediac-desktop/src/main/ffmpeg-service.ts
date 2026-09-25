@@ -52,21 +52,92 @@ class FfmpegEnvironmentService {
     return path.join(app.getPath("userData"), "active-tasks.json")
   }
 
+  /** 经原生对话框由用户亲手选过的路径（文件/目录），持久化到 userData，跨会话有效 */
+  private authorizedRoots = new Set<string>()
+  private static readonly AUTHORIZED_PATHS_FILE = "authorized-paths.json"
+
+  private get authorizedPathsFile() {
+    return path.join(app.getPath("userData"), FfmpegEnvironmentService.AUTHORIZED_PATHS_FILE)
+  }
+
+  private normalizeForCompare(p: string) {
+    const resolved = path.resolve(p)
+    return process.platform === "win32" ? resolved.toLowerCase() : resolved
+  }
+
+  /** 登记用户通过原生对话框明确选择的路径（来源不可被渲染层伪造） */
+  authorizePaths(paths: unknown) {
+    if (!Array.isArray(paths)) return
+    let changed = false
+    for (const p of paths) {
+      if (typeof p !== "string" || !p || !path.isAbsolute(p)) continue
+      const key = this.normalizeForCompare(p)
+      if (this.authorizedRoots.has(key)) continue
+      this.authorizedRoots.add(key)
+      changed = true
+    }
+    if (changed) {
+      const tmp = `${this.authorizedPathsFile}.tmp`
+      writeFile(tmp, JSON.stringify([...this.authorizedRoots], null, 2), "utf8")
+        .then(() => rename(tmp, this.authorizedPathsFile))
+        .catch(() => {
+          // 授权持久化失败不阻塞主流程，本次会话内仍然有效
+        })
+    }
+  }
+
+  private async loadAuthorizedPaths() {
+    try {
+      const raw = await readFile(this.authorizedPathsFile, "utf8")
+      const list = JSON.parse(raw)
+      if (Array.isArray(list)) this.authorizePaths(list)
+    } catch {
+      // 文件不存在或损坏时静默忽略，等价于无历史授权
+    }
+  }
+
+  /**
+   * S-1 加固：SYSTEM_OPEN_PATH / SYSTEM_SHOW_IN_FOLDER 只接受已知路径——
+   * ① staged 输入与当前计划任务的源/产物；
+   * ② 上述已知文件的直接父目录（「打开输出目录」传的是 dirname(fileDst)）；
+   * ③ 原生对话框授权根自身或其子路径。
+   * 渲染层即使被攻破，也无法让主进程打开任意外部路径。
+   */
+  isKnownMediaPath(fullPath: unknown): boolean {
+    if (typeof fullPath !== "string" || !fullPath || !path.isAbsolute(fullPath)) return false
+    const target = this.normalizeForCompare(fullPath)
+
+    const knownFiles = new Set<string>()
+    for (const key of this.stagedEntries.keys()) knownFiles.add(this.normalizeForCompare(key))
+    for (const t of this.currentPlan?.tasks ?? []) {
+      if (t?.path) knownFiles.add(this.normalizeForCompare(t.path))
+      if (t?.fileDst) knownFiles.add(this.normalizeForCompare(t.fileDst))
+    }
+    if (knownFiles.has(target)) return true
+    for (const f of knownFiles) {
+      if (this.normalizeForCompare(path.dirname(f)) === target) return true
+    }
+    for (const root of this.authorizedRoots) {
+      if (target === root || target.startsWith(root + path.sep)) return true
+    }
+    return false
+  }
+
   setEventSink(sink: ((event: Record<string, unknown>) => void) | null) {
     this.eventSink = sink
   }
 
   async initialize() {
-    await this.recoverStaleTasks()
+    await Promise.all([this.recoverStaleTasks(), this.loadAuthorizedPaths()])
   }
 
   private async recoverStaleTasks() {
     try {
       const raw = await readFile(this.manifestPath, "utf8")
-      const entries = JSON.parse(raw) as Array<{ tempPath?: string }>
+      const entries = JSON.parse(raw) as Array<{ tempPath?: string; outputPath?: string }>
       for (const entry of entries) {
-        if (!entry.tempPath || !this.isManagedTempPath(entry.tempPath)) continue
-        await rm(entry.tempPath, { force: true })
+        if (!this.isManagedTempEntry(entry)) continue
+        await rm(entry.tempPath as string, { force: true })
       }
       await rm(this.manifestPath, { force: true })
     } catch {
@@ -81,9 +152,26 @@ class FfmpegEnvironmentService {
     return Math.min(MAX_CONCURRENCY, Math.floor(value))
   }
 
-  private isManagedTempPath(filePath: string) {
-    const name = path.basename(filePath)
-    return name.includes("_tmp@") && name.includes("@tmp_")
+  /**
+   * Manifest 临时产物可信性校验（S-2 加固）。
+   *
+   * 临时产物由 lib/ffmpeg_task.js 生成在**最终产物同目录**（并无统一 temp 根目录），
+   * 因此可强校验的结构约束是：tempPath 与 outputPath 同目录、同扩展名，
+   * 且文件名严格形如 `xxx_tmp@<hash>@tmp_.ext`（hash 为 xxHash32 十进制/十六进制数字）。
+   * 任一条件不满足即视为不可信、跳过删除——宁残留垃圾文件，勿误删用户文件。
+   */
+  private isManagedTempEntry(entry: { tempPath?: string; outputPath?: string }) {
+    const { tempPath, outputPath } = entry
+    if (!tempPath || !outputPath) return false
+    if (!path.isAbsolute(tempPath) || !path.isAbsolute(outputPath)) return false
+    if (path.extname(tempPath) !== path.extname(outputPath)) return false
+    const sameDir = (a: string, b: string) => {
+      const da = path.dirname(a)
+      const db = path.dirname(b)
+      return process.platform === "win32" ? da.toLowerCase() === db.toLowerCase() : da === db
+    }
+    if (!sameDir(tempPath, outputPath)) return false
+    return /^.+_tmp@[a-f0-9]+@tmp_(\.[^.]+)?$/.test(path.basename(tempPath))
   }
 
   private async writeTaskManifest(tasks: any[], runId: string) {
@@ -334,7 +422,15 @@ class FfmpegEnvironmentService {
   }
 
   async createPlan(body: Record<string, unknown> = {}): Promise<PublicPlanSnapshot> {
-    if (this.status === "RUNNING") throw new Error("An execution is already running")
+    // RUNNING 期间不可重建；STOPPING 期间同理——此刻 abort 还在收尾，
+    // 重建会清掉 currentPlan，与 stopExecution 的收尾写入互相踩踏。
+    if (this.status === "RUNNING" || this.status === "STOPPING") {
+      throw new Error(
+        this.status === "RUNNING"
+          ? "An execution is already running"
+          : "An execution is stopping, wait for it to settle",
+      )
+    }
     this.status = "PLANNING"
     this.currentPlan = null
     this.summary = null
@@ -705,14 +801,6 @@ class FfmpegEnvironmentService {
     stopPreventSuspension()
     updateTaskbarProgress(-1)
     return { ok: true, message: "Stop signal sent" }
-  }
-
-  getTaskSnapshot() {
-    return {
-      status: this.status,
-      plan: this.currentPlan ? createPublicPlanSnapshot(this.currentPlan) : null,
-      summary: this.summary,
-    }
   }
 
   dispose() {

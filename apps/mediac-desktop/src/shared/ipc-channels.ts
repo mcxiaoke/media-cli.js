@@ -29,7 +29,6 @@ export const IPC_CHANNELS = {
   PLAN_CREATE: "plan:create",
   EXECUTION_START: "execution:start",
   EXECUTION_STOP: "execution:stop",
-  EXECUTION_SNAPSHOT: "execution:snapshot",
   EXECUTION_EVENT: "execution:event",
   SYSTEM_SHOW_IN_FOLDER: "system:show-in-folder",
   SYSTEM_OPEN_PATH: "system:open-path",

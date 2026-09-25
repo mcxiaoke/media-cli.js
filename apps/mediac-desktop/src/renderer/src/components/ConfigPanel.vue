@@ -365,7 +365,7 @@ const audioSummary = computed(() => {
           aria-label="拖入或点击添加媒体目录"
           data-testid="side-dropzone"
           @dragover.prevent
-          @drop="handleDrop"
+          @drop.stop="handleDrop"
           @click="pickDirectory"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">

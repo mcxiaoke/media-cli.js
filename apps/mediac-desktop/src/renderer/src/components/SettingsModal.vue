@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { ref, computed } from "vue"
+import { ref, computed, watch } from "vue"
 import { useEnvStore } from "../stores/env"
 import { useConfigStore } from "../stores/config"
 import { useLogStore } from "../stores/log"
 
-defineProps<{
+const props = defineProps<{
   show: boolean
 }>()
 
@@ -17,6 +17,16 @@ const configStore = useConfigStore()
 const logStore = useLogStore()
 
 const currentTheme = ref(document.documentElement.getAttribute("data-theme") || "light")
+
+// 组件常驻挂载（仅内层 v-if 切换），切主题后再次打开需重读，否则显示旧值
+watch(
+  () => props.show,
+  (visible) => {
+    if (visible) {
+      currentTheme.value = document.documentElement.getAttribute("data-theme") || "light"
+    }
+  },
+)
 
 function setTheme(theme: "dark" | "light") {
   currentTheme.value = theme

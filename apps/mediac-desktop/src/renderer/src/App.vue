@@ -82,11 +82,15 @@ async function createPlan() {
     alert("请先添加至少一个媒体文件或目录")
     return
   }
+  // 主进程会校验 deleteSourceConfirmed；必须让它反映本次弹窗的真实确认结果，
+  // 而非直接复用 deleteSource 开关状态（否则校验形同虚设）
+  let deleteSourceAck = false
   if (configStore.adv.deleteSource) {
     const ok = window.confirm(
       "【高危确认】转码成功且产物校验通过后，源文件将被移入 Mediac 安全回收目录（~/.mediac/deleted/日期），可随时恢复。请确认是否继续？"
     )
     if (!ok) return
+    deleteSourceAck = true
   }
 
   planStore.status = "PLANNING"
@@ -113,7 +117,7 @@ async function createPlan() {
         anime: configStore.adv.anime,
         strict: configStore.adv.strict,
         deleteSourceFiles: configStore.adv.deleteSource,
-        deleteSourceConfirmed: configStore.adv.deleteSource,
+        deleteSourceConfirmed: deleteSourceAck,
       },
     }))
     const plan = await window.api.createPlan(payload)

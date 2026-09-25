@@ -162,7 +162,6 @@ export interface DesktopApi {
   createPlan(body: Record<string, unknown>): Promise<PublicPlanSnapshot>
   startExecution(taskIds?: string[]): Promise<{ runId: string }>
   stopExecution(): Promise<{ ok: boolean; message?: string }>
-  getTaskSnapshot(): Promise<Record<string, unknown>>
   onEngineEvent(callback: (event: Record<string, unknown>) => void): () => void
   showInFolder(fullPath: string): Promise<void>
   openPath(fullPath: string): Promise<string>

@@ -14,23 +14,49 @@ export const usePlanStore = defineStore("plan", () => {
   const selectedIds = ref<Set<string>>(new Set())
   const inspectedTask = ref<PlanTask | null>(null)
   const currentSpeed = ref(0)
-  const planningProgress = ref("")
+
+  // 终态集合：迟到的事件（乱序 task.progress/task.started）不得复活终态任务
+  const TERMINAL_STATUSES = new Set(["success", "done", "failed", "skipped", "cancelled"])
+  const FINISHED_STATUSES = new Set(["success", "done", "skipped"])
+  // 本轮实际参与执行的任务子集：执行可只选部分任务，未选中的保持 pending/staged，
+  // 进度/ETA/完成数都应按该子集口径统计，而不是全量计划
+  const EXECUTED_STATUSES = new Set(["running", "success", "done", "failed", "skipped", "cancelled"])
 
   const allTasksCompleted = computed(() => {
     return (
       tasks.value.length > 0 &&
-      tasks.value.every((t) => t.status === "success" || t.status === "done" || t.status === "skipped")
+      tasks.value.every((t) => FINISHED_STATUSES.has(t.status))
     )
   })
 
+  const executedTasks = computed(() => tasks.value.filter((t) => EXECUTED_STATUSES.has(t.status)))
+  const executedDuration = computed(() =>
+    executedTasks.value.reduce((acc, t) => acc + (t.duration || 0), 0)
+  )
+
+  /**
+   * 本轮执行的总体进度（0-100）。
+   * 优先按时长加权（长任务权重更大，避免 10s 短片和 2h 长片各占一格的失真）；
+   * 无时长信息（probe 失败）时退化为按任务个数。
+   */
   const overallPercent = computed(() => {
-    if (tasks.value.length === 0) return 0
-    const finishedCount = tasks.value.filter(
-      (t) => t.status === "success" || t.status === "done" || t.status === "skipped"
-    ).length
-    const runningTask = tasks.value.find((t) => t.status === "running")
-    const runningProgress = runningTask?.progress || 0
-    return Math.min(100, Math.round(((finishedCount + runningProgress / 100) / tasks.value.length) * 100))
+    const executed = executedTasks.value
+    if (executed.length === 0) return 0
+    const totalWeight = executed.reduce((acc, t) => acc + (t.duration || 0), 0)
+    const finishedWeight = executed
+      .filter((t) => FINISHED_STATUSES.has(t.status))
+      .reduce((acc, t) => acc + (t.duration || 0), 0)
+    const runningWeight = executed
+      .filter((t) => t.status === "running")
+      .reduce((acc, t) => acc + (t.duration || 0) * ((t.progress || 0) / 100), 0)
+    if (totalWeight > 0) {
+      return Math.min(100, Math.round(((finishedWeight + runningWeight) / totalWeight) * 100))
+    }
+    const finishedCount = executed.filter((t) => FINISHED_STATUSES.has(t.status)).length
+    const runningCount = executed
+      .filter((t) => t.status === "running")
+      .reduce((acc, t) => acc + (t.progress || 0) / 100, 0)
+    return Math.min(100, Math.round(((finishedCount + runningCount) / executed.length) * 100))
   })
 
   const isAllSelected = computed(() => {
@@ -137,7 +163,7 @@ export const usePlanStore = defineStore("plan", () => {
   function updateTaskProgress(taskId: string, percent: number, speed?: number) {
     const list = [...tasks.value]
     const idx = list.findIndex((t) => t.id === taskId)
-    if (idx >= 0) {
+    if (idx >= 0 && !TERMINAL_STATUSES.has(list[idx].status)) {
       list[idx] = {
         ...list[idx],
         status: "running",
@@ -153,6 +179,8 @@ export const usePlanStore = defineStore("plan", () => {
     const list = [...tasks.value]
     const idx = list.findIndex((t) => t.id === taskId)
     if (idx >= 0) {
+      // 迟到的 task.started 不得把终态任务拉回 running
+      if (TERMINAL_STATUSES.has(list[idx].status) && newStatus === "running") return
       list[idx] = {
         ...list[idx],
         status: newStatus,
@@ -171,7 +199,8 @@ export const usePlanStore = defineStore("plan", () => {
     inspectedTask,
     currentSpeed,
     overallPercent,
-    planningProgress,
+    executedTasks,
+    executedDuration,
     allTasksCompleted,
     isAllSelected,
     totalDuration,

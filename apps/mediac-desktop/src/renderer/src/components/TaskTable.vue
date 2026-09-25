@@ -109,7 +109,8 @@ function getFmtClass(name: string) {
   if (ext === "mov") return "fmt-mov"
   if (ext === "avi") return "fmt-avi"
   if (ext === "ts" || ext === "m2ts") return "fmt-ts"
-  return "fmt-default"
+  // CSS 只有 .fmt-other 兜底样式，此前返回不存在的 fmt-default 导致默认标签无样式
+  return "fmt-other"
 }
 
 const selectedTaskPreview = computed(() => {

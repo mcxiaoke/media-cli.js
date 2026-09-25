@@ -36,9 +36,6 @@ const api: DesktopApi = {
   stopExecution() {
     return ipcRenderer.invoke(IPC_CHANNELS.EXECUTION_STOP)
   },
-  getTaskSnapshot() {
-    return ipcRenderer.invoke(IPC_CHANNELS.EXECUTION_SNAPSHOT)
-  },
   onEngineEvent(callback) {
     const listener = (_event: unknown, data: Record<string, unknown>) => callback(data)
     ipcRenderer.on(IPC_CHANNELS.EXECUTION_EVENT, listener)
