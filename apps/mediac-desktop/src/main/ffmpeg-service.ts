@@ -107,6 +107,16 @@ class DesktopTranscodeService {
     this.whitelist.authorizePaths(paths)
   }
 
+  /** 获取当前转码服务运行状态 */
+  getStatus(): RunnerState {
+    return this.status
+  }
+
+  /** 是否有转码或计划任务正在执行中 */
+  isExecuting(): boolean {
+    return this.status === "RUNNING" || this.status === "PLANNING" || this.status === "STOPPING"
+  }
+
   setEventSink(sink: ((event: Record<string, unknown>) => void) | null) {
     this.eventSink = sink
   }

@@ -15,7 +15,7 @@
     "build": "electron-vite build",
     "typecheck": "vue-tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.node.json",
     "test:e2e": "playwright test -c tests/e2e/playwright.config.ts",
-    "package:win": "npm run build && electron-builder --win"
+    "package:win": "npm run build && electron-builder --win && node ./scripts/post_package.cjs"
   },
   "dependencies": {
     "pinia": "^4.0.3",

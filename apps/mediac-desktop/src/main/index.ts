@@ -1,11 +1,16 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, session, shell, type IpcMainInvokeEvent } from "electron"
-import { appendFileSync, mkdirSync } from "node:fs"
+import { appendFileSync, existsSync, mkdirSync } from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { transcodeService } from "./ffmpeg-service.js"
 import { toSerializable } from "./ipc-serializer.js"
 import { openPath, showItemInFolder, showNotification } from "./native.js"
 import { IPC_CHANNELS, MENU_ACTIONS, MENU_ACTION_CHANNEL } from "../shared/ipc-channels.js"
+
+const gotSingleInstanceLock = app.requestSingleInstanceLock()
+if (!gotSingleInstanceLock) {
+  app.quit()
+}
 
 function summaryFfmpegPath() {
   return transcodeService.getFfmpegPath()
@@ -19,6 +24,16 @@ function sendMenuAction(window: BrowserWindow, action: (typeof MENU_ACTIONS)[key
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 let mainWindow: BrowserWindow | null = null
+
+function getAppIconPath(): string | undefined {
+  const candidates = [
+    path.join(__dirname, "../../build/icon.ico"),
+    path.join(__dirname, "../../resources/icon.ico"),
+    path.join(process.resourcesPath, "icon.ico"),
+    path.join(process.resourcesPath, "build/icon.ico"),
+  ]
+  return candidates.find((c) => existsSync(c))
+}
 
 function startupLog(message: string) {
   try {
@@ -50,7 +65,8 @@ function isTrustedSender(event: IpcMainInvokeEvent) {
       return false
     }
   }
-  return frameUrl.startsWith("file://") && frameUrl.includes("/out/renderer/")
+  const normalized = frameUrl.replace(/\\/g, "/").toLowerCase()
+  return normalized.startsWith("file://") && normalized.includes("/out/renderer/")
 }
 
 function handleTrusted(channel: string, handler: (...args: any[]) => unknown) {
@@ -222,6 +238,7 @@ function setupApplicationMenu(window: BrowserWindow) {
 function createWindow() {
   mainWindow = new BrowserWindow({
     title: "mediac FFmpeg Studio · 批量音视频转码工作台",
+    icon: getAppIconPath(),
     width: 1280,
     height: 820,
     minWidth: 960,
@@ -235,6 +252,23 @@ function createWindow() {
   })
 
   setupApplicationMenu(mainWindow)
+
+  mainWindow.on("close", (event) => {
+    if (transcodeService.isExecuting()) {
+      const choice = dialog.showMessageBoxSync(mainWindow!, {
+        type: "warning",
+        buttons: ["取消", "强行退出"],
+        defaultId: 0,
+        cancelId: 0,
+        title: "退出确认",
+        message: "当前有转码任务正在进行中！",
+        detail: "如果现在退出，转码将被强行中止，正在写入的文件可能损坏。确定要退出吗？",
+      })
+      if (choice === 0) {
+        event.preventDefault()
+      }
+    }
+  })
 
   mainWindow.webContents.on("preload-error", (_event, preloadPath, error) => {
     startupLog(`preload-error ${preloadPath}: ${error.stack || error}`)
@@ -256,6 +290,13 @@ function createWindow() {
     void mainWindow.loadFile(path.join(__dirname, "../renderer/index.html"))
   }
 }
+
+app.on("second-instance", () => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.focus()
+  }
+})
 
 handleTrusted(IPC_CHANNELS.APP_GET_VERSION, () => app.getVersion())
 handleTrusted(IPC_CHANNELS.ENV_GET, () => transcodeService.getSummary())

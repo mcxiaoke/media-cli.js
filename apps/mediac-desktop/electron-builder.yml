@@ -16,9 +16,11 @@ extraResources:
 asarUnpack:
   - resources/**
 win:
+  icon: build/icon.ico
   target:
     - nsis
     - portable
+    - zip
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
