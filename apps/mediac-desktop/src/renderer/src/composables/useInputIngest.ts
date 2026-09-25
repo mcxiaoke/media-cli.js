@@ -19,9 +19,9 @@ export function useInputIngest() {
   const logStore = useLogStore()
 
   async function ingestPaths(paths: string[]) {
-    const valid = (paths || []).filter(
-      (p): p is string => typeof p === "string" && p.trim().length > 0
-    )
+    const valid = (paths || [])
+      .map((p) => (typeof p === "string" ? p.trim().replace(/^["']+|["']+$/g, "") : ""))
+      .filter((p): p is string => p.length > 0)
     if (valid.length === 0) return
 
     // config store 是 UI 输入的事实源：以 addInputs 前后长度差计算本地去重数。

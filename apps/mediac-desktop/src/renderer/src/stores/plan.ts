@@ -12,6 +12,7 @@ export const usePlanStore = defineStore("plan", () => {
   // Use shallowRef for tasks array to avoid Proxy overhead on large task lists
   const tasks = shallowRef<PlanTask[]>([])
   const selectedIds = ref<Set<string>>(new Set())
+  const activeTaskId = ref<string | null>(null)
   const inspectedTask = ref<PlanTask | null>(null)
   const currentSpeed = ref(0)
 
@@ -103,6 +104,9 @@ export const usePlanStore = defineStore("plan", () => {
     if (inspectedTask.value?.id === id) {
       inspectedTask.value = null
     }
+    if (activeTaskId.value === id) {
+      activeTaskId.value = tasks.value[0]?.id || null
+    }
     if (tasks.value.length === 0) {
       setPlan(null)
     } else {
@@ -115,6 +119,9 @@ export const usePlanStore = defineStore("plan", () => {
     tasks.value = tasks.value.filter((t) => !selectedIds.value.has(t.id))
     if (inspectedTask.value && selectedIds.value.has(inspectedTask.value.id)) {
       inspectedTask.value = null
+    }
+    if (activeTaskId.value && selectedIds.value.has(activeTaskId.value)) {
+      activeTaskId.value = tasks.value[0]?.id || null
     }
     selectedIds.value = new Set()
     if (tasks.value.length === 0) {
@@ -129,10 +136,12 @@ export const usePlanStore = defineStore("plan", () => {
     if (plan && plan.tasks) {
       tasks.value = [...plan.tasks]
       selectedIds.value = new Set(plan.tasks.map((t) => t.id))
+      activeTaskId.value = plan.tasks[0]?.id || null
       status.value = "READY"
     } else {
       tasks.value = []
       selectedIds.value = new Set()
+      activeTaskId.value = null
       inspectedTask.value = null
       status.value = "IDLE"
     }
@@ -159,6 +168,24 @@ export const usePlanStore = defineStore("plan", () => {
     } else {
       selectedIds.value = new Set(tasks.value.map((t) => t.id))
     }
+  }
+
+  function selectAll() {
+    selectedIds.value = new Set(tasks.value.map((t) => t.id))
+  }
+
+  function clearSelection() {
+    selectedIds.value = new Set()
+  }
+
+  function invertSelection() {
+    const s = new Set<string>()
+    for (const t of tasks.value) {
+      if (!selectedIds.value.has(t.id)) {
+        s.add(t.id)
+      }
+    }
+    selectedIds.value = s
   }
 
   function updateTaskProgress(taskId: string, percent: number, speed?: number) {
@@ -197,6 +224,7 @@ export const usePlanStore = defineStore("plan", () => {
     planSnapshot,
     tasks,
     selectedIds,
+    activeTaskId,
     inspectedTask,
     currentSpeed,
     overallPercent,
@@ -215,6 +243,9 @@ export const usePlanStore = defineStore("plan", () => {
     markStale,
     toggleTask,
     toggleAll,
+    selectAll,
+    clearSelection,
+    invertSelection,
     updateTaskProgress,
     updateTaskStatus,
   }

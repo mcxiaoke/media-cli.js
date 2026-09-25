@@ -91,11 +91,53 @@ function locateFile() {
     window.api.showInFolder(task.value.path)
   }
 }
+
+// 默认 560px，支持读取上次拖拽偏好
+const savedInspW = Number(localStorage.getItem("mediac_inspector_width"))
+const drawerWidth = ref(savedInspW && savedInspW >= 420 ? savedInspW : 560)
+const isResizing = ref(false)
+
+function startResizing(e: MouseEvent) {
+  isResizing.value = true
+  const startX = e.clientX
+  const startW = drawerWidth.value
+
+  function onMouseMove(moveEvent: MouseEvent) {
+    const delta = startX - moveEvent.clientX
+    const maxW = Math.round(window.innerWidth * 0.94)
+    const newW = Math.max(420, Math.min(maxW, startW + delta))
+    drawerWidth.value = newW
+  }
+
+  function onMouseUp() {
+    isResizing.value = false
+    localStorage.setItem("mediac_inspector_width", String(drawerWidth.value))
+    window.removeEventListener("mousemove", onMouseMove)
+    window.removeEventListener("mouseup", onMouseUp)
+  }
+
+  window.addEventListener("mousemove", onMouseMove)
+  window.addEventListener("mouseup", onMouseUp)
+}
 </script>
 
 <template>
   <div v-if="task" class="inspector-mask" data-testid="inspector-mask" @click="close">
-    <aside class="inspector-drawer" @click.stop>
+    <aside
+      class="inspector-drawer"
+      :class="{ 'no-transition': isResizing }"
+      :style="{ width: `${drawerWidth}px` }"
+      @click.stop
+    >
+      <!-- 左边缘宽度拖拽手柄 -->
+      <div
+        class="drawer-resizer"
+        :class="{ dragging: isResizing }"
+        data-testid="inspector-drawer-resizer"
+        title="拖动调整面板宽度"
+        @mousedown.stop="startResizing"
+      ></div>
+
       <div class="insp-head">
         <div class="insp-title-zone">
           <span class="insp-title" :title="task.name">{{ task.name }}</span>
@@ -220,7 +262,9 @@ function locateFile() {
 }
 
 .inspector-drawer {
-  width: 480px;
+  position: relative;
+  min-width: 420px;
+  max-width: 95vw;
   height: 100%;
   background: var(--bg-card);
   border-left: 1px solid var(--border-strong);
@@ -228,6 +272,28 @@ function locateFile() {
   flex-direction: column;
   box-shadow: -4px 0 16px rgba(0, 0, 0, 0.4);
   animation: slideLeft 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.inspector-drawer.no-transition {
+  animation: none !important;
+  transition: none !important;
+}
+
+.drawer-resizer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  background: transparent;
+  z-index: 20;
+  transition: background 0.15s;
+}
+
+.drawer-resizer:hover,
+.drawer-resizer.dragging {
+  background: var(--primary);
 }
 
 @keyframes slideLeft {

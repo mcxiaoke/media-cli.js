@@ -194,4 +194,102 @@ test.describe("MediCli Desktop - Interaction & State Machine Spec", () => {
     await expect(appWindow.locator('[data-testid="hero-empty"]')).toBeVisible()
     await expect(taskTable).not.toBeVisible()
   })
+
+  test("checkbox left-click decoupling, row dblclick inspection, right-click context menu, and resizable drawers", async ({ appWindow }) => {
+    // 1. Ingest two video files
+    const video1 = path.resolve(__dirname, "../../../../../data/videos/TEST2__h264_60fps_1080.mp4")
+    const video2 = path.resolve(__dirname, "../../../../../data/videos/TEST2__hevc_60fps_1080.mp4")
+
+    const manualInput = appWindow.locator('[data-testid="input-manual-path"]')
+    const btnManualAdd = appWindow.locator('[data-testid="btn-manual-add"]')
+
+    await manualInput.fill(video1)
+    await btnManualAdd.click()
+
+    await manualInput.fill(video2)
+    await btnManualAdd.click()
+
+    // 2. Generate Plan
+    const btnPlan = appWindow.locator('[data-testid="btn-plan"]')
+    await btnPlan.click()
+
+    const taskRows = appWindow.locator('[data-testid="task-row"]')
+    await expect(taskRows).toHaveCount(2, { timeout: 15000 })
+
+    const row0 = taskRows.nth(0)
+    const row1 = taskRows.nth(1)
+
+    const ck0 = row0.locator('[data-testid="task-checkbox"]')
+    const ck1 = row1.locator('[data-testid="task-checkbox"]')
+
+    // Initially all selected
+    await expect(ck0).toHaveClass(/on/)
+    await expect(ck1).toHaveClass(/on/)
+
+    // 3. Test bottom button styling and toggle all
+    const btnToggleAll = appWindow.locator('[data-testid="btn-toggle-all"]')
+    await expect(btnToggleAll).toBeVisible()
+    await expect(btnToggleAll).toHaveClass(/btn-secondary/)
+    await btnToggleAll.click()
+
+    // Now all unselected
+    await expect(ck0).not.toHaveClass(/on/)
+    await expect(ck1).not.toHaveClass(/on/)
+
+    // 4. Test checkbox left-click selection and filename click decoupling
+    await ck0.click({ button: "left" })
+    await expect(ck0).toHaveClass(/on/)
+    await expect(ck1).not.toHaveClass(/on/)
+
+    // Clicking filename of row0 or row1 must NOT change checkbox checked status!
+    const row1Filename = row1.locator(".t-main span").last()
+    await row1Filename.click()
+    // row1 is now focused, but checkbox states remain unchanged
+    await expect(ck0).toHaveClass(/on/)
+    await expect(ck1).not.toHaveClass(/on/)
+
+    // 5. Test right-click context menu
+    await row1.click({ button: "right" })
+    const ctxMenu = appWindow.locator('[data-testid="task-context-menu"]')
+    await expect(ctxMenu).toBeVisible()
+
+    // Test select all from context menu
+    const ctxSelectAll = appWindow.locator('[data-testid="ctx-select-all"]')
+    await ctxSelectAll.click()
+    await expect(ctxMenu).not.toBeVisible()
+    await expect(ck0).toHaveClass(/on/)
+    await expect(ck1).toHaveClass(/on/)
+
+    // 6. Test double click row to open inspection drawer
+    await row0.dblclick()
+    const inspector = appWindow.locator('[data-testid="inspector-mask"]')
+    await expect(inspector).toBeVisible()
+    await expect(inspector).toContainText("TEST2__h264_60fps_1080.mp4")
+
+    const resizer = appWindow.locator('[data-testid="inspector-drawer-resizer"]')
+    await expect(resizer).toBeVisible()
+
+    const btnCloseInspect = appWindow.locator('[data-testid="btn-close-inspector"]')
+    await btnCloseInspect.click()
+    await expect(inspector).not.toBeVisible()
+
+    // 7. Test log drawer width toggle and resizer
+    const btnOpenLog = appWindow.locator('[data-testid="btn-open-log"]')
+    await btnOpenLog.click()
+    const logDrawer = appWindow.locator('[data-testid="log-drawer"]')
+    await expect(logDrawer).toBeVisible()
+
+    const logResizer = appWindow.locator('[data-testid="log-drawer-resizer"]')
+    await expect(logResizer).toBeVisible()
+
+    const btnToggleWidth = appWindow.locator('[data-testid="btn-toggle-log-width"]')
+    await expect(btnToggleWidth).toBeVisible()
+    await btnToggleWidth.click()
+    await expect(btnToggleWidth).toContainText("标准宽度")
+
+    const btnCloseLog = appWindow.locator('[data-testid="btn-close-log"]')
+    await btnCloseLog.click()
+    await expect(logDrawer).not.toBeVisible()
+  })
 })
+

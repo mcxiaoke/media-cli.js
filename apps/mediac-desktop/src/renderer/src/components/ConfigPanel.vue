@@ -558,6 +558,9 @@ const audioSummary = computed(() => {
             />
             <input
               v-model.number="config.tune.quality"
+              type="number"
+              min="0"
+              max="51"
               class="input num"
               data-testid="input-quality"
             />

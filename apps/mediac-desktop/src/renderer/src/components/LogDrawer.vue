@@ -5,6 +5,43 @@ import { useLogStore } from "../stores/log"
 const logStore = useLogStore()
 const bodyRef = ref<HTMLElement | null>(null)
 
+// 默认 680px，支持读取上次拖拽偏好
+const savedW = Number(localStorage.getItem("mediac_log_drawer_width"))
+const drawerWidth = ref(savedW && savedW >= 420 ? savedW : 680)
+const isResizing = ref(false)
+
+function startResizing(e: MouseEvent) {
+  isResizing.value = true
+  const startX = e.clientX
+  const startW = drawerWidth.value
+
+  function onMouseMove(moveEvent: MouseEvent) {
+    const delta = startX - moveEvent.clientX
+    const maxW = Math.round(window.innerWidth * 0.94)
+    const newW = Math.max(420, Math.min(maxW, startW + delta))
+    drawerWidth.value = newW
+  }
+
+  function onMouseUp() {
+    isResizing.value = false
+    localStorage.setItem("mediac_log_drawer_width", String(drawerWidth.value))
+    window.removeEventListener("mousemove", onMouseMove)
+    window.removeEventListener("mouseup", onMouseUp)
+  }
+
+  window.addEventListener("mousemove", onMouseMove)
+  window.addEventListener("mouseup", onMouseUp)
+}
+
+function toggleExpandWidth() {
+  if (drawerWidth.value >= 900) {
+    drawerWidth.value = 680
+  } else {
+    drawerWidth.value = Math.min(Math.round(window.innerWidth * 0.94), 980)
+  }
+  localStorage.setItem("mediac_log_drawer_width", String(drawerWidth.value))
+}
+
 // 监听递增序号而非 filteredLogs.length：缓冲区满 500 后长度恒定，
 // watch length 会让长任务的自动滚动彻底失效。
 watch(
@@ -44,7 +81,22 @@ async function copyAll() {
 
 <template>
   <div v-if="logStore.drawerOpen" class="log-mask" @click="close">
-    <aside class="log-drawer" data-testid="log-drawer" @click.stop>
+    <aside
+      class="log-drawer"
+      :class="{ 'no-transition': isResizing }"
+      :style="{ width: `${drawerWidth}px` }"
+      data-testid="log-drawer"
+      @click.stop
+    >
+      <!-- 左边缘宽度拖拽手柄 -->
+      <div
+        class="drawer-resizer"
+        :class="{ dragging: isResizing }"
+        data-testid="log-drawer-resizer"
+        title="拖动调整日志面板宽度"
+        @mousedown.stop="startResizing"
+      ></div>
+
       <div class="log-head">
         <div class="log-title-zone">
           <span class="log-title">运行日志</span>
@@ -68,6 +120,14 @@ async function copyAll() {
             <option value="ERROR">ERROR</option>
           </select>
 
+          <button
+            class="btn btn-sm"
+            data-testid="btn-toggle-log-width"
+            :title="drawerWidth >= 900 ? '恢复标准宽度 (680px)' : '切换宽屏日志模式'"
+            @click="toggleExpandWidth"
+          >
+            {{ drawerWidth >= 900 ? '标准宽度' : '一键加宽' }}
+          </button>
           <button class="btn btn-sm" data-testid="btn-copy-log" @click="copyAll">
             {{ copied ? '已复制 ✓' : '复制' }}
           </button>
@@ -111,7 +171,9 @@ async function copyAll() {
 }
 
 .log-drawer {
-  width: 540px;
+  position: relative;
+  min-width: 420px;
+  max-width: 95vw;
   height: 100%;
   background: var(--bg-card);
   border-left: 1px solid var(--border-strong);
@@ -119,6 +181,28 @@ async function copyAll() {
   flex-direction: column;
   box-shadow: -4px 0 16px rgba(0, 0, 0, 0.4);
   animation: slideLeft 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.log-drawer.no-transition {
+  animation: none !important;
+  transition: none !important;
+}
+
+.drawer-resizer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  background: transparent;
+  z-index: 20;
+  transition: background 0.15s;
+}
+
+.drawer-resizer:hover,
+.drawer-resizer.dragging {
+  background: var(--primary);
 }
 
 @keyframes slideLeft {
