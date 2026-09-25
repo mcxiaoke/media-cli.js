@@ -1,29 +1,13 @@
 <script setup lang="ts">
-import { useConfigStore } from "../stores/config"
-import { usePlanStore } from "../stores/plan"
+import { useInputIngest } from "../composables/useInputIngest"
 
-const config = useConfigStore()
-const plan = usePlanStore()
-
-async function stageAddedPaths(paths: string[]) {
-  if (!paths || paths.length === 0) return
-  try {
-    const res = await window.api.stageInputs(paths)
-    if (res.added && res.added.length > 0) {
-      plan.addStagedTasks(res.added)
-    }
-  } catch (err) {
-    console.error("HeroEmpty stageInputs error:", err)
-    plan.markStale()
-  }
-}
+const { ingestPaths } = useInputIngest()
 
 async function pickFiles() {
   try {
     const res = await window.api.selectFiles({ mode: "file", multiple: true })
     if (res.paths.length > 0) {
-      config.addInputs(res.paths)
-      await stageAddedPaths(res.paths)
+      await ingestPaths(res.paths)
     }
   } catch (err) {
     console.error("pickFiles error:", err)
@@ -34,8 +18,7 @@ async function pickDirectory() {
   try {
     const res = await window.api.selectFiles({ mode: "directory", multiple: false })
     if (res.paths.length > 0) {
-      config.addInputs(res.paths)
-      await stageAddedPaths(res.paths)
+      await ingestPaths(res.paths)
     }
   } catch (err) {
     console.error("pickDirectory error:", err)

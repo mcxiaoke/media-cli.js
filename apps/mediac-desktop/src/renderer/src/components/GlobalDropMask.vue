@@ -1,10 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from "vue"
-import { useConfigStore } from "../stores/config"
-import { usePlanStore } from "../stores/plan"
+import { useInputIngest } from "../composables/useInputIngest"
 
-const config = useConfigStore()
-const plan = usePlanStore()
+const { ingestPaths } = useInputIngest()
 const isDragging = ref(false)
 let dragCounter = 0
 
@@ -45,16 +43,7 @@ async function onDrop(e: DragEvent) {
     .filter(Boolean)
 
   if (paths.length > 0) {
-    config.addInputs(paths)
-    try {
-      const res = await window.api.stageInputs(paths)
-      if (res.added && res.added.length > 0) {
-        plan.addStagedTasks(res.added)
-      }
-    } catch (err) {
-      console.error("Global drop stageInputs error:", err)
-      plan.markStale()
-    }
+    await ingestPaths(paths)
   }
 }
 

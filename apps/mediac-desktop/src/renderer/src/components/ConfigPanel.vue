@@ -4,6 +4,7 @@ import { useConfigStore } from "../stores/config"
 import { usePlanStore } from "../stores/plan"
 import { useEnvStore } from "../stores/env"
 import { useLogStore } from "../stores/log"
+import { useInputIngest } from "../composables/useInputIngest"
 
 const emit = defineEmits<{
   (e: "collapse"): void
@@ -13,6 +14,7 @@ const config = useConfigStore()
 const plan = usePlanStore()
 const env = useEnvStore()
 const logStore = useLogStore()
+const { ingestPaths } = useInputIngest()
 
 function formatPresetOption(p: any): string {
   const parts: string[] = []
@@ -156,36 +158,16 @@ watch(
   }
 )
 
-async function stageAddedPaths(paths: string[]) {
-  if (!paths || paths.length === 0) return
-  try {
-    const res = await window.api.stageInputs(paths)
-    if (res.added && res.added.length > 0) {
-      plan.addStagedTasks(res.added)
-    }
-    if (res.skippedDuplicates > 0) {
-      logStore.append({
-        level: "INFO",
-        message: `跳过 ${res.skippedDuplicates} 个重复添加的文件`,
-        timestamp: new Date().toLocaleTimeString(),
-      })
-    }
-  } catch (err) {
-    console.error("stageInputs error:", err)
-  }
-}
-
 async function pickFiles() {
   try {
     const res = await window.api.selectFiles({ mode: "file", multiple: true })
     if (res.paths.length > 0) {
-      config.addInputs(res.paths)
       logStore.append({
         level: "INFO",
         message: `已添加 ${res.paths.length} 个媒体文件`,
         timestamp: new Date().toLocaleTimeString(),
       })
-      await stageAddedPaths(res.paths)
+      await ingestPaths(res.paths)
     }
   } catch (err) {
     console.error("selectFiles error:", err)
@@ -196,13 +178,12 @@ async function pickDirectory() {
   try {
     const res = await window.api.selectFiles({ mode: "directory", multiple: false })
     if (res.paths.length > 0) {
-      config.addInputs(res.paths)
       logStore.append({
         level: "INFO",
         message: `已添加媒体目录: ${res.paths.join(", ")}`,
         timestamp: new Date().toLocaleTimeString(),
       })
-      await stageAddedPaths(res.paths)
+      await ingestPaths(res.paths)
     }
   } catch (err) {
     console.error("selectFiles directory error:", err)
@@ -228,14 +209,13 @@ async function pickOutputDir() {
 async function addManualPath() {
   const val = manualPathInput.value.trim()
   if (val) {
-    config.addInputs([val])
     manualPathInput.value = ""
     logStore.append({
       level: "INFO",
       message: `手动添加路径: ${val}`,
       timestamp: new Date().toLocaleTimeString(),
     })
-    await stageAddedPaths([val])
+    await ingestPaths([val])
   }
 }
 
@@ -262,13 +242,12 @@ async function handleDrop(event: DragEvent) {
     })
     .filter(Boolean)
   if (paths.length > 0) {
-    config.addInputs(paths)
     logStore.append({
       level: "INFO",
       message: `拖拽添加了 ${paths.length} 项路径`,
       timestamp: new Date().toLocaleTimeString(),
     })
-    await stageAddedPaths(paths)
+    await ingestPaths(paths)
   }
 }
 

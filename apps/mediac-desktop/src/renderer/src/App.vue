@@ -16,12 +16,14 @@ import { useConfigStore } from "./stores/config"
 import { usePlanStore } from "./stores/plan"
 import { useLogStore } from "./stores/log"
 import { formatSize, formatDuration } from "./utils/format"
+import { useInputIngest } from "./composables/useInputIngest"
 import { MENU_ACTIONS } from "../../shared/ipc-channels"
 
 const envStore = useEnvStore()
 const configStore = useConfigStore()
 const planStore = usePlanStore()
 const logStore = useLogStore()
+const { ingestPaths } = useInputIngest()
 
 // Sidebar resizer & collapse state
 const sidebarWidth = ref(380)
@@ -194,24 +196,11 @@ function clearAll() {
 let unsubscribeEvents: (() => void) | null = null
 let unsubscribeMenu: (() => void) | null = null
 
-async function stageAddedPaths(paths: string[]) {
-  if (!paths || paths.length === 0) return
-  try {
-    const res = await window.api.stageInputs(paths)
-    if (res.added && res.added.length > 0) {
-      planStore.addStagedTasks(res.added)
-    }
-  } catch (err) {
-    console.error("stageInputs error:", err)
-  }
-}
-
 async function pickFilesGlobal() {
   try {
     const res = await window.api.selectFiles({ mode: "file", multiple: true })
     if (res.paths.length > 0) {
-      configStore.addInputs(res.paths)
-      await stageAddedPaths(res.paths)
+      await ingestPaths(res.paths)
     }
   } catch (err) {
     console.error("pickFilesGlobal error:", err)
@@ -222,8 +211,7 @@ async function pickDirGlobal() {
   try {
     const res = await window.api.selectFiles({ mode: "directory" })
     if (res.paths.length > 0) {
-      configStore.addInputs(res.paths)
-      await stageAddedPaths(res.paths)
+      await ingestPaths(res.paths)
     }
   } catch (err) {
     console.error("pickDirGlobal error:", err)
