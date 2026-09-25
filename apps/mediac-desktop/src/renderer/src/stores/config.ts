@@ -24,10 +24,30 @@ export interface AdvConfig {
 export const useConfigStore = defineStore("config", () => {
   const inputs = ref<string[]>([])
   const outputDir = ref("")
+  const outputBesideSource = ref(!outputDir.value)
+  const savedCustomOutputDir = ref(outputDir.value || "")
   const outputMode = ref<"tree" | "dir" | "file">("dir")
   const prefix = ref("")
   const suffix = ref("")
   const preset = ref("hevc_2k")
+
+  function setOutputBesideSource(val: boolean) {
+    outputBesideSource.value = val
+    if (val) {
+      if (outputDir.value) {
+        savedCustomOutputDir.value = outputDir.value
+      }
+      outputDir.value = ""
+    } else {
+      outputDir.value = savedCustomOutputDir.value || ""
+    }
+  }
+
+  function setCustomOutputDir(dir: string) {
+    savedCustomOutputDir.value = dir
+    outputDir.value = dir
+    outputBesideSource.value = !dir
+  }
 
   const tune = ref<TuneConfig>({
     dimension: 0,
@@ -112,6 +132,10 @@ export const useConfigStore = defineStore("config", () => {
   return {
     inputs,
     outputDir,
+    outputBesideSource,
+    savedCustomOutputDir,
+    setOutputBesideSource,
+    setCustomOutputDir,
     outputMode,
     prefix,
     suffix,

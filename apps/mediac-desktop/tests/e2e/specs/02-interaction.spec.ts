@@ -106,11 +106,25 @@ test.describe("MediCli Desktop - Interaction & State Machine Spec", () => {
     // Check dirty indicator and STALE banner
     const staleAlert = appWindow.locator('[data-testid="stale-alert"]')
     await expect(staleAlert).toBeVisible()
-    await expect(staleAlert).toContainText("参数已变更，请点击「更新计划」")
+    await expect(staleAlert).toContainText("参数已变更 · 可直接开始转码")
 
-    // Verify button text changed to "更新计划" and Start button is disabled
+    // Verify button text changed to "更新计划" and Start button remains enabled (one-click pipeline)
     await expect(btnPlan).toContainText("更新计划")
-    await expect(btnStart).toBeDisabled()
+    await expect(btnStart).toBeEnabled()
+
+    // Test Shana compare card detail toggle in TaskTable
+    const btnDetailToggle = appWindow.locator('[data-testid="btn-detail-toggle"]')
+    await expect(btnDetailToggle).toBeVisible()
+    await btnDetailToggle.click()
+
+    const shanaCard = appWindow.locator('[data-testid="shana-compare-card"]')
+    await expect(shanaCard).toBeVisible()
+    await expect(shanaCard).toContainText("【输入源媒体】")
+    await expect(shanaCard).toContainText("【目标转码配置】")
+
+    const btnCollapseDetail = appWindow.locator('[data-testid="btn-collapse-detail"]')
+    await btnCollapseDetail.click()
+    await expect(shanaCard).not.toBeVisible()
 
     // Click Update Plan to re-synchronize
     await btnPlan.click()
@@ -134,17 +148,30 @@ test.describe("MediCli Desktop - Interaction & State Machine Spec", () => {
     await btnCloseLog.click()
     await expect(logDrawer).not.toBeVisible()
 
-    // 6. Test Settings modal
+    // 6. Test Settings modal (editable configuration only)
     const btnOpenSettings = appWindow.locator('[data-testid="btn-open-settings"]')
     await btnOpenSettings.click()
 
     const settingsModal = appWindow.locator('[data-testid="settings-modal"]')
     await expect(settingsModal).toBeVisible()
-    await expect(settingsModal).toContainText("FFmpeg 核心")
+    await expect(settingsModal).toContainText("工具路径")
 
     const btnCloseSettings = settingsModal.locator(".icon-btn")
     await btnCloseSettings.click()
     await expect(settingsModal).not.toBeVisible()
+
+    // 6.1 Test About modal (hardware info, CPU/RAM, FFmpeg core)
+    const btnOpenAbout = appWindow.locator('[data-testid="status-about-btn"]')
+    await btnOpenAbout.click()
+
+    const aboutModal = appWindow.locator('[data-testid="about-modal"]')
+    await expect(aboutModal).toBeVisible()
+    await expect(aboutModal).toContainText("FFmpeg 核心")
+    await expect(aboutModal).toContainText("处理器")
+
+    const btnCloseAbout = aboutModal.locator(".icon-btn")
+    await btnCloseAbout.click()
+    await expect(aboutModal).not.toBeVisible()
 
     // 7. Verify no fatal console errors
     const fatalErrors = consoleErrors.filter((e) =>

@@ -96,7 +96,13 @@ export const usePlanStore = defineStore("plan", () => {
     }
   }
 
+  const excludedPaths = ref<Set<string>>(new Set())
+
   function removeTask(id: string) {
+    const target = tasks.value.find((t) => t.id === id)
+    if (target?.path) {
+      excludedPaths.value.add(target.path)
+    }
     tasks.value = tasks.value.filter((t) => t.id !== id)
     const s = new Set(selectedIds.value)
     s.delete(id)
@@ -116,6 +122,11 @@ export const usePlanStore = defineStore("plan", () => {
 
   function removeSelectedTasks() {
     if (selectedIds.value.size === 0) return
+    for (const t of tasks.value) {
+      if (selectedIds.value.has(t.id) && t.path) {
+        excludedPaths.value.add(t.path)
+      }
+    }
     tasks.value = tasks.value.filter((t) => !selectedIds.value.has(t.id))
     if (inspectedTask.value && selectedIds.value.has(inspectedTask.value.id)) {
       inspectedTask.value = null
@@ -131,18 +142,37 @@ export const usePlanStore = defineStore("plan", () => {
     }
   }
 
+  function restoreSelectionByPaths(knownPreviousPaths: Set<string>, selectedPaths: Set<string>) {
+    const s = new Set<string>()
+    for (const t of tasks.value) {
+      if (knownPreviousPaths.size > 0 && knownPreviousPaths.has(t.path)) {
+        if (selectedPaths.has(t.path)) {
+          s.add(t.id)
+        }
+      } else {
+        // Newly added task or fresh batch
+        s.add(t.id)
+      }
+    }
+    selectedIds.value = s
+  }
+
   function setPlan(plan: PublicPlanSnapshot | null) {
     planSnapshot.value = plan
     if (plan && plan.tasks) {
-      tasks.value = [...plan.tasks]
-      selectedIds.value = new Set(plan.tasks.map((t) => t.id))
-      activeTaskId.value = plan.tasks[0]?.id || null
+      const activeTasks = excludedPaths.value.size > 0
+        ? plan.tasks.filter((t) => !excludedPaths.value.has(t.path))
+        : plan.tasks
+      tasks.value = [...activeTasks]
+      selectedIds.value = new Set(activeTasks.map((t) => t.id))
+      activeTaskId.value = activeTasks[0]?.id || null
       status.value = "READY"
     } else {
       tasks.value = []
       selectedIds.value = new Set()
       activeTaskId.value = null
       inspectedTask.value = null
+      excludedPaths.value = new Set()
       status.value = "IDLE"
     }
   }
@@ -237,8 +267,10 @@ export const usePlanStore = defineStore("plan", () => {
     stagedCount,
     hasStaged,
     addStagedTasks,
+    excludedPaths,
     removeTask,
     removeSelectedTasks,
+    restoreSelectionByPaths,
     setPlan,
     markStale,
     toggleTask,

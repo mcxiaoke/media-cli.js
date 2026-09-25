@@ -1,6 +1,9 @@
+import { ref } from "vue"
 import { useConfigStore } from "../stores/config"
 import { usePlanStore } from "../stores/plan"
 import { useLogStore } from "../stores/log"
+
+const isIngesting = ref(false)
 
 /**
  * 统一 renderer 输入 ingestion：
@@ -24,6 +27,7 @@ export function useInputIngest() {
       .filter((p): p is string => p.length > 0)
     if (valid.length === 0) return
 
+    isIngesting.value = true
     // config store 是 UI 输入的事实源：以 addInputs 前后长度差计算本地去重数。
     // 不依赖主进程返回的 skippedDuplicates —— 并发触发时主进程 stagedEntries
     // 可能尚未登记上一次请求，其去重会被绕过，而本地计数总是即时的。
@@ -54,8 +58,10 @@ export function useInputIngest() {
         message: `暂存输入失败: ${err instanceof Error ? err.message : String(err)}`,
         timestamp: new Date().toLocaleTimeString(),
       })
+    } finally {
+      isIngesting.value = false
     }
   }
 
-  return { ingestPaths }
+  return { ingestPaths, isIngesting }
 }

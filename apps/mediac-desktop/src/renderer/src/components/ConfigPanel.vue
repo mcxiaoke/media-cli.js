@@ -6,6 +6,10 @@ import { useEnvStore } from "../stores/env"
 import { useLogStore } from "../stores/log"
 import { useInputIngest } from "../composables/useInputIngest"
 
+defineProps<{
+  isBusy?: boolean
+}>()
+
 const emit = defineEmits<{
   (e: "collapse"): void
 }>()
@@ -98,7 +102,7 @@ watch(
   (newVal, oldVal) => {
     if (newVal !== undefined && oldVal !== undefined && newVal !== oldVal) {
       logStore.append({
-        level: "INFO",
+        level: "DEBUG",
         message: `修改视频分辨率: ${newVal === 0 ? "保持源分辨率" : newVal + "p"}`,
         timestamp: new Date().toLocaleTimeString(),
       })
@@ -111,7 +115,7 @@ watch(
   (newVal, oldVal) => {
     if (newVal !== undefined && oldVal !== undefined && newVal !== oldVal) {
       logStore.append({
-        level: "INFO",
+        level: "DEBUG",
         message: `修改视频质量 CRF: ${newVal === 0 ? "跟随预设" : newVal}`,
         timestamp: new Date().toLocaleTimeString(),
       })
@@ -124,7 +128,7 @@ watch(
   (newVal, oldVal) => {
     if (newVal !== undefined && oldVal !== undefined && newVal !== oldVal) {
       logStore.append({
-        level: "INFO",
+        level: "DEBUG",
         message: `修改视频码率: ${newVal || "跟随预设"}`,
         timestamp: new Date().toLocaleTimeString(),
       })
@@ -137,7 +141,7 @@ watch(
   (newVal, oldVal) => {
     if (newVal !== undefined && oldVal !== undefined && newVal !== oldVal) {
       logStore.append({
-        level: "INFO",
+        level: "DEBUG",
         message: `修改音频编码: ${newVal || "跟随预设"}`,
         timestamp: new Date().toLocaleTimeString(),
       })
@@ -150,7 +154,7 @@ watch(
   (newVal, oldVal) => {
     if (newVal !== undefined && oldVal !== undefined && newVal !== oldVal) {
       logStore.append({
-        level: "INFO",
+        level: "DEBUG",
         message: `修改音频码率: ${newVal || "跟随预设"}`,
         timestamp: new Date().toLocaleTimeString(),
       })
@@ -328,6 +332,14 @@ const audioSummary = computed(() => {
         </svg>
         <span>收起</span>
       </button>
+    </div>
+
+    <div v-if="isBusy" class="busy-lock-banner" data-testid="busy-lock-banner">
+      <svg class="i xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="3" y="11" width="18" height="11" rx="2" />
+        <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+      </svg>
+      <span>转码进行中 · 参数已锁定</span>
     </div>
 
     <!-- 1 输入与输出 -->
@@ -1209,5 +1221,23 @@ svg.i {
 svg.i.sm {
   width: 13px;
   height: 13px;
+}
+
+svg.i.xs {
+  width: 12px;
+  height: 12px;
+}
+
+.busy-lock-banner {
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-size: 11px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--border);
 }
 </style>

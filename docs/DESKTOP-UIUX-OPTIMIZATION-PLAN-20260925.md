@@ -1,302 +1,284 @@
-# MediaCli Desktop UI/UX 体验改进与渐进优化方案
+# MediaCli Desktop UI/UX 体验改进与优化实施方案（确定版）
 
-- **版本**：v1.1
-- **日期**：2026-09-25 14:26:00（GMT+8）
-- **状态**：方案更新，已吸收深度代码审查与同行评审意见，待审阅
-- **修订说明**：
-  1. **关于界面职责收拢**：将设置弹窗中的静态环境/硬件信息以及从顶栏移出的 CPU/内存监控，全部统一收敛到独立的“关于 / 系统信息”界面，设置界面专注于可修改项；
-  2. **剥离挂机操作**：将“转码完成自动休眠/关机”从本期 UI/UX 方案中完全剥离，避免与主进程未修的引擎 summary 真源问题纠缠，确保渲染层优化真正达成零架构风险；
-  3. **明确重跑语义**：补全 `COMPLETED` 状态下的按钮行为设计，明确利用 FFmpeg `-n` 原生特性的“仅重试失败项”确定性语义；
-  4. **补强并发锁与文案**：为隐式流水线串联增加 `PLANNING` 互斥锁，彻底重写旧有的二阶段阻断式黄色提示条；
-  5. **明确演进路线**：指出 staged 阶段已全量掌握元数据的事实，将 Phase 1 稳妥的“点击时隐式串联”与中期的“Debounce 后台自动推演”分步规划；
-  6. **日志降级处理**：参数调优日志从 INFO 降级为 DEBUG 而非物理删除，保留单机审计诊断价值；
-  7. **自动化测试守卫**：增加 Playwright E2E 用例规划，防止既有测试对按钮 disabled 的断言冲突。
-- **定位**：本地个人媒体转码桌面工具的交互改进与体验优化（**坚持做减法与理顺动线，拒绝一味堆砌加法**）
-- **参考基准**：对标 Windows 平台主流个人转码标杆 **ShanaEncoder**（7 份实操截图）与 **HandBrake**（2 份实操截图）
-
----
-
-## 1. 对标审查与设计哲学
-
-在分析 `E:\Pictures\Screenshots` 中 ShanaEncoder 与 HandBrake 的真实运行截图后，可以总结出成熟个人媒体转码工具的共同心智模型：
-
-```text
-[ 用户心智模型（主流做法） ]
-  添加文件 ──► 选定/微调预设 ──► 确认输出路径 ──► [开始转码] ──► 原地验收/回放
-     ▲                                                │
-     └──────────────── 一气呵成，无二阶段阻断 ─────────┘
-```
-
-两款工具的核心特征：
-1. **操作动线极短**：用户只要添加了文件，就可以随时点击醒目的“开始/编码”大按钮，系统自动采用当前配置执行，绝不存在“必须先计算计划、再允许开始”的二阶段阻断；
-2. **输出预期常驻**：输出路径与“保存在源文件目录”选项必定在视线最容易看到的地方（如界面底部），用户在点击“开始”前一秒能清晰确认产物去向；
-3. **信息密度高且直观**：ShanaEncoder 选中任意任务时，底部原地呈现紧凑的“源媒体规格 vs 目标产物规格”左右双栏对比，无须跳出当前视图；
-4. **回放与闭环极其方便**：转码完成后，右键或行操作可直接调用系统默认播放器回放产物，立刻验收音画质；
-5. **视觉聚焦核心任务**：工具栏只展示与转码直接相关的状态（如 GPU 加速就绪），不会常驻展示像任务管理器一样的内存占用和 CPU 核数。
-
-反观我们目前的 Desktop 实现，由于直接继承了底层“两阶段推演（dry-run plan -> run engine）”的 CLI 架构思维，导致了界面出现多处**动线生硬、阻断严重、重要信息深埋、次要信息喧宾夺主**的问题。
+- **版本**：v2.0
+- **日期**：2026-09-25 14:38:00（GMT+8）
+- **状态**：**终极确定方案**（已深度评估 Review 意见，甄别吸收有效成果，去除过度设计，落实用户明确要求）
+- **版本演进与关键修订摘要**：
+  1. **甄别吸收同行审查（Review）核心成果**：
+     - **修复 P0-1 勾选丢失与全选 Fallback**：引入以规范化文件绝对路径（`filePath`）为基准的稳定选择集映射；空选时严格禁用开始按钮；`startExecution` 必须显式传递 ID 数组，杜绝 `undefined` 隐式全选执行；
+     - **修复 P0-2 任务删除后重规划复活**：将已展开的任务队列确立为权威数据源，用户从列表移除的任务自动进入排除名单，后续重规划绝不再重新扫描引入；
+     - **修复 P0-3 严密判定开始按钮就绪态**：综合考量未完成摄入（`isIngesting`）、空勾选、规划失败（`FAILED`）及全部跳过场景，动态展示按钮文案（如 `开始转码 (12)`、`重试失败项 (3)`）；
+     - **补齐 P0-5 & 4.6 真实目标规格契约**：在公共计划快照中扩展经过 FFmpeg 计划计算后的只读目标规格摘要（`targetSummary`：实际编码器、目标分辨率、目标码率、音频策略），杜绝前端凭借 preset 猜测带来的偏差；
+     - **优化 4.7 播放产物失败容错**：捕获 `openPath` 错误并回退为文件夹定位提示；未成功任务禁用播放；
+  2. **剪除 Review 中的过度设计（立足本地工具做减法）**：
+     - 拒绝在主进程引入重量级的 `prepareAndStart` 事务协议与全局 revision 版本指纹系统，改由渲染层内聚事务管道 `ensurePlanAndRun()` 串联，配合主进程在 `startExecution` 的前置守卫，用极简代码达成绝对安全，零底层架构冲击；
+     - 弱化黑客攻防式的“安全事故”焦虑，聚焦于本地用户的“防手滑、防困惑、防丢状态”体验改进；
+  3. **彻底落实用户核心指令（设置与关于彻底解耦）**：
+     - 顶栏物理移除 CPU 核数与内存占用；
+     - 设置界面（SettingsModal）剥离所有不可修改的静态数据，只留用户可配置项；
+     - 建立独立的“关于 / 系统信息 (AboutModal)”，集中承纳 CPU 型号、系统内存、GPU 矩阵、FFmpeg 路径与版本、预设加载统计及环境重测入口；
+  4. **紧凑屏（960×640）空间适配**：
+     - 底部对比面板采用“默认单行差异摘要（不超过 28px）+ 一键展开双栏结构化卡片”的渐进呈现方式，最大化保留长列表的可视区域。
 
 ---
 
-## 2. 现存交互痛点与代码级实证审查
+## 1. 对标主流产品（ShanaEncoder / HandBrake）的心智模型
 
-### 2.1 痛点一：动线阻断——强制二阶段确认，禁用“开始转码”
-
-* **代码现状**（`apps/mediac-desktop/src/renderer/src/components/HeaderBar.vue:L120-L148`）：
-  ```html
-  <button
-    class="btn btn-primary"
-    :disabled="plan.status === 'RUNNING' || plan.tasks.length === 0 || plan.status === 'STALE' || plan.hasStaged || plan.status === 'COMPLETED' || plan.allTasksCompleted || ..."
-    @click="emit('start-execution')"
-  >
-    <span>开始转码</span>
-  </button>
-  ```
-  - 当用户拖入新视频后，状态变为 `hasStaged`，顶栏显示黄色警示条 *“已摄入新媒体，请点击「生成计划」”*；
-  - 当用户稍微调节了左侧任意一个参数（如调整分辨率或 CRF），状态变为 `STALE`，顶栏又显示 *“参数已变更，请点击「更新计划」”*；
-  - 在上述情况下，**“开始转码”按钮全部被强制 disabled**！
-* **用户体验断层**：
-  用户想转码，必须先点一下“生成/更新计划”，等界面重排、后台跑完 plan 映射后，“开始转码”才变亮，然后再点第二次。这不仅制造了强烈的阻断感，也让普通用户感到困惑（“为什么我不能直接转？”）。
-
----
-
-### 2.2 痛点二：输出位置感知缺失——输出配置深藏在左栏卡片底部
-
-* **代码现状**（`apps/mediac-desktop/src/renderer/src/components/ConfigPanel.vue:L334-L350`）：
-  - 输出目录选择器位于左侧 `ConfigPanel` 第一个折叠卡片的末尾；
-  - 核心底层代码（`src/transcode/ffmpeg_task.js:L164`）其实早就原生支持：`preset.output` 为空时，默认直接保存到源文件所在目录（`fileDstDir = path.resolve(srcDir)`）；
-  - 但在 UI 上，没有一个像 ShanaEncoder 那样显眼的 `☑ 保存在源文件夹中` 勾选开关，只有一个容易被忽略的文件夹选择器。
-* **用户体验断层**：
-  当用户按 `Ctrl+B` 收起左侧配置栏以专注查看任务表格时，或者在小屏笔记本上滚动了配置栏时，主界面上**没有任何地方能看到转码文件会输出到哪里**，丧失了本地工具最基本的存储掌控感。
-
----
-
-### 2.3 痛点三：元数据对比维度单薄——单行文本容易截断，需依赖厚重大抽屉
-
-* **代码现状**（`apps/mediac-desktop/src/renderer/src/components/TaskTable.vue:L501-L516`）：
-  ```html
-  <div v-if="selectedTaskPreview" class="tb-preview">
-    <div class="pv-col pv-src">源媒体: {{ selectedTaskPreview.srcText }}</div>
-    <div class="pv-sep">→</div>
-    <div class="pv-col pv-dst">推演目标: {{ selectedTaskPreview.dstText }}</div>
-  </div>
-  ```
-  - 表格底部虽然做了一行预览，但仅是一行平铺的单行纯文本（如 `mp4 · 1920x1080 · 60fps · H264 · 25MB`），在窗口缩小时极易被截断；
-  - 且在未点击“生成计划”时，目标端直接显示 `[待推演] 遵循左侧预设`，无法对比视频分辨率和码率变化；
-  - 用户若想详细看原视频参数与转码参数差异，必须双击打开遮挡半个主界面的 `TaskInspectorDrawer` 侧拉大抽屉。
-* **对照标杆（ShanaEncoder）**：
-  Shana 底部直接常驻左右双栏小面板，左边工整列出“输入源：格式、时长、分辨率、视频编码、音频编码”，右边并排对应“输出产物：格式、分辨率、编码、预估码率”，既清晰又完全不遮挡表格。
-
----
-
-### 2.4 痛点四：验收闭环断层——有系统能力却缺少直接播放入口
-
-* **代码现状**（`apps/mediac-desktop/src/preload/index.ts:L47` 与 `TaskTable.vue:L45-L55`）：
-  - 预加载层早就公开了 `openPath(fullPath)` 接口，底层直接调用 Electron 的 `shell.openPath`（在 Windows 上传入媒体文件路径即自动调起系统默认播放器）；
-  - 主进程已有 `isKnownMediaPath` 白名单守卫，源文件与任务产物都在白名单中，安全合规；
-  - 但目前在 `TaskTable.vue` 行操作与右键菜单中，只提供了 `showInFolder`（在资源管理器中定位）；
-* **用户体验断层**：
-  用户转完视频后，最迫切的下一步操作就是“点开看一眼效果”。目前必须先定位到文件夹，再在 Windows 资源管理器里找到文件双击打开。缺少了类似 ShanaEncoder 右键“文件回放 / 输出文件回放”的即时验收闭环。
-
----
-
-### 2.5 痛点五：视觉与配置/关于职责混乱——顶栏监控占位、设置弹窗充斥静态只读数据
-
-* **代码现状**（`HeaderBar.vue:L98-L117`、`SettingsModal.vue:L154-L192`）：
-  - 顶栏常驻展示了 `16 核`、`12G / 32G` 内存胶囊。这对视频转码没有任何指导意义，挤占了主工具栏空间；
-  - `SettingsModal` 作为配置面板，却塞入了大量的静态只读数据：FFmpeg 路径、预设总数、已探测 GPU 列表、可用硬件加速器文本，导致设置弹窗臃肿杂乱；
-  - `ConfigPanel` 中通过 deep watch 监听了每一次滑动条改动（CRF、分辨率、码率），并在 `logStore` 里追加 INFO 并在日志图标上闪烁红点，造成视觉噪音。
-
----
-
-## 3. 确定落地的优化方案与精细化设计
-
-本方案秉持**“只做改进与简化，不盲目新增复杂功能”**的原则，具体分为五个改进点：
+通过深入对标 Windows 平台主流个人转码标杆 **ShanaEncoder** 与 **HandBrake** 的交互范式，提炼出本地转码工具的核心心智模型：
 
 ```text
 ┌────────────────────────────────────────────────────────────────────────┐
-│                          MediaCli Desktop                              │
+│                        主流桌面转码心智模型                            │
 ├────────────────────────────────────────────────────────────────────────┤
-│ [顶栏 HeaderBar]                                                       │
-│ 移除冗余CPU/内存 ──► 保留 GPU加速标识 ──► [开始转码(一键流水线贯通)]   │
-├────────────────────┬───────────────────────────────────────────────────┤
-│ [左栏 ConfigPanel] │ [右侧主任务区 TaskTable]                          │
-│ 预设模板 / 微调    │ 表格：复选框 | 格式图标 | 源文件 | 目标 | 进度   │
-│ (关于独立/设置纯粹)│ 包含：直接播放源文件 / 播放产物快捷动作           │
-│                    ├───────────────────────────────────────────────────┤
-│                    │ [底部常驻面板]（对标 Shana 经典双栏）             │
-│                    │ ┌───────────────────────┬───────────────────────┐ │
-│                    │ │ 源媒体规格 (4K H264)  │ 推演目标 (1080p HEVC) │ │
-│                    │ └───────────────────────┴───────────────────────┘ │
-│                    │ ☑ 保存在源文件夹  |  指定目录: [ D:\Export ] [浏览]│
-├────────────────────┴───────────────────────────────────────────────────┤
-│ [状态栏 StatusBar]                                                     │
-│ 任务就绪 · 计划新鲜 | 实时速度 / ETA | 关于 / 系统信息入口             │
+│  添加视频 ──► 选定/调参 ──► 确认输出路径 ──► [一键开始] ──► 原地播放/验收 │
+│      ▲                                              │                  │
+│      └───────────────── 顺畅无阻断 ─────────────────┘                  │
 └────────────────────────────────────────────────────────────────────────┘
+```
+
+主流工具的 4 大黄金法则：
+1. **主操作一键直达**：用户调整完参数，随时点击显眼的“开始转码”，系统静默完成内部准备并立即执行，**绝不要求用户先点“生成计划”，再点“开始转码”**；
+2. **输出位置一目了然**：界面底部常驻显示产物保存路径，并配有极简的“保存在源文件夹中”选项，执行前无需费心翻找确认；
+3. **参数差异原地对比**：选中任务时原地呈现源文件规格与目标产物规格对比，无需弹窗或打开厚重的抽屉；
+4. **验收闭环零跳转**：转码完成后，原地直接调用系统默认播放器回放产物，立刻确认画质与音轨。
+
+---
+
+## 2. 深度审查甄别与解决方案矩阵
+
+| 审查项 (Review 关注点) | 定性与甄别 | 终极解决方案 (本方案实施对策) |
+|---|---|---|
+| **P0-1 勾选丢失与全选 Fallback** | **致命逻辑缺陷，坚决采纳** | 1. `planStore` 记录规范化源文件绝对路径（`filePath`）的稳定选择集；<br>2. 参数变更重规划时按路径恢复用户已有勾选，新文件默认勾选；<br>3. 空选时开始按钮禁用；`startExecution` 必须显式传 IDs，主进程杜绝隐式全选。 |
+| **P0-2 移除任务重规划复活** | **真实体验硬伤，坚决采纳** | 展开任务后，任务列表即为权威队列；移除任务时将路径加入 `excludedPaths`，后续重规划绝不把用户删掉的文件重新扫入。 |
+| **P0-3 开始按钮状态判断不全** | **真实体验硬伤，坚决采纳** | 建立严密就绪计算：`canStart = !isBusy && !isIngesting && planStore.status !== 'PLANNING' && planStore.status !== 'FAILED' && selectedCount > 0`，动态显示数量与重试文案。 |
+| **P0-4 导入竞态与调参误解** | **部分采纳，过度设计剪枝** | 剪除复杂的全局 revision 指纹协议；在 `isIngesting` 时禁用开始按钮；转码执行期间（`RUNNING`）将左侧配置面板设为只读锁定，简洁直观消除歧义。 |
+| **P0-5 & 4.6 目标规格公共契约缺失** | **架构设计盲点，坚决采纳** | 在 `createPublicTaskSnapshot` 中显式扩展由底层计划算出的 `targetSummary`（包含实际硬件编码器、计算后的实际目标分辨率与码率），彻底避免前端盲目猜测。 |
+| **主进程 prepareAndStart 重构** | **过度设计，坚决剪除** | 维持现有跨进程 IPC 边界与稳定单测；在 Renderer 内部封装轻量安全的 `ensurePlanAndRun()` 管道函数，前后端加固后即可完美达成原子效果。 |
+| **挂机动作（系统休眠/关机）** | **暂缓，不纳入本轮** | 涉及底层操作系统副作用与引擎终态断言，遵照用户“做减法、不盲目堆功能”原则，本期完全剥离。 |
+| **设置与关于信息混杂** | **用户核心明确指令，坚决落实** | 顶栏移除 CPU/内存监控；设置弹窗只保留可修改项；新建独立的关于/系统信息弹窗集中呈现所有静态硬件与探测数据。 |
+
+---
+
+## 3. 终极界面交互布局结构（960×640 紧凑屏适配）
+
+```text
+┌──────────────────────────────────────────────────────────────────────────┐
+│ [顶栏 HeaderBar]                                                         │
+│ 侧栏折叠 | 12 个文件 · 10 个已选中   [🚀 NVIDIA NVENC]    [开始转码 · 10] │
+├──────────────────────┬───────────────────────────────────────────────────┤
+│ [左侧配置 ConfigPanel]│ [右侧任务主区 TaskTable]                          │
+│ 预设模板选择 / 微调  │ 高密度任务表格：复选框 | 格式 | 文件名 | 进度 | 操作│
+│ (转码运行中参数锁定)  ├───────────────────────────────────────────────────┤
+│                      │ [底部信息对比与路径条]（高度自适应）              │
+│                      │ 1920×1080 H.264 → 1080p HEVC (nvenc) · AAC [详情▾]│
+│                      │ ☑ 保存在源文件夹  |  指定输出: [ D:\Export ] [更改]│
+├──────────────────────┴───────────────────────────────────────────────────┤
+│ [状态栏 StatusBar]                                                       │
+│ 就绪 | 速度 2.8x | 预估剩余 01:25             [日志 (0)]  [关于与系统信息]│
+└──────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-### 优化一：动线打通——开始转码一键流水线贯通（核心减法）
+## 4. 五大核心优化与落地方案
 
-#### 1. 消除禁用门槛与清晰的重跑语义
-- 在 `HeaderBar.vue` 中修改 `btn-start` 按钮禁用逻辑：
-  - **移除** 对 `plan.status === 'STALE'` 和 `plan.hasStaged` 的判断；
-  - **重跑语义明确化**：
-    - 若当前处于 `COMPLETED` 或 `allTasksCompleted` 且无勾选项，按钮不置灰，文案切换为 **“重新转码”** 或 **“重试失败项”**；
-    - 执行原理：底层 FFmpeg 命令行内置 `-n`（跳过已存在产物），未开启“覆盖已存在产物”开关时，点击重跑天然等价于**“跳过已成功的项，仅重试失败项”**；若开启了“覆盖”，则为完整重跑。这一行为完全符合用户直觉，并在 UI 悬浮提示中明确告知。
+### 优化一：动线解阻与一键流水线贯通（核心减法）
 
-#### 2. 流水线隐式串联与并发锁（PLANNING 锁）
-- 在 `App.vue:startExecution()` 中串联前置推演，并严格加入状态锁：
+#### 1. 按钮状态与动态语义
+- 在 `HeaderBar.vue` 中，主开始按钮由严格的计算属性控制：
+  ```ts
+  const canStart = computed(() => {
+    if (isBusy.value || isIngesting.value) return false
+    if (planStore.status === "PLANNING" || planStore.status === "FAILED") return false
+    return planStore.selectedTasks.filter((t) => t.status !== "success" && t.status !== "skipped").length > 0
+  })
+  ```
+- **按钮动态文案**：
+  - 队列就绪：`开始转码 · ${selectedExecutableCount}`
+  - 正在摄入媒体：`正在读取文件...`
+  - 正在准备计划：`正在准备...`
+  - 存在失败项且全部已处理完毕：`重试失败项 · ${failedCount}`
+
+#### 2. 前端事务管道与勾选持久化（`ensurePlanAndRun`）
+- 在 `App.vue` 中封装统一的执行入口：
   ```ts
   async function startExecution() {
-    // 1. 严格并发守卫：RUNNING、STOPPING、PLANNING 状态下一律拦截，防止快速连击
-    if (isBusy()) return
-    if (planStore.tasks.length === 0) return
+    if (!canStart.value) return
 
-    // 2. 隐式前置推进：若存在未推演输入或参数已变动，先走 createPlan
+    // 1. 记忆当前用户明确勾选的文件绝对路径
+    const selectedPaths = new Set(
+      planStore.tasks.filter((t) => planStore.selectedIds.has(t.id)).map((t) => t.path)
+    )
+
+    // 2. 若存在未推演输入或配置已变动 (STALE/hasStaged)，隐式触发推演
     if (planStore.hasStaged || planStore.status === "STALE" || !planStore.planSnapshot) {
-      planStore.status = "PLANNING" // 立即置锁，防止并发触发
+      planStore.status = "PLANNING"
       try {
-        const ok = await createPlanInternal()
-        if (!ok) {
-          planStore.status = "READY"
-          return
-        }
+        // 过滤掉被用户主动从表格移除的文件，保证排除项不复活
+        const effectiveInputs = getEffectiveInputs(configStore.inputs, planStore.excludedPaths)
+        const plan = await window.api.createPlan({ ...buildPayload(), inputs: effectiveInputs })
+        planStore.setPlan(plan)
+        
+        // 3. 按源文件绝对路径恢复用户的勾选意图
+        planStore.restoreSelectionByPaths(selectedPaths)
       } catch (err) {
         planStore.status = "FAILED"
+        logStore.append({ level: "ERROR", message: `准备转码失败: ${err.message}` })
         return
       }
     }
 
-    // 3. 计划就绪，顺利启动转码
-    const selected = Array.from(planStore.selectedIds)
-    await window.api.startExecution(selected.length > 0 ? selected : undefined)
+    // 4. 显式提取选中的任务 ID，禁止传递空数组或 undefined
+    const executableIds = planStore.tasks
+      .filter((t) => planStore.selectedIds.has(t.id) && t.status !== "success" && t.status !== "skipped")
+      .map((t) => t.id)
+    
+    if (executableIds.length === 0) return
+
+    // 5. 启动转码引擎
+    await window.api.startExecution(executableIds)
   }
   ```
+- **主进程防线加固**：
+  - 在 `ffmpeg-service.ts:startExecution` 中明确守卫：若 `taskIds` 为空数组直接抛错拒绝，禁止将 `undefined` 隐式回退为“执行全部任务”。
 
-#### 3. 警示条文案同步改写（去阻断化）
-- 彻底移除 `HeaderBar.vue` 中原有的 *“已摄入新媒体，请点击「生成计划」”* / *“参数已变更，请点击「更新计划」”* 这种生硬的阻断式黄条；
-- 改为非阻断的状态胶囊或弱化微调提示：`待执行 (将自动推演)`，不再指示用户去点第二步。
-
----
-
-### 优化二：输出目录常驻控制与源文件夹同级直选
-
-#### 1. 界面位置上浮至主视图底部
-- 在主界面任务列表底部（快速对比卡片下方）常驻极简路径控制条：
-  - 复选框：`☑ 保存在源文件所在目录`；
-  - 当取消勾选时，右侧平滑展开自定义目录输入框与 `[浏览]` 按钮。
-
-#### 2. 用户习惯记忆与多目录预期管理
-- **老用户习惯平滑迁移**：若用户曾在本地存储或当前配置中设置了自定义 `outputDir`，该复选框初始状态为**未勾选**，绝不强行冲掉已有目录；
-- **多目录分散预期提示**：当勾选“保存在源文件所在目录”且导入的多个文件位于不同文件夹时，在路径旁弱化显示一行提示：*“产物将分别保存在各自源文件同级目录下”*（完全对齐 ShanaEncoder 行为，杜绝用户找不到文件的担忧）。
+#### 3. 移除阻断式黄色提示条
+- 彻底移除 `HeaderBar.vue` 原有的 *“已摄入新媒体，请点击「生成计划」”* 和 *“参数已变更，请点击「更新计划」”*；
+- 界面只需保持正常的主题背景与状态指示胶囊，不再阻断用户。
 
 ---
 
-### 优化三：列表底部结构化元数据双栏比对（吸收 Shana 优势）
+### 优化二：输出目录常驻与单一事实源管理
 
-#### 1. 双栏卡片化改造
-- 将 `TaskTable.vue` 底部的单行纯文本 `tb-preview` 升级为紧凑的双栏信息块：
-  - **左栏（输入源规格）**：
-    - 首行：容器格式、文件大小、视频时长；
-    - 次行：视频编码、原始分辨率、帧率、原始码率；
-    - 末行：音频编码、声道数、采样率。
-  - **右栏（推演目标规格）**：
-    - 首行：目标封装格式、预估输出文件名；
-    - 次行：目标编码器（如 `HEVC (NVENC)`）、目标分辨率（如 `1080p` 或 `保持源分辨率`）；
-    - 末行：CRF/目标码率设置、音频处理策略（如 `AAC 128k`）。
-- **实证优势**：经代码核对，`stagedInputs()` 阶段其实早已并发完成了 `getMediaInfo`，源文件的所有规格数据在加入列表的第一秒就已经全部就绪在手！双栏对比卡片可以直接利用已有的 `task.width/height/fps/videoCodec/audioCodec` 立即渲染，无需等待。
+#### 1. 界面底部常驻控制条
+- 在任务列表底部常驻极简路径条：
+  - 复选框：`☑ 保存在源文件夹同级`；
+  - 自定义路径展示：未勾选时显示当前指定的 `configStore.outputDir`，并提供 `[更改]` 按钮；
+  - 多源目录提示：当勾选“保存在源文件夹同级”且检测到当前任务来源跨越不同目录时，弱化提示 *“（产物将分别保存在各自源文件所在目录下）”*。
+
+#### 2. 单一事实源设计（拒绝底栏与侧栏双写冲突）
+- 底栏与左侧 `ConfigPanel` 共享 `configStore.outputDir` 与 `configStore.outputBesideSource`；
+- 点击底栏的 `[更改]` 按钮，直接调用 Electron 的文件夹选择弹窗，选定后同步写回 store，保证全局状态一致。
 
 ---
 
-### 优化四：验收闭环——直调系统播放器回放源文件与产物
+### 优化三：数据契约扩展与紧凑型两级元数据对比
 
-#### 1. 行快捷操作与右键上下文菜单打通
-- 在 `TaskTable.vue` 行操作图标列与右键菜单中增加：
-  - **`播放源视频`**：点击后直接调用 `window.api.openPath(task.path)`；
-  - **`播放转码产物`**：当任务状态为 `success` 时激活该项，点击直接调用 `window.api.openPath(task.fileDst)`。
-- **安全与合规核验**：主进程已具备 `SYSTEM_OPEN_PATH` 接口和 `isKnownMediaPath` 白名单，任务的 `path` 和 `fileDst` 100% 存在于白名单集合内，零系统安全风险。
-- **收益**：转码完成后，用户无需打开资源管理器寻找文件，直接在界面上点击播放图标即可调用本地播放器（PotPlayer、VLC 或系统自带播放器）原地验收画质。
+#### 1. 扩展公共任务快照契约（`createPublicTaskSnapshot`）
+在 `src/transcode/ffmpeg_plan_snapshot.js` 中，为每个任务投影只读的 `targetSummary`：
+```javascript
+targetSummary: {
+  container: task.targetContainer || path.extname(task.fileDst || "").replace(/^\./, ""),
+  videoEncoder: task.targetEncoder || task.hwPlan?.encoder || "libx264",
+  width: task.targetWidth || task.width,
+  height: task.targetHeight || task.height,
+  fps: task.targetFps || task.fps,
+  qualityOrBitrate: task.targetQuality ? `CRF ${task.targetQuality}` : task.targetBitrate || "自适应",
+  audioCodec: task.targetAudioCodec || "aac",
+  audioBitrate: task.targetAudioBitrate || "128k",
+}
+```
+保证前端能直接渲染经过硬件探测与自适应缩放计算后的真实产物参数，杜绝猜测。
+
+#### 2. 960×640 屏幕下的两级渐进展示
+- **默认态（单行紧凑差异摘要）**：
+  - 仅占用一行高度（约 26px）：
+    `1920×1080 H.264 · 30fps → 1080p HEVC (hevc_nvenc) · CRF 23 · AAC 128k`，右侧保留一个小巧的 `[详情 ▾]` 按钮；
+  - 优点：最大化保留任务表格的可视行数，即使窗口仅有 640px 高度也不会拥挤。
+- **展开态（ShanaEncoder 风格结构化双栏卡片）**：
+  - 点击 `[详情 ▾]` 后展开为紧凑的左右两列卡片：
+    - **左列（输入源）**：文件大小、时长、封装、视频编码、原始分辨率/帧率、音频编码/声道；
+    - **右列（目标产物）**：目标文件名、目标封装、实际编码器、目标分辨率/帧率、质量/码率、音频策略、目标完整路径；
+  - 点击右上角 `[收起 ▴]` 随时折叠。
+
+---
+
+### 优化四：验收闭环——系统播放器直调与容错
+
+#### 1. 任务行操作与右键上下文菜单打通
+- 在 `TaskTable.vue` 中为每一行提供直接回放能力：
+  - **播放源文件**：调用 `window.api.openPath(task.path)`；
+  - **播放转码产物**：仅在 `task.status === 'success'` 时高亮可用，调用 `window.api.openPath(task.fileDst)`。
+- 右键上下文菜单同步增加：`播放源文件`、`播放转码产物`、`在文件夹中定位`、`复制文件路径`。
+
+#### 2. 健壮的错误捕获与 Fallback
+- `openPath` 底层返回错误信息（如 Windows 缺少关联播放器或文件被移动）：
+  - 前端捕获后弹出友好通知：*“无法调用播放器直接打开：${error}。已为您在资源管理器中定位该文件。”*；
+  - 自动调用 `showItemInFolder` 作为容错回退。
+- 若开启了“转码成功后删除源文件”，在转码完成后自动将“播放源文件”按钮置灰，避免尝试打开已被清理的文件。
 
 ---
 
 ### 优化五：设置与关于彻底解耦、视觉与日志做减法
 
-#### 1. 设置与关于的纯粹解耦（用户当场明确要求）
-彻底理清“设置 (Settings)”与“关于 / 系统信息 (About)”的边界：
-- **应用设置（SettingsModal）**：纯粹保留用户**可配置、可修改**的选项：
-  - 界面主题切换（暗黑 / 明亮）；
-  - 硬件加速偏好（auto / cuda / qsv / amf / d3d11va / cpu）；
-  - 解码模式偏好（auto / gpu / cpu）；
-  - 并发任务数设置；
-  - 产物覆盖开关、动漫调优模式开关、严格模式开关；
+#### 1. 设置 (SettingsModal) 与 关于 (AboutModal) 的纯粹解耦
+- **应用设置（SettingsModal.vue）**：**纯粹保留可修改的配置项**：
+  - 界面外观主题（深色 / 浅色）；
+  - 硬件加速器选用（auto / cuda / qsv / amf / d3d11va / cpu）；
+  - 解码模式偏好；
+  - 默认并发任务数；
+  - 产物覆盖开关、动漫增强模式开关、严格模式开关；
   - 安全删除源文件高危开关；
-  - 自定义外部工具二进制路径（ffmpeg / ffprobe / mediainfo）。
-- **关于 / 系统信息（AboutModal 或独立页签）**：集中承纳所有**只读环境与硬件探测数据**：
-  - 应用版本号、核心架构信息；
-  - 从顶栏移出的 **CPU 处理器规格**（如 `AMD Ryzen 7 7840HS (16 核)`）；
-  - 从顶栏移出的 **系统总内存与实时概况**；
-  - 从设置页移出的 **已探测 GPU 完整列表与驱动代际**；
-  - 从设置页移出的 **当前生效的 FFmpeg 二进制路径** 与 **内置 YAML 预设加载统计**；
-  - “重新检测环境”刷新按钮统一收归至此处。
+  - 自定义外部 FFmpeg 可执行文件路径。
+- **关于与系统信息（AboutModal.vue）**：**集中承纳所有静态环境数据与硬件探测结果**：
+  - MediaCli Desktop 版本号、Electron / Node / Chrome 运行时版本；
+  - 物理处理器信息（从顶栏迁入，如 `AMD Ryzen 7 7840HS (16 逻辑核心)`）；
+  - 系统总内存与空闲情况（从顶栏迁入）；
+  - 探测到的 GPU 完整设备列表、驱动架构与硬件加速支持矩阵；
+  - 当前生效的 FFmpeg 二进制路径、ffprobe 路径、版本号；
+  - 内置 YAML 预设与用户自定义预设加载总数；
+  - 提供“重新检测环境”刷新按钮。
 
 #### 2. 顶栏监控瘦身
-- 从 `HeaderBar.vue` 中物理移除 `cpuText` 与 `memText`，不再占用宝贵的顶栏空间；
-- 顶栏硬件区仅保留：
-  - 侧栏折叠按钮；
-  - 当前生效的 GPU 硬件加速层指示胶囊（例如 `🚀 NVIDIA NVENC (RTX 4070)` 或 `⚡ Intel QSV`）。
+- 从 `HeaderBar.vue` 物理移除 `cpuText` 与 `memText`；
+- 顶栏硬件区仅保留当前生效的 GPU 加速芯片胶囊（例如 `🚀 RTX 4070 (NVENC)`）。
 
-#### 3. 日志去噪降级（而非粗暴删除）
-- `ConfigPanel.vue` 中参数微调（CRF、分辨率滑块）的记录不再打进 `INFO` 级（避免日常操作刷屏和让日志按钮频繁跳红点）；
-- 将其降级为 `DEBUG` 等级写入日志，平时在日志抽屉中默认过滤隐藏，但保留在底层日志流中，便于用户反馈画质异常时回溯参数历史。
+#### 3. 参数调节日志降噪
+- `ConfigPanel.vue` 中滑动条的高频变动日志降级为 `DEBUG` 级别写入，不在控制台默认展开，不触发顶栏红点提示，保持界面清爽。
 
 ---
 
-## 4. 架构安全边界：挂机动作（系统休眠/关机）的处置决定
+## 5. 实施计划与安全保障
 
-对于 Review 中提及的“转码完成时系统休眠/关闭应用”功能，**本方案正式决定予以剥离，不纳入本期实施**：
+### 阶段一：动线解阻与一键流水线实现（核心体验飞跃）
+- **涉及文件**：
+  - `apps/mediac-desktop/src/renderer/src/components/HeaderBar.vue`
+  - `apps/mediac-desktop/src/renderer/src/App.vue`
+  - `apps/mediac-desktop/src/renderer/src/stores/plan.ts`
+  - `apps/mediac-desktop/src/main/ffmpeg-service.ts`
+- **实施要点**：
+  - 按钮解禁，加入 `canStart` 完备计算属性与动态文案；
+  - 实现路径级别的选择集保持（`selectedPaths`）；
+  - 实现 `excludedPaths` 防止删除行复活；
+  - 在 `App.vue` 落地 `ensurePlanAndRun`；
+  - 主进程 `startExecution` 严禁空选 fallback。
 
-* **原因一：破坏“纯渲染层改动”前提**：调用 Windows 休眠、关机、退出应用必须由主进程通过操作系统底层 API 执行；
-* **原因二：触碰引擎真源未修隐患**：当前底层引擎的 `onSummary` 异常被 `safeCallAsync` 吞掉可致状态永久卡在 `RUNNING`，且任务失败计数历史曾有口径偏差。挂机是完全无人值守的场景，若主进程状态与实际转码结果脱钩，会导致“全部转码失败却误以为成功而自动关机”或“状态卡死永不触发休眠”的严重后果。
-* **处置结论**：该功能作为独立的后端任务，必须在**底层引擎状态真源彻底修复并建立权威事件断言后**，单独立项走主进程实现。本期 UI/UX 方案聚焦于前台交互，保证“零架构风险”。
+### 阶段二：数据契约扩展与底部对比面板
+- **涉及文件**：
+  - `src/transcode/ffmpeg_plan_snapshot.js`
+  - `apps/mediac-desktop/src/shared/contracts.ts`
+  - `apps/mediac-desktop/src/renderer/src/components/TaskTable.vue`
+- **实施要点**：
+  - 在快照投影中追加 `targetSummary`；
+  - 在 `TaskTable.vue` 底部重构单行差异摘要与可折叠双栏详细对比卡片；
+  - 在底部常驻输出路径控制条，双向绑定 `configStore`。
 
----
+### 阶段三：回放验收打通、设置与关于彻底解耦
+- **涉及文件**：
+  - `apps/mediac-desktop/src/renderer/src/components/TaskTable.vue`
+  - `apps/mediac-desktop/src/renderer/src/components/HeaderBar.vue`
+  - `apps/mediac-desktop/src/renderer/src/components/SettingsModal.vue`
+  - `apps/mediac-desktop/src/renderer/src/components/AboutModal.vue`（新建）
+  - `apps/mediac-desktop/src/renderer/src/components/StatusBar.vue`
+  - `apps/mediac-desktop/src/renderer/src/components/ConfigPanel.vue`
+- **实施要点**：
+  - 接入 `openPath` 回放产物与源文件，增加失败回退逻辑；
+  - 顶栏移除 CPU/内存监控；
+  - 设置弹窗剥离只读信息，新建关于/系统信息弹窗收拢只读数据；
+  - 滑块参数变动日志降级为 DEBUG。
 
-## 5. 实施路线图与测试守卫
-
-本期所有优化集中于前端渲染层（Renderer）的交互重构，零 FFmpeg 底层风险。
-
-### 阶段一：动线解阻与一键流水线贯通
-- **改动范围**：`HeaderBar.vue`、`App.vue`、`stores/plan.ts`。
-- **重点落实**：
-  1. 解禁 `btn-start` 按钮，加入 `COMPLETED` 后的重跑语义；
-  2. `startExecution` 内部串联前置 `createPlan`，并加上 `PLANNING` 互斥锁；
-  3. 改写黄色阻断提示条。
-- **自动化测试守卫**：
-  - 先跑 `npm --prefix apps/mediac-desktop run test:e2e`，确认现有 4 个用例无对按钮 disabled 的硬编码断言冲突；
-  - 新增 E2E 用例：*“拖入 staged 视频后直接点击「开始转码」，验证能够自动完成推演并成功进入 RUNNING”*。
-
-### 阶段二：输出目录常驻与源目录直选
-- **改动范围**：`TaskTable.vue`、`ConfigPanel.vue`、`stores/config.ts`。
-- **重点落实**：在列表底部放置常驻路径控制，与 `configStore.outputDir` 双向绑定，保留老用户习惯记忆。
-
-### 阶段三：结构化双栏对比面板
-- **改动范围**：`TaskTable.vue`。
-- **重点落实**：将单行纯文本重构为 Shana 样式的紧凑双栏元数据小卡片，直接消费已有 mediaInfo。
-
-### 阶段四：原生回放打通、设置与关于彻底解耦、视觉去噪
-- **改动范围**：`TaskTable.vue`、`HeaderBar.vue`、`SettingsModal.vue`、新增/改造 `AboutModal.vue`、`ConfigPanel.vue`。
-- **重点落实**：
-  1. 接入 `openPath` 实现播放源视频与产物；
-  2. 剥离顶栏 CPU/内存监控，将静态硬件与环境数据完整迁入“关于”弹窗；
-  3. 日志微调记录降级为 DEBUG。
-
----
-
-## 6. 中远期演进：后台 Debounce 自动推演（展望）
-
-随着 Phase 1 动线解阻的落地，用户体验已大幅跃升。在中远期，随着主进程架构维护方案（`ARCHITECTURE-MAINTENANCE-PLAN-20260925.md`）完成 `ffmpeg-service` 拆分并支持**可取消的并发 planning 调度**后，可进一步演进为：
-- 用户在左栏微调参数时，前端通过 `debounce(300ms)` 在后台静默自动触发推演；
-- `STALE` 状态彻底从用户界面感知中消失，底部的“推演目标”卡片永远实时刷新最新参数；
-- 本方案的“点击时隐式串联”退化为极速双保险兜底。
+### 阶段四：验证与测试回归
+- 运行 `npm run check` 确保全量语法通过；
+- 运行 `npm test` 确保底层 334+ 项单元测试与边界测试 100% 通过；
+- 运行 `npm --prefix apps/mediac-desktop run typecheck` 确保 TypeScript 类型零错误；
+- 在 960×640 紧凑窗口下实测各分辨率与缩放比例显示效果。

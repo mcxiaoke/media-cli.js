@@ -33,11 +33,14 @@ function startResizing(e: MouseEvent) {
   window.addEventListener("mouseup", onMouseUp)
 }
 
+const isExpanded = ref(false)
+
 function toggleExpandWidth() {
-  if (drawerWidth.value >= 900) {
-    drawerWidth.value = 680
-  } else {
+  isExpanded.value = !isExpanded.value
+  if (isExpanded.value) {
     drawerWidth.value = Math.min(Math.round(window.innerWidth * 0.94), 980)
+  } else {
+    drawerWidth.value = 680
   }
   localStorage.setItem("mediac_log_drawer_width", String(drawerWidth.value))
 }
@@ -123,10 +126,10 @@ async function copyAll() {
           <button
             class="btn btn-sm"
             data-testid="btn-toggle-log-width"
-            :title="drawerWidth >= 900 ? '恢复标准宽度 (680px)' : '切换宽屏日志模式'"
+            :title="isExpanded ? '恢复标准宽度 (680px)' : '切换宽屏日志模式'"
             @click="toggleExpandWidth"
           >
-            {{ drawerWidth >= 900 ? '标准宽度' : '一键加宽' }}
+            {{ isExpanded ? '标准宽度' : '一键加宽' }}
           </button>
           <button class="btn btn-sm" data-testid="btn-copy-log" @click="copyAll">
             {{ copied ? '已复制 ✓' : '复制' }}

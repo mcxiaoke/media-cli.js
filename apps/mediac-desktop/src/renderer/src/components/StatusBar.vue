@@ -36,12 +36,9 @@ const taskSummary = computed(() => {
   return `就绪 · ${plan.tasks.length} 个任务待处理`
 })
 
-const sysSummary = computed(() => {
-  const sys = env.summary?.system
-  if (!sys) return ""
-  const usedMem = Math.max(0, sys.totalMemGb - sys.freeMemGb)
-  return `CPU: ${sys.cpuCores} 核 · 内存: ${usedMem}G / ${sys.totalMemGb}G`
-})
+const emit = defineEmits<{
+  (e: "open-about"): void
+}>()
 </script>
 
 <template>
@@ -68,9 +65,14 @@ const sysSummary = computed(() => {
     </div>
 
     <div class="status-right">
-      <div v-if="sysSummary" class="status-item sys-item" :title="env.summary?.system?.cpuModel || ''">
-        <span>{{ sysSummary }}</span>
-      </div>
+      <button
+        class="status-btn"
+        data-testid="status-about-btn"
+        title="查看系统硬件、GPU 及核心环境信息"
+        @click="emit('open-about')"
+      >
+        <span>系统信息</span>
+      </button>
       <div class="status-sep"></div>
       <button
         class="status-btn"

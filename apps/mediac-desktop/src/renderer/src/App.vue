@@ -10,6 +10,7 @@ import ExecutionBoard from "./components/ExecutionBoard.vue"
 import TaskInspectorDrawer from "./components/TaskInspectorDrawer.vue"
 import LogDrawer from "./components/LogDrawer.vue"
 import SettingsModal from "./components/SettingsModal.vue"
+import AboutModal from "./components/AboutModal.vue"
 
 import { useEnvStore } from "./stores/env"
 import { useConfigStore } from "./stores/config"
@@ -23,13 +24,14 @@ const envStore = useEnvStore()
 const configStore = useConfigStore()
 const planStore = usePlanStore()
 const logStore = useLogStore()
-const { ingestPaths } = useInputIngest()
+const { ingestPaths, isIngesting } = useInputIngest()
 
 // Sidebar resizer & collapse state
 const sidebarWidth = ref(380)
 const isSidebarCollapsed = ref(false)
 const isResizing = ref(false)
 const showSettings = ref(false)
+const showAbout = ref(false)
 
 function toggleSidebar() {
   isSidebarCollapsed.value = !isSidebarCollapsed.value
@@ -77,12 +79,9 @@ function isBusy() {
   return planStore.status === "RUNNING" || planStore.status === "PLANNING" || planStore.status === "STOPPING"
 }
 
-// Create / Update plan
-async function createPlan() {
-  if (isBusy()) return
+async function createPlanInternal() {
   if (configStore.inputs.length === 0) {
-    alert("请先添加至少一个媒体文件或目录")
-    return
+    throw new Error("请先添加至少一个媒体文件或目录")
   }
   // 主进程会校验 deleteSourceConfirmed；必须让它反映本次弹窗的真实确认结果，
   // 而非直接复用 deleteSource 开关状态（否则校验形同虚设）
@@ -91,44 +90,70 @@ async function createPlan() {
     const ok = window.confirm(
       "【高危确认】转码成功且产物校验通过后，源文件将被移入 Mediac 安全回收目录（~/.mediac/deleted/日期），可随时恢复。请确认是否继续？"
     )
-    if (!ok) return
+    if (!ok) {
+      throw new Error("用户取消了高危删除确认")
+    }
     deleteSourceAck = true
   }
 
   planStore.status = "PLANNING"
+  const effectiveInputs = planStore.excludedPaths.size > 0
+    ? configStore.inputs.filter((p) => !planStore.excludedPaths.has(p))
+    : [...configStore.inputs]
+
+  if (effectiveInputs.length === 0) {
+    throw new Error("没有有效的待转码输入文件")
+  }
+
+  const payload = JSON.parse(JSON.stringify({
+    inputs: effectiveInputs,
+    output: configStore.outputDir || undefined,
+    preset: configStore.preset,
+    options: {
+      outputMode: configStore.outputMode,
+      prefix: configStore.prefix || undefined,
+      suffix: configStore.suffix || undefined,
+      fps: configStore.tune.fps > 0 ? configStore.tune.fps : undefined,
+      speed: configStore.tune.speed > 0 ? configStore.tune.speed : undefined,
+      dimension: configStore.tune.dimension > 0 ? configStore.tune.dimension : undefined,
+      videoBitrate: configStore.tune.bitrate.trim() || undefined,
+      videoQuality: configStore.tune.quality > 0 ? configStore.tune.quality : undefined,
+      audioCodec: configStore.tune.audioCodec || undefined,
+      audioBitrate: configStore.tune.audioBitrate || undefined,
+      hwaccel: configStore.adv.hwaccel !== "auto" ? configStore.adv.hwaccel : undefined,
+      decodeMode: configStore.adv.decodeMode !== "auto" ? configStore.adv.decodeMode : undefined,
+      jobs: configStore.adv.jobs > 1 ? configStore.adv.jobs : undefined,
+      override: configStore.adv.override,
+      anime: configStore.adv.anime,
+      strict: configStore.adv.strict,
+      deleteSourceFiles: configStore.adv.deleteSource,
+      deleteSourceConfirmed: deleteSourceAck,
+    },
+  }))
+  const plan = await window.api.createPlan(payload)
+  planStore.setPlan(plan)
+  logStore.append({
+    level: "INFO",
+    message: `计划已生成：共 ${plan.totalTasks} 个任务，预估耗时 ${plan.totalDuration.toFixed(1)} 秒`,
+    timestamp: new Date().toLocaleTimeString(),
+  })
+}
+
+// Create / Update plan
+async function createPlan() {
+  if (isBusy()) return
+  if (configStore.inputs.length === 0) {
+    alert("请先添加至少一个媒体文件或目录")
+    return
+  }
+  const knownPreviousPaths = new Set(planStore.tasks.map((t) => t.path))
+  const selectedPaths = new Set(
+    planStore.tasks.filter((t) => planStore.selectedIds.has(t.id)).map((t) => t.path)
+  )
+
   try {
-    const payload = JSON.parse(JSON.stringify({
-      inputs: [...configStore.inputs],
-      output: configStore.outputDir || undefined,
-      preset: configStore.preset,
-      options: {
-        outputMode: configStore.outputMode,
-        prefix: configStore.prefix || undefined,
-        suffix: configStore.suffix || undefined,
-        fps: configStore.tune.fps > 0 ? configStore.tune.fps : undefined,
-        speed: configStore.tune.speed > 0 ? configStore.tune.speed : undefined,
-        dimension: configStore.tune.dimension > 0 ? configStore.tune.dimension : undefined,
-        videoBitrate: configStore.tune.bitrate.trim() || undefined,
-        videoQuality: configStore.tune.quality > 0 ? configStore.tune.quality : undefined,
-        audioCodec: configStore.tune.audioCodec || undefined,
-        audioBitrate: configStore.tune.audioBitrate || undefined,
-        hwaccel: configStore.adv.hwaccel !== "auto" ? configStore.adv.hwaccel : undefined,
-        decodeMode: configStore.adv.decodeMode !== "auto" ? configStore.adv.decodeMode : undefined,
-        jobs: configStore.adv.jobs > 1 ? configStore.adv.jobs : undefined,
-        override: configStore.adv.override,
-        anime: configStore.adv.anime,
-        strict: configStore.adv.strict,
-        deleteSourceFiles: configStore.adv.deleteSource,
-        deleteSourceConfirmed: deleteSourceAck,
-      },
-    }))
-    const plan = await window.api.createPlan(payload)
-    planStore.setPlan(plan)
-    logStore.append({
-      level: "INFO",
-      message: `计划已生成：共 ${plan.totalTasks} 个任务，预估耗时 ${plan.totalDuration.toFixed(1)} 秒`,
-      timestamp: new Date().toLocaleTimeString(),
-    })
+    await createPlanInternal()
+    planStore.restoreSelectionByPaths(knownPreviousPaths, selectedPaths)
   } catch (error: any) {
     planStore.status = "FAILED"
     const msg = error instanceof Error ? error.message : String(error)
@@ -145,14 +170,72 @@ async function createPlan() {
 async function startExecution() {
   // 入口自检：菜单 F5 与页面按钮共用此函数，无守卫会把运行中的会话打成 FAILED
   if (isBusy()) return
-  if (planStore.tasks.length === 0) return
+  if (planStore.tasks.length === 0 && configStore.inputs.length === 0) return
+
+  // 1. 记忆当前用户明确勾选的文件绝对路径
+  const knownPreviousPaths = new Set(planStore.tasks.map((t) => t.path))
+  const selectedPaths = new Set(
+    planStore.tasks.filter((t) => planStore.selectedIds.has(t.id)).map((t) => t.path)
+  )
+
+  // 2. 若存在未推演输入或配置已变动 (STALE/hasStaged) 或尚未生成计划，隐式触发流水线推演
+  if (planStore.hasStaged || planStore.status === "STALE" || !planStore.planSnapshot) {
+    try {
+      await createPlanInternal()
+      planStore.restoreSelectionByPaths(knownPreviousPaths, selectedPaths)
+    } catch (err: any) {
+      planStore.status = "FAILED"
+      const msg = err instanceof Error ? err.message : String(err)
+      logStore.append({
+        level: "ERROR",
+        message: `准备转码失败: ${msg}`,
+        timestamp: new Date().toLocaleTimeString(),
+      })
+      return
+    }
+  }
+
+  // 3. 显式提取选中的任务 ID，禁止传递空数组或 undefined
+  const executableTasks = planStore.tasks.filter(
+    (t) => planStore.selectedIds.has(t.id) && t.status !== "success" && t.status !== "skipped"
+  )
+  const executableIds = executableTasks.map((t) => t.id)
+  if (executableIds.length === 0) {
+    // 检查是否有失败项可供重试
+    const failedTasks = planStore.tasks.filter((t) => t.status === "failed")
+    if (failedTasks.length > 0) {
+      for (const t of failedTasks) {
+        planStore.selectedIds.add(t.id)
+      }
+      const retryIds = failedTasks.map((t) => t.id)
+      planStore.status = "RUNNING"
+      try {
+        await window.api.startExecution(retryIds)
+        logStore.append({
+          level: "INFO",
+          message: `重试失败转码任务（共 ${retryIds.length} 项）`,
+          timestamp: new Date().toLocaleTimeString(),
+        })
+      } catch (error: any) {
+        planStore.status = "FAILED"
+        const msg = error instanceof Error ? error.message : String(error)
+        logStore.append({
+          level: "ERROR",
+          message: `重试失败: ${msg}`,
+          timestamp: new Date().toLocaleTimeString(),
+        })
+      }
+      return
+    }
+    return
+  }
+
   planStore.status = "RUNNING"
-  const selected = Array.from(planStore.selectedIds)
   try {
-    await window.api.startExecution(selected.length > 0 ? selected : undefined)
+    await window.api.startExecution(executableIds)
     logStore.append({
       level: "INFO",
-      message: `开始执行转码任务（共 ${selected.length || planStore.tasks.length} 项）`,
+      message: `开始执行转码任务（共 ${executableIds.length} 项）`,
       timestamp: new Date().toLocaleTimeString(),
     })
   } catch (error: any) {
@@ -365,6 +448,7 @@ onUnmounted(() => {
     <!-- 顶栏 HeaderBar -->
     <HeaderBar
       :stats-text="tbStatsText"
+      :is-ingesting="isIngesting"
       @toggle-sidebar="toggleSidebar"
       @open-settings="showSettings = true"
       @create-plan="createPlan"
@@ -381,7 +465,7 @@ onUnmounted(() => {
         :class="{ collapsed: isSidebarCollapsed }"
         :style="{ width: isSidebarCollapsed ? '0px' : `${sidebarWidth}px` }"
       >
-        <ConfigPanel v-show="!isSidebarCollapsed" @collapse="toggleSidebar" />
+        <ConfigPanel v-show="!isSidebarCollapsed" :is-busy="isBusy()" @collapse="toggleSidebar" />
       </aside>
 
       <!-- 拖拽手柄 -->
@@ -420,7 +504,7 @@ onUnmounted(() => {
     </div>
 
     <!-- 底部状态栏 StatusBar -->
-    <StatusBar />
+    <StatusBar @open-about="showAbout = true" />
 
     <!-- 侧拉式右侧检查器抽屉 -->
     <TaskInspectorDrawer />
@@ -432,6 +516,12 @@ onUnmounted(() => {
     <SettingsModal
       :show="showSettings"
       @close="showSettings = false"
+    />
+
+    <!-- 关于与系统信息弹窗 -->
+    <AboutModal
+      :show="showAbout"
+      @close="showAbout = false"
     />
   </div>
 </template>

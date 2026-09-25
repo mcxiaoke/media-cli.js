@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { ref, computed, watch } from "vue"
-import { useEnvStore } from "../stores/env"
 import { useConfigStore } from "../stores/config"
 import { useLogStore } from "../stores/log"
 
@@ -12,7 +11,6 @@ const emit = defineEmits<{
   (e: "close"): void
 }>()
 
-const envStore = useEnvStore()
 const configStore = useConfigStore()
 const logStore = useLogStore()
 
@@ -51,17 +49,6 @@ async function pickToolPath(tool: "ffmpeg" | "ffprobe" | "mediainfo") {
   }
 }
 
-const isRechecking = ref(false)
-
-async function recheckEnvironment() {
-  isRechecking.value = true
-  try {
-    await envStore.fetchEnv()
-  } finally {
-    isRechecking.value = false
-  }
-}
-
 function saveSettings() {
   if (customFfmpeg.value.trim()) {
     localStorage.setItem("mediac_tool_ffmpeg", customFfmpeg.value.trim())
@@ -83,14 +70,6 @@ function saveSettings() {
 
   emit("close")
 }
-
-const gpuList = computed(() => {
-  return envStore.summary?.hardware.gpus || []
-})
-
-const hwaccelsText = computed(() => {
-  return envStore.summary?.hardware.hwaccels?.join(" · ") || "未探测到可用硬件加速"
-})
 
 function handleDeleteSourceToggle() {
   if (!configStore.adv.deleteSource) {
@@ -147,45 +126,6 @@ function handleDeleteSourceToggle() {
               >
                 明亮主题
               </button>
-            </div>
-          </div>
-        </div>
-
-        <!-- FFmpeg 环境 -->
-        <div class="set-row">
-          <span class="lbl">FFmpeg 核心</span>
-          <div class="set-box">
-            <div class="kv">
-              <span>路径：</span>
-              <b>{{ envStore.summary?.ffmpegPath || "未检测到 ffmpeg 二进制" }}</b>
-            </div>
-            <div class="kv">
-              <span>已加载预设：</span>
-              <b>{{ envStore.summary?.presets.length || 0 }} 个</b>
-            </div>
-            <button
-              class="btn btn-sm btn-secondary"
-              :disabled="isRechecking"
-              data-testid="btn-recheck-env"
-              style="align-self: flex-start; margin-top: 4px"
-              @click="recheckEnvironment"
-            >
-              {{ isRechecking ? "正在检测…" : "重新检测" }}
-            </button>
-          </div>
-        </div>
-
-        <!-- 硬件加速 -->
-        <div class="set-row">
-          <span class="lbl">硬件加速</span>
-          <div class="set-box">
-            <div v-for="gpu in gpuList" :key="gpu.model" class="kv">
-              <span>GPU：</span>
-              <b>{{ gpu.vendor }} {{ gpu.model }}</b>
-            </div>
-            <div class="kv">
-              <span>加速器：</span>
-              <b>{{ hwaccelsText }}</b>
             </div>
           </div>
         </div>
@@ -299,7 +239,7 @@ function handleDeleteSourceToggle() {
               <input
                 v-model="customFfmpeg"
                 class="input grow"
-                :placeholder="envStore.summary?.ffmpegPath || '留空使用默认探测路径'"
+                placeholder="留空使用系统默认探测路径"
               />
               <button class="btn btn-sm btn-secondary" title="浏览文件" @click="pickToolPath('ffmpeg')">浏览...</button>
               <button class="btn btn-sm" @click="customFfmpeg = ''">重置</button>
@@ -309,7 +249,7 @@ function handleDeleteSourceToggle() {
               <input
                 v-model="customFfprobe"
                 class="input grow"
-                :placeholder="envStore.summary?.ffprobePath || '留空使用默认探测路径'"
+                placeholder="留空使用系统默认探测路径"
               />
               <button class="btn btn-sm btn-secondary" title="浏览文件" @click="pickToolPath('ffprobe')">浏览...</button>
               <button class="btn btn-sm" @click="customFfprobe = ''">重置</button>
@@ -319,24 +259,10 @@ function handleDeleteSourceToggle() {
               <input
                 v-model="customMediainfo"
                 class="input grow"
-                placeholder="留空使用默认探测路径"
+                placeholder="留空使用系统默认探测路径"
               />
               <button class="btn btn-sm btn-secondary" title="浏览文件" @click="pickToolPath('mediainfo')">浏览...</button>
               <button class="btn btn-sm" @click="customMediainfo = ''">重置</button>
-            </div>
-          </div>
-        </div>
-
-        <!-- 关于 -->
-        <div class="set-row">
-          <span class="lbl">关于软件</span>
-          <div class="set-box">
-            <div class="kv">
-              <span>mediac-desktop</span>
-              <b>v{{ envStore.version }}</b>
-            </div>
-            <div class="kv hint">
-              底层共享 MediaCli 核心编排引擎与硬件探测矩阵
             </div>
           </div>
         </div>

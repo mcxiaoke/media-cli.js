@@ -4,8 +4,9 @@ import { useEnvStore } from "../stores/env"
 import { usePlanStore } from "../stores/plan"
 import { useLogStore } from "../stores/log"
 
-defineProps<{
+const props = defineProps<{
   statsText?: string
+  isIngesting?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -47,17 +48,38 @@ const gpuText = computed(() => {
   return tier ? tier + " · " + g.model : g.model
 })
 
-const cpuText = computed(() => {
-  const sys = env.summary?.system
-  if (!sys?.cpuCores) return ""
-  return `${sys.cpuCores} 核`
+const selectedExecutableTasks = computed(() => {
+  return plan.tasks.filter(
+    (t) => plan.selectedIds.has(t.id) && t.status !== "success" && t.status !== "skipped"
+  )
 })
 
-const memText = computed(() => {
-  const sys = env.summary?.system
-  if (!sys?.totalMemGb) return ""
-  const used = Math.max(0, sys.totalMemGb - sys.freeMemGb)
-  return `${used}G / ${sys.totalMemGb}G`
+const failedTasks = computed(() => {
+  return plan.tasks.filter((t) => plan.selectedIds.has(t.id) && t.status === "failed")
+})
+
+const canStart = computed(() => {
+  if (plan.status === "RUNNING" || plan.status === "STOPPING" || plan.status === "PLANNING") return false
+  if (plan.tasks.length === 0) return false
+  if (props.isIngesting) return false
+  return selectedExecutableTasks.value.length > 0
+})
+
+const startButtonText = computed(() => {
+  if (plan.status === "PLANNING") return "正在准备…"
+  if (props.isIngesting) return "读取媒体中…"
+  if (plan.status === "RUNNING") return "正在转码…"
+  if (plan.status === "STOPPING") return "正在停止…"
+
+  if (plan.tasks.length > 0 && selectedExecutableTasks.value.length === 0) {
+    if (failedTasks.value.length > 0) {
+      return `重试失败项 (${failedTasks.value.length})`
+    }
+    return "已全部完成"
+  }
+
+  const count = selectedExecutableTasks.value.length
+  return count > 0 ? `开始转码 · ${count}` : "开始转码"
 })
 
 function toggleTheme() {
@@ -95,25 +117,6 @@ function toggleTheme() {
         <span class="hw-name">{{ gpuText }}</span>
       </div>
 
-      <div v-if="cpuText" class="pill hw-pill" :title="'CPU: ' + (env.summary?.system?.cpuModel || 'CPU')">
-        <svg class="i sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <rect x="4" y="4" width="16" height="16" rx="2" />
-          <rect x="9" y="9" width="6" height="6" />
-          <line x1="9" y1="1" x2="9" y2="4" />
-          <line x1="15" y1="1" x2="15" y2="4" />
-          <line x1="9" y1="20" x2="9" y2="23" />
-          <line x1="15" y1="20" x2="15" y2="23" />
-        </svg>
-        <span class="hw-name">{{ cpuText }}</span>
-      </div>
-
-      <div v-if="memText" class="pill hw-pill" title="系统内存使用概况">
-        <svg class="i sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M6 19v-3m4 3v-6m4 3v-4m4 4v-8" />
-          <rect x="2" y="3" width="20" height="18" rx="2" />
-        </svg>
-        <span class="hw-name">{{ memText }}</span>
-      </div>
     </div>
 
     <!-- 常用操作区 -->
@@ -137,14 +140,14 @@ function toggleTheme() {
 
       <button
         class="btn btn-primary"
-        :disabled="plan.status === 'RUNNING' || plan.tasks.length === 0 || plan.status === 'STALE' || plan.hasStaged || plan.status === 'PLANNING' || plan.status === 'COMPLETED' || plan.allTasksCompleted"
+        :disabled="!canStart"
         data-testid="btn-start"
         @click="emit('start-execution')"
       >
         <svg class="i sm" viewBox="0 0 24 24" fill="currentColor">
           <path d="M8 5.5v13l11-6.5z" />
         </svg>
-        <span>开始转码</span>
+        <span>{{ startButtonText }}</span>
       </button>
 
       <button
@@ -168,14 +171,14 @@ function toggleTheme() {
         清空
       </button>
 
-      <!-- 待推演或参数变更 STALE 告警 -->
+      <!-- 待推演或参数变更微调提示 (非阻断) -->
       <div v-if="plan.hasStaged" class="stale-alert" data-testid="stale-alert">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <circle cx="12" cy="12" r="10" />
           <line x1="12" y1="8" x2="12" y2="12" />
           <line x1="12" y1="16" x2="12.01" y2="16" />
         </svg>
-        <span>已摄入新媒体，请点击「生成计划」</span>
+        <span>新媒体待转码 · 点击开始将自动推演</span>
       </div>
       <div v-else-if="plan.status === 'STALE'" class="stale-alert" data-testid="stale-alert">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -183,7 +186,7 @@ function toggleTheme() {
           <line x1="12" y1="8" x2="12" y2="12" />
           <line x1="12" y1="16" x2="12.01" y2="16" />
         </svg>
-        <span>参数已变更，请点击「更新计划」</span>
+        <span>参数已变更 · 可直接开始转码</span>
       </div>
     </div>
 

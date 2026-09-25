@@ -95,6 +95,18 @@ export interface MediaInfoPayload {
   [key: string]: unknown
 }
 
+export interface MediaTargetSummary {
+  container?: string
+  videoEncoder?: string
+  width?: number
+  height?: number
+  fps?: number
+  quality?: number
+  bitrate?: number
+  audioCodec?: string
+  audioBitrate?: number
+}
+
 export interface PlanTask {
   id: string
   index: number
@@ -128,6 +140,7 @@ export interface PlanTask {
   audioSampleRate?: number
   audioBitrate?: number
   rawMetadata?: string
+  targetSummary?: MediaTargetSummary
 }
 
 export interface StageInputsResult {

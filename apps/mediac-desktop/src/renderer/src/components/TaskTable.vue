@@ -1,12 +1,69 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, onUnmounted } from "vue"
 import { usePlanStore } from "../stores/plan"
+import { useConfigStore } from "../stores/config"
 import { useLogStore } from "../stores/log"
 import { formatSize, formatDuration } from "../utils/format"
 import type { PlanTask, TaskStatus } from "../../../shared/contracts"
 
 const planStore = usePlanStore()
+const configStore = useConfigStore()
 const logStore = useLogStore()
+const isDetailExpanded = ref(false)
+
+async function playMedia(filePath: string) {
+  if (!filePath || !window.api?.openPath) return
+  try {
+    const err = await window.api.openPath(filePath)
+    if (err) {
+      logStore.append({
+        level: "WARN",
+        message: `无法直接播放: ${err}，已为您在资源管理器中定位`,
+        timestamp: new Date().toLocaleTimeString(),
+      })
+      if (window.api?.showInFolder) {
+        void window.api.showInFolder(filePath)
+      }
+    }
+  } catch (e: any) {
+    if (window.api?.showInFolder) {
+      void window.api.showInFolder(filePath)
+    }
+  }
+}
+
+function playSource(task: PlanTask, event?: MouseEvent) {
+  event?.stopPropagation()
+  void playMedia(task.path)
+}
+
+function playOutput(task: PlanTask, event?: MouseEvent) {
+  event?.stopPropagation()
+  if (task.fileDst) {
+    void playMedia(task.fileDst)
+  }
+}
+
+const hasMultipleSourceDirs = computed(() => {
+  const dirs = new Set(
+    planStore.tasks.map((t) => {
+      const idx = Math.max(t.path.lastIndexOf("/"), t.path.lastIndexOf("\\"))
+      return idx > 0 ? t.path.substring(0, idx) : ""
+    })
+  )
+  return dirs.size > 1
+})
+
+async function pickOutputDir() {
+  try {
+    const res = await window.api.selectFiles({ mode: "directory", multiple: false })
+    if (res.paths && res.paths[0]) {
+      configStore.setCustomOutputDir(res.paths[0])
+    }
+  } catch (err) {
+    console.error("pickOutputDir error:", err)
+  }
+}
 
 const STATUS_MAP: Record<TaskStatus, { text: string; cls: string }> = {
   staged: { text: "待规划", cls: "staged" },
@@ -283,11 +340,16 @@ function getFmtClass(name: string) {
 }
 
 // 快速对比底板：优先展示当前激活聚焦项，或检查项，或勾选项，或首项
-const selectedTaskPreview = computed(() => {
-  const t = planStore.inspectedTask
+const selectedTask = computed(() => {
+  return planStore.inspectedTask
     || (planStore.activeTaskId ? planStore.tasks.find((task) => task.id === planStore.activeTaskId) : null)
     || planStore.tasks.find((task) => planStore.selectedIds.has(task.id))
     || planStore.tasks[0]
+    || null
+})
+
+const selectedTaskPreview = computed(() => {
+  const t = selectedTask.value
   if (!t) return null
   const src = [
     t.containerFormat || getFmtText(t.name),
@@ -299,11 +361,23 @@ const selectedTaskPreview = computed(() => {
     formatDuration(t.duration),
   ].filter(Boolean).join(" · ")
 
-  const dst = t.fileDst
-    ? `${getBaseName(t.fileDst)} · [${planStore.planSnapshot?.presetName || '预设'}]`
-    : `[待推演] 遵循当前预设及参数微调`
+  const ts = t.targetSummary
+  const dstParts = []
+  if (ts?.width && ts?.height) dstParts.push(`${ts.width}x${ts.height}`)
+  if (ts?.fps) dstParts.push(`${ts.fps}fps`)
+  if (ts?.videoEncoder) dstParts.push(ts.videoEncoder)
+  if (ts?.quality) dstParts.push(`CRF ${ts.quality}`)
+  else if (ts?.bitrate) dstParts.push(`${Math.round(ts.bitrate / 1000)}k`)
+  if (ts?.audioCodec) dstParts.push(ts.audioCodec.toUpperCase())
+  if (ts?.container) dstParts.push(ts.container.toUpperCase())
 
-  return { name: t.name, srcText: src, dstText: dst }
+  const dst = dstParts.length > 0
+    ? dstParts.join(" · ")
+    : t.fileDst
+      ? `${getBaseName(t.fileDst)} · [${planStore.planSnapshot?.presetName || '预设'}]`
+      : `[待推演] 遵循当前预设及参数微调`
+
+  return { name: t.name, srcText: src, dstText: dst, task: t }
 })
 </script>
 
@@ -318,9 +392,9 @@ const selectedTaskPreview = computed(() => {
           <col style="width: 84px" />
           <col style="width: 80px" />
           <col style="width: 130px" />
-          <col style="width: 26%" />
+          <col style="width: 24%" />
           <col style="width: 120px" />
-          <col style="width: 104px" />
+          <col style="width: 140px" />
         </colgroup>
         <thead>
           <tr>
@@ -417,6 +491,28 @@ const selectedTaskPreview = computed(() => {
               <div class="t-ops">
                 <button
                   class="icon-btn"
+                  title="播放源视频"
+                  data-testid="btn-play-source"
+                  @click="playSource(task, $event)"
+                >
+                  <svg class="i sm" viewBox="0 0 24 24" fill="currentColor">
+                    <polygon points="6 4 18 12 6 20 6 4" />
+                  </svg>
+                </button>
+                <button
+                  v-if="task.status === 'success'"
+                  class="icon-btn ok-icon"
+                  title="播放转码产物"
+                  data-testid="btn-play-output"
+                  @click="playOutput(task, $event)"
+                >
+                  <svg class="i sm" viewBox="0 0 24 24" fill="currentColor">
+                    <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2" />
+                    <polygon points="10 8 16 12 10 16 10 8" />
+                  </svg>
+                </button>
+                <button
+                  class="icon-btn"
                   title="查看源媒体规格与推演命令 (ffprobe)"
                   data-testid="btn-inspect-task"
                   @click="inspectTask(task, $event)"
@@ -470,48 +566,116 @@ const selectedTaskPreview = computed(() => {
 
     <!-- 列表底部操作与快速对比底板（对标 ShanaEncoder） -->
     <div class="table-bottom-bar" data-testid="table-bottom-bar">
-      <div class="tb-actions">
-        <button
-          class="btn btn-sm btn-secondary"
-          data-testid="btn-toggle-all"
-          title="全选或取消全选 (Space)"
-          @click="planStore.toggleAll"
-        >
-          <svg class="i sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <polyline points="9 11 12 14 22 4" />
-            <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
-          </svg>
-          <span>{{ planStore.isAllSelected ? '取消全选' : '全选' }}</span>
-        </button>
-        <button
-          class="btn btn-sm btn-secondary"
-          data-testid="btn-remove-selected"
-          :disabled="planStore.selectedIds.size === 0"
-          title="从列表中移除当前所有已勾选项"
-          @click="planStore.removeSelectedTasks()"
-        >
-          <svg class="i sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="18" y1="6" x2="6" y2="18" />
-            <line x1="6" y1="6" x2="18" y2="18" />
-          </svg>
-          <span>移除所选 ({{ planStore.selectedIds.size }})</span>
-        </button>
+      <div class="bottom-top-row">
+        <div class="tb-actions">
+          <button
+            class="btn btn-sm btn-secondary"
+            data-testid="btn-toggle-all"
+            title="全选或取消全选 (Space)"
+            @click="planStore.toggleAll"
+          >
+            <svg class="i sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="9 11 12 14 22 4" />
+              <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+            </svg>
+            <span>{{ planStore.isAllSelected ? '取消全选' : '全选' }}</span>
+          </button>
+          <button
+            class="btn btn-sm btn-secondary"
+            data-testid="btn-remove-selected"
+            :disabled="planStore.selectedIds.size === 0"
+            title="从列表中移除当前所有已勾选项"
+            @click="planStore.removeSelectedTasks()"
+          >
+            <svg class="i sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+            <span>移除所选 ({{ planStore.selectedIds.size }})</span>
+          </button>
+        </div>
+
+        <!-- 选中任务单行紧凑差异摘要（默认态） -->
+        <div v-if="selectedTaskPreview && !isDetailExpanded" class="tb-preview" data-testid="task-quick-preview">
+          <div class="pv-col pv-src" :title="selectedTaskPreview.name">
+            <span class="pv-label">源媒体:</span>
+            <span class="pv-val">{{ selectedTaskPreview.srcText }}</span>
+          </div>
+          <div class="pv-sep">→</div>
+          <div class="pv-col pv-dst">
+            <span class="pv-label">推演目标:</span>
+            <span class="pv-val">{{ selectedTaskPreview.dstText }}</span>
+          </div>
+          <button
+            class="btn-detail-toggle"
+            data-testid="btn-detail-toggle"
+            title="切换展开/收起详细规格对比"
+            @click="isDetailExpanded = true"
+          >
+            详情 ▾
+          </button>
+        </div>
+        <div v-else-if="!selectedTaskPreview" class="tb-summary">
+          共 {{ planStore.tasks.length }} 个视频文件 · 总计 {{ formatSize(planStore.totalSize) }} · 时长 {{ formatDuration(planStore.totalDuration) }}
+        </div>
       </div>
 
-      <!-- 选中任务快速源 vs 目标对比面板 -->
-      <div v-if="selectedTaskPreview" class="tb-preview" data-testid="task-quick-preview">
-        <div class="pv-col pv-src" :title="selectedTaskPreview.name">
-          <span class="pv-label">源媒体:</span>
-          <span class="pv-val">{{ selectedTaskPreview.srcText }}</span>
+      <!-- 展开态：Shana 风格结构化双栏详细对比卡片 -->
+      <div v-if="selectedTaskPreview && isDetailExpanded" class="shana-compare-card" data-testid="shana-compare-card">
+        <div class="card-head">
+          <span class="card-title">媒体详细对比：{{ selectedTaskPreview.name }}</span>
+          <button
+            class="btn-detail-toggle"
+            data-testid="btn-collapse-detail"
+            @click="isDetailExpanded = false"
+          >
+            收起 ▴
+          </button>
         </div>
-        <div class="pv-sep">→</div>
-        <div class="pv-col pv-dst">
-          <span class="pv-label">推演目标:</span>
-          <span class="pv-val">{{ selectedTaskPreview.dstText }}</span>
+        <div class="card-grid">
+          <div class="card-col card-src">
+            <div class="col-title">【输入源媒体】</div>
+            <div class="card-item"><span>规格：</span><b>{{ selectedTaskPreview.task.width }}x{{ selectedTaskPreview.task.height }} · {{ selectedTaskPreview.task.fps }}fps</b></div>
+            <div class="card-item"><span>编码：</span><b>{{ selectedTaskPreview.task.videoCodec || '未知' }} / {{ selectedTaskPreview.task.audioCodec || '未知' }}</b></div>
+            <div class="card-item"><span>大小：</span><b>{{ formatSize(selectedTaskPreview.task.size) }} ({{ formatDuration(selectedTaskPreview.task.duration) }})</b></div>
+            <div class="card-item truncate" :title="selectedTaskPreview.task.path"><span>路径：</span>{{ selectedTaskPreview.task.path }}</div>
+          </div>
+          <div class="card-col card-dst">
+            <div class="col-title">【目标转码配置】</div>
+            <div class="card-item"><span>目标规格：</span><b>{{ selectedTaskPreview.task.targetSummary?.width || selectedTaskPreview.task.width || '保持源' }}x{{ selectedTaskPreview.task.targetSummary?.height || selectedTaskPreview.task.height || '' }} · {{ selectedTaskPreview.task.targetSummary?.fps || selectedTaskPreview.task.fps || '原帧率' }}fps</b></div>
+            <div class="card-item"><span>目标编码：</span><b>{{ selectedTaskPreview.task.targetSummary?.videoEncoder || '自动编码' }} · {{ selectedTaskPreview.task.targetSummary?.audioCodec || 'aac' }}</b></div>
+            <div class="card-item"><span>质量策略：</span><b>{{ selectedTaskPreview.task.targetSummary?.quality ? 'CRF ' + selectedTaskPreview.task.targetSummary.quality : selectedTaskPreview.task.targetSummary?.bitrate ? Math.round(selectedTaskPreview.task.targetSummary.bitrate / 1000) + 'k' : '自适应' }}</b></div>
+            <div class="card-item truncate" :title="selectedTaskPreview.task.fileDst || '同源文件目录'"><span>输出路径：</span>{{ selectedTaskPreview.task.fileDst || (configStore.outputBesideSource ? '自动保存在源文件同级' : configStore.outputDir || '源文件同级') }}</div>
+          </div>
         </div>
       </div>
-      <div v-else class="tb-summary">
-        共 {{ planStore.tasks.length }} 个视频文件 · 总计 {{ formatSize(planStore.totalSize) }} · 时长 {{ formatDuration(planStore.totalDuration) }}
+
+      <!-- 常驻输出路径条 (对标 Shana/HandBrake) -->
+      <div class="output-dest-bar" data-testid="output-dest-bar">
+        <label class="dest-ck-label" title="转码产物与源文件保存在相同文件夹">
+          <input
+            type="checkbox"
+            class="dest-ck"
+            data-testid="ck-dest-beside"
+            :checked="configStore.outputBesideSource"
+            @change="configStore.setOutputBesideSource(($event.target as HTMLInputElement).checked)"
+          />
+          <span>保存在源文件夹同级</span>
+        </label>
+        <div v-if="!configStore.outputBesideSource" class="custom-dest-box">
+          <input
+            type="text"
+            class="dest-input"
+            data-testid="input-dest-dir"
+            placeholder="自定义输出目录路径…"
+            :value="configStore.outputDir"
+            @input="configStore.setCustomOutputDir(($event.target as HTMLInputElement).value)"
+          />
+          <button class="btn btn-sm btn-secondary" data-testid="btn-browse-dest" @click="pickOutputDir">更改…</button>
+        </div>
+        <span v-if="hasMultipleSourceDirs && configStore.outputBesideSource" class="multi-dir-hint">
+          （产物将分别保存在各自源文件目录下）
+        </span>
       </div>
     </div>
 
@@ -523,6 +687,24 @@ const selectedTaskPreview = computed(() => {
       data-testid="task-context-menu"
       @click.stop
     >
+      <div class="ctx-item" data-testid="ctx-play-src" @click="contextMenu.task && playSource(contextMenu.task)">
+        <svg class="i sm" viewBox="0 0 24 24" fill="currentColor">
+          <polygon points="6 4 18 12 6 20 6 4" />
+        </svg>
+        <span>播放源文件</span>
+      </div>
+      <div
+        v-if="contextMenu.task.status === 'success'"
+        class="ctx-item"
+        data-testid="ctx-play-dst"
+        @click="playOutput(contextMenu.task)"
+      >
+        <svg class="i sm" viewBox="0 0 24 24" fill="currentColor">
+          <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2" />
+          <polygon points="10 8 16 12 10 16 10 8" />
+        </svg>
+        <span>播放转码产物</span>
+      </div>
       <div class="ctx-item" data-testid="ctx-inspect" @click="inspectFromMenu">
         <svg class="i sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <circle cx="12" cy="12" r="10" />
@@ -931,18 +1113,165 @@ tbody tr.dim {
   color: var(--error);
 }
 
+.icon-btn.ok-icon {
+  color: var(--success, #10b981);
+}
+
+.icon-btn.ok-icon:hover {
+  background: rgba(16, 185, 129, 0.12);
+}
+
 /* 底部操作与预览底板 (对标 ShanaEncoder) */
 .table-bottom-bar {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  flex-direction: column;
+  gap: 8px;
   padding: 8px 12px;
   border-top: 1px solid var(--divider);
   background: var(--bg-card);
   font-size: 12px;
   flex-shrink: 0;
-  min-height: 40px;
+}
+
+.bottom-top-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 32px;
+}
+
+.btn-detail-toggle {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 11px;
+  color: var(--primary);
+  padding: 2px 8px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.12s;
+}
+
+.btn-detail-toggle:hover {
+  background: var(--primary-soft);
+}
+
+.shana-compare-card {
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px dashed var(--divider);
+  padding-bottom: 4px;
+}
+
+.card-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.card-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.card-col {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 11px;
+}
+
+.col-title {
+  font-weight: 600;
+  color: var(--primary);
+  margin-bottom: 2px;
+}
+
+.card-item {
+  display: flex;
+  gap: 6px;
+  color: var(--text-2);
+}
+
+.card-item span {
+  color: var(--text-3);
+  flex-shrink: 0;
+}
+
+.card-item b {
+  color: var(--text-base);
+  font-family: var(--mono);
+}
+
+.card-item.truncate {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+.output-dest-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  padding-top: 4px;
+  border-top: 1px solid var(--border);
+}
+
+.dest-ck-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-base);
+  cursor: pointer;
+  user-select: none;
+  font-weight: 500;
+}
+
+.dest-ck {
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+
+.custom-dest-box {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  max-width: 460px;
+}
+
+.dest-input {
+  flex: 1;
+  height: 24px;
+  font-size: 11px;
+  font-family: var(--mono);
+  padding: 0 8px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-base);
+}
+
+.multi-dir-hint {
+  font-size: 11px;
+  color: var(--text-3);
 }
 
 .tb-actions {

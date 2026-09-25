@@ -397,13 +397,11 @@ class DesktopTranscodeService {
         "未找到可用的 ffmpeg 可执行文件。请安装 ffmpeg 后重启应用，或在环境变量 FFMPEG_PATH 中指定其绝对路径。",
       )
     }
-    if (taskIds !== undefined && taskIds.length === 0) {
+    if (!taskIds || !Array.isArray(taskIds) || taskIds.length === 0) {
       throw new Error("No selected tasks to execute")
     }
 
-    const selectedTasks = taskIds && taskIds.length > 0
-      ? this.currentPlan.tasks.filter((task: any) => taskIds.includes(task.id))
-      : this.currentPlan.tasks
+    const selectedTasks = this.currentPlan.tasks.filter((task: any) => taskIds.includes(task.id))
     if (!selectedTasks || selectedTasks.length === 0) {
       throw new Error("No selected tasks to execute")
     }

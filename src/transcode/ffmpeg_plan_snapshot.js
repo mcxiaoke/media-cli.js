@@ -1,3 +1,5 @@
+import path from "node:path"
+
 /**
  * Create the internal execution plan envelope.
  * It may retain preset/runtime objects and is never sent directly to a renderer.
@@ -55,6 +57,31 @@ export function createPublicTaskSnapshot(taskOrEntry = {}, index = 0, defaultSta
     const info = task.mediaInfo || task.info || null
     const size = Number(task.size || 0)
     const duration = Number(task.duration || 0)
+    const dst = task.dstArgs || {}
+    const preset = task.preset || {}
+    const targetContainer = (task.fileDst ? path.extname(task.fileDst).replace(/^\./, "") : preset.format) || undefined
+    const targetEncoder = task.hwPlan?.encoder || preset.encoder || preset.videoEncoder || undefined
+    const targetWidth = Number.isFinite(dst.dstWidth) ? dst.dstWidth : Number.isFinite(task.dstWidth) ? task.dstWidth : undefined
+    const targetHeight = Number.isFinite(dst.dstHeight) ? dst.dstHeight : Number.isFinite(task.dstHeight) ? task.dstHeight : undefined
+    const targetFps = Number.isFinite(dst.dstFrameRate) ? dst.dstFrameRate : Number.isFinite(task.dstFrameRate) ? task.dstFrameRate : undefined
+    const targetQuality = Number.isFinite(dst.dstVideoQuality) ? dst.dstVideoQuality : Number.isFinite(task.dstVideoQuality) ? task.dstVideoQuality : undefined
+    const targetBitrate = Number.isFinite(dst.dstVideoBitrate) ? dst.dstVideoBitrate : Number.isFinite(task.dstVideoBitrate) ? task.dstVideoBitrate : undefined
+    const targetAudioCodec = preset.audioCodec || preset.userArgs?.audioCodec || task.dstAudioCodec || undefined
+    const targetAudioBitrate = Number.isFinite(dst.dstAudioBitrate) ? dst.dstAudioBitrate : Number.isFinite(task.dstAudioBitrate) ? task.dstAudioBitrate : undefined
+
+    const hasTargetInfo = Boolean(targetContainer || targetEncoder || targetWidth || targetQuality || targetBitrate || targetAudioCodec)
+    const targetSummary = task.targetSummary || (hasTargetInfo ? {
+        container: targetContainer,
+        videoEncoder: targetEncoder,
+        width: targetWidth,
+        height: targetHeight,
+        fps: targetFps,
+        quality: targetQuality,
+        bitrate: targetBitrate,
+        audioCodec: targetAudioCodec,
+        audioBitrate: targetAudioBitrate,
+    } : undefined)
+
     return {
         id: task.id || task.taskId || `task-${index}`,
         index: Number.isInteger(task.index) ? task.index : index,
@@ -95,6 +122,7 @@ export function createPublicTaskSnapshot(taskOrEntry = {}, index = 0, defaultSta
         progress: Number.isFinite(task.progress) ? task.progress : 0,
         speed: Number.isFinite(task.speed) ? task.speed : 0,
         rawMetadata: task.rawMetadata || (info ? JSON.stringify(info, null, 2) : undefined),
+        targetSummary,
     }
 }
 
