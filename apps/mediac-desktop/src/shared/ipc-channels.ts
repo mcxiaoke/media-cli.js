@@ -26,6 +26,8 @@ export const IPC_CHANNELS = {
   ENV_GET: "env:get",
   DIALOG_SELECT_FILES: "dialog:select-files",
   STAGE_INPUTS: "ffmpeg:stage-inputs",
+  STAGE_CLEAR: "ffmpeg:stage-clear",
+  STAGE_REMOVE: "ffmpeg:stage-remove",
   PLAN_CREATE: "plan:create",
   EXECUTION_START: "execution:start",
   EXECUTION_STOP: "execution:stop",

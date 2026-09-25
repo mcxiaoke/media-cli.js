@@ -528,6 +528,7 @@ async function planFFmpegTasks(argv) {
     })
     let tasks = prepared.tasks
 
+    let planDeleteDstTasks = []
     if (argv.deleteSourceFiles) {
         // 目标产物必须「存在且非空」才可删源：0 字节说明上次运行中断留下了坏文件，
         // 此时删源等于用坏产物换掉好源文件，不可逆
@@ -546,36 +547,10 @@ async function planFFmpegTasks(argv) {
                 log.logWarn(LOG_TAG, `  BadDst: ${helper.pathShort(bt.dstExistsPath || bt.path)}`)
             }
         }
-        if (dstExitsTasks.length > 0) {
-            // test 模式的契约是"只打印计划、不动文件"。
-            // 此前这一支缺少 testMode 守卫，dry-run 也会把源文件真实移进回收站。
-            if (testMode) {
-                log.logWarn(
-                    LOG_TAG,
-                    `${t("ffmpeg.confirm.delete.source", { count: dstExitsTasks.length })} [TestMode]`,
-                )
-            } else {
-                const answer = await confirmDangerousAction(
-                    t("ffmpeg.confirm.delete.source", { count: dstExitsTasks.length }),
-                )
-                if (answer) {
-                    const deletion = await deleteCompletedSources({
-                        plan: {
-                            argv: { deleteSourceFiles: true },
-                            tasks: dstExitsTasks,
-                        },
-                        includeExisting: true,
-                        confirmDeleteSource: true,
-                    })
-                    for (const deletedPath of deletion.deleted) {
-                        log.logWarn(LOG_TAG, `SafeDel ${deletedPath}`)
-                    }
-                    for (const failedPath of deletion.failed) {
-                        log.logError(LOG_TAG, `SafeDelFailed ${failedPath}`)
-                    }
-                }
-            }
-        }
+        // 已有产物的删源挪到「处理确认」之后执行（见下方 abortIfCancelled 之后）：
+        // 此前在总确认之前删，用户对删源答 y、对总确认答 n 时会留下
+        // 「零转码但源文件已被移走」的中间态，破坏"最后一问取消=零改动"契约。
+        planDeleteDstTasks = dstExitsTasks
     }
 
     const lastTask = prepared.executableTasks.slice(-1)[0] || tasks.find((task) => task.fileDst)
@@ -633,6 +608,36 @@ async function planFFmpegTasks(argv) {
     )
     if (await abortIfCancelled(answer, LOG_TAG)) {
         return null
+    }
+    // 已有产物的删源：在总确认通过后才执行（此前位于确认之前，取消时仍会移走源文件）
+    if (planDeleteDstTasks.length > 0) {
+        // test 模式的契约是"只打印计划、不动文件"。
+        if (testMode) {
+            log.logWarn(
+                LOG_TAG,
+                `${t("ffmpeg.confirm.delete.source", { count: planDeleteDstTasks.length })} [TestMode]`,
+            )
+        } else {
+            const delAnswer = await confirmDangerousAction(
+                t("ffmpeg.confirm.delete.source", { count: planDeleteDstTasks.length }),
+            )
+            if (delAnswer) {
+                const deletion = await deleteCompletedSources({
+                    plan: {
+                        argv: { deleteSourceFiles: true },
+                        tasks: planDeleteDstTasks,
+                    },
+                    includeExisting: true,
+                    confirmDeleteSource: true,
+                })
+                for (const deletedPath of deletion.deleted) {
+                    log.logWarn(LOG_TAG, `SafeDel ${deletedPath}`)
+                }
+                for (const failedPath of deletion.failed) {
+                    log.logError(LOG_TAG, `SafeDelFailed ${failedPath}`)
+                }
+            }
+        }
     }
     return { ...prepared, tasks, testMode, preset, jobs: argv.jobs }
 }

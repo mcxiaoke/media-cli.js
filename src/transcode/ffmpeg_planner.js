@@ -225,7 +225,7 @@ export async function deleteCompletedSources({
 
     const completed = (plan.tasks || []).filter((task) => {
         const outputPath = task.fileDst || task.dstExistsPath
-        const isCompleted = task.status === "done"
+        const isCompleted = task.status === "done" || task.status === "success"
         const isExistingOutput =
             includeExisting && task.dstExists === true && (task.dstExistsSize || 0) > 0
         return (

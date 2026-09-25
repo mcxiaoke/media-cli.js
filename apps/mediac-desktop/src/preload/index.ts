@@ -21,6 +21,12 @@ const api: DesktopApi = {
   stageInputs(paths) {
     return ipcRenderer.invoke(IPC_CHANNELS.STAGE_INPUTS, safeClone(paths))
   },
+  clearStagedInputs() {
+    return ipcRenderer.invoke(IPC_CHANNELS.STAGE_CLEAR)
+  },
+  removeStagedInputs(paths) {
+    return ipcRenderer.invoke(IPC_CHANNELS.STAGE_REMOVE, safeClone(paths))
+  },
   getAppVersion() {
     return ipcRenderer.invoke(IPC_CHANNELS.APP_GET_VERSION)
   },

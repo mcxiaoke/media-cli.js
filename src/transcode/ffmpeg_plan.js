@@ -298,9 +298,9 @@ function calculateDstArgs(entry) {
     const dstSpeed = ep.userArgs.speed || ep.speed
     const dstDimension = ep.userArgs.dimension || ep.dimension
 
-    // 只有目标长边小于原视频长边时才需要缩放，才需要加sclae filter
-    // 避免加不必要的ffmpeg参数拖累性能
-    const dstScaleNeeded = srcWidth > dstDimension || srcHeight > dstDimension
+    // 只有目标长边小于原视频长边时才需要缩放，才需要加scale filter
+    // 避免加不必要的ffmpeg参数拖累性能（dstDimension <= 0 表示不限制尺寸/原画直出）
+    const dstScaleNeeded = dstDimension > 0 && (srcWidth > dstDimension || srcHeight > dstDimension)
 
     if (helper.isAudioFile(entry.path)) {
         // 音频文件

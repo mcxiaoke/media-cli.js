@@ -88,7 +88,10 @@ export const usePlanStore = defineStore("plan", () => {
 
     tasks.value = [...current, ...trulyNew]
     const s = new Set(selectedIds.value)
-    for (const t of trulyNew) s.add(t.id)
+    for (const t of trulyNew) {
+      s.add(t.id)
+      if (t.path) excludedPaths.value.delete(t.path)
+    }
     selectedIds.value = s
 
     if (status.value === "IDLE" || status.value === "READY") {
@@ -114,7 +117,11 @@ export const usePlanStore = defineStore("plan", () => {
       activeTaskId.value = tasks.value[0]?.id || null
     }
     if (tasks.value.length === 0) {
-      setPlan(null)
+      tasks.value = []
+      selectedIds.value = new Set()
+      activeTaskId.value = null
+      inspectedTask.value = null
+      status.value = "IDLE"
     } else {
       markStale()
     }
@@ -136,7 +143,11 @@ export const usePlanStore = defineStore("plan", () => {
     }
     selectedIds.value = new Set()
     if (tasks.value.length === 0) {
-      setPlan(null)
+      tasks.value = []
+      selectedIds.value = new Set()
+      activeTaskId.value = null
+      inspectedTask.value = null
+      status.value = "IDLE"
     } else {
       markStale()
     }
@@ -178,9 +189,16 @@ export const usePlanStore = defineStore("plan", () => {
   }
 
   function markStale() {
-    if (tasks.value.length > 0 && (status.value === "READY" || status.value === "STALE")) {
-      status.value = "STALE"
-    } else if (tasks.value.length === 0) {
+    // 终态（COMPLETED/FAILED/STOPPED）之后配置变化同样必须标 STALE：
+    // startExecution 只在 STALE / hasStaged / 无 planSnapshot 时才重推演，
+    // 若终态下 markStale 是 no-op，旧计划里已确认的 deleteSourceFiles/
+    // deleteSourceConfirmed 会在用户关闭删源开关后继续生效（数据风险）。
+    // 忙碌态（RUNNING/PLANNING/STOPPING）保持不变，由执行流自行收敛。
+    if (tasks.value.length > 0) {
+      if (status.value !== "RUNNING" && status.value !== "PLANNING" && status.value !== "STOPPING") {
+        status.value = "STALE"
+      }
+    } else {
       status.value = "IDLE"
     }
   }

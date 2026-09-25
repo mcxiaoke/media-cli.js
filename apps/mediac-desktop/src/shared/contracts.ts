@@ -175,6 +175,8 @@ export interface DesktopApi {
   getPathForFile(file: File): string
   selectFiles(options: SelectFileOptions): Promise<SelectFileResult>
   stageInputs(paths: string[]): Promise<StageInputsResult>
+  clearStagedInputs(): Promise<{ ok: boolean }>
+  removeStagedInputs(paths: string[]): Promise<{ removed: number; totalCount: number }>
   getAppVersion(): Promise<string>
   getEnvironment(): Promise<EnvironmentSummary>
   setCustomToolPaths(paths: CustomToolPaths): Promise<EnvironmentSummary>

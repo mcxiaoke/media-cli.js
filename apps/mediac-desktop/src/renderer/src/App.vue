@@ -285,10 +285,17 @@ async function stopExecution() {
 }
 
 // Clear all tasks & inputs
-function clearAll() {
+async function clearAll() {
   if (isBusy()) return
   configStore.clearInputs()
   planStore.setPlan(null)
+  if (window.api?.clearStagedInputs) {
+    try {
+      await window.api.clearStagedInputs()
+    } catch (err) {
+      console.error("clearStagedInputs error:", err)
+    }
+  }
 }
 
 let unsubscribeEvents: (() => void) | null = null
@@ -541,7 +548,7 @@ onUnmounted(() => {
 
         <!-- 表格或空态 -->
         <HeroEmpty v-if="planStore.tasks.length === 0" />
-        <TaskTable v-else />
+        <TaskTable v-else @clear-all="clearAll" />
 
         <!-- 底部紧凑/展开执行看板 -->
         <ExecutionBoard />

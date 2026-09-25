@@ -125,6 +125,12 @@ export const useConfigStore = defineStore("config", () => {
     inputs.value.splice(index, 1)
   }
 
+  function removeInputs(paths: string[]) {
+    if (!paths || paths.length === 0) return
+    const toRemove = new Set(paths)
+    inputs.value = inputs.value.filter((p) => !toRemove.has(p))
+  }
+
   function clearInputs() {
     inputs.value = []
   }
@@ -156,6 +162,7 @@ export const useConfigStore = defineStore("config", () => {
     resetAudioTune,
     addInputs,
     removeInput,
+    removeInputs,
     clearInputs,
   }
 })

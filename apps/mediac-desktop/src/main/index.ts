@@ -308,6 +308,13 @@ handleTrusted(IPC_CHANNELS.STAGE_INPUTS, async (paths: unknown) => {
   if (!Array.isArray(paths)) throw new Error("paths must be an array of strings")
   return transcodeService.stageInputs(paths as string[])
 })
+handleTrusted(IPC_CHANNELS.STAGE_CLEAR, async () => {
+  return transcodeService.clearStagedInputs()
+})
+handleTrusted(IPC_CHANNELS.STAGE_REMOVE, async (paths: unknown) => {
+  if (!Array.isArray(paths)) throw new Error("paths must be an array of strings")
+  return transcodeService.removeStagedInputs(paths as string[])
+})
 handleTrusted(IPC_CHANNELS.PLAN_CREATE, (body: Record<string, unknown>) => {
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     throw new Error("plan body must be a plain object")

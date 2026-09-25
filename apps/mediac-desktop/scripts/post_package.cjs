@@ -8,6 +8,6 @@ const winZip = path.join(releaseDir, `MediaCli-${version}-win.zip`)
 const portableZip = path.join(releaseDir, `MediaCli-${version}-portable.zip`)
 
 if (fs.existsSync(winZip)) {
-  fs.copyFileSync(winZip, portableZip)
-  console.log(`[post-package] Generated portable zip: ${path.basename(portableZip)}`)
+    fs.copyFileSync(winZip, portableZip)
+    console.log(`[post-package] Generated portable zip: ${path.basename(portableZip)}`)
 }

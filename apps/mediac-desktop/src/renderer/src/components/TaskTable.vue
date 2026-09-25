@@ -10,6 +10,7 @@ const planStore = usePlanStore()
 const configStore = useConfigStore()
 const logStore = useLogStore()
 const isDetailExpanded = ref(false)
+const emit = defineEmits<{ (e: "clearAll"): void }>()
 
 async function playMedia(filePath: string) {
   if (!filePath || !window.api?.openPath) return
@@ -91,7 +92,15 @@ function handleRowDblClick(task: PlanTask, event?: MouseEvent) {
 
 function removeTask(task: PlanTask, event?: MouseEvent) {
   event?.stopPropagation()
+  // 运行中禁止移除：引擎仍会写盘，移除后该任务进度/结果事件静默失配
+  if (isPlanBusy()) return
   planStore.removeTask(task.id)
+  if (task.path) {
+    configStore.removeInputs([task.path])
+    if (window.api?.removeStagedInputs) {
+      void window.api.removeStagedInputs([task.path])
+    }
+  }
   logStore.append({
     level: "INFO",
     message: `已从任务列表中移除: ${task.name}`,
@@ -259,12 +268,47 @@ function removeTaskFromMenu() {
 }
 
 function removeSelectedFromMenu() {
+  // 运行中禁止移除：引擎仍会写盘，移除后进度事件静默失配，用户失去可见性
+  if (isPlanBusy()) return
+  // removeSelectedTasks 会清空 selectedIds，先捕获路径再同步剔除 inputs 与主进程 staged
+  const paths = planStore.tasks
+    .filter((t) => planStore.selectedIds.has(t.id))
+    .map((t) => t.path)
+    .filter((p): p is string => Boolean(p))
   planStore.removeSelectedTasks()
+  if (paths.length > 0) {
+    configStore.removeInputs(paths)
+    if (window.api?.removeStagedInputs) {
+      void window.api.removeStagedInputs(paths)
+    }
+  }
   closeContextMenu()
 }
 
-function clearAllTasksFromMenu() {
+// 与 App.vue 的 isBusy 同口径：菜单/右键操作与顶栏按钮共用状态守卫
+function isPlanBusy() {
+  return (
+    planStore.status === "RUNNING" ||
+    planStore.status === "PLANNING" ||
+    planStore.status === "STOPPING"
+  )
+}
+
+async function clearAllTasksFromMenu() {
+  // 与顶栏 clearAll 严格等价。此前只 setPlan(null)，遗漏三件事：
+  // 1) 无 busy 守卫：RUNNING 中清空会让 UI 与引擎脱钩（状态被重置、终止按钮消失）；
+  // 2) 未清 configStore.inputs：下次生成计划时被清空的文件全量复活；
+  // 3) 未清主进程 stagedEntries：相同文件再次导入被当重复静默丢弃。
+  if (isPlanBusy()) return
+  configStore.clearInputs()
   planStore.setPlan(null)
+  if (window.api?.clearStagedInputs) {
+    try {
+      await window.api.clearStagedInputs()
+    } catch (err) {
+      console.error("clearStagedInputs error:", err)
+    }
+  }
   closeContextMenu()
 }
 

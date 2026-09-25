@@ -1,5 +1,5 @@
 import { app } from "electron"
-import { execFileSync } from "node:child_process"
+import { execFileSync, execFile } from "node:child_process"
 import path from "node:path"
 import {
   collectInputFiles,
@@ -55,6 +55,12 @@ class DesktopTranscodeService {
   private eventSink: ((event: Record<string, unknown>) => void) | null = null
   private summary: Record<string, unknown> | null = null
   private activePids = new Set<number>()
+  /**
+   * 进度事件节流：按 taskId 分桶。
+   * 此前单一时间戳被所有并发任务共享，jobs>1 时部分任务的进度被持续丢弃、
+   * 行卡 0%；分桶后每个任务独立 100ms 节流。
+   */
+  private progressThrottleMap = new Map<string, number>()
 
   constructor() {
     const userData = app.getPath("userData")
@@ -240,6 +246,27 @@ class DesktopTranscodeService {
     }
   }
 
+  clearStagedInputs(): { ok: boolean } {
+    this.stagedEntries.clear()
+    this.currentPlan = null
+    return { ok: true }
+  }
+
+  removeStagedInputs(paths: string[]): { removed: number; totalCount: number } {
+    if (!Array.isArray(paths) || paths.length === 0) {
+      return { removed: 0, totalCount: this.stagedEntries.size }
+    }
+    let removed = 0
+    for (const p of paths) {
+      if (typeof p !== "string") continue
+      const canonical = path.resolve(p)
+      if (this.stagedEntries.delete(canonical)) {
+        removed++
+      }
+    }
+    return { removed, totalCount: this.stagedEntries.size }
+  }
+
   async createPlan(body: Record<string, unknown> = {}): Promise<PublicPlanSnapshot> {
     // RUNNING 期间不可重建；STOPPING 期间同理——此刻 abort 还在收尾，
     // 重建会清掉 currentPlan，与 stopExecution 的收尾写入互相踩踏。
@@ -343,6 +370,12 @@ class DesktopTranscodeService {
           const firstTask = this.currentPlan.tasks[0]
           const buildResult = createFFmpegArgs(firstTask, this.environment.buildPreviewHwPlan())
           const rawArgs = buildResult?.args ? buildResult.args.flat() : []
+          if (rawArgs.length > 0 && firstTask.fileDstTemp && firstTask.fileDst) {
+            const lastIdx = rawArgs.length - 1
+            if (rawArgs[lastIdx] === firstTask.fileDstTemp) {
+              rawArgs[lastIdx] = firstTask.fileDst
+            }
+          }
           const flat = rawArgs
             .map((arg: any) => {
               const s = String(arg)
@@ -395,6 +428,36 @@ class DesktopTranscodeService {
         }
       } catch {
         // Process may already have terminated or been killed
+      }
+    }
+  }
+
+  /**
+   * 并行异步杀进程：此前的同步串行 taskkill 在 8 并发下最坏会阻塞主进程
+   * 事件循环约 16s（UI/IPC 全冻结）。并行 + execFile 异步回调把最坏阻塞
+   * 压到 0（不阻塞），总耗时上限仍为单个 timeout 2s。
+   * 仅供 stopExecution 使用；dispose（应用退出）仍走同步版保证子进程必死。
+   */
+  private killTrackedProcessesAsync() {
+    const pids = [...this.activePids]
+    this.activePids.clear()
+    if (pids.length === 0) return
+    for (const pid of pids) {
+      if (process.platform === "win32") {
+        execFile(
+          "taskkill",
+          ["/PID", String(pid), "/T", "/F"],
+          { windowsHide: true, timeout: 2000 },
+          () => {
+            // 进程可能已退出，错误无需处理
+          },
+        )
+      } else {
+        try {
+          process.kill(pid, "SIGKILL")
+        } catch {
+          // Process may already have terminated
+        }
       }
     }
   }
@@ -459,6 +522,8 @@ class DesktopTranscodeService {
       ok: undefined,
       ffmpegFailed: undefined,
       ffmpegError: undefined,
+      ffmpegArgs: undefined,
+      hwPlan: undefined,
       error: null,
       skipReason: null,
       progress: 0,
@@ -491,7 +556,8 @@ class DesktopTranscodeService {
       updateTaskbarProgress(0)
     }
 
-    let lastProgressTime = 0
+    // 进度节流表按任务分桶（见 progressThrottleMap），每轮执行前清空防泄漏
+    this.progressThrottleMap.clear()
 
     const engine = createFFmpegEngine({
       runTask: (task: any, context: any) =>
@@ -516,8 +582,10 @@ class DesktopTranscodeService {
       onEvent: (event: Record<string, unknown>) => {
         if (event.type === "task.progress") {
           const now = Date.now()
-          if (now - lastProgressTime < 100) return
-          lastProgressTime = now
+          const throttleKey = String(event.taskId ?? "")
+          const last = this.progressThrottleMap.get(throttleKey) ?? 0
+          if (now - last < 100) return
+          this.progressThrottleMap.set(throttleKey, now)
           if (typeof event.percent === "number") {
             updateTaskbarProgress(event.percent / 100)
           }
@@ -553,6 +621,30 @@ class DesktopTranscodeService {
           mode: "execute",
           signal,
           concurrency: this.plannedConcurrency,
+          maxAttempts: 2,
+          shouldRetry: ({ result }: any) => result?.status === "failed",
+          prepareAttempt: async ({ task, result, attempt }: any) => {
+            if (attempt === 1) return task
+            this.eventSink?.({
+              type: "task.log",
+              level: "WARN",
+              message: `[自动重试] 任务转码失败，自动切换为 CPU 模式重试: ${task.name || task.path} (${result?.error || ""})`,
+              timestamp: new Date().toLocaleTimeString(),
+            })
+            const retryTask = {
+              ...task,
+              argv: { ...(task.argv || {}), decodeMode: "cpu" },
+              retryOnFailed: true,
+              ffmpegArgs: undefined,
+              hwPlan: undefined,
+              ok: undefined,
+              ffmpegFailed: undefined,
+              ffmpegError: undefined,
+              status: "pending",
+              error: null,
+            }
+            return retryTask
+          },
           onSummary: async (summary: Record<string, unknown>) => {
             // engine 通过 safeCallAsync 调用 onSummary 并吞掉异常，
             // 这里必须自己兜底，否则状态会永久停在 RUNNING 并把后续操作全部锁死。
@@ -636,7 +728,7 @@ class DesktopTranscodeService {
     if (!this.abortController) return { ok: false, message: "No running task to stop" }
     this.status = "STOPPING"
     this.abortController.abort()
-    this.killTrackedProcessesSync()
+    this.killTrackedProcessesAsync()
     stopPreventSuspension()
     updateTaskbarProgress(-1)
     return { ok: true, message: "Stop signal sent" }

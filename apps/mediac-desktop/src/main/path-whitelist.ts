@@ -58,7 +58,8 @@ export class PathWhitelist {
   isAuthorizedRoot(targetPath: string): boolean {
     const target = this.normalizeForCompare(targetPath)
     for (const root of this.authorizedRoots) {
-      if (target === root || target.startsWith(root + path.sep)) return true
+      const prefix = root.endsWith(path.sep) ? root : root + path.sep
+      if (target === root || target.startsWith(prefix)) return true
     }
     return false
   }

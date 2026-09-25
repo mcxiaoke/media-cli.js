@@ -389,7 +389,26 @@ function appendSubtitleArgs(entry, inputArgs, tempPreset) {
 
     const extRaw =
         path.extname(entry.fileDst || "") || tempPreset.format || helper.pathExt(entry.path) || ""
-    const isMkv = extRaw.toLowerCase().includes("mkv")
+    const extLower = extRaw.toLowerCase()
+    const isMkv = extLower.includes("mkv")
+
+    // WebM 虽是 Matroska 子集，但字幕仅支持 WebVTT：
+    // srt/ass 走 mkv 的 -c:s copy 或 MP4 的 mov_text 都会被 muxer 拒绝（实测：
+    // "Only VP8/VP9/AV1 video and Vorbis or Opus audio and WebVTT subtitles are supported"）。
+    // 与 MP4 位图字幕同样降级为 -sn 丢弃并告警（外挂字幕同理不挂载）。
+    if (extLower.includes("webm")) {
+        const hasSubs =
+            Boolean(entry.selectedSubtitle) ||
+            (Array.isArray(entry.info?.subtitles) && entry.info.subtitles.length > 0)
+        if (hasSubs) {
+            log.logWarn(
+                "FFConv",
+                "WebM container supports WebVTT subtitles only; dropping subtitles with -sn",
+            )
+        }
+        inputArgs.push(...SUB_ARGS_MP4_DROP)
+        return
+    }
 
     // 1. 外挂字幕：优先挂载外挂文件并映射
     if (entry.selectedSubtitle) {
@@ -449,13 +468,19 @@ function buildFilterArgs(entry, tempPreset, hwPlan) {
     //     与旧行为一致（不产生多余的同尺寸缩放）
     //   - 位深对齐（10bit 源 + h264 目标）必须输出，否则硬件编码器打不开 10bit 帧
     //   - 变速(sp≠1) 必须输出：-vf 里要带 setpts（否则 --speed 静默丢失）
+    // 流复制（-c:v copy）与任何 -vf 互斥：必须整段跳过。
+    // 除 scale/fps/setpts 外，还覆盖位深对齐（depthAlignNeeded 在 10bit 源时
+    // 会注入 format 滤镜）等所有注入源，否则 copy 命令仍会因滤镜失败。
+    const videoCopy =
+        tempPreset.userArgs?.videoCodec === "copy" || tempPreset.userArgs?.videoCopy === true
     if (
-        entry.dstArgs.scaled ||
-        tempPreset.framerate > 0 ||
-        pre ||
-        post ||
-        sp !== 1 ||
-        depthAlignNeeded(entry, hwPlan, tempPreset)
+        !videoCopy &&
+        (entry.dstArgs.scaled ||
+            tempPreset.framerate > 0 ||
+            pre ||
+            post ||
+            sp !== 1 ||
+            depthAlignNeeded(entry, hwPlan, tempPreset))
     ) {
         let tempFilters = buildScaleFiltersFromPlan(entry, hwPlan, tempPreset)
         // 帧在系统内存（软解层：cpu / swdec）时，若滤镜链含 CUDA 滤镜（scale_cuda 等），
@@ -524,7 +549,28 @@ function buildAudioArgs(entry, tempPreset, caps) {
         tempPreset.audioCodec === "copy" ||
         tempPreset.audioArgs === "-c:a copy"
     ) {
-        shouldCopy = true
+        // 流复制前必须过容器兼容闸（与下方智能 copy 分支同一道闸）：
+        // 此前 copy 直接放行，vorbis 等源 copy 进 m4a/mp4 在 muxer 阶段硬失败
+        //（实测 "Could not find tag for codec vorbis"）。不兼容时降级为重编码。
+        // 无音频流（srcAudioCodec 为空）时 copy 是 no-op，直接放行避免无谓告警。
+        if (!entry.srcAudioCodec) {
+            shouldCopy = true
+        } else {
+            const dstExt = tempPreset.format || helper.pathExt(entry.path)
+            const containerOk = helper.isAudioCodecCompatibleWithContainer(
+                entry.srcAudioCodec,
+                dstExt,
+                entry.info?.audio?.codec,
+            )
+            if (containerOk) {
+                shouldCopy = true
+            } else {
+                log.logWarn(
+                    "FFConv",
+                    `Audio copy skipped: codec "${entry.srcAudioCodec}" not supported in container "${dstExt}", forcing re-encode`,
+                )
+            }
+        }
     } else if (presets.isAudioExtract(tempPreset)) {
         // extract_audio 模式：源音频格式为 aac 时直接 copy
         if (entry.srcAudioCodec === "aac") {
@@ -563,6 +609,10 @@ function buildAudioArgs(entry, tempPreset, caps) {
 
     // 3. 编码模式：确定音频编码器并做静态降级检查
     let codec = tempPreset.userArgs?.audioCodec || tempPreset.audioCodec || "aac"
+    // copy 语义被容器兼容检查否决后落到此分支，"copy" 不是有效编码器名，回退默认 aac
+    if (codec === "copy") {
+        codec = "aac"
+    }
     if (tempPreset.audioArgs && !tempPreset.audioCodec) {
         const m = String(tempPreset.audioArgs).match(/-c:a(?::\d+)?\s+(\S+)/)
         if (m) {

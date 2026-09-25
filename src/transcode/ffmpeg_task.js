@@ -251,12 +251,18 @@ export async function buildCliTask(entry, deps = {}) {
         }
 
         if (!argv.output && (prefix || suffix) && (await fsApi.pathExists(fileDstSameDir))) {
+            const existSt = await fsApi.stat(fileDstSameDir).catch(() => null)
+            const existSize = existSt?.size || 0
             if (!argv.override) {
                 logger.showYellow(
                     logTag,
                     `${ipx} Skip[Dst2]: ${entry.path} (${helper.humanSize(entry.size)})`,
                 )
-                return skipped(SKIP_REASON.DESTINATION_EXISTS, { dstExists: true })
+                return skipped(SKIP_REASON.DESTINATION_EXISTS, {
+                    dstExists: true,
+                    dstExistsPath: fileDstSameDir,
+                    dstExistsSize: existSize,
+                })
             }
             logger.showGray(logTag, `${ipx} Override: <${helper.pathShort(fileDstSameDir)}>`)
         }

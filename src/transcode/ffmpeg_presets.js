@@ -303,8 +303,24 @@ function applyFfargs(argv, ffargs) {
             !(typeof raw === "boolean" && raw === false)
 
         if (normalizedKey === "videoBitrate" || normalizedKey === "audioBitrate") {
-            if (!hasArgvValue && typeof value === "number" && value > 0) {
-                result[normalizedKey] = value
+            if (!hasArgvValue) {
+                // ffargs 值可能是带单位字符串（vb=233k / abk=2M）：parseBitrate 统一归一为
+                // bps 数字，与 --video-bitrate 233k 的 CLI 行为对齐。
+                // 此前仅接受 number，字符串值被静默丢弃且无提示。
+                if (typeof value === "number" && value > 0) {
+                    result[normalizedKey] = value
+                } else if (typeof value === "string") {
+                    try {
+                        const normalized = parseBitrate(value)
+                        if (normalized > 0) {
+                            result[normalizedKey] = normalized
+                        }
+                    } catch {
+                        console.warn(
+                            `Invalid ffargs bitrate value: "${key}=${value}" (expected e.g. 233k / 2M / 2000000)`,
+                        )
+                    }
+                }
             }
         } else if (
             normalizedKey === "videoQuality" ||
@@ -335,6 +351,11 @@ function applyFfargs(argv, ffargs) {
         } else if (normalizedKey === "preset") {
             if (!hasArgvValue && typeof value === "string") {
                 result.preset = value
+            }
+        } else if (normalizedKey === "anime") {
+            // an/anime 此前在 ARG_ALIASES 中却无消费分支，落入 Unknown-key 告警被丢弃
+            if (!hasArgvValue) {
+                result.anime = value === true || value === 1 || value === "1" || value === "true"
             }
         } else if (normalizedKey === "metadata") {
             // metadata 支持：合并多组 key=value。
@@ -491,6 +512,19 @@ function createFromArgv(argv) {
         if (pairs.length > 0) {
             preset.userArgs.metadataPairs = pairs
         }
+    }
+    // 流复制收口：copy 与滤镜管线互斥（ffmpeg: "Filtering and streamcopy cannot be used together"）。
+    // 此前 copy 分支只清了 filters，dimension/framerate/speed 仍会经 calculateDstArgs 生成
+    // scale/fps/setpts 滤镜，与 -c:v copy 同发导致命令必败。
+    // 放在所有 argv 覆盖之后统一收口，同时覆盖 --video-copy 与 --video-codec copy / ffargs vc=copy
+    // 两条入口（两处都会置 userArgs.videoCopy = true）。
+    if (preset.userArgs.videoCopy === true) {
+        preset.dimension = 0
+        preset.framerate = 0
+        preset.speed = 1
+        preset.userArgs.dimension = 0
+        preset.userArgs.framerate = 0
+        preset.userArgs.speed = 1
     }
     return preset
 }
