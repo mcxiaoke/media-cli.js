@@ -594,11 +594,10 @@ async function planFFmpegTasks(argv) {
     } catch (err) {
         log.logWarn(LOG_TAG, `hw capability detection failed: ${err.message}`)
     }
-    // ⚠️ 此处 hwPlan 尚未生成（分层决策在 runFFmpegCmd 内按文件进行），
-    // 传 null 会让 buildScaleFiltersFromPlan 走兜底分支返回 preset.filters，
-    // 而 preset.filters 是 "{scaleFilter}" 占位符 → 日志里会打印未替换的字面量。
-    // 修复：预览时用 buildLayerArgs 生成一份「示意参数」（cpu 层 + 该 preset 的
-    // codec 族），让日志反映真实命令结构，而不是泄漏占位符。
+    // 预览时还没有真实 hwPlan（分层决策在 runFFmpegCmd 内按文件进行）：用 cpu 层占位
+    // 生成「示意参数」，让日志反映真实命令结构（编码器族/滤镜段顺序）。
+    // 不会泄漏占位符：buildVideoFilters 在无 tier 或尺寸不可算时会剔除缩放段并 warn，
+    // 不会把 "{scaleFilter}" 作为字面量写进命令（见 ffmpeg_build.js 对应分支）。
     const previewPlan = {
         tier: TIERS.find((t) => t.name === "cpu"),
         size: null,

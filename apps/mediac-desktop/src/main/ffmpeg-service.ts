@@ -163,6 +163,9 @@ class DesktopTranscodeService {
     // 3. Concurrently probe stream metadata
     const added: PlanTask[] = []
     const limit = MAX_CONCURRENCY
+    // 序号基址在并发开始前取一次。此前 worker 里读 this.stagedEntries.size 取号，
+    // 多个 worker 会在各自 set() 之前读到同一个值 → 任务 index 重复（表格序号错乱）。
+    const baseIndex = this.stagedEntries.size
     let cursor = 0
 
     const probeWorker = async () => {
@@ -197,7 +200,7 @@ class DesktopTranscodeService {
             containerFormat: ext || "MEDIA",
             mediaInfo: info || undefined,
           },
-          this.stagedEntries.size,
+          baseIndex + idx,
         ) as PlanTask
 
         this.stagedEntries.set(canonical, { item, task, info })
@@ -418,6 +421,21 @@ class DesktopTranscodeService {
         timestamp: new Date().toLocaleTimeString(),
       })
       this.status = "COMPLETED"
+      // 必须补发 session.summary：渲染层只据此事件收敛状态，直接 return 会让它
+      // 永久停在点击时设的 RUNNING（按钮卡死、终止又因无 abortController 失效）。
+      this.eventSink?.({
+        type: "session.summary",
+        summary: {
+          total: 0,
+          success: 0,
+          failed: 0,
+          skipped: 0,
+          cancelled: 0,
+          retryCount: 0,
+          isCancelled: false,
+          elapsedMs: 0,
+        },
+      })
       return { runId: this.currentPlan.id }
     }
 
@@ -434,16 +452,31 @@ class DesktopTranscodeService {
       speed: 0,
     }))
 
-    await this.manifest.recoverStaleTasks()
-    await this.manifest.writeTaskManifest(tasks, this.currentPlan.id)
+    // 先建立 RUNNING 状态与 abortController，再落盘 manifest：
+    //   1) 这两个 await（recoverStaleTasks / writeTaskManifest）期间用户点「终止」，
+    //      stopExecution 依赖 abortController 存在才生效；此前该窗口期内终止会被静默忽略；
+    //   2) 状态提前占位才能挡住并发二次启动（双击按钮 / 快捷键双绑定），
+    //      否则两次调用都会穿过上面的 RUNNING 守卫，同一计划跑起两个引擎。
     this.status = "RUNNING"
     this.abortController = new AbortController()
     const signal = this.abortController.signal
+    try {
+      await this.manifest.recoverStaleTasks()
+      await this.manifest.writeTaskManifest(tasks, this.currentPlan.id)
+    } catch (error) {
+      this.abortController = null
+      this.status = "FAILED"
+      throw error
+    }
     const runId = this.currentPlan.id
     const executionPlan = { ...this.currentPlan, tasks }
 
-    startPreventSuspension()
-    updateTaskbarProgress(0)
+    // 窗口期内已被终止：不再重新开启挂起抑制/重置任务栏（stopExecution 刚把它们关掉），
+    // 仍照常启动引擎，由引擎的取消路径发出 session.summary，渲染层状态才能落地。
+    if (!signal.aborted) {
+      startPreventSuspension()
+      updateTaskbarProgress(0)
+    }
 
     let lastProgressTime = 0
 
@@ -543,9 +576,19 @@ class DesktopTranscodeService {
 
               this.summary = { ...summary, deletion: deletionStats }
 
-              const allFinished = this.currentPlan?.tasks?.every(
-                (t: any) => t.status === "success" || t.status === "skipped"
-              )
+              // 只按「本轮实际执行的任务子集」判定全部完成：执行允许只选部分任务，
+              // 未选中的任务仍停留在 pending/staged。此前用全量 currentPlan.tasks 判定，
+              // 「部分执行且全部成功」会因未选中任务不是 success 而被误判为 STOPPED
+              // （渲染层同一场景判 COMPLETED，两侧状态不一致）。
+              const executedIds = new Set(tasks.map((t: any) => t.id))
+              const executedStatuses = (this.currentPlan?.tasks || [])
+                .filter((t: any) => executedIds.has(t.id))
+                .map((t: any) => t.status)
+              const allFinished =
+                executedStatuses.length > 0 &&
+                executedStatuses.every(
+                  (s: string) => s === "success" || s === "skipped"
+                )
               if (isCancelled) {
                 this.status = "STOPPED"
               } else if (failedCount > 0) {

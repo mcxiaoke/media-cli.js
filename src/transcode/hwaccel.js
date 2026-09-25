@@ -1565,12 +1565,19 @@ export default {
 //    注意其 scale_cuda 表达式同样需要改为预计算的显式尺寸。
 //
 // 4. 音频降级（libfdk_aac 缺失 → native aac）
-//    → 见 v2 方案 4.7 节，本草稿未实现，需另加。
+//    → 已落地：ffmpeg_build.js 的 fallbackAudioEncoder()（非 strict 模式静态降级为 aac），
+//      文案见 lib/i18n.js 的 ffmpeg.audio.* 键。
 //
 // 5. i18n：新增降级原因文案，需补 lib/i18n.js 键。
+//    → 已落地（编码器不可用/降级到 CPU/严格模式跳过等键均已补全）。
 //
 // 未完成项：
 //   - AMF 路径未实测（本机无 A 卡），参数来自 `-h filter=vpp_amf`
-//   - vendor 检测（显卡厂商）未实现，需读 ffmpeg -encoders 或系统信息
-//   - hasAudio 检测未实现，需从 mediainfo 取
 //   - 探测超时值 15000ms 为经验值，未在长素材上压测
+// ---------------------------------------------------------------------------
+// 已落地（原文列于「未完成项」，勿再按缺失实现重复开发）：
+//   - vendor 检测：hwdetect.js 已从 GPU 探测结果归一化 vendor（nvidia/intel/amd/other），
+//     TIERS 每层带 vendor 字段，Tier1 三选一按此判定（另见 gpu.js gpuProbeList）。
+//   - hasAudio 检测：ffmpeg_build.js buildAudioFilters 从 entry.info?.audio ||
+//     entry.srcAudioCodec 判定；ffmpeg_run.js 探测链路同样携带 hasAudio。
+//   - 音频编码器降级：见上文第 4 项。
