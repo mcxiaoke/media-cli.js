@@ -16,7 +16,6 @@ export type TaskStatus =
   | "running"
   | "retrying"
   | "success"
-  | "done"
   | "failed"
   | "skipped"
   | "cancelled"

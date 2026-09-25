@@ -15,12 +15,13 @@ export const usePlanStore = defineStore("plan", () => {
   const inspectedTask = ref<PlanTask | null>(null)
   const currentSpeed = ref(0)
 
-  // 终态集合：迟到的事件（乱序 task.progress/task.started）不得复活终态任务
-  const TERMINAL_STATUSES = new Set(["success", "done", "failed", "skipped", "cancelled"])
-  const FINISHED_STATUSES = new Set(["success", "done", "skipped"])
+  // 终态集合：迟到的事件（乱序 task.progress/task.started）不得复活终态任务。
+  // public 状态协议统一 success（内部 done 由投影映射），不再双兼容。
+  const TERMINAL_STATUSES = new Set(["success", "failed", "skipped", "cancelled"])
+  const FINISHED_STATUSES = new Set(["success", "skipped"])
   // 本轮实际参与执行的任务子集：执行可只选部分任务，未选中的保持 pending/staged，
   // 进度/ETA/完成数都应按该子集口径统计，而不是全量计划
-  const EXECUTED_STATUSES = new Set(["running", "success", "done", "failed", "skipped", "cancelled"])
+  const EXECUTED_STATUSES = new Set(["running", "success", "failed", "skipped", "cancelled"])
 
   const allTasksCompleted = computed(() => {
     return (
@@ -185,7 +186,7 @@ export const usePlanStore = defineStore("plan", () => {
         ...list[idx],
         status: newStatus,
         error: error || list[idx].error,
-        progress: newStatus === "success" || newStatus === "done" ? 100 : list[idx].progress,
+        progress: newStatus === "success" ? 100 : list[idx].progress,
       }
       tasks.value = list
     }

@@ -63,7 +63,8 @@ export function createPublicTaskSnapshot(taskOrEntry = {}, index = 0, defaultSta
         size,
         duration,
         fileDst: task.fileDst || "",
-        status: task.status || defaultStatus,
+        // 状态协议：内部 Engine 使用 done，public 契约统一为 success（唯一映射）。
+        status: task.status === "done" ? "success" : task.status || defaultStatus,
         error: task.error || null,
         skipReason: task.skipReason || null,
         mediaInfo: info || undefined,

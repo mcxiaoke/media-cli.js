@@ -47,7 +47,7 @@ const overallStat = computed(() => {
   const executed = planStore.executedTasks.length
   const denom = executed > 0 ? executed : planStore.tasks.length
   if (denom === 0) return "0 / 0"
-  const done = planStore.tasks.filter((t) => t.status === "success" || t.status === "done").length
+  const done = planStore.tasks.filter((t) => t.status === "success").length
   return `${done} / ${denom}`
 })
 

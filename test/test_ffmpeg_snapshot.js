@@ -142,6 +142,17 @@ test("staged entry and plan task project identical metadata", () => {
     assert.strictEqual(fromPlan.rawMetadata, fromStaged.rawMetadata)
 })
 
+test("internal done always projects to public success", () => {
+    const done = createPublicTaskSnapshot({ ...STAGED_ENTRY, status: "done" }, 0, "pending")
+    assert.strictEqual(done.status, "success")
+    const plan = createPublicPlanSnapshot(
+        createInternalExecutionPlan({
+            tasks: [{ ...STAGED_ENTRY, status: "done" }],
+        }),
+    )
+    assert.strictEqual(plan.tasks[0].status, "success")
+})
+
 test("createPublicPlanSnapshot reuses the unified task projection", () => {
     const internal = createInternalExecutionPlan({
         id: "plan_x",

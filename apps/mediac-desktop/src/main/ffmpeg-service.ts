@@ -600,7 +600,7 @@ class FfmpegEnvironmentService {
 
     // Filter out tasks that are already completed or skipped
     const uncompletedTasks = selectedTasks.filter(
-      (task: any) => task.status !== "success" && task.status !== "done" && task.status !== "skipped"
+      (task: any) => task.status !== "success" && task.status !== "skipped"
     )
 
     if (uncompletedTasks.length === 0) {
@@ -737,7 +737,7 @@ class FfmpegEnvironmentService {
               this.summary = { ...summary, deletion: deletionStats }
 
               const allFinished = this.currentPlan?.tasks?.every(
-                (t: any) => t.status === "success" || t.status === "done" || t.status === "skipped"
+                (t: any) => t.status === "success" || t.status === "skipped"
               )
               if (isCancelled) {
                 this.status = "STOPPED"

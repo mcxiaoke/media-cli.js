@@ -15,7 +15,6 @@ const STATUS_MAP: Record<TaskStatus, { text: string; cls: string }> = {
   running: { text: "转码中", cls: "info" },
   retrying: { text: "重试中", cls: "warn" },
   success: { text: "已完成", cls: "ok" },
-  done: { text: "已完成", cls: "ok" },
   failed: { text: "失败", cls: "err" },
   skipped: { text: "跳过", cls: "warn" },
   cancelled: { text: "已取消", cls: "dis" },
@@ -43,7 +42,7 @@ function openInFolder(task: PlanTask, event: MouseEvent) {
   event.stopPropagation()
   // Before transcoding finishes, locate the existing source file;
   // Once finished, locate the generated destination file.
-  const isDone = task.status === "success" || task.status === "done"
+  const isDone = task.status === "success"
   const target = isDone ? (task.fileDst || task.path) : task.path
   if (target && window.api?.showInFolder) {
     void window.api.showInFolder(target)
