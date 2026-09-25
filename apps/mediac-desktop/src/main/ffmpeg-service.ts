@@ -12,13 +12,13 @@ import {
   deleteCompletedSources,
   detectHardwareCapabilities,
   getMediaInfo,
-  normalizeWebOptions,
+  normalizeDesktopOptions,
   presets,
   prepareFFmpegPlan,
   resolveFFmpegBinary,
   resolveFFprobeBinary,
   runFFmpeg,
-  scanWebInputFiles,
+  scanDesktopInputFiles,
   setFFmpegPath,
   TIERS,
   toLegacyArgvOptions,
@@ -443,7 +443,7 @@ class FfmpegEnvironmentService {
     this.summary = null
     try {
       await this.getSummary()
-      const normalized = normalizeWebOptions(body)
+      const normalized = normalizeDesktopOptions(body)
       const allPresetNames = presets.getAllNames()
       const presetName = normalized.preset || "hevc_2k"
       const presetObject =
@@ -476,7 +476,7 @@ class FfmpegEnvironmentService {
         preset: presetObject.name,
       }
       const activePreset = presets.createFromArgv(argv)
-      const files = (await (scanWebInputFiles as any)({
+      const files = (await (scanDesktopInputFiles as any)({
         inputs: normalized.inputs,
         argv: normalized,
         presetType: activePreset.type,

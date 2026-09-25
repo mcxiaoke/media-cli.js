@@ -180,13 +180,13 @@ export function normalizeCliOptions(argv = {}, deps = {}) {
 }
 
 /**
- * Normalize WebUI/Electron input into the shared FFmpeg option shape.
+ * Normalize desktop (Electron) input into the shared FFmpeg option shape.
  */
-export function normalizeWebOptions(body = {}) {
+export function normalizeDesktopOptions(body = {}) {
     const source = asObject(body, "body")
     const options = asObject(source.options, "options")
     return validateAndNormalize(
-        { ...options, ...pickTopLevelWebOptions(source) },
+        { ...options, ...pickTopLevelDesktopOptions(source) },
         {
             mode: source.mode || "plan",
             inputs: source.inputs || source.input,
@@ -196,7 +196,7 @@ export function normalizeWebOptions(body = {}) {
     )
 }
 
-function pickTopLevelWebOptions(source) {
+function pickTopLevelDesktopOptions(source) {
     const result = {}
     for (const key of [...OPTION_KEYS, "outputMode", "jobs", "strict", "override", "decodeMode"]) {
         if (source[key] !== undefined) result[key] = source[key]

@@ -6,9 +6,9 @@ import * as helper from "../../lib/helper.js"
 import { applyFileNameRules } from "../../lib/rename.js"
 
 /**
- * 收集 WebUI/未来共享 Engine 使用的媒体文件条目。
+ * 收集桌面端/未来共享 Engine 使用的媒体文件条目。
  *
- * 基础收集保持无副作用；filterAndSliceEntries 统一 CLI/WebUI 的媒体类型、
+ * 基础收集保持无副作用；filterAndSliceEntries 统一 CLI/Desktop 的媒体类型、
  * 文件名规则和 start/count 语义。
  *
  * @param {string[]} inputs
@@ -83,11 +83,11 @@ async function filterAndSliceEntries(
 }
 
 /**
- * Scan WebUI/Electron inputs with the same preset type, filename and slice
+ * Scan desktop (Electron) inputs with the same preset type, filename and slice
  * semantics as the CLI pipeline. The caller owns preset construction and task
  * preparation; this function only produces normalized ScanEntry objects.
  */
-export async function scanWebInputFiles({
+export async function scanDesktopInputFiles({
     inputs = [],
     argv = {},
     presetType = "video",

@@ -4,7 +4,7 @@
  * Author: mcxiaoke (github@mcxiaoke.com)
  * License: Apache License 2.0
  *
- * S-4 硬件加速分层与缩放参数（草稿）
+ * S-4 硬件加速分层与缩放参数
  *
  * 设计依据：
  *   docs/S-4-HWACCEL-PLAN-v2-20260920.md   （硬件加速分层方案）
@@ -14,8 +14,8 @@
  *   验证脚本：research/hwtest/run_dimension_verify.py（231 项）
  *             research/hwtest/run_noup_fps_speed.py（34 项）
  *
- * ⚠️ 本文件是草稿，尚未接入 cmd/cmd_ffmpeg.js。
- *    对接点见文件末尾「对接说明」。
+ * 已接入 CLI/Electron 转码链路（由 ffmpeg_build / ffmpeg_plan / ffmpeg_run 消费）；
+ * 文件末尾「对接说明」保留设计背景与未完成项。
  */
 
 import { execa } from "execa"
@@ -1543,8 +1543,11 @@ export default {
 }
 
 // ---------------------------------------------------------------------------
-// 对接说明（尚未实施）
+// 对接说明（设计背景与未完成项）
 // ---------------------------------------------------------------------------
+// 历史背景：下列第 1-3 项描述的缺陷已在迁移中修复 —— canUseCUDADecoder 已移除、
+//   层选择由 selectTier 接管；preset 的 filters 已改为 `{scaleFilter}` 占位符；
+//   缩放经 buildVideoFilters 同源生成。原文保留作为设计依据。
 //
 // 1. cmd/cmd_ffmpeg.js 的 canUseCUDADecoder()（约 1957-2005 行）
 //    → 替换为 selectTier()。现有缺陷：

@@ -5,8 +5,8 @@ import test from "node:test"
 import { fileURLToPath } from "node:url"
 import {
     collectInputFiles,
+    scanDesktopInputFiles,
     scanFFmpegInputs,
-    scanWebInputFiles,
 } from "../src/transcode/ffmpeg_scan.js"
 
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
@@ -63,20 +63,20 @@ test(
 )
 
 test(
-    "ffmpeg web scan shares preset type, filename and filelist rules",
+    "ffmpeg desktop scan shares preset type, filename and filelist rules",
     { skip: !HAS_SAMPLE_VIDEO },
     async () => {
-        const filtered = await scanWebInputFiles({
+        const filtered = await scanDesktopInputFiles({
             inputs: [SAMPLE_VIDEO],
             argv: { exclude: "TEST2__mpeg4_avi_480", regex: true },
             presetType: "video",
         })
         assert.strictEqual(filtered.length, 0)
 
-        const listPath = path.join(PROJECT_ROOT, "temp", "test_ffmpeg_web_scan_filelist.txt")
+        const listPath = path.join(PROJECT_ROOT, "temp", "test_ffmpeg_desktop_scan_filelist.txt")
         await fs.outputFile(listPath, `${SAMPLE_VIDEO}\n`)
         try {
-            const entries = await scanWebInputFiles({
+            const entries = await scanDesktopInputFiles({
                 inputs: [],
                 argv: { filelist: listPath },
                 presetType: "video",

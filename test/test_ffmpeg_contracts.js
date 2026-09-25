@@ -2,7 +2,7 @@ import assert from "assert"
 import test from "node:test"
 import {
     normalizeCliOptions,
-    normalizeWebOptions,
+    normalizeDesktopOptions,
     toLegacyArgvOptions,
 } from "../src/transcode/ffmpeg_options.js"
 import { createEventFactory, ENGINE_EVENT } from "../src/transcode/ffmpeg_events.js"
@@ -11,8 +11,8 @@ import {
     createPublicPlanSnapshot,
 } from "../src/transcode/ffmpeg_plan_snapshot.js"
 
-test("normalizeWebOptions creates the shared domain shape", () => {
-    const options = normalizeWebOptions({
+test("normalizeDesktopOptions creates the shared domain shape", () => {
+    const options = normalizeDesktopOptions({
         inputs: ["C:/media/a.mp4", "C:/media/a.mp4"],
         output: "C:/out",
         preset: "hevc_2k",
@@ -46,16 +46,22 @@ test("normalizeCliOptions applies injected ffargs and keeps doit as explicit mod
 })
 
 test("FFmpeg option validation rejects unsafe domains", () => {
-    assert.throws(() => normalizeWebOptions({ inputs: ["a.mp4"], options: { speed: 3 } }), /speed/)
-    assert.throws(() => normalizeWebOptions({ inputs: ["a.mp4"], options: { jobs: 0 } }), /jobs/)
     assert.throws(
-        () => normalizeWebOptions({ inputs: ["a.mp4"], outputMode: "flat" }),
+        () => normalizeDesktopOptions({ inputs: ["a.mp4"], options: { speed: 3 } }),
+        /speed/,
+    )
+    assert.throws(
+        () => normalizeDesktopOptions({ inputs: ["a.mp4"], options: { jobs: 0 } }),
+        /jobs/,
+    )
+    assert.throws(
+        () => normalizeDesktopOptions({ inputs: ["a.mp4"], outputMode: "flat" }),
         /outputMode/,
     )
 })
 
 test("legacy argv projection removes the shared envelope", () => {
-    const options = normalizeWebOptions({ inputs: ["a.mp4"], preset: "hevc_2k" })
+    const options = normalizeDesktopOptions({ inputs: ["a.mp4"], preset: "hevc_2k" })
     const legacy = toLegacyArgvOptions(options)
     assert.strictEqual(legacy.schemaVersion, undefined)
     assert.strictEqual(legacy.mode, undefined)

@@ -17,10 +17,10 @@ import { t } from "../../lib/i18n.js"
 import * as helper from "../../lib/helper.js"
 
 /**
- * 构建一个 WebUI/共享任务层使用的媒体任务条目。
+ * 构建一个 Desktop/共享任务层使用的媒体任务条目。
  *
  * 这是第一阶段的最小可测试 seam：只移动任务构建，不改变 CLI 的
- * prepareFFmpegCmd 业务。后续 Engine 会在此基础上统一 CLI 与 GUI。
+ * prepareFFmpegCmd 业务。Engine 已在此基础上统一 CLI 与 Desktop 的执行编排。
  *
  * @param {object} input
  * @param {object} options

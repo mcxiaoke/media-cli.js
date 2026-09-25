@@ -105,7 +105,7 @@ const PRESET_FIELD_DEFS = {
         construct: true,
         comment:
             "输出视频 codec 族：h264 | hevc | av1 | vp9。preset 只声明输出格式，" +
-            "具体编码器由 lib/hwaccel.js 按 tier 决定（S-4）",
+            "具体编码器由 src/transcode/hwaccel.js 按 tier 决定（S-4）",
     },
 }
 

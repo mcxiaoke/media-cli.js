@@ -111,7 +111,7 @@ function resolveExtends(presets, presetName, resolved = new Set()) {
  * `videoBitrat`、`dimesion`）会被静默忽略，用户以为改了码率其实一个字节都没变，
  * 且没有任何提示。这里显式告警未知字段。
  *
- * 字段白名单由 lib/preset_schema.js 统一维护（S-4 新字段 videoCodecFamily、
+ * 字段白名单由 src/transcode/preset_schema.js 统一维护（S-4 新字段 videoCodecFamily、
  * 三段式滤镜 pre_filters/post_filters 等均在其中），避免 loader 白名单
  * 与 FFmpegPreset 构造器字段脱节。
  */

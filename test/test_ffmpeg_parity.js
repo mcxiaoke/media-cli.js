@@ -5,7 +5,7 @@ import test from "node:test"
 import { fileURLToPath } from "node:url"
 import {
     normalizeCliOptions,
-    normalizeWebOptions,
+    normalizeDesktopOptions,
     toLegacyArgvOptions,
 } from "../src/transcode/ffmpeg_options.js"
 import { prepareFFmpegPlan } from "../src/transcode/ffmpeg_planner.js"
@@ -31,7 +31,7 @@ function canonicalTask(task) {
 }
 
 test(
-    "CLI and ffweb option adapters produce the same canonical task set",
+    "CLI and desktop option adapters produce the same canonical task set",
     { skip: !HAS_VIDEO_FIXTURES },
     async () => {
         const cliOptions = normalizeCliOptions({
@@ -45,7 +45,7 @@ test(
             deleteSourceFiles: false,
             doit: false,
         })
-        const webOptions = normalizeWebOptions({
+        const desktopOptions = normalizeDesktopOptions({
             inputs: [SAMPLE],
             output: OUTPUT,
             preset: "h264_2k",
@@ -63,8 +63,8 @@ test(
             output: OUTPUT,
             preset: "h264_2k",
         }
-        const webArgv = {
-            ...toLegacyArgvOptions(webOptions),
+        const desktopArgv = {
+            ...toLegacyArgvOptions(desktopOptions),
             output: OUTPUT,
             preset: "h264_2k",
         }
@@ -83,18 +83,18 @@ test(
             argv: cliArgv,
             buildTask,
         })
-        const webPrepared = await prepareFFmpegPlan({
+        const desktopPrepared = await prepareFFmpegPlan({
             entries: [...entries],
             preset: { name: "h264_2k" },
-            argv: webArgv,
+            argv: desktopArgv,
             buildTask,
         })
 
         assert.deepStrictEqual(
             cliPrepared.tasks.map(canonicalTask),
-            webPrepared.tasks.map(canonicalTask),
+            desktopPrepared.tasks.map(canonicalTask),
         )
         assert.strictEqual(cliPrepared.outcome, "ready")
-        assert.strictEqual(webPrepared.outcome, "ready")
+        assert.strictEqual(desktopPrepared.outcome, "ready")
     },
 )

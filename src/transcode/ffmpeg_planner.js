@@ -28,7 +28,7 @@ export class FFmpegPlanError extends Error {
 }
 
 /**
- * Shared plan preparation for CLI, WebUI and future adapters.
+ * Shared plan preparation for CLI, desktop (Electron) and future adapters.
  * UI-specific confirmation, logging and transport stay outside this module.
  */
 export async function buildFFmpegTasks({
@@ -192,7 +192,7 @@ export function assertPlanCurrent(expected, current) {
 /**
  * Delete source files only after a successful output commit and only when the
  * caller supplied explicit confirmation. The same helper is used by CLI and
- * WebUI; dry-run never enters the deletion path.
+ * desktop (Electron); dry-run never enters the deletion path.
  */
 export async function deleteCompletedSources({
     plan,

@@ -131,7 +131,7 @@ function warnScalePlaceholderDisabled() {
 /**
  * 依据 hwPlan 生成完整视频滤镜链（三段式）
  *
- * 组装（与 lib/hwaccel.js buildVideoFilters 同一函数，探测=真实同源）：
+ * 组装（与 src/transcode/hwaccel.js buildVideoFilters 同一函数，探测=真实同源）：
  *   pre_filters → setpts（变速） → scale（按 tier 生成，替代 {scaleFilter}） → fps → post_filters
  *
  * 行为要点：
@@ -148,7 +148,7 @@ function warnScalePlaceholderDisabled() {
  * 单独抽出来的原因：它**同时也决定了要不要输出 `-vf`**。
  * 任务本身不需要缩放/改帧率、用户也没写滤镜时，缩放段本会被整段跳过 ——
  * 那样 10bit 源喂给 h264 硬件编码器会打不开（`-h encoder` 列出 p010le 但驱动不支持），
- * 整条硬件链路白费、回落到 libx264。详见 lib/hwaccel.js scaleFormatOverride。
+ * 整条硬件链路白费、回落到 libx264。详见 src/transcode/hwaccel.js scaleFormatOverride。
  */
 function depthAlignNeeded(entry, hwPlan, tempPreset) {
     return !!scaleFormatOverride(hwPlan?.tier, {
@@ -189,7 +189,7 @@ function buildScaleFiltersFromPlan(entry, hwPlan, tempPreset) {
         postFilters: post,
         hasScale: needScale,
         // 位深对齐（10bit 源 + h264 目标 → scale 的 format=nv12）所需上下文，
-        // 与探测侧（lib/hwaccel.js buildLayerArgs）传同一组字段，保证命令同构
+        // 与探测侧（src/transcode/hwaccel.js buildLayerArgs）传同一组字段，保证命令同构
         codecFamily: codecFamilyOfPreset(tempPreset),
         pixFmt: entry.info?.video?.pixelFormat || "",
         bitDepth: entry.info?.video?.bitDepth,

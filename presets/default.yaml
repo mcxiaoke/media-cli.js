@@ -15,7 +15,7 @@
 #
 # S-4 字段约定（与 v2.0 硬编码时代的关键差异）:
 #   - videoCodecFamily : 只声明输出 codec 族 (h264|hevc|av1|vp9)，
-#                        具体编码器由 lib/hwaccel.js 按 tier(解码层) 决定
+#                        具体编码器由 src/transcode/hwaccel.js 按 tier(解码层) 决定
 #   - audioCodec       : 音频编码器（aac|libopus|copy 等），参数由 buildAudioArgs 自动组装
 #   - filters          : "{scaleFilter}" 占位符，缩放滤镜由 tier 层按
 #                        实际硬件（scale_cuda/scale_qsv/vpp_amf/scale）生成
@@ -216,7 +216,7 @@ hevc_2kt:
 # ===========================================
 
 # AV1 基础预设 (输出 codec 族: av1)
-# 编码器由 lib/hwaccel.js 按 tier 决定：cuda/d3d→av1_nvenc、qsv→av1_qsv、
+# 编码器由 src/transcode/hwaccel.js 按 tier 决定：cuda/d3d→av1_nvenc、qsv→av1_qsv、
 # amf→av1_amf、cpu→libsvtav1（SW 编码很慢，CPU 层作兜底）。
 _base_av1:
     format: ".mp4"
@@ -467,7 +467,7 @@ aac_voice:
 #
 # 3. 硬件质量自适应补偿 (Hardware VMAF Offset):
 #    - NVENC/QSV/AMF 硬件 CQ 刻度比 CPU CRF 宽松（相同数字码率偏大）。
-#    - 本项目通过真机 VMAF 标定自动追加偏移（lib/hwaccel.js）：
+#    - 本项目通过真机 VMAF 标定自动追加偏移（src/transcode/hwaccel.js）：
 #      hw-h264: +7 | hw-hevc: +5 | hw-av1: 0
 #    - 确保同一预设在 CPU 软解软编与 GPU 硬件加速下，输出的肉眼主观画质高度对齐。
 #
