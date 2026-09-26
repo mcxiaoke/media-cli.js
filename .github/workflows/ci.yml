@@ -27,6 +27,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # 桌面端是独立包（根仓库未配置 workspaces），根 `npm ci` 不会安装它的
+      # devDependencies；而根 `lint` 串联了 `desktop:lint`，必须先单独安装。
+      - name: Install desktop dependencies
+        run: npm ci --prefix apps/mediac-desktop
+
       # 语法检查：覆盖全仓库 *.js，并校验运行时版本与 package.json engines 一致
       - name: Syntax check
         run: npm run check
