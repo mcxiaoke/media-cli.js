@@ -28,6 +28,7 @@
  */
 
 import * as log from "../../lib/debug.js"
+import { bitDepthOfFormat } from "../../lib/media_parser.js"
 
 // ---------------------------------------------------------------------------
 // GPU 型号 → NVIDIA 代次
@@ -249,15 +250,7 @@ export function chromaOfPixFmt(pixFmt) {
  * @returns {8|10|12|16}
  */
 export function bitDepthOfPixFmt(pixFmt, explicitBitDepth) {
-    const n = Number(explicitBitDepth)
-    if (Number.isFinite(n) && n > 0) {
-        return n >= 16 ? 16 : n >= 12 ? 12 : n >= 10 ? 10 : 8
-    }
-    const m = String(pixFmt || "").toLowerCase()
-    if (/p16|16le|16be/.test(m)) return 16
-    if (/p12|12le|12be/.test(m)) return 12
-    if (/p10|10le|10be/.test(m)) return 10
-    return 8
+    return bitDepthOfFormat(pixFmt, explicitBitDepth) ?? 8
 }
 
 /**
