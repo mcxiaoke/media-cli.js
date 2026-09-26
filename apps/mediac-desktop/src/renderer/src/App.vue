@@ -168,7 +168,7 @@ async function createPlan() {
 }
 
 // Start execution
-async function startExecution() {
+async function startExecution(options?: { dryRun?: boolean }) {
   // 入口自检：菜单 F5 与页面按钮共用此函数，无守卫会把运行中的会话打成 FAILED
   if (isBusy()) return
   if (planStore.tasks.length === 0 && configStore.inputs.length === 0) return
@@ -225,10 +225,12 @@ async function startExecution() {
       }
       planStore.status = "RUNNING"
       try {
-        await window.api.startExecution(retryIds)
+        await window.api.startExecution(retryIds, options)
         logStore.append({
           level: "INFO",
-          message: `重试失败转码任务（共 ${retryIds.length} 项）`,
+          message: options?.dryRun
+            ? `重试试运行前 10 帧测试（共 ${retryIds.length} 项）`
+            : `重试失败转码任务（共 ${retryIds.length} 项）`,
           timestamp: new Date().toLocaleTimeString(),
         })
       } catch (error: unknown) {
@@ -255,10 +257,12 @@ async function startExecution() {
 
   planStore.status = "RUNNING"
   try {
-    await window.api.startExecution(executableIds)
+    await window.api.startExecution(executableIds, options)
     logStore.append({
       level: "INFO",
-      message: `开始执行转码任务（共 ${executableIds.length} 项）`,
+      message: options?.dryRun
+        ? `开始试运行前 10 帧测试（共 ${executableIds.length} 项）`
+        : `开始执行转码任务（共 ${executableIds.length} 项）`,
       timestamp: new Date().toLocaleTimeString(),
     })
   } catch (error: unknown) {
@@ -418,6 +422,26 @@ onMounted(async () => {
     }
   }
 
+  // 恢复可能正在运行的执行状态 (A9)
+  if (window.api?.getExecutionStatus) {
+    try {
+      const snap = await window.api.getExecutionStatus()
+      if (snap?.isExecuting || snap?.status === "RUNNING" || snap?.status === "PLANNING" || snap?.status === "STOPPING") {
+        if (snap.plan) {
+          planStore.setPlan(snap.plan)
+        }
+        planStore.status = snap.status
+        logStore.append({
+          level: "INFO",
+          message: `已恢复主进程活动任务状态 [${snap.status}]`,
+          timestamp: new Date().toLocaleTimeString(),
+        })
+      }
+    } catch (err) {
+      console.error("Failed to restore execution status:", err)
+    }
+  }
+
   // Subscribe to system menu action events
   if (window.api?.onMenuAction) {
     unsubscribeMenu = window.api.onMenuAction((action: string) => {
@@ -436,6 +460,9 @@ onMounted(async () => {
           break
         case MENU_ACTIONS.START_EXECUTION:
           void startExecution()
+          break
+        case MENU_ACTIONS.START_DRY_RUN:
+          void startExecution({ dryRun: true })
           break
         case MENU_ACTIONS.STOP_EXECUTION:
           void stopExecution()

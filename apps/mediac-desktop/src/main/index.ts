@@ -170,6 +170,13 @@ function setupApplicationMenu(window: BrowserWindow) {
           },
         },
         {
+          label: "试运行 (测前10帧)",
+          accelerator: "CmdOrCtrl+F5",
+          click: () => {
+            sendMenuAction(window, MENU_ACTIONS.START_DRY_RUN)
+          },
+        },
+        {
           label: "终止转码",
           accelerator: "Shift+F5",
           click: () => {
@@ -365,13 +372,15 @@ handleTrusted(IPC_CHANNELS.PLAN_CREATE, (body: Record<string, unknown>) => {
   }
   return transcodeService.createPlan(body)
 })
-handleTrusted(IPC_CHANNELS.EXECUTION_START, async (taskIds: unknown) => {
+handleTrusted(IPC_CHANNELS.EXECUTION_START, async (taskIds: unknown, options?: unknown) => {
   if (taskIds !== undefined && (!Array.isArray(taskIds) || taskIds.some((id) => typeof id !== "string"))) {
     throw new Error("taskIds must be an array of strings")
   }
-  return transcodeService.startExecution(taskIds as string[] | undefined)
+  const opts = options && typeof options === "object" ? (options as { dryRun?: boolean }) : undefined
+  return transcodeService.startExecution(taskIds as string[] | undefined, opts)
 })
 handleTrusted(IPC_CHANNELS.EXECUTION_STOP, () => transcodeService.stopExecution())
+handleTrusted(IPC_CHANNELS.EXECUTION_GET_STATUS, () => transcodeService.getExecutionSnapshot())
 // S-1 加固：SYSTEM_OPEN_PATH / SYSTEM_SHOW_IN_FOLDER 仅接受主进程已知的路径
 // （staged 输入、计划产物、原生对话框授权根），防止被攻破的渲染层打开任意路径
 handleTrusted(IPC_CHANNELS.SYSTEM_SHOW_IN_FOLDER, async (fullPath: unknown) => {

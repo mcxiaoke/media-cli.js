@@ -12,7 +12,7 @@ const emit = defineEmits<{
   (e: "toggle-sidebar"): void
   (e: "open-settings"): void
   (e: "create-plan"): void
-  (e: "start-execution"): void
+  (e: "start-execution", options?: { dryRun?: boolean }): void
   (e: "stop-execution"): void
   (e: "clear-all"): void
 }>()
@@ -140,6 +140,20 @@ function toggleTheme() {
           <path d="M8 5.5v13l11-6.5z" />
         </svg>
         <span>{{ startButtonText }}</span>
+      </button>
+
+      <button
+        class="btn btn-secondary"
+        :disabled="!canStart"
+        data-testid="btn-dry-run"
+        title="仅编码前 10 帧验证硬件加速与滤镜兼容性，不产生实际产物文件"
+        @click="emit('start-execution', { dryRun: true })"
+      >
+        <svg class="i sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polygon points="5 3 19 12 5 21 5 3" />
+          <line x1="19" y1="5" x2="19" y2="19" />
+        </svg>
+        <span>试运行</span>
       </button>
 
       <button

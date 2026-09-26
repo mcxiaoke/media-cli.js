@@ -207,6 +207,18 @@ export interface CustomToolPaths {
   mediainfo?: string
 }
 
+export interface ExecutionOptions {
+  dryRun?: boolean
+}
+
+export interface ExecutionSnapshot {
+  status: RunnerState
+  planId: string | null
+  plan: PublicPlanSnapshot | null
+  isExecuting: boolean
+  summary: Record<string, unknown> | null
+}
+
 export interface DesktopApi {
   getPathForFile(file: File): string
   selectFiles(options: SelectFileOptions): Promise<SelectFileResult>
@@ -217,8 +229,9 @@ export interface DesktopApi {
   getEnvironment(): Promise<EnvironmentSummary>
   setCustomToolPaths(paths: CustomToolPaths): Promise<EnvironmentSummary>
   createPlan(body: Record<string, unknown>): Promise<PublicPlanSnapshot>
-  startExecution(taskIds?: string[]): Promise<{ runId: string }>
+  startExecution(taskIds?: string[], options?: ExecutionOptions): Promise<{ runId: string }>
   stopExecution(): Promise<{ ok: boolean; message?: string }>
+  getExecutionStatus(): Promise<ExecutionSnapshot>
   onEngineEvent(callback: (event: EngineEvent) => void): () => void
   showInFolder(fullPath: string): Promise<void>
   openPath(fullPath: string): Promise<string>

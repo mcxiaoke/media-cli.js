@@ -105,3 +105,46 @@ test("ffmpeg scan keeps filelist input semantics", { skip: !HAS_SAMPLE_VIDEO }, 
         await fs.remove(listPath)
     }
 })
+
+test(
+    "scanFFmpegInputs accepts unified inputs list and deduplicates across directories",
+    { skip: !HAS_SAMPLE_VIDEO },
+    async () => {
+        const dir = path.dirname(SAMPLE_VIDEO)
+        const entries = await scanFFmpegInputs({
+            inputs: [SAMPLE_VIDEO, dir, SAMPLE_VIDEO],
+            argv: { start: 0, count: 100 },
+            walkOpts: { withFiles: true, needStats: true },
+            presetType: "video",
+            deps: { applyFileNameRules: async (items) => items },
+        })
+        assert.ok(entries.length >= 1)
+        const paths = entries.map((e) => e.path)
+        const uniquePaths = new Set(paths)
+        assert.strictEqual(paths.length, uniquePaths.size)
+        assert.ok(paths.includes(SAMPLE_VIDEO))
+    },
+)
+
+test(
+    "scanFFmpegInputs supports string or array directories fallback without duplicate scanning",
+    { skip: !HAS_SAMPLE_VIDEO },
+    async () => {
+        const dir = path.dirname(SAMPLE_VIDEO)
+        const logged = []
+        const entries = await scanFFmpegInputs({
+            root: SAMPLE_VIDEO,
+            argv: { directories: dir, start: 0, count: 100 },
+            walkOpts: { withFiles: true, needStats: true },
+            presetType: "video",
+            deps: {
+                applyFileNameRules: async (items) => items,
+                onLog: (msg) => logged.push(msg),
+            },
+        })
+        const paths = entries.map((e) => e.path)
+        const uniquePaths = new Set(paths)
+        assert.strictEqual(paths.length, uniquePaths.size)
+        assert.ok(paths.includes(SAMPLE_VIDEO))
+    },
+)

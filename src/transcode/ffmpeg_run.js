@@ -6,7 +6,6 @@
  */
 import chalk from "chalk"
 import * as cliProgress from "cli-progress"
-import dayjs from "dayjs"
 import { execa } from "execa"
 import fs from "fs-extra"
 import path from "path"
@@ -16,10 +15,26 @@ import * as log from "../../lib/debug.js"
 import * as mf from "../../lib/file.js"
 import { t } from "../../lib/i18n.js"
 import { createFFmpegArgs, flattenFFArgs, tierName } from "./ffmpeg_build.js"
+import {
+    extractFFmpegError,
+    isCancellationError,
+    serializeError,
+    writeErrorFile,
+} from "./ffmpeg_error.js"
 import { getEntryShowInfo } from "./ffmpeg_plan.js"
+import { createProgressTracker, parseTimeToSeconds } from "./ffmpeg_progress.js"
 import { SKIP_REASON, toRunResult } from "./ffmpeg_result.js"
 import { clearHwCapabilitiesCache, detectHardwareCapabilities } from "./hwdetect.js"
 import { DecodeMode, TIERS, clearProbeCache, codecFamilyOfPreset, selectTier } from "./hwaccel.js"
+
+export {
+    extractFFmpegError,
+    isCancellationError,
+    serializeError,
+    writeErrorFile,
+    createProgressTracker,
+    parseTimeToSeconds,
+}
 
 export const LOG_TAG = "FFConv"
 // ffmpeg 可执行文件路径（模块级缓存，供硬件探测复用）
@@ -85,16 +100,6 @@ function cleanupTempFiles(reason) {
     }
     log.logWarn(LOG_TAG, `Cleaned ${removed} temp file(s) [${reason}]`)
     activeTempFiles.clear()
-}
-
-function isCancellationError(error, signal = null) {
-    return Boolean(
-        signal?.aborted ||
-        error?.name === "AbortError" ||
-        error?.code === "ABORT_ERR" ||
-        error?.isCanceled ||
-        error?.isTerminated,
-    )
 }
 
 function markDestinationExists(entry, size = 0) {
@@ -181,6 +186,7 @@ async function runFFmpegCmd(
     entry,
     {
         showBar = true,
+        dryRun = false,
         onProgress = null,
         onLog = null,
         signal = null,
@@ -313,17 +319,26 @@ async function runFFmpegCmd(
         return entry
     }
 
-    // 创建输出目录
-    await fs.mkdirp(entry.fileDstDir)
-    await fs.remove(entry.fileDstTemp)
-    // 登记临时产物，确保 Ctrl+C / 外部终止时也会被清理
-    installTempCleanupHooks()
-    activeTempFiles.add(entry.fileDstTemp)
+    const isDryRun = !!(entry.dryRun || dryRun || entry.argv?.dryRun)
+
+    if (!isDryRun) {
+        // 创建输出目录
+        await fs.mkdirp(entry.fileDstDir)
+        await fs.remove(entry.fileDstTemp)
+        // 登记临时产物，确保 Ctrl+C / 外部终止时也会被清理
+        installTempCleanupHooks()
+        activeTempFiles.add(entry.fileDstTemp)
+    }
     const ffmpegStartMs = Date.now()
 
     const [inputArgs, middleArgs, outputArgs] = entry.ffmpegArgs
     const metaComment = getCommentArgs(entry)
-    const ffmpegArgs = [...inputArgs, ...middleArgs, ...metaComment, ...outputArgs]
+    const finalOutputArgs = isDryRun
+        ? entry.preset?.type === "audio"
+            ? ["-t", "2", "-f", "null", "-"]
+            : ["-frames:v", "10", "-f", "null", "-"]
+        : outputArgs
+    const ffmpegArgs = [...inputArgs, ...middleArgs, ...metaComment, ...finalOutputArgs]
 
     if (onLog) {
         onLog(`[PREPARE] ${getEntryShowInfo(entry)}`)
@@ -371,6 +386,26 @@ async function runFFmpegCmd(
         if (signal?.aborted) {
             entry.cancelled = true
             entry.cancelReason = "cancelled before output commit"
+            return entry
+        }
+
+        if (isDryRun) {
+            if (onLog) {
+                onLog(
+                    `[DRY-RUN DONE] ${entry.path} 10帧试运行测试成功 [${helper.humanTime(ffmpegStartMs)}]`,
+                )
+            }
+            log.show(
+                logTag,
+                chalk.yellow(ipx),
+                chalk.green("DryRun OK"),
+                `${entry.path}`,
+                chalk.cyan(`(10 frames verified)`),
+                entry.preset.name,
+                helper.humanTime(ffmpegStartMs),
+            )
+            entry.ok = true
+            entry.dryRun = true
             return entry
         }
 
@@ -490,60 +525,6 @@ async function runFFmpegCmd(
 }
 
 /**
- * 从 ffmpeg 的 stderr 中提取「有意义的错误行」
- *
- * ⚠️ 直接取 stderr 前 N 字符是错的：`--debug` 时 -v 级别是 `repeat+level+info`，
- * stderr 开头是 "Input #0, matroska,webm, from ..." 这类正常 info 输出，
- * 真正的错误被挤到后面 → 用户看到的错误信息毫无价值（曾发生）。
- *
- * ffmpeg 在 `-v repeat+level+info` 下会给每行加级别前缀：
- *   [info]  ...                                   ← 正常输出
- *   [error] Impossible to convert between ...      ← 真正的错误（第一条最有信息量）
- *   [error] Link 'xxx' -> 'yyy':                   ← 后续是上下文/像素格式清单
- *   [error]     dst: cuda
- *   [info] Conversion failed!                      ← 尾部总结（无信息量）
- *
- * 策略：**从前往后**找第一条 `[error]` 行（错误块的头部才是根因）。
- * 取最后一条会抓到 "dst: cuda" 这类清单噪声。
- *
- * @param {Error|string} error
- * @param {number} maxLen
- * @returns {string}
- */
-function extractFFmpegError(error, maxLen = 200) {
-    const raw = (error && (error.stderr || error.message)) || ""
-    if (!raw) return "[Unknown]"
-    const lines = String(raw)
-        .split(/\r?\n/)
-        .map((l) => l.trim())
-        .filter(Boolean)
-    if (lines.length === 0) return "[Unknown]"
-
-    const strip = (s) => s.replace(/^\[[a-z]+\]\s*/i, "")
-
-    // 1) 从前往后找第一条 [error] 行（错误块头部 = 根因）
-    for (let i = 0; i < lines.length; i++) {
-        if (/\[error\]/i.test(lines[i])) {
-            const body = strip(lines[i])
-            // 跳过纯上下文的噪声行（"Link '...'", "Pixel formats:", "src:", "dst:"）
-            if (/^(link\s|pixel formats|src:|dst:)/i.test(body)) continue
-            return body.substring(0, maxLen)
-        }
-    }
-    // 2) 无 [error] 标记时，找含错误特征词的行（排除无信息量的尾部总结）
-    const errRe =
-        /error|invalid|failed|cannot|could not|unable|unsupported|not supported|no such|denied|corrupt|missing|out of range|exceed|truncat/i
-    const noise = /^conversion failed!?$/i
-    for (let i = 0; i < lines.length; i++) {
-        const body = strip(lines[i])
-        if (noise.test(body)) continue
-        if (errRe.test(body)) return body.substring(0, maxLen)
-    }
-    // 3) 兜底：最后一条（去掉级别前缀）
-    return strip(lines[lines.length - 1]).substring(0, maxLen)
-}
-
-/**
  * 生成FFmpeg元数据注释参数
  *
  * comment 写入实际转码完整命令行，保证可从元数据精确追溯真实参数。
@@ -562,71 +543,6 @@ function getCommentArgs(entry) {
     const clean = command.replaceAll(/['"]/gi, " ")
     const commentText = `mediac ${clean}`.substring(0, MAX_COMMENT_LEN)
     return ["-metadata", `comment=${commentText}`]
-}
-
-/**
- * Error 实例的自身属性（message/stack）不可枚举，`JSON.stringify(error)` 会得到 `{}`，
- * 错误原因随之丢失。序列化前先摊平成普通对象。
- */
-function serializeError(error) {
-    if (!error) return String(error)
-    if (error instanceof Error) {
-        return {
-            name: error.name,
-            message: error.message,
-            stack: error.stack || null,
-            ...(error.stderr ? { stderr: String(error.stderr) } : {}),
-        }
-    }
-    return error
-}
-
-/**
- * 在输出目录写入错误日志文件
- *
- * `--error-file` 支持三种取值：
- *   - `json` / `text`：写入输出目录，文件名自动生成（`<name>_<preset>_error_<时间戳>.ext`）；
- *   - 其它任意字符串：视为**显式文件路径**（相对路径基于输出目录解析），扩展名 `.json`
- *     决定 JSON 格式，其余按文本；多个失败文件共用同一路径时**追加**而非覆盖，避免丢历史。
- *
- * @param {Object} entry - 文件对象
- * @param {Error} error - 错误对象
- * @returns {Promise<void>}
- */
-async function writeErrorFile(entry, error) {
-    if (!entry.errorFile) {
-        return
-    }
-    try {
-        const mode =
-            entry.errorFile === "json" || entry.errorFile === "text" ? entry.errorFile : null
-        const explicitPath = mode ? null : path.resolve(entry.fileDstDir || ".", entry.errorFile)
-        const useJson = mode ? mode === "json" : explicitPath.toLowerCase().endsWith(".json")
-        const nowStr = dayjs().format("YYYYMMDDHHmmss")
-        // 确保输出目录存在，避免写入错误日志失败
-        await fs.ensureDir(entry.fileDstDir)
-        const errorFile = explicitPath
-            ? explicitPath
-            : path.join(
-                  entry.fileDstDir,
-                  `${path.parse(entry.name).name}_${entry.preset.name}_error_${nowStr}${useJson ? ".json" : ".txt"}`,
-              )
-        const errorObj = {
-            ...entry,
-            error: serializeError(error),
-            date: Date.now(),
-        }
-        if (useJson) {
-            await fs.appendFile(errorFile, `${JSON.stringify(errorObj, null, 4)}\n`)
-        } else {
-            const errData = Object.entries(errorObj)
-                .map(([key, value]) => `${key} =: ${value}`)
-                .join("\n")
-            await fs.appendFile(errorFile, `${errData}\n\n`)
-        }
-    } catch (e) {
-        log.error("writeErrorFile", "Failed to write error file", e.message)
-    }
 }
 
 /**
@@ -698,56 +614,17 @@ async function executeFFmpeg(args, entry, options = null) {
     }
 
     // 解析进度信息
-    let currentTime = 0
-    // 展示用速度串（ffmpeg -progress 输出形如 "1.5x"），进度条模板 {speed} 直接消费
-    let currentSpeed = "0x"
-    // 数值化速度（1.5），供 onProgress 消费者（Electron 看板的实时速度/剩余时间）使用。
-    // ⚠️ 此前 onProgress 直接透传字符串 "1.5x"，而消费端按 typeof === "number" 判定，
-    //    导致桌面端「实时速度」「剩余时间」两项恒显示 "—"。
-    let currentSpeedValue = 0
+    // 解析进度信息
+    const tracker = createProgressTracker({
+        entry,
+        srcDuration,
+        progressBar,
+        onProgress,
+    })
 
     // 监听 stdout
     subprocess.stdout.on("data", (data) => {
-        const lines = data.toString().split("\n")
-        for (const line of lines) {
-            const trimmedLine = line.trim()
-            // 解析 speed= 字段（-progress 输出的是 speed= 1.5x 或 speed=N/A）
-            const speedMatch = trimmedLine.match(/^speed=\s*(.*)$/)
-            if (speedMatch) {
-                const s = speedMatch[1].trim()
-                if (s && s !== "N/A") {
-                    currentSpeed = s
-                    const parsed = Number.parseFloat(s)
-                    if (Number.isFinite(parsed) && parsed > 0) {
-                        currentSpeedValue = parsed
-                    }
-                }
-            }
-            // 解析 out_time= 字段（-progress 输出的是 out_time）
-            const timeMatch = trimmedLine.match(/^out_time=(.*)$/)
-            if (timeMatch) {
-                const timeStr = timeMatch[1].trim()
-                currentTime = parseTimeToSeconds(timeStr)
-
-                // 计算进度百分比
-                if (srcDuration > 0) {
-                    const progress = Math.min(100, Math.round((currentTime / srcDuration) * 100))
-                    if (progressBar) {
-                        progressBar.update(progress, { speed: currentSpeed })
-                    }
-                    if (onProgress) {
-                        onProgress({
-                            percent: progress,
-                            speed: currentSpeedValue,
-                            speedText: currentSpeed,
-                            currentTime,
-                            srcDuration,
-                            entry,
-                        })
-                    }
-                }
-            }
-        }
+        tracker.handleStdout(data)
     })
 
     // 监听 stderr
@@ -786,33 +663,6 @@ async function executeFFmpeg(args, entry, options = null) {
             log.logWarn(LOG_TAG, `onExit callback failed: ${error.message}`)
         }
     }
-}
-
-/**
- * 将 ffmpeg 时间格式 HH:MM:SS.ms 转换为秒数
- * @param {string} timeStr - 时间字符串
- * @returns {number} 秒数
- */
-function parseTimeToSeconds(timeStr) {
-    // timeStr 格式可能是:
-    // 1. "00:00:04.633333" (out_time, 有6位小数)
-    // 2. "00:04:36.30" (time, 有2位小数)
-    // 3. "00:04:36" (无小数)
-    if (!timeStr) return 0
-    const parts = timeStr.split(":")
-    if (parts.length === 3) {
-        const [hours, minutes, seconds] = parts
-        // 只取小数点前两位，忽略微秒
-        const secondsNum = parseFloat(seconds)
-        // out_time=N/A 或时间字段含非数字时 parseFloat 返回 NaN，
-        // 不能让它传播到进度条 update(NaN)
-        if (!Number.isFinite(secondsNum)) return 0
-        const hoursNum = parseFloat(hours)
-        const minutesNum = parseFloat(minutes)
-        if (!Number.isFinite(hoursNum) || !Number.isFinite(minutesNum)) return 0
-        return hoursNum * 3600 + minutesNum * 60 + secondsNum
-    }
-    return 0
 }
 
 /**

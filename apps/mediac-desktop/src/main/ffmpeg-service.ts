@@ -187,6 +187,23 @@ class DesktopTranscodeService {
     return this.status === "RUNNING" || this.status === "PLANNING" || this.status === "STOPPING"
   }
 
+  /** 获取当前执行快照（状态恢复 A9） */
+  getExecutionSnapshot(): {
+    status: RunnerState
+    planId: string | null
+    plan: PublicPlanSnapshot | null
+    isExecuting: boolean
+    summary: Record<string, unknown> | null
+  } {
+    return {
+      status: this.status,
+      planId: this.currentPlan?.id ?? null,
+      plan: this.currentPlan ? (createPublicPlanSnapshot(this.currentPlan) as PublicPlanSnapshot) : null,
+      isExecuting: this.isExecuting(),
+      summary: this.summary,
+    }
+  }
+
   setEventSink(sink: ((event: Record<string, unknown>) => void) | null) {
     this.eventSink = sink
   }
@@ -534,7 +551,7 @@ class DesktopTranscodeService {
     }
   }
 
-  async startExecution(taskIds?: string[]): Promise<{ runId: string }> {
+  async startExecution(taskIds?: string[], options?: { dryRun?: boolean }): Promise<{ runId: string }> {
     if (!this.currentPlan) throw new Error("No active plan to execute")
     if (this.status === "RUNNING" || this.status === "PLANNING" || this.status === "STOPPING") {
       throw new Error(`Cannot start execution while in ${this.status} state`)
@@ -587,6 +604,8 @@ class DesktopTranscodeService {
       return { runId: this.currentPlan.id }
     }
 
+    const isDryRun = !!options?.dryRun
+
     // Clean cloned uncompleted tasks to prevent previous run status contamination
     const tasks = uncompletedTasks.map((task) => ({
       ...task,
@@ -600,6 +619,7 @@ class DesktopTranscodeService {
       skipReason: null,
       progress: 0,
       speed: 0,
+      dryRun: isDryRun,
     }))
 
     // 先建立 RUNNING 状态与 abortController，再落盘 manifest：
@@ -631,10 +651,20 @@ class DesktopTranscodeService {
     // 进度节流表按任务分桶（见 progressThrottleMap），每轮执行前清空防泄漏
     this.progressThrottleMap.clear()
 
+    this.eventSink?.({
+      type: "task.log",
+      level: "INFO",
+      message: isDryRun
+        ? `[试运行] 开始对所选 ${tasks.length} 个任务进行前 10 帧转码测试 (不生成产物文件)...`
+        : `开始执行 ${tasks.length} 个任务的转码...`,
+      timestamp: new Date().toLocaleTimeString(),
+    })
+
     const engine = createFFmpegEngine({
       runTask: (task: InternalTask, context: RunContext) =>
         runFFmpeg(task, {
           showBar: false,
+          dryRun: isDryRun,
           signal: context.signal,
           onProgress: context.onProgress,
           onLog: context.onLog,
@@ -740,27 +770,29 @@ class DesktopTranscodeService {
               }
 
               let deletionStats = { deleted: 0, kept: 0, failed: 0 }
-              try {
-                // ⚠️ 与 CLI 的差异（有意为之，勿随手对齐）：CLI 还有一次**执行前**的删源
-              //    （对「产物已存在」的任务传 includeExisting: true），桌面端只有本处
-              //    「执行后、仅对本轮成功任务」的删源。删除源文件不可撤销，
-              //    新增一条执行前删源路径属于新功能而非一致性修补，需产品侧明确后再做。
-              const deletion = await deleteCompletedSources({
-                  plan: executionPlan,
-                  confirmDeleteSource: executionPlan.argv?.deleteSourceConfirmed === true,
-                })
-                deletionStats = {
-                  deleted: deletion.deleted.length,
-                  kept: deletion.kept.length,
-                  failed: deletion.failed.length,
+              if (!isDryRun) {
+                try {
+                  // ⚠️ 与 CLI 的差异（有意为之，勿随手对齐）：CLI 还有一次**执行前**的删源
+                  //    （对「产物已存在」的任务传 includeExisting: true），桌面端只有本处
+                  //    「执行后、仅对本轮成功任务」的删源。删除源文件不可撤销，
+                  //    新增一条执行前删源路径属于新功能而非一致性修补，需产品侧明确后再做。
+                  const deletion = await deleteCompletedSources({
+                    plan: executionPlan,
+                    confirmDeleteSource: executionPlan.argv?.deleteSourceConfirmed === true,
+                  })
+                  deletionStats = {
+                    deleted: deletion.deleted.length,
+                    kept: deletion.kept.length,
+                    failed: deletion.failed.length,
+                  }
+                } catch (deletionError) {
+                  this.eventSink?.({
+                    type: "task.log",
+                    level: "ERROR",
+                    message: `源文件清理失败: ${deletionError instanceof Error ? deletionError.message : String(deletionError)}`,
+                    timestamp: new Date().toLocaleTimeString(),
+                  })
                 }
-              } catch (deletionError) {
-                this.eventSink?.({
-                  type: "task.log",
-                  level: "ERROR",
-                  message: `源文件清理失败: ${deletionError instanceof Error ? deletionError.message : String(deletionError)}`,
-                  timestamp: new Date().toLocaleTimeString(),
-                })
               }
 
               this.summary = { ...summary, deletion: deletionStats }

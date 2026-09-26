@@ -135,7 +135,13 @@ export async function scanDesktopInputFiles({
  * Collect CLI inputs with the same filelist/root/extra-directory semantics as
  * the legacy command adapter.
  */
-export async function collectCliInputEntries(argv = {}, root, walkOpts = {}, deps = {}) {
+export async function collectCliInputEntries(
+    argv = {},
+    root,
+    walkOpts = {},
+    deps = {},
+    inputs = null,
+) {
     const fsApi = deps.fs || fs
     const walk = deps.walk || mf.walk
     const parseFilelist = deps.parseFilelist || mf.parseFilelist
@@ -151,36 +157,59 @@ export async function collectCliInputEntries(argv = {}, root, walkOpts = {}, dep
         return parseFilelist(listPath, root)
     }
 
-    const rootStat = await fsApi.stat(root)
-    let fileEntries = []
-    if (rootStat.isFile()) {
-        const filter = walkOpts.entryFilter || Boolean
-        const entry = {
-            root: path.dirname(root),
-            name: path.basename(root),
-            path: root,
-            stats: rootStat,
-            ctime: rootStat.ctime || 0,
-            mtime: rootStat.mtime || 0,
-            size: rootStat.size || 0,
-            isDir: false,
-            isFile: true,
-            index: 0,
-        }
-        if (filter(entry)) fileEntries = [entry]
-    } else {
-        fileEntries = await walk(root, walkOpts)
-    }
+    const rawInputs =
+        inputs && inputs.length > 0
+            ? Array.isArray(inputs)
+                ? inputs
+                : [inputs]
+            : [
+                  root,
+                  ...(Array.isArray(argv.directories)
+                      ? argv.directories
+                      : argv.directories
+                        ? [argv.directories]
+                        : []),
+              ].filter(Boolean)
 
-    if (argv.directories?.length > 0) {
-        const extraDirs = new Set(argv.directories.map((dir) => path.resolve(dir)))
-        for (const dirPath of extraDirs) {
-            const stat = await fsApi.stat(dirPath)
-            if (!stat.isDirectory()) continue
-            const dirFiles = await walk(dirPath, walkOpts)
-            if (dirFiles.length > 0) {
-                onLog({ level: "info", message: `Added ${dirFiles.length} files from ${dirPath}` })
-                fileEntries = fileEntries.concat(dirFiles)
+    const resolvedRoots = [...new Set(rawInputs.map((item) => path.resolve(item)))]
+    let fileEntries = []
+    const seenPaths = new Set()
+
+    for (const inputPath of resolvedRoots) {
+        if (!(await fsApi.pathExists(inputPath))) continue
+        const stat = await fsApi.stat(inputPath)
+        if (stat.isFile()) {
+            const filter = walkOpts.entryFilter || Boolean
+            const entry = {
+                root: path.dirname(inputPath),
+                name: path.basename(inputPath),
+                path: inputPath,
+                stats: stat,
+                ctime: stat.ctime || 0,
+                mtime: stat.mtime || 0,
+                size: stat.size || 0,
+                isDir: false,
+                isFile: true,
+                index: 0,
+            }
+            const normPath = path.normalize(inputPath)
+            if (!seenPaths.has(normPath) && filter(entry)) {
+                seenPaths.add(normPath)
+                fileEntries.push(entry)
+            }
+        } else if (stat.isDirectory()) {
+            const dirFiles = await walk(inputPath, walkOpts)
+            let addedCount = 0
+            for (const file of dirFiles) {
+                const normPath = path.normalize(file.path)
+                if (!seenPaths.has(normPath)) {
+                    seenPaths.add(normPath)
+                    fileEntries.push(file)
+                    addedCount++
+                }
+            }
+            if (addedCount > 0 && inputPath !== root) {
+                onLog({ level: "info", message: `Added ${addedCount} files from ${inputPath}` })
             }
         }
     }
@@ -192,6 +221,7 @@ export async function collectCliInputEntries(argv = {}, root, walkOpts = {}, dep
  * The caller owns preset creation and task construction.
  */
 export async function scanFFmpegInputs({
+    inputs,
     argv = {},
     root,
     walkOpts = {},
@@ -200,6 +230,6 @@ export async function scanFFmpegInputs({
     deps = {},
 } = {}) {
     const applyRules = deps.applyFileNameRules || applyFileNameRules
-    const fileEntries = await collectCliInputEntries(argv, root, walkOpts, deps)
+    const fileEntries = await collectCliInputEntries(argv, root, walkOpts, deps, inputs)
     return filterAndSliceEntries(fileEntries, argv, presetType, isAudioExtract, applyRules)
 }

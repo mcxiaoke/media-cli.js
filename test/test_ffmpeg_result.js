@@ -12,6 +12,11 @@ test("ffmpeg result adapter distinguishes success, skip, cancel, and failure", (
         status: RUN_STATUS.SUCCESS,
         outputPath: "out.mp4",
     })
+    assert.deepStrictEqual(toRunResult({ ok: true, dryRun: true, fileDst: "out.mp4" }), {
+        status: RUN_STATUS.SUCCESS,
+        outputPath: null,
+        dryRun: true,
+    })
     assert.deepStrictEqual(
         toRunResult({ dstExists: true, fileDst: "out.mp4", dstExistsPath: "old.mp4" }),
         {

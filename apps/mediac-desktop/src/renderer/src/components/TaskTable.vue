@@ -5,12 +5,22 @@ import { useConfigStore } from "../stores/config"
 import { useLogStore } from "../stores/log"
 import { formatSize, formatDuration } from "../utils/format"
 import type { PlanTask, TaskStatus } from "../../../shared/contracts"
+import TaskContextMenu from "./TaskContextMenu.vue"
+import { useTaskSelection } from "../composables/useTaskSelection"
 
 const planStore = usePlanStore()
 const configStore = useConfigStore()
 const logStore = useLogStore()
 const isDetailExpanded = ref(false)
 const emit = defineEmits<{ (e: "clearAll"): void }>()
+
+const {
+  isSelected,
+  handleRowClick,
+  handleCheckboxClick,
+  isPlanBusy,
+  removeSelectedTasks,
+} = useTaskSelection()
 
 async function playMedia(filePath: string) {
   if (!filePath || !window.api?.openPath) return
@@ -119,18 +129,6 @@ function openInFolder(task: PlanTask, event?: MouseEvent) {
   }
 }
 
-// 行点击：仅更新当前激活行（用于底部信息快速聚焦），绝不冲刷选项框多选集合
-function handleRowClick(task: PlanTask, event: MouseEvent) {
-  if ((event.target as HTMLElement).closest(".ck, .ck-cell, .icon-btn, .t-ops")) return
-  planStore.activeTaskId = task.id
-}
-
-// 选项框点击：仅鼠标左键点击选项框时切换勾选状态
-function handleCheckboxClick(task: PlanTask, event: MouseEvent) {
-  event.stopPropagation()
-  planStore.toggleTask(task.id)
-}
-
 // ============ 右键常用菜单状态与操作 ============
 interface ContextMenuState {
   visible: boolean
@@ -178,120 +176,7 @@ function closeContextMenu() {
   contextMenu.value.task = null
 }
 
-function inspectFromMenu() {
-  if (contextMenu.value.task) {
-    planStore.inspectedTask = contextMenu.value.task
-  }
-  closeContextMenu()
-}
 
-function openInFolderFromMenu() {
-  if (contextMenu.value.task) {
-    openInFolder(contextMenu.value.task)
-  }
-  closeContextMenu()
-}
-
-async function copyPathFromMenu() {
-  const p = contextMenu.value.task?.path
-  if (p) {
-    if (window.api?.copyText) {
-      await window.api.copyText(p)
-    } else {
-      await navigator.clipboard.writeText(p)
-    }
-    logStore.append({
-      level: "INFO",
-      message: `已复制源文件路径: ${p}`,
-      timestamp: new Date().toLocaleTimeString(),
-    })
-  }
-  closeContextMenu()
-}
-
-async function copyCmdFromMenu() {
-  const t = contextMenu.value.task
-  if (t) {
-    // 统一走 store：按 path 反查 previewCmd 的真实基准任务，避免行号偏移导致替换失配
-    const cmd = planStore.previewCmdFor(t)
-    if (window.api?.copyText) {
-      await window.api.copyText(cmd)
-    } else {
-      await navigator.clipboard.writeText(cmd)
-    }
-    logStore.append({
-      level: "INFO",
-      message: `已复制推演 FFmpeg 命令`,
-      timestamp: new Date().toLocaleTimeString(),
-    })
-  }
-  closeContextMenu()
-}
-
-function toggleTaskFromMenu() {
-  if (contextMenu.value.task) {
-    planStore.toggleTask(contextMenu.value.task.id)
-  }
-  closeContextMenu()
-}
-
-function selectAllFromMenu() {
-  planStore.selectAll()
-  closeContextMenu()
-}
-
-function invertSelectionFromMenu() {
-  planStore.invertSelection()
-  closeContextMenu()
-}
-
-function clearSelectionFromMenu() {
-  planStore.clearSelection()
-  closeContextMenu()
-}
-
-function removeTaskFromMenu() {
-  if (contextMenu.value.task) {
-    removeTask(contextMenu.value.task)
-  }
-  closeContextMenu()
-}
-
-/**
- * 批量移除所选任务的唯一实现（底栏按钮与右键菜单共用）。
- * 三处状态必须同步，缺一即产生用户可见的不一致：
- *   1) planStore  —— 表格行与勾选集合；
- *   2) configStore.inputs —— 左侧输入清单，否则已移除的文件仍显示在 chip 列表里；
- *   3) 主进程 stagedEntries —— 否则同一文件再次导入会被去重逻辑判为重复并静默丢弃。
- * 运行中禁止移除：引擎仍会写盘，移除后该任务进度/结果事件静默失配。
- */
-function removeSelectedTasks() {
-  if (isPlanBusy()) return
-  const paths = planStore.tasks
-    .filter((t) => planStore.selectedIds.has(t.id))
-    .map((t) => t.path)
-    .filter((p): p is string => Boolean(p))
-  if (paths.length === 0) return
-  planStore.removeSelectedTasks()
-  configStore.removeInputs(paths)
-  if (window.api?.removeStagedInputs) {
-    void window.api.removeStagedInputs(paths)
-  }
-}
-
-function removeSelectedFromMenu() {
-  removeSelectedTasks()
-  closeContextMenu()
-}
-
-// 与 App.vue 的 isBusy 同口径：菜单/右键操作与顶栏按钮共用状态守卫
-function isPlanBusy() {
-  return (
-    planStore.status === "RUNNING" ||
-    planStore.status === "PLANNING" ||
-    planStore.status === "STOPPING"
-  )
-}
 
 function clearAllTasksFromMenu() {
   // 复用顶栏「清空」的唯一实现（App.vue 的 clearAll：busy 守卫 + 清 configStore.inputs +
@@ -329,17 +214,6 @@ function handleGlobalKeydown(e: KeyboardEvent) {
   }
 }
 
-/**
- * 菜单内键盘激活：ctx-item 是 div（非原生 button），Enter / Space 不会自动触发 click。
- * 焦点可达 + 容器级转发即可让全键盘完成菜单操作，无需把 10 个项都改成 button。
- */
-function handleMenuKeydown(e: KeyboardEvent) {
-  if (e.key !== "Enter" && e.key !== " ") return
-  const target = e.target as HTMLElement | null
-  if (!target?.classList?.contains("ctx-item")) return
-  e.preventDefault()
-  target.click()
-}
 
 onMounted(() => {
   window.addEventListener("click", closeContextMenu)
@@ -377,9 +251,6 @@ function getDirName(filePath: string) {
   return parts.slice(0, -1).join("/")
 }
 
-function isSelected(id: string) {
-  return planStore.selectedIds.has(id)
-}
 
 function isRowSelectedOrActive(id: string) {
   return planStore.activeTaskId === id || planStore.selectedIds.has(id)
@@ -746,131 +617,22 @@ const selectedTaskPreview = computed(() => {
       </div>
     </div>
 
-    <!-- 自定义右键常用菜单 -->
-    <div
-      v-if="contextMenu.visible && contextMenu.task"
-      class="ctx-menu"
-      :style="{ top: `${contextMenu.y}px`, left: `${contextMenu.x}px` }"
-      data-testid="task-context-menu"
-      role="menu"
-      @click.stop
-      @keydown="handleMenuKeydown"
-    >
-      <div
-        class="ctx-item"
-        role="menuitem"
-        tabindex="0"
-        data-testid="ctx-play-src"
-        @click="contextMenu.task && playSource(contextMenu.task)"
-      >
-        <svg class="i sm" viewBox="0 0 24 24" fill="currentColor">
-          <polygon points="6 4 18 12 6 20 6 4" />
-        </svg>
-        <span>播放源文件</span>
-      </div>
-      <div
-        v-if="contextMenu.task.status === 'success'"
-        class="ctx-item"
-        role="menuitem"
-        tabindex="0"
-        data-testid="ctx-play-dst"
-        @click="playOutput(contextMenu.task)"
-      >
-        <svg class="i sm" viewBox="0 0 24 24" fill="currentColor">
-          <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2" />
-          <polygon points="10 8 16 12 10 16 10 8" />
-        </svg>
-        <span>播放转码产物</span>
-      </div>
-      <div class="ctx-item" role="menuitem" tabindex="0" data-testid="ctx-inspect" @click="inspectFromMenu">
-        <svg class="i sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="10" />
-          <line x1="12" y1="16" x2="12" y2="12" />
-          <line x1="12" y1="8" x2="12.01" y2="8" />
-        </svg>
-        <span>查看媒体信息 (ffprobe)</span>
-        <span class="ctx-hint">双击</span>
-      </div>
-      <div class="ctx-item" role="menuitem" tabindex="0" data-testid="ctx-show-folder" @click="openInFolderFromMenu">
-        <svg class="i sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-        </svg>
-        <span>在文件管理器中定位</span>
-      </div>
-      <div class="ctx-item" role="menuitem" tabindex="0" data-testid="ctx-copy-path" @click="copyPathFromMenu">
-        <svg class="i sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-        </svg>
-        <span>复制文件全路径</span>
-      </div>
-      <div class="ctx-item" role="menuitem" tabindex="0" data-testid="ctx-copy-cmd" @click="copyCmdFromMenu">
-        <svg class="i sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <polyline points="4 17 10 11 4 5" />
-          <line x1="12" y1="19" x2="20" y2="19" />
-        </svg>
-        <span>复制推演 FFmpeg 命令</span>
-      </div>
-
-      <div class="ctx-divider"></div>
-
-      <div class="ctx-item" role="menuitem" tabindex="0" data-testid="ctx-toggle-check" @click="toggleTaskFromMenu">
-        <svg class="i sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <polyline points="9 11 12 14 22 4" />
-          <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
-        </svg>
-        <span>{{ isSelected(contextMenu.task.id) ? '取消勾选此项' : '勾选此项' }}</span>
-      </div>
-      <div class="ctx-item" role="menuitem" tabindex="0" data-testid="ctx-select-all" @click="selectAllFromMenu">
-        <svg class="i sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <polyline points="9 11 12 14 22 4" />
-          <polyline points="5 7 8 10 14 4" />
-        </svg>
-        <span>全选所有任务</span>
-      </div>
-      <div class="ctx-item" role="menuitem" tabindex="0" data-testid="ctx-invert-select" @click="invertSelectionFromMenu">
-        <svg class="i sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
-        </svg>
-        <span>反向选择勾选</span>
-      </div>
-      <div class="ctx-item" role="menuitem" tabindex="0" data-testid="ctx-clear-select" @click="clearSelectionFromMenu">
-        <svg class="i sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-        </svg>
-        <span>取消全部勾选</span>
-      </div>
-
-      <div class="ctx-divider"></div>
-
-      <div class="ctx-item ctx-danger" role="menuitem" tabindex="0" data-testid="ctx-remove-task" @click="removeTaskFromMenu">
-        <svg class="i sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <line x1="18" y1="6" x2="6" y2="18" />
-          <line x1="6" y1="6" x2="18" y2="18" />
-        </svg>
-        <span>从列表中移除此任务</span>
-      </div>
-      <div
-        v-if="planStore.selectedIds.size > 0"
-        class="ctx-item ctx-danger"
-        role="menuitem"
-        tabindex="0"
-        data-testid="ctx-remove-selected"
-        @click="removeSelectedFromMenu"
-      >
-        <svg class="i sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <polyline points="3 6 5 6 21 6" />
-          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-        </svg>
-        <span>移除所有勾选项 ({{ planStore.selectedIds.size }})</span>
-      </div>
-      <div class="ctx-item ctx-danger" role="menuitem" tabindex="0" data-testid="ctx-clear-all" @click="clearAllTasksFromMenu">
-        <svg class="i sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M3 6h18m-2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
-        </svg>
-        <span>清空任务列表</span>
-      </div>
-    </div>
+    <!-- 自定义右键常用菜单组件 -->
+    <TaskContextMenu
+      :visible="contextMenu.visible"
+      :x="contextMenu.x"
+      :y="contextMenu.y"
+      :task="contextMenu.task"
+      :is-busy="isPlanBusy()"
+      @close="closeContextMenu"
+      @play-source="playSource"
+      @play-output="playOutput"
+      @inspect="(task) => { planStore.inspectedTask = task }"
+      @open-in-folder="openInFolder"
+      @remove-task="removeTask"
+      @remove-selected="removeSelectedTasks"
+      @clear-all="clearAllTasksFromMenu"
+    />
   </div>
 </template>
 
@@ -1488,72 +1250,5 @@ tbody tr.checked {
   background: var(--bg-hover);
 }
 
-/* ============ 自定义右键上下文菜单 ============ */
-.ctx-menu {
-  position: fixed;
-  z-index: 2000;
-  min-width: 200px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35), 0 2px 6px rgba(0, 0, 0, 0.2);
-  padding: 4px;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  animation: ctxFadeIn 0.1s ease-out;
-  user-select: none;
-}
 
-@keyframes ctxFadeIn {
-  from { opacity: 0; transform: scale(0.97); }
-  to { opacity: 1; transform: scale(1); }
-}
-
-.ctx-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  font-size: 12px;
-  color: var(--text-base);
-  border-radius: 3px;
-  cursor: pointer;
-  transition: background 0.1s ease, color 0.1s ease;
-}
-
-.ctx-item:hover {
-  background: var(--bg-hover);
-  color: var(--primary-text);
-}
-
-/* 键盘焦点可见（Shift+F10 / ContextMenu 呼出后 Tab/方向键移动） */
-.ctx-item:focus-visible {
-  outline: 1px solid var(--primary);
-  outline-offset: -1px;
-  background: var(--bg-hover);
-  color: var(--primary-text);
-}
-
-.ctx-item.ctx-danger {
-  color: var(--text-2);
-}
-
-.ctx-item.ctx-danger:hover {
-  background: var(--error-soft);
-  color: var(--error);
-}
-
-.ctx-divider {
-  height: 1px;
-  background: var(--divider);
-  margin: 3px 2px;
-}
-
-.ctx-hint {
-  margin-left: auto;
-  font-size: 10px;
-  color: var(--text-3);
-  font-family: var(--mono);
-}
 </style>

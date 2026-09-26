@@ -65,6 +65,7 @@ function normalizeInputs(inputs, directories = []) {
         else throw invalidArgument("inputs must be a string or string array")
     }
     if (Array.isArray(directories)) source.push(...directories)
+    else if (typeof directories === "string" && directories.trim()) source.push(directories.trim())
     for (const input of source) {
         if (typeof input !== "string" || input.trim() === "") {
             throw invalidArgument("input paths must be non-empty strings")

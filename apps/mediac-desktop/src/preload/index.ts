@@ -39,11 +39,14 @@ const api: DesktopApi = {
   createPlan(body) {
     return ipcRenderer.invoke(IPC_CHANNELS.PLAN_CREATE, safeClone(body))
   },
-  startExecution(taskIds) {
-    return ipcRenderer.invoke(IPC_CHANNELS.EXECUTION_START, safeClone(taskIds))
+  startExecution(taskIds, options) {
+    return ipcRenderer.invoke(IPC_CHANNELS.EXECUTION_START, safeClone(taskIds), safeClone(options))
   },
   stopExecution() {
     return ipcRenderer.invoke(IPC_CHANNELS.EXECUTION_STOP)
+  },
+  getExecutionStatus() {
+    return ipcRenderer.invoke(IPC_CHANNELS.EXECUTION_GET_STATUS)
   },
   onEngineEvent(callback) {
     const listener = (_event: unknown, data: EngineEvent) => callback(data)

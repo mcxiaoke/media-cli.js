@@ -53,7 +53,8 @@ export function toRunResult(entry) {
     if (entry.ok === true) {
         return {
             status: RUN_STATUS.SUCCESS,
-            outputPath: entry.fileDst,
+            outputPath: entry.dryRun ? null : entry.fileDst,
+            ...(entry.dryRun ? { dryRun: true } : {}),
         }
     }
     if (entry.skipped === true || entry.dstExists === true) {

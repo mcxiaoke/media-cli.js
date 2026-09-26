@@ -446,6 +446,7 @@ async function planFFmpegTasks(argv) {
     })
     const mergedArgv = {
         ...toLegacyArgvOptions(normalizedOptions),
+        inputs: normalizedOptions.inputs,
         input: argv.input,
         directories: argv.directories,
         output: argv.output,
@@ -471,6 +472,7 @@ async function planFFmpegTasks(argv) {
         entryFilter: (e) => e.isFile && helper.isMediaFile(e.name),
     }
     let fileEntries = await scanFFmpegInputs({
+        inputs: normalizedOptions.inputs,
         argv,
         root,
         walkOpts,
