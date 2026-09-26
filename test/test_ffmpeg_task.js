@@ -1,4 +1,5 @@
 import assert from "assert"
+import path from "node:path"
 import test from "node:test"
 import { SKIP_REASON } from "../src/transcode/ffmpeg_result.js"
 import { buildCliTask, buildTask } from "../src/transcode/ffmpeg_task.js"
@@ -36,8 +37,9 @@ test("ffmpeg task builder is injectable and returns a pending task", async () =>
     assert.strictEqual(task.index, 2)
     assert.strictEqual(task.total, 4)
     assert.strictEqual(task.status, "pending")
-    assert.strictEqual(task.fileDst, "C:\\out\\sample_h264.mkv")
-    assert.strictEqual(task.fileDstTemp, "C:\\out\\sample_h264_tmp@hash@tmp_.mkv")
+    const dstDir = path.resolve("C:/out")
+    assert.strictEqual(task.fileDst, path.join(dstDir, "sample_h264.mkv"))
+    assert.strictEqual(task.fileDstTemp, path.join(dstDir, "sample_h264_tmp@hash@tmp_.mkv"))
     assert.strictEqual(task.preset, activePreset)
     assert.strictEqual(task.argv.override, true)
 })
@@ -119,7 +121,8 @@ test("CLI task builder is injectable and preserves output/subtitle fields", asyn
         },
     )
     assert.strictEqual(task.status, undefined)
-    assert.strictEqual(task.fileDst, "C:\\media\\sample_h264.mkv")
+    const cliDstDir = path.resolve(path.dirname("C:/media/sample.mp4"))
+    assert.strictEqual(task.fileDst, path.join(cliDstDir, "sample_h264.mkv"))
     assert.match(task.fileDstTemp, /sample_h264_tmp@[a-f0-9]+@tmp_\.mkv$/)
     assert.deepStrictEqual(task.subtitles, [])
 })

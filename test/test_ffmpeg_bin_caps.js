@@ -20,6 +20,10 @@ import { parseEncoders, parseFilters, parseVersionInfo } from "../src/transcode/
 
 const TMP_DIR = path.join("temp", "test_ffmpeg_bin")
 
+// 兄弟节点探测的 ffprobe 文件名需与 ffmpeg_bin.js 的平台分支一致
+// （win32 用 .exe，其余平台不带后缀），避免在非 Windows CI 上落空。
+const PROBE_SIBLING = process.platform === "win32" ? "ffprobe.exe" : "ffprobe"
+
 // 保存/恢复环境变量，避免污染其他用例或宿主环境
 const ENV_KEYS = ["FFMPEG_PATH", "FFMPEG_BINARY", "FFPROBE_PATH", "FFPROBE_BINARY"]
 function saveEnv() {
@@ -48,7 +52,7 @@ describe("ffmpeg binary resolution and capability probes", () => {
         await fsp.mkdir(TMP_DIR, { recursive: true })
         fakeBin = path.join(TMP_DIR, "ffmpeg_fake.exe")
         await fsp.writeFile(fakeBin, "fake")
-        await fsp.writeFile(path.join(TMP_DIR, "ffprobe.exe"), "fake-probe")
+        await fsp.writeFile(path.join(TMP_DIR, PROBE_SIBLING), "fake-probe")
     })
 
     after(async () => {
@@ -116,7 +120,7 @@ describe("ffmpeg binary resolution and capability probes", () => {
             delete process.env.FFPROBE_BINARY
             assert.strictEqual(
                 await resolveFFprobeBinary(fakeBin),
-                path.join(TMP_DIR, "ffprobe.exe"),
+                path.join(TMP_DIR, PROBE_SIBLING),
             )
         })
 
