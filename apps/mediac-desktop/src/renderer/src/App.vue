@@ -19,6 +19,7 @@ import { useLogStore } from "./stores/log"
 import { formatSize, formatDuration } from "./utils/format"
 import { useInputIngest } from "./composables/useInputIngest"
 import { MENU_ACTIONS } from "../../shared/ipc-channels"
+import type { EngineEvent } from "../../shared/contracts"
 
 const envStore = useEnvStore()
 const configStore = useConfigStore()
@@ -154,7 +155,7 @@ async function createPlan() {
   try {
     await createPlanInternal()
     planStore.restoreSelectionByPaths(knownPreviousPaths, selectedPaths)
-  } catch (error: any) {
+  } catch (error: unknown) {
     planStore.status = "FAILED"
     const msg = error instanceof Error ? error.message : String(error)
     alert(`生成计划失败: ${msg}`)
@@ -190,7 +191,7 @@ async function startExecution() {
     try {
       await createPlanInternal()
       planStore.restoreSelectionByPaths(knownPreviousPaths, selectedPaths)
-    } catch (err: any) {
+    } catch (err: unknown) {
       planStore.status = "FAILED"
       const msg = err instanceof Error ? err.message : String(err)
       logStore.append({
@@ -230,7 +231,7 @@ async function startExecution() {
           message: `重试失败转码任务（共 ${retryIds.length} 项）`,
           timestamp: new Date().toLocaleTimeString(),
         })
-      } catch (error: any) {
+      } catch (error: unknown) {
         planStore.status = "FAILED"
         const msg = error instanceof Error ? error.message : String(error)
         logStore.append({
@@ -260,7 +261,7 @@ async function startExecution() {
       message: `开始执行转码任务（共 ${executableIds.length} 项）`,
       timestamp: new Date().toLocaleTimeString(),
     })
-  } catch (error: any) {
+  } catch (error: unknown) {
     planStore.status = "FAILED"
     const msg = error instanceof Error ? error.message : String(error)
     logStore.append({
@@ -282,10 +283,10 @@ async function stopExecution() {
       message: "收到终止信号，正在中止转码进程…",
       timestamp: new Date().toLocaleTimeString(),
     })
-  } catch (error: any) {
+  } catch (error: unknown) {
     logStore.append({
       level: "ERROR",
-      message: `终止失败: ${error?.message || error}`,
+      message: `终止失败: ${error instanceof Error ? error.message : String(error)}`,
       timestamp: new Date().toLocaleTimeString(),
     })
   }
@@ -463,7 +464,7 @@ onMounted(async () => {
   }
 
   // Subscribe to engine IPC events
-  unsubscribeEvents = window.api.onEngineEvent((event: any) => {
+  unsubscribeEvents = window.api.onEngineEvent((event: EngineEvent) => {
     if (event.type === "task.log") {
       logStore.append({
         level: event.level || "INFO",
@@ -478,7 +479,7 @@ onMounted(async () => {
     } else if (event.type === "task.done") {
       // 失败任务同样发 task.done（engine 无 task.failed 事件），靠 failed 标记区分
       if (event.failed === true) {
-        planStore.updateTaskStatus(event.taskId, "failed", (event.result as any)?.error || "转码失败")
+        planStore.updateTaskStatus(event.taskId, "failed", event.result?.error || "转码失败")
       } else {
         planStore.updateTaskStatus(event.taskId, "success")
       }
@@ -487,7 +488,7 @@ onMounted(async () => {
     } else if (event.type === "task.cancelled") {
       planStore.updateTaskStatus(event.taskId, "cancelled")
     } else if (event.type === "session.summary") {
-      const summary = event.summary as any
+      const summary = event.summary
       const failedCount = typeof summary?.failed === "number" ? summary.failed : 0
       const pendingStaleBefore = planStore.pendingStale
       planStore.status = summary?.isCancelled

@@ -28,6 +28,10 @@ export interface SelectFileOptions {
 export interface EnvironmentSummary {
   ffmpegPath: string | null
   ffprobePath: string | null
+  /** ffmpeg 版本标识（`ffmpeg -version` 首行的 version 段），未探测到时为 null */
+  ffmpegVersion?: string | null
+  /** ffprobe 版本标识（`ffprobe -version` 首行的 version 段），未探测到时为 null */
+  ffprobeVersion?: string | null
   /** 用户显式指定的 mediainfo（ffprobe 失败时的兜底探测工具）；null = 使用 PATH 中的 mediainfo */
   mediainfoPath?: string | null
   presets: Array<{
@@ -95,6 +99,36 @@ export interface MediaInfoPayload {
   subtitles?: Array<Record<string, unknown>>
   raw?: unknown
   [key: string]: unknown
+}
+
+/**
+ * 引擎事件（createFFmpegEngine 的 emit payload），经 IPC `execution:event` 送到渲染层。
+ *
+ * 用 type 别名而非 interface：别名带隐式索引签名，可直接赋给 `Record<string, unknown>`
+ * （主进程的 eventSink 参数类型），interface 则不行。
+ */
+export type EngineEvent = {
+  type?: string
+  taskId?: string
+  taskIndex?: number
+  level?: string
+  message?: string
+  timestamp?: string
+  percent?: number
+  speed?: number | string
+  reason?: string
+  failed?: boolean
+  result?: { status?: string; error?: string | null; outputPath?: string | null }
+  summary?: {
+    total?: number
+    success?: number
+    failed?: number
+    skipped?: number
+    cancelled?: number
+    retryCount?: number
+    isCancelled?: boolean
+    elapsedMs?: number
+  }
 }
 
 export interface MediaTargetSummary {
@@ -185,7 +219,7 @@ export interface DesktopApi {
   createPlan(body: Record<string, unknown>): Promise<PublicPlanSnapshot>
   startExecution(taskIds?: string[]): Promise<{ runId: string }>
   stopExecution(): Promise<{ ok: boolean; message?: string }>
-  onEngineEvent(callback: (event: Record<string, unknown>) => void): () => void
+  onEngineEvent(callback: (event: EngineEvent) => void): () => void
   showInFolder(fullPath: string): Promise<void>
   openPath(fullPath: string): Promise<string>
   copyText(text: string): Promise<boolean>

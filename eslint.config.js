@@ -68,8 +68,10 @@ export default [
             "node_modules/**",
             "**/node_modules/*",
             "dist/**",
-            "apps/**/out/**",
-            "apps/**/release/**",
+            // 桌面端（apps/mediac-desktop）有自己的 flat config（含 vue/typescript-eslint 插件），
+            // 由该目录的 `npm run lint` 负责；根配置只处理 CLI/核心的 .js，
+            // 若在此重复扫描，会用根 Prettier 规则误判其 TS/Vue 代码格式。
+            "apps/mediac-desktop/**",
             "coverage/**",
             "*.log",
             // temp/ 存放修复前的代码备份与中间产物，不是产品代码，

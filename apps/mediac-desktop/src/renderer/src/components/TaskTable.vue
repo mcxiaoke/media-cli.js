@@ -26,7 +26,7 @@ async function playMedia(filePath: string) {
         void window.api.showInFolder(filePath)
       }
     }
-  } catch (e: any) {
+  } catch {
     if (window.api?.showInFolder) {
       void window.api.showInFolder(filePath)
     }
@@ -293,21 +293,12 @@ function isPlanBusy() {
   )
 }
 
-async function clearAllTasksFromMenu() {
-  // 与顶栏 clearAll 严格等价。此前只 setPlan(null)，遗漏三件事：
-  // 1) 无 busy 守卫：RUNNING 中清空会让 UI 与引擎脱钩（状态被重置、终止按钮消失）；
-  // 2) 未清 configStore.inputs：下次生成计划时被清空的文件全量复活；
-  // 3) 未清主进程 stagedEntries：相同文件再次导入被当重复静默丢弃。
+function clearAllTasksFromMenu() {
+  // 复用顶栏「清空」的唯一实现（App.vue 的 clearAll：busy 守卫 + 清 configStore.inputs +
+  // 清主进程 stagedEntries），避免两处实现漂移 —— 此前这里只 setPlan(null)，曾导致
+  // RUNNING 中 UI 与引擎脱钩、被清空的文件在下次规划时全量复活。
   if (isPlanBusy()) return
-  configStore.clearInputs()
-  planStore.setPlan(null)
-  if (window.api?.clearStagedInputs) {
-    try {
-      await window.api.clearStagedInputs()
-    } catch (err) {
-      console.error("clearStagedInputs error:", err)
-    }
-  }
+  emit("clearAll")
   closeContextMenu()
 }
 

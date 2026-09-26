@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed } from "vue"
-import { useEnvStore } from "../stores/env"
 import { usePlanStore } from "../stores/plan"
 import { useLogStore } from "../stores/log"
 
@@ -18,7 +17,6 @@ const emit = defineEmits<{
   (e: "clear-all"): void
 }>()
 
-const env = useEnvStore()
 const plan = usePlanStore()
 const logStore = useLogStore()
 
@@ -44,13 +42,6 @@ const stateInfo = computed(() => {
     return { label: "待规划", cls: "warn" }
   }
   return STATE_CONFIG[plan.status] || { label: plan.status, cls: "" }
-})
-
-const gpuText = computed(() => {
-  const g = env.summary?.hardware.gpus[0]
-  const tier = env.summary?.hardware.tier?.toUpperCase() || ""
-  if (!g) return tier && tier !== "CPU" ? tier : "CPU Mode"
-  return tier ? tier + " · " + g.model : g.model
 })
 
 const selectedExecutableTasks = computed(() => {
@@ -97,7 +88,12 @@ function toggleTheme() {
 
 <template>
   <header class="header-bar" data-testid="header-bar">
-    <!-- 左侧区：侧边栏切换 + 硬件状态监控胶囊 -->
+    <!--
+      左侧区：仅侧边栏切换。
+      原 GPU/加速器胶囊已移除：它依赖异步的 env 探测结果，首帧渲染为空、
+      探测返回后才有内容，导致整条顶栏（含右侧操作区）在启动时发生横向跳动。
+      硬件与加速信息统一在状态栏（底部）与「关于」面板展示，那里不参与首屏布局。
+    -->
     <div class="hw-zone">
       <button
         class="icon-btn sidebar-btn"
@@ -113,15 +109,6 @@ function toggleTheme() {
           <path d="M5 16h1.5" />
         </svg>
       </button>
-
-      <div class="pill hw-pill" :title="'GPU 编码加速器: ' + gpuText">
-        <svg class="i sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <rect x="2" y="6" width="20" height="12" rx="2" />
-          <path d="M6 12h4m-2-2v4m7-2h.01m3 0h.01" />
-        </svg>
-        <span class="hw-name">{{ gpuText }}</span>
-      </div>
-
     </div>
 
     <!-- 常用操作区 -->
@@ -282,20 +269,6 @@ function toggleTheme() {
 
 .sidebar-btn {
   margin-right: 2px;
-}
-
-.hw-pill {
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--text-2);
-  gap: 5px;
-}
-
-.hw-name {
-  max-width: 160px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .actions-zone {
@@ -472,21 +445,6 @@ svg.sm {
   background: var(--error-soft);
   color: var(--error);
   border-color: transparent;
-}
-
-.dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-}
-
-.dot.ok {
-  background: var(--primary);
-}
-
-.gpu-pill {
-  font-family: var(--mono);
-  font-size: 11px;
 }
 
 .state-pill {

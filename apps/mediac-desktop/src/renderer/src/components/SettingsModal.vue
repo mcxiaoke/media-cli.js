@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch } from "vue"
+import { ref, watch } from "vue"
 import { useConfigStore } from "../stores/config"
 import { useLogStore } from "../stores/log"
 import { useEnvStore } from "../stores/env"
@@ -83,11 +83,11 @@ async function saveSettings() {
       })
       await envStore.fetchEnv()
     }
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error("setCustomToolPaths error:", err)
     logStore.append({
       level: "WARN",
-      message: `更新外部工具路径失败: ${err?.message || err}`,
+      message: `更新外部工具路径失败: ${err instanceof Error ? err.message : String(err)}`,
       timestamp: new Date().toLocaleTimeString(),
     })
   }
@@ -191,7 +191,7 @@ function handleDeleteSourceToggle() {
             <div class="field" style="margin-top: 6px">
               <label class="sub-lbl">
                 并发任务数
-                <span class="hint">视频与音频均按此并发；1 = 串行（视频建议保持 1，避免多路硬编会话抢占）</span>
+                <span class="hint">1 = 串行，视频建议 1</span>
               </label>
               <input
                 v-model.number="configStore.adv.jobs"

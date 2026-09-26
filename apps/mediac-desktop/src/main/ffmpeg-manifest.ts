@@ -35,7 +35,10 @@ export class FfmpegManifest {
     return /^.+_tmp@[a-f0-9]+@tmp_(\.[^.]+)?$/.test(path.basename(tempPath))
   }
 
-  async writeTaskManifest(tasks: any[], runId: string) {
+  async writeTaskManifest(
+    tasks: ReadonlyArray<{ id?: string; fileDstTemp?: string; fileDst?: string }>,
+    runId: string,
+  ) {
     const manifest = tasks.map((task) => ({
       runId,
       taskId: task.id,

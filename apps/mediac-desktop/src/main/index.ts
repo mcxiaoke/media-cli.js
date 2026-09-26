@@ -92,12 +92,20 @@ function isTrustedSender(event: IpcMainInvokeEvent) {
   return normalized.startsWith("file://") && normalized.includes("/out/renderer/")
 }
 
-function handleTrusted(channel: string, handler: (...args: any[]) => unknown) {
+/**
+ * 注册仅接受可信来源的 IPC handler。
+ *
+ * handler 的参数类型刻意写成 `(...args: never[]) => unknown`：它只用于**约束注册侧**
+ * （各 handler 自带更精确的入参类型，如 `(body: Record<string, unknown>) => ...`），
+ * 调用侧拿到的却是 ipcMain 的 `any[]`，因此在调用点做一次显式断言。
+ * 这样既不引入 `any` 注解，也不会把「渲染层传来的值已可信」这一假设写成类型事实。
+ */
+function handleTrusted(channel: string, handler: (...args: never[]) => unknown) {
   ipcMain.handle(channel, async (event, ...args) => {
     if (!isTrustedSender(event)) {
       throw new Error("Untrusted IPC sender")
     }
-    return toSerializable(await handler(...args))
+    return toSerializable(await (handler as (...a: unknown[]) => unknown)(...args))
   })
 }
 

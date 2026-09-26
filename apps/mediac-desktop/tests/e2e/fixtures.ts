@@ -9,6 +9,10 @@ export const test = base.extend<{
   electronApp: ElectronApplication
   appWindow: Page
 }>({
+  // Playwright 要求 fixture 函数首参必须是对象解构模式（否则抛
+  // "First argument must use the object destructuring pattern"），
+  // 而此 fixture 不依赖其它 fixture，故只能是空模式。
+  // eslint-disable-next-line no-empty-pattern
   electronApp: async ({}, use) => {
     const app = await electron.launch({
       cwd: appRoot,

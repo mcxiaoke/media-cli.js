@@ -5,6 +5,10 @@ import { usePlanStore } from "../stores/plan"
 import { useEnvStore } from "../stores/env"
 import { useLogStore } from "../stores/log"
 import { useInputIngest } from "../composables/useInputIngest"
+import type { EnvironmentSummary } from "../../../shared/contracts"
+
+/** 环境摘要里的预设条目形状（来自 shared/contracts，避免在此重复声明字段） */
+type PresetSummary = EnvironmentSummary["presets"][number]
 
 defineProps<{
   isBusy?: boolean
@@ -20,7 +24,7 @@ const env = useEnvStore()
 const logStore = useLogStore()
 const { ingestPaths } = useInputIngest()
 
-function formatPresetOption(p: any): string {
+function formatPresetOption(p: PresetSummary): string {
   const parts: string[] = []
   if (p.type === "audio") {
     parts.push(p.audioCodec ? p.audioCodec.toUpperCase() : "AUDIO")

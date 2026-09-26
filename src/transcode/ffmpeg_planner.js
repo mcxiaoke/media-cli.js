@@ -88,6 +88,21 @@ export function isExecutableTask(task) {
  * An empty task list and an all-skipped list are valid plans. Callers can
  * present them to the user or choose their transport-specific response without
  * rebuilding tasks or reimplementing skip detection.
+ *
+ * @param {object} [opts]
+ * @param {object[]} [opts.entries] 扫描得到的输入条目（root/path/name/size）
+ * @param {object} [opts.preset] 已构造的预设对象（createFromArgv 产物）
+ * @param {object} [opts.argv] 规范化后的选项
+ * @param {string} [opts.mode] 计划模式（plan / execute）
+ * @param {boolean} [opts.testMode] 是否 dry-run
+ * @param {number} [opts.concurrency] 任务构建并发
+ * @param {Function} [opts.buildTask] 任务构建实现（默认 buildCliTask）
+ * @param {object} [opts.buildTaskDeps] 注入给 buildTask 的依赖
+ * @param {Function|null} [opts.onTaskError] 单任务构建失败回调
+ * @param {AbortSignal|null} [opts.signal] 取消信号
+ * @param {string} [opts.id] 计划 id
+ * @param {string} [opts.previewCmd] 预览命令
+ * @returns {Promise<object>} { entries, tasks, executableTasks, outcome, totalDuration, totalSize, plan }
  */
 export async function prepareFFmpegPlan({
     entries = [],
@@ -193,6 +208,15 @@ export function assertPlanCurrent(expected, current) {
  * Delete source files only after a successful output commit and only when the
  * caller supplied explicit confirmation. The same helper is used by CLI and
  * desktop (Electron); dry-run never enters the deletion path.
+ *
+ * @param {object} [opts]
+ * @param {object} [opts.plan] 执行计划（读取 argv.deleteSourceFiles 与 tasks）
+ * @param {boolean} [opts.testMode] dry-run 模式（true 时绝不删除）
+ * @param {boolean|Function} [opts.confirmDeleteSource] 显式确认：true 或返回 Promise<boolean> 的回调
+ * @param {boolean} [opts.includeExisting] 是否把「产物已存在」的任务也计入可删源集合
+ * @param {object} [opts.fsApi] 文件系统实现（测试注入）
+ * @param {Function} [opts.safeRemove] 删除实现（默认移入回收站）
+ * @returns {Promise<{requested: boolean, confirmed: boolean, deleted: string[], kept: string[], failed: string[]}>}
  */
 export async function deleteCompletedSources({
     plan,

@@ -6,6 +6,15 @@ import * as helper from "../../lib/helper.js"
 import { applyFileNameRules } from "../../lib/rename.js"
 
 /**
+ * 归一化后的输入条目（扫描/清单解析的产物）。
+ * @typedef {object} ScanEntry
+ * @property {string} root 该条目所属的扫描根
+ * @property {string} path 绝对路径
+ * @property {string} name 文件名
+ * @property {number} size 字节大小
+ */
+
+/**
  * 收集桌面端/未来共享 Engine 使用的媒体文件条目。
  *
  * 基础收集保持无副作用；filterAndSliceEntries 统一 CLI/Desktop 的媒体类型、
@@ -86,6 +95,14 @@ async function filterAndSliceEntries(
  * Scan desktop (Electron) inputs with the same preset type, filename and slice
  * semantics as the CLI pipeline. The caller owns preset construction and task
  * preparation; this function only produces normalized ScanEntry objects.
+ *
+ * @param {object} [opts]
+ * @param {string[]} [opts.inputs] 输入文件/目录路径列表
+ * @param {object} [opts.argv] 规范化后的选项（start/count/include/exclude/filelist 等）
+ * @param {string} [opts.presetType] 预设类型（video / audio）
+ * @param {boolean} [opts.isAudioExtract] 是否为音频提取预设（决定是否按视频文件过滤）
+ * @param {object} [opts.deps] 可注入依赖（测试用）
+ * @returns {Promise<ScanEntry[]>} 归一化后的输入条目
  */
 export async function scanDesktopInputFiles({
     inputs = [],

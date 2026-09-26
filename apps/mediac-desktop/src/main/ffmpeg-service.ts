@@ -26,7 +26,9 @@ import {
   setTaskbarProgressError,
 } from "./native.js"
 import type {
+  EngineEvent,
   EnvironmentSummary,
+  MediaInfoPayload,
   PlanTask,
   PublicPlanSnapshot,
   RunnerState,
@@ -38,6 +40,59 @@ const MAX_CONCURRENCY = 8
 const DEFAULT_CONCURRENCY = 1
 
 /**
+ * 下列内部类型只声明桌面端**实际消费**的字段。
+ *
+ * `src/transcode/*` 是 JS 实现（tsconfig 的 allowJs 会推断，但没有导出的内部契约），
+ * 因此这里用类型别名（而非 interface —— 别名才有隐式索引签名）描述边界形状：
+ * 既能消除散落各处的 `as any`，又不会因为声明过窄而与实现漂移（未列出的字段走索引签名）。
+ */
+type ScanEntry = {
+  path: string
+  name: string
+  size?: number
+  root?: string
+}
+
+/** 内部执行计划任务（含 preset/argv/hwPlan 等不对外暴露的字段） */
+type InternalTask = {
+  id: string
+  path: string
+  name: string
+  fileDst: string
+  fileDstTemp?: string
+  status: string
+  error?: string | null
+  skipReason?: string | null
+  info?: MediaInfoPayload | null
+  argv?: Record<string, unknown>
+  progress?: number
+  speed?: number
+  [key: string]: unknown
+}
+
+/** 内部执行计划（createInternalExecutionPlan 的产物；id 恒由实现兜底生成） */
+type InternalPlan = {
+  id: string
+  argv?: Record<string, unknown>
+  tasks: InternalTask[]
+  totalSize?: number
+  totalDuration?: number
+  previewCmd?: string
+  [key: string]: unknown
+}
+
+/** 子进程元数据（onSpawn / onExit 回调） */
+type ProcessMeta = { pid?: number }
+
+/** 引擎注入给 runTask 的上下文（ffmpeg_engine.js 实际提供 signal/attempt/onProgress/onLog/...） */
+type RunContext = {
+  signal: AbortSignal | null
+  attempt: number
+  onProgress: (progress: Record<string, unknown>) => void
+  onLog: (line: string) => void
+}
+
+/**
  * Desktop 宿主转码服务：session/staging/plan/execute 协调与上下文组合。
  * 环境（二进制/预设/硬件）、路径白名单持久化、manifest 细节分别收敛到
  * ffmpeg-environment.ts / path-whitelist.ts / ffmpeg-manifest.ts，本类不内嵌。
@@ -46,8 +101,17 @@ class DesktopTranscodeService {
   private readonly environment: FfmpegEnvironment
   private readonly whitelist: PathWhitelist
   private readonly manifest: FfmpegManifest
-  private currentPlan: any = null
-  private stagedEntries = new Map<string, { item: any; task: PlanTask; info: any }>()
+  private currentPlan: InternalPlan | null = null
+  // item/task 目前只做登记（唯一被读取的是 info），故用联合类型容纳
+  // 「staging 阶段的扫描条目/公开任务」与「编排后的内部任务」两种形态。
+  private stagedEntries = new Map<
+    string,
+    {
+      item: ScanEntry | InternalTask
+      task: PlanTask | InternalTask
+      info: MediaInfoPayload | null
+    }
+  >()
   private status: RunnerState = "IDLE"
   /** 计划阶段解析出的并发数，执行阶段必须沿用，否则用户设置的 jobs 形同虚设 */
   private plannedConcurrency: number = DEFAULT_CONCURRENCY
@@ -145,13 +209,14 @@ class DesktopTranscodeService {
     await this.environment.getSummary()
 
     // 1. Collect files from paths
-    const collected = (await (collectInputFiles as any)(paths)) as any[]
+    // collectInputFiles 的 JSDoc 只声明 `Promise<object[]>`，此处按其文档形状断言
+    const collected = (await collectInputFiles(paths)) as ScanEntry[]
     if (!collected || collected.length === 0) {
       return { added: [], skippedDuplicates: 0, totalCount: this.stagedEntries.size }
     }
 
     // 2. Filter out already staged paths
-    const newItems: any[] = []
+    const newItems: ScanEntry[] = []
     let skippedDuplicates = 0
     for (const item of collected) {
       const canonical = path.resolve(item.path)
@@ -194,9 +259,10 @@ class DesktopTranscodeService {
         const idx = cursor++
         const item = newItems[idx]
         const canonical = path.resolve(item.path)
-        let info: any = null
+        let info: MediaInfoPayload | null = null
         try {
-          info = await (getMediaInfo as any)(item.path, {
+          // getMediaInfo 的 JSDoc 只声明 `Promise<Object>`，按其文档形状断言
+          info = (await getMediaInfo(item.path, {
             useMediaInfo: false,
             ...(this.environment.resolvedFfprobePath
               ? { ffprobePath: this.environment.resolvedFfprobePath }
@@ -204,7 +270,7 @@ class DesktopTranscodeService {
             ...(this.environment.resolvedMediainfoPath
               ? { mediainfoPath: this.environment.resolvedMediainfoPath }
               : {}),
-          })
+          })) as MediaInfoPayload | null
         } catch {
           // ignore or fallback
         }
@@ -318,12 +384,12 @@ class DesktopTranscodeService {
         preset: presetObject.name,
       }
       const activePreset = presets.createFromArgv(argv)
-      const files = (await (scanDesktopInputFiles as any)({
+      const files: ScanEntry[] = await scanDesktopInputFiles({
         inputs: normalized.inputs,
         argv: normalized,
         presetType: activePreset.type,
         isAudioExtract: presets.isAudioExtract(activePreset),
-      })) as any[]
+      })
       if (files.length === 0) throw new Error("No media files found in specified inputs")
 
       this.eventSink?.({
@@ -333,7 +399,7 @@ class DesktopTranscodeService {
         timestamp: new Date().toLocaleTimeString(),
       })
 
-      const prepared = (await (prepareFFmpegPlan as any)({
+      const prepared = (await prepareFFmpegPlan({
         entries: files,
         preset: activePreset,
         argv,
@@ -356,7 +422,7 @@ class DesktopTranscodeService {
             })
           },
         },
-      })) as any
+      })) as { plan: InternalPlan; tasks?: InternalTask[] }
       this.currentPlan = prepared.plan
 
       const taskCount = this.currentPlan?.tasks?.length || 0
@@ -383,7 +449,7 @@ class DesktopTranscodeService {
             }
           }
           const flat = rawArgs
-            .map((arg: any) => {
+            .map((arg: unknown) => {
               const s = String(arg)
               if (s.length === 0) return '""'
               if (/[\s"']/.test(s)) {
@@ -405,7 +471,7 @@ class DesktopTranscodeService {
         for (const t of this.currentPlan.tasks) {
           const canonical = path.resolve(t.path)
           const staged = this.stagedEntries.get(canonical)
-          const info = staged?.info || (t as any).info || null
+          const info = staged?.info || t.info || null
           this.stagedEntries.set(canonical, { item: t, task: t, info })
         }
       }
@@ -485,14 +551,14 @@ class DesktopTranscodeService {
       throw new Error("No selected tasks to execute")
     }
 
-    const selectedTasks = this.currentPlan.tasks.filter((task: any) => taskIds.includes(task.id))
+    const selectedTasks = this.currentPlan.tasks.filter((task) => taskIds.includes(task.id))
     if (!selectedTasks || selectedTasks.length === 0) {
       throw new Error("No selected tasks to execute")
     }
 
     // Filter out tasks that are already completed or skipped
     const uncompletedTasks = selectedTasks.filter(
-      (task: any) => task.status !== "success" && task.status !== "skipped"
+      (task) => task.status !== "success" && task.status !== "skipped"
     )
 
     if (uncompletedTasks.length === 0) {
@@ -522,7 +588,7 @@ class DesktopTranscodeService {
     }
 
     // Clean cloned uncompleted tasks to prevent previous run status contamination
-    const tasks = uncompletedTasks.map((task: any) => ({
+    const tasks = uncompletedTasks.map((task) => ({
       ...task,
       status: "pending",
       ok: undefined,
@@ -566,26 +632,26 @@ class DesktopTranscodeService {
     this.progressThrottleMap.clear()
 
     const engine = createFFmpegEngine({
-      runTask: (task: any, context: any) =>
+      runTask: (task: InternalTask, context: RunContext) =>
         runFFmpeg(task, {
           showBar: false,
           signal: context.signal,
           onProgress: context.onProgress,
           onLog: context.onLog,
-          onSpawn: (child: any) => {
+          onSpawn: (child: ProcessMeta) => {
             if (typeof child?.pid === "number") {
               this.activePids.add(child.pid)
               this.eventSink?.({ type: "process.spawn", pid: child.pid, taskId: task.id })
             }
           },
-          onExit: (metadata: any) => {
+          onExit: (metadata: ProcessMeta) => {
             if (typeof metadata?.pid === "number") {
               this.activePids.delete(metadata.pid)
               this.eventSink?.({ type: "process.exit", ...metadata, taskId: task.id })
             }
           },
-        } as any),
-      onEvent: (event: Record<string, unknown>) => {
+        }),
+      onEvent: (event: EngineEvent) => {
         if (event.type === "task.progress") {
           const now = Date.now()
           const throttleKey = String(event.taskId ?? "")
@@ -596,23 +662,23 @@ class DesktopTranscodeService {
             updateTaskbarProgress(event.percent / 100)
           }
         } else if (event.type === "task.started") {
-          const pt = this.currentPlan?.tasks?.find((x: any) => x.id === event.taskId)
+          const pt = this.currentPlan?.tasks?.find((x) => x.id === event.taskId)
           if (pt) pt.status = "running"
         } else if (event.type === "task.cancelled") {
           // engine 取消任务发 task.cancelled；此前缺失该分支，取消后任务卡在 running
-          const pt = this.currentPlan?.tasks?.find((x: any) => x.id === event.taskId)
+          const pt = this.currentPlan?.tasks?.find((x) => x.id === event.taskId)
           if (pt) pt.status = "cancelled"
         } else if (event.type === "task.skipped") {
-          const pt = this.currentPlan?.tasks?.find((x: any) => x.id === event.taskId)
+          const pt = this.currentPlan?.tasks?.find((x) => x.id === event.taskId)
           if (pt) pt.status = "skipped"
         } else if (event.type === "task.done") {
           // 失败任务同样走 task.done，靠 failed 标记区分（engine 无 task.failed 事件）
-          const pt = this.currentPlan?.tasks?.find((x: any) => x.id === event.taskId)
+          const pt = this.currentPlan?.tasks?.find((x) => x.id === event.taskId)
           if (pt) {
             pt.status = event.failed === true ? "failed" : "success"
             if (event.failed === true) {
               pt.ffmpegFailed = true
-              pt.ffmpegError = (event.result as any)?.error || pt.ffmpegError
+              pt.ffmpegError = event.result?.error || pt.ffmpegError
             }
           }
         }
@@ -628,8 +694,16 @@ class DesktopTranscodeService {
           signal,
           concurrency: this.plannedConcurrency,
           maxAttempts: 2,
-          shouldRetry: ({ result }: any) => result?.status === "failed",
-          prepareAttempt: async ({ task, result, attempt }: any) => {
+          shouldRetry: ({ result }: { result?: { status?: string } }) => result?.status === "failed",
+          prepareAttempt: async ({
+            task,
+            result,
+            attempt,
+          }: {
+            task: InternalTask
+            result?: { error?: string | null }
+            attempt: number
+          }) => {
             if (attempt === 1) return task
             this.eventSink?.({
               type: "task.log",
@@ -667,7 +741,7 @@ class DesktopTranscodeService {
 
               let deletionStats = { deleted: 0, kept: 0, failed: 0 }
               try {
-                const deletion = await (deleteCompletedSources as any)({
+                const deletion = await deleteCompletedSources({
                   plan: executionPlan,
                   confirmDeleteSource: executionPlan.argv?.deleteSourceConfirmed === true,
                 })
@@ -691,10 +765,10 @@ class DesktopTranscodeService {
               // 未选中的任务仍停留在 pending/staged。此前用全量 currentPlan.tasks 判定，
               // 「部分执行且全部成功」会因未选中任务不是 success 而被误判为 STOPPED
               // （渲染层同一场景判 COMPLETED，两侧状态不一致）。
-              const executedIds = new Set(tasks.map((t: any) => t.id))
+              const executedIds = new Set(tasks.map((t) => t.id))
               const executedStatuses = (this.currentPlan?.tasks || [])
-                .filter((t: any) => executedIds.has(t.id))
-                .map((t: any) => t.status)
+                .filter((t) => executedIds.has(t.id))
+                .map((t) => t.status)
               const allFinished =
                 executedStatuses.length > 0 &&
                 executedStatuses.every(

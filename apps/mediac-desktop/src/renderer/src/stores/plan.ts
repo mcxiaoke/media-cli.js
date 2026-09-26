@@ -1,6 +1,6 @@
 import { defineStore } from "pinia"
 import { ref, shallowRef, computed } from "vue"
-import type { PublicPlanSnapshot, PlanTask, RunnerState } from "../../../shared/contracts"
+import type { PublicPlanSnapshot, PlanTask, RunnerState, TaskStatus } from "../../../shared/contracts"
 
 // RunnerState 的唯一事实源在 shared/contracts.ts；渲染层不再各自声明同名类型，
 // 否则主进程新增状态（如 STALE）时两边会静默漂移。
@@ -276,7 +276,9 @@ export const usePlanStore = defineStore("plan", () => {
     return undefined
   }
 
-  function updateTaskProgress(taskId: string, percent: number, speed?: number | string) {
+  function updateTaskProgress(taskId: string | undefined, percent: number, speed?: number | string) {
+    // 事件缺 taskId（异常/半截 payload）时直接忽略，避免 findIndex 用 undefined 做无意义匹配
+    if (!taskId) return
     const list = [...tasks.value]
     const idx = list.findIndex((t) => t.id === taskId)
     const speedValue = normalizeSpeed(speed)
@@ -292,7 +294,12 @@ export const usePlanStore = defineStore("plan", () => {
     if (speedValue !== undefined) currentSpeed.value = speedValue
   }
 
-  function updateTaskStatus(taskId: string, newStatus: any, error?: string | null) {
+  function updateTaskStatus(
+    taskId: string | undefined,
+    newStatus: TaskStatus,
+    error?: string | null
+  ) {
+    if (!taskId) return
     const list = [...tasks.value]
     const idx = list.findIndex((t) => t.id === taskId)
     if (idx >= 0) {

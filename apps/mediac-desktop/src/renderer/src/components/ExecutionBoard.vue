@@ -3,7 +3,7 @@ import { computed } from "vue"
 import { usePlanStore } from "../stores/plan"
 import { useConfigStore } from "../stores/config"
 import { useLogStore } from "../stores/log"
-import { formatSize, formatDuration } from "../utils/format"
+import { formatDuration } from "../utils/format"
 
 const planStore = usePlanStore()
 const configStore = useConfigStore()

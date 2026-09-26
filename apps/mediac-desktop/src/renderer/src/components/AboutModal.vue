@@ -27,6 +27,9 @@ const gpus = computed(() => envStore.summary?.hardware.gpus || [])
 const hwaccels = computed(() => envStore.summary?.hardware.hwaccels || [])
 const encoders = computed(() => envStore.summary?.hardware.encoders || [])
 const hwTier = computed(() => envStore.summary?.hardware.tier || "cpu")
+const ffmpegVersion = computed(() => envStore.summary?.ffmpegVersion || "")
+const ffprobeVersion = computed(() => envStore.summary?.ffprobeVersion || "")
+const mediainfoPath = computed(() => envStore.summary?.mediainfoPath || "")
 </script>
 
 <template>
@@ -109,23 +112,30 @@ const hwTier = computed(() => envStore.summary?.hardware.tier || "cpu")
         <div class="set-row">
           <span class="lbl">FFmpeg 核心</span>
           <div class="set-box">
-            <div class="kv">
-              <span>可执行文件：</span>
+            <div class="tool-line">
+              <span class="tool-name">ffmpeg</span>
               <b class="mono-path" :title="envStore.summary?.ffmpegPath || ''">
                 {{ envStore.summary?.ffmpegPath || "未检测到 ffmpeg 二进制文件" }}
               </b>
+              <span class="ver-tag" :class="{ muted: !ffmpegVersion }">
+                {{ ffmpegVersion || "版本未知" }}
+              </span>
             </div>
-            <div class="kv">
-              <span>探测工具：</span>
+            <div class="tool-line">
+              <span class="tool-name">ffprobe</span>
               <b class="mono-path" :title="envStore.summary?.ffprobePath || ''">
                 {{ envStore.summary?.ffprobePath || "未检测到 ffprobe 二进制文件" }}
               </b>
+              <span class="ver-tag" :class="{ muted: !ffprobeVersion }">
+                {{ ffprobeVersion || "版本未知" }}
+              </span>
             </div>
-            <div class="kv">
-              <span>兜底探测：</span>
-              <b class="mono-path" :title="envStore.summary?.mediainfoPath || ''">
-                {{ envStore.summary?.mediainfoPath || "mediainfo：使用系统 PATH（未自定义）" }}
+            <div class="tool-line">
+              <span class="tool-name">mediainfo</span>
+              <b class="mono-path" :title="mediainfoPath">
+                {{ mediainfoPath || "使用系统 PATH（未自定义）" }}
               </b>
+              <span class="ver-tag muted">兜底探测</span>
             </div>
             <div class="kv">
               <span>内置预设：</span>
@@ -168,8 +178,9 @@ const hwTier = computed(() => envStore.summary?.hardware.tier || "cpu")
 }
 
 .modal {
-  width: 580px;
-  max-width: 92vw;
+  /* 信息面板加宽：路径 + 版本 + 硬件列表在 580px 下会被大量截断 */
+  width: 780px;
+  max-width: 94vw;
   max-height: 85vh;
   background: var(--bg-card);
   border: 1px solid var(--border);
@@ -309,6 +320,49 @@ const hwTier = computed(() => envStore.summary?.hardware.tier || "cpu")
 .mono-path {
   font-size: 11px;
   word-break: break-all;
+}
+
+/* 工具行：名称 / 路径（可换行）/ 版本徽章 */
+.tool-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.tool-line .tool-name {
+  width: 62px;
+  flex: none;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.tool-line .mono-path {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-base);
+  font-family: var(--mono);
+  font-weight: 500;
+}
+
+.ver-tag {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.ver-tag.muted {
+  background: var(--bg-active);
+  color: var(--text-3);
+  font-weight: 400;
 }
 
 .encoders-text {
