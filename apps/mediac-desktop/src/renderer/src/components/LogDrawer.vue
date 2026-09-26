@@ -116,11 +116,12 @@ async function copyAll() {
 
         <div class="log-actions">
           <select v-model="logStore.filter" class="mini-select">
-            <option value="ALL">全部</option>
+            <option value="ALL">全部（隐藏 DEBUG）</option>
             <option value="INFO">INFO</option>
             <option value="CMD">CMD</option>
             <option value="WARN">WARN</option>
             <option value="ERROR">ERROR</option>
+            <option value="DEBUG">DEBUG</option>
           </select>
 
           <button
@@ -333,6 +334,7 @@ async function copyAll() {
   -webkit-user-select: text !important;
 }
 
+.l-DEBUG .txt { color: #8b949e; font-style: italic; }
 .l-INFO .txt { color: #e6edf3; }
 .l-CMD .txt { color: #7ee787; font-weight: 500; }
 .l-WARN .txt { color: #e3b341; }

@@ -1207,7 +1207,9 @@ export async function probeLayer({
         codec,
         pixFmt,
         codecFamily,
-        dimension: size.w,
+        // 源宽高缺失时 selectTier 传 null（见其注释），这里按 0 记入缓存键：
+        // 与「不缩放」的探测命令形状一致，且不会因访问 null 而崩。
+        dimension: size?.w ?? 0,
         bitDepth,
         forcedEncoder,
         speed,
@@ -1385,7 +1387,13 @@ export async function selectTier({
         error.name = "AbortError"
         throw error
     }
-    const size = calcLongEdge(srcW, srcH, dimension)
+    // ⚠️ 源宽高缺失（0×0，如纯音频轨、探测失败的容器）时 calcLongEdge 会抛
+    //    "invalid source size 0x0"，被上层包装成 `plan: ...` 这种费解的错误。
+    //    calculateDstArgs 对同样情况已做 >0 保护，这里保持一致：尺寸不可用时按「不缩放」处理
+    //    （size=null → buildScaleFilter 只做格式对齐、buildVideoFilters 不产出 scale 段）。
+    const hasValidSourceSize =
+        Number.isFinite(srcW) && Number.isFinite(srcH) && srcW > 0 && srcH > 0
+    const size = hasValidSourceSize ? calcLongEdge(srcW, srcH, dimension) : null
     const tiers = resolveTiers({ caps, decodeMode, hwaccel })
     // 严格模式：不降级。只尝试第一候选层（硬件层），失败直接抛错；
     // 候选链首个就是 cpu（本机无任何硬件加速可用）时同样抛错，除非用户显式指定 cpu。

@@ -1,15 +1,18 @@
 import { defineStore } from "pinia"
 import { ref, computed } from "vue"
 
+/** 日志级别。DEBUG 用于高频 UI 微调（拖动滑杆等），默认视图不展示，避免淹没真实信息 */
+export type LogLevel = "DEBUG" | "INFO" | "CMD" | "WARN" | "ERROR"
+
 export interface LogEntry {
-  level: "INFO" | "CMD" | "WARN" | "ERROR"
+  level: LogLevel
   text: string
   ts: string
   taskId?: string
 }
 
 export interface AppendLogOptions {
-  level: "INFO" | "CMD" | "WARN" | "ERROR" | string
+  level: LogLevel | string
   message: string
   taskId?: string
   timestamp?: string
@@ -17,7 +20,7 @@ export interface AppendLogOptions {
 
 export const useLogStore = defineStore("log", () => {
   const logs = ref<LogEntry[]>([])
-  const filter = ref<"ALL" | "INFO" | "CMD" | "WARN" | "ERROR">("ALL")
+  const filter = ref<"ALL" | LogLevel>("ALL")
   const focusedTaskId = ref<string | null>(null)
   const drawerOpen = ref(false)
   /**
@@ -36,9 +39,11 @@ export const useLogStore = defineStore("log", () => {
   }
 
   function append(opts: AppendLogOptions) {
-    let lvl: "INFO" | "CMD" | "WARN" | "ERROR" = "INFO"
+    // 此前只认 CMD/WARN/ERROR，其余（含 DEBUG）一律降级成 INFO：
+    // 高频 DEBUG 行因此被标成普通 INFO，在默认视图里淹没真实信息，也无法按级别筛出。
+    let lvl: LogLevel = "INFO"
     const upper = (opts.level || "INFO").toUpperCase()
-    if (upper === "CMD" || upper === "WARN" || upper === "ERROR") {
+    if (upper === "DEBUG" || upper === "CMD" || upper === "WARN" || upper === "ERROR") {
       lvl = upper
     }
     logs.value.push({
@@ -87,7 +92,10 @@ export const useLogStore = defineStore("log", () => {
         const matchesTask = l.taskId === focusedTaskId.value || focusPattern.value?.test(l.text) === true
         if (!matchesTask) return false
       }
-      return filter.value === "ALL" || l.level === filter.value
+      // "ALL" = 常规级别（不含 DEBUG）：DEBUG 是高频微调轨迹，默认不占版面，
+      // 需要时可从下拉框单独选 DEBUG 查看。
+      if (filter.value === "ALL") return l.level !== "DEBUG"
+      return l.level === filter.value
     })
   })
 

@@ -216,7 +216,8 @@ async function runFFmpegCmd(
             return entry
         }
         entry.hwPlan = hwPlan
-        entry.useCUDA = hwPlan.tier.name === "cuda"
+        // 注：此处不再写 `entry.useCUDA`。该字段历史上用于标记 CUDA 层，
+        // 但全仓库无任何读取方，写它只会让任务快照/日志里多一个误导性字段。
         entry.ffmpegArgs = createFFmpegArgs(entry, hwPlan).args
         // ⚠️ 分层决策与真实命令必须落盘：此前只在控制台输出，日志里无法判断
         // 「某个文件走了哪一层、实际执行了什么命令」，排查困难（曾发生）。
@@ -443,7 +444,9 @@ async function runFFmpegCmd(
             helper.humanSize(entry.size),
         )
         log.fileLog(
-            `${ipx} Failed <${entry.path}> [${entry.dstArgs?.dstAudioBitrate || entry.preset.name}] ${entry.ffmpegError}`,
+            // 占位符本意是「预设名」；此前写成 dstArgs.dstAudioBitrate || preset.name，
+            // 一旦目标音频码率有值，日志里就出现一串数字而非预设名，无法据此定位预设。
+            `${ipx} Failed <${entry.path}> [${entry.preset.name}] ${entry.ffmpegError}`,
             "FFCMD",
         )
         return entry

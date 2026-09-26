@@ -741,7 +741,11 @@ class DesktopTranscodeService {
 
               let deletionStats = { deleted: 0, kept: 0, failed: 0 }
               try {
-                const deletion = await deleteCompletedSources({
+                // ⚠️ 与 CLI 的差异（有意为之，勿随手对齐）：CLI 还有一次**执行前**的删源
+              //    （对「产物已存在」的任务传 includeExisting: true），桌面端只有本处
+              //    「执行后、仅对本轮成功任务」的删源。删除源文件不可撤销，
+              //    新增一条执行前删源路径属于新功能而非一致性修补，需产品侧明确后再做。
+              const deletion = await deleteCompletedSources({
                   plan: executionPlan,
                   confirmDeleteSource: executionPlan.argv?.deleteSourceConfirmed === true,
                 })
