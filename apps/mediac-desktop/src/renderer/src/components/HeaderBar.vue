@@ -35,6 +35,11 @@ const STATE_CONFIG: Record<string, { label: string; cls: string }> = {
 }
 
 const stateInfo = computed(() => {
+  // 忙碌态优先：此前 hasStaged 会无条件把 RUNNING/STOPPING 也显示成「待规划」，
+  // 用户在转码进行中看到「待规划」会误以为任务没在跑。
+  if (plan.status === "RUNNING" || plan.status === "PLANNING" || plan.status === "STOPPING") {
+    return STATE_CONFIG[plan.status] || { label: plan.status, cls: "" }
+  }
   if (plan.hasStaged) {
     return { label: "待规划", cls: "warn" }
   }

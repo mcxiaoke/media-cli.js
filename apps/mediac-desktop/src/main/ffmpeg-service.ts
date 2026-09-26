@@ -201,6 +201,9 @@ class DesktopTranscodeService {
             ...(this.environment.resolvedFfprobePath
               ? { ffprobePath: this.environment.resolvedFfprobePath }
               : {}),
+            ...(this.environment.resolvedMediainfoPath
+              ? { mediainfoPath: this.environment.resolvedMediainfoPath }
+              : {}),
           })
         } catch {
           // ignore or fallback
@@ -345,6 +348,9 @@ class DesktopTranscodeService {
               useMediaInfo: false,
               ...(this.environment.resolvedFfprobePath
                 ? { ffprobePath: this.environment.resolvedFfprobePath }
+                : {}),
+              ...(this.environment.resolvedMediainfoPath
+                ? { mediainfoPath: this.environment.resolvedMediainfoPath }
                 : {}),
               ...(options?.signal ? { signal: options.signal } : {}),
             })

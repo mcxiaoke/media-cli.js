@@ -476,11 +476,16 @@ const TIER_HWACCEL_NAMES = {
 
 /**
  * 主 GPU 厂商（candidateTiers auto 链的定向依据）
+ *
+ * 取值优先 GPU 列表（可直接识别型号），但列表归一化结果为 "other"（型号串无法识别）
+ * 时回退到 caps.vendor —— 后者由 usable.cuda/qsv/amf 的真实设备探测推导，是更可靠的
+ * 设备级结论。否则「GPU 型号串认不出 + 设备探测成功」会错误地退化为 other 候选链。
  * @param {object} caps
  * @returns {"nvidia"|"intel"|"amd"|"other"}
  */
 export function primaryVendor(caps) {
-    const v = caps.gpus?.[0]?.vendor || caps.vendor || "other"
+    const fromGpu = caps.gpus?.[0]?.vendor
+    const v = fromGpu && fromGpu !== "other" ? fromGpu : caps.vendor || fromGpu || "other"
     return v === "any" ? "other" : v
 }
 
@@ -543,7 +548,14 @@ export function candidateTiers(caps, { decodeMode = "auto", hwaccel } = {}) {
     //     gpu 分支上面没有此例外 —— gpu 模式下传 "auto" 表示用默认硬件层（保守行为）。
     if (hwaccel && String(hwaccel).toLowerCase() !== "auto") {
         const name = normalizeHwaccelName(hwaccel)
-        if (name && name !== "cpu") {
+        // --hwaccel cpu：显式要求「纯 CPU 软解软编」，与 --decode-mode cpu 同义。
+        // 此前该值被静默穿透到默认候选链（既不改链也无 warn），用户以为已强制 CPU，
+        // 实际仍走 cuda/qsv/amf 硬件层 —— 与选项值域、帮助文案和桌面端下拉项都矛盾。
+        if (name === "cpu") {
+            log.logInfo("hwaccel: --hwaccel cpu forces software-only candidate tiers [cpu]")
+            return ["cpu"]
+        }
+        if (name) {
             // ⚠️ 注意：caps.usable 里 cpu 恒为 true（静态 ok），此处不校验一致性
             const usable = caps.usable[name]
             log.logInfo(
@@ -556,15 +568,12 @@ export function candidateTiers(caps, { decodeMode = "auto", hwaccel } = {}) {
             // 白名单层不可用 → 只剩 [cpu]（自动降级，不为"指定了但机器不支持"而硬失败）
             return usable ? [name, "cpu"] : ["cpu"]
         }
-        if (!name) {
-            // 值域收敛：非法值不再静默忽略，warn 后走默认链
-            log.logWarn(
-                "hwdetect",
-                `hwaccel: unknown value '${hwaccel}' ignored (expected ` +
-                    `cuda|qsv|amf|d3d|d3d11va|d3d12va|dxva2|cpu|auto)`,
-            )
-        }
-        // name 为 null（非法值）或 cpu：走默认链
+        // 值域收敛：非法值不再静默忽略，warn 后走默认链
+        log.logWarn(
+            "hwdetect",
+            `hwaccel: unknown value '${hwaccel}' ignored (expected ` +
+                `cuda|qsv|amf|d3d|d3d11va|d3d12va|dxva2|cpu|auto)`,
+        )
     }
 
     // auto（默认链，T6）：主 GPU vendor 定向白名单 → ffmpeg -hwaccels 实测交集

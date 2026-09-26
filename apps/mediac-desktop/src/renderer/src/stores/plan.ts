@@ -15,6 +15,16 @@ export const usePlanStore = defineStore("plan", () => {
   const activeTaskId = ref<string | null>(null)
   const inspectedTask = ref<PlanTask | null>(null)
   const currentSpeed = ref(0)
+  /**
+   * 运行期配置变更的「待兑现」标记。
+   *
+   * 运行中不能把 status 直接改成 STALE（会让 UI 脱离正在跑的会话、终止按钮失效），
+   * 但这次变更也绝不能丢弃：否则运行结束后状态直接收敛为 COMPLETED，
+   * 用户点「开始转码」时 startExecution 的 STALE 判定不成立 → 复用主进程冻结的旧
+   * currentPlan.argv，形成「界面显示配置已改、实际仍执行旧参数」的静默不一致。
+   * 由 markStale() 置位、applyPendingStale() 在会话收敛时兑现、setPlan() 作废。
+   */
+  const pendingStale = ref(false)
 
   // 终态集合：迟到的事件（乱序 task.progress/task.started）不得复活终态任务。
   // public 状态协议统一 success（内部 done 由投影映射），不再双兼容。
@@ -170,6 +180,8 @@ export const usePlanStore = defineStore("plan", () => {
 
   function setPlan(plan: PublicPlanSnapshot | null) {
     planSnapshot.value = plan
+    // 新计划必然反映当前配置，运行期的待兑现变更随之作废
+    pendingStale.value = false
     if (plan && plan.tasks) {
       const activeTasks = excludedPaths.value.size > 0
         ? plan.tasks.filter((t) => !excludedPaths.value.has(t.path))
@@ -195,11 +207,22 @@ export const usePlanStore = defineStore("plan", () => {
     // deleteSourceConfirmed 会在用户关闭删源开关后继续生效（数据风险）。
     // 忙碌态（RUNNING/PLANNING/STOPPING）保持不变，由执行流自行收敛。
     if (tasks.value.length > 0) {
-      if (status.value !== "RUNNING" && status.value !== "PLANNING" && status.value !== "STOPPING") {
+      if (status.value === "RUNNING" || status.value === "PLANNING" || status.value === "STOPPING") {
+        pendingStale.value = true
+      } else {
         status.value = "STALE"
       }
     } else {
       status.value = "IDLE"
+    }
+  }
+
+  /** 会话收敛时兑现运行期的配置变更：置 STALE，使下次执行必然重推演 */
+  function applyPendingStale() {
+    if (!pendingStale.value) return
+    pendingStale.value = false
+    if (tasks.value.length > 0) {
+      status.value = "STALE"
     }
   }
 
@@ -236,19 +259,37 @@ export const usePlanStore = defineStore("plan", () => {
     selectedIds.value = s
   }
 
-  function updateTaskProgress(taskId: string, percent: number, speed?: number) {
+  /**
+   * 速度值归一化。
+   * 主进程侧 ffmpeg -progress 的 speed 字段是 "1.5x" 这类字符串，执行层已在
+   * runFFmpegCmd 内转成数字后再上报；这里同时接受字符串形式，避免任一侧回归时
+   * 「实时速度/剩余时间」再次静默失效（此前正是字符串被 number 判定挡掉）。
+   */
+  function normalizeSpeed(speed: unknown): number | undefined {
+    if (typeof speed === "number") {
+      return Number.isFinite(speed) && speed > 0 ? speed : undefined
+    }
+    if (typeof speed === "string") {
+      const parsed = Number.parseFloat(speed)
+      return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined
+    }
+    return undefined
+  }
+
+  function updateTaskProgress(taskId: string, percent: number, speed?: number | string) {
     const list = [...tasks.value]
     const idx = list.findIndex((t) => t.id === taskId)
+    const speedValue = normalizeSpeed(speed)
     if (idx >= 0 && !TERMINAL_STATUSES.has(list[idx].status)) {
       list[idx] = {
         ...list[idx],
         status: "running",
         progress: percent,
-        speed: speed || list[idx].speed,
+        speed: speedValue ?? list[idx].speed,
       }
       tasks.value = list
     }
-    if (typeof speed === "number") currentSpeed.value = speed
+    if (speedValue !== undefined) currentSpeed.value = speedValue
   }
 
   function updateTaskStatus(taskId: string, newStatus: any, error?: string | null) {
@@ -267,6 +308,35 @@ export const usePlanStore = defineStore("plan", () => {
     }
   }
 
+  /**
+   * 把 previewCmd（主进程按「计划内首个任务」生成）适配到指定任务。
+   *
+   * ⚠️ 基准任务必须按 path 反查，不能假定 tasks[0]：用户移除过首行后 tasks[0] 已偏移，
+   *    字符串替换会失配，复制出的命令指向已移除的文件（L9）。
+   *    反查不到基准（已被移除）时原样返回，宁可不替换也不做错误替换。
+   *    空 from/to 一律跳过——`String.split("")` 会按字符切分，把命令彻底打碎。
+   */
+  function previewCmdFor(task: PlanTask | null): string {
+    const base = planSnapshot.value?.previewCmd || ""
+    if (!task) return base
+    if (!base) {
+      return `ffmpeg -i "${task.path}" "${task.fileDst || "output.mp4"}"`
+    }
+    // 取最长命中：/a/b.mp4 与 /a/b.mp4_2 互为子串时，长的那个才是真实基准
+    const baseTask = tasks.value
+      .filter((t) => t.path && base.includes(t.path))
+      .sort((a, b) => b.path.length - a.path.length)[0]
+    if (!baseTask) return base
+    let out = base
+    const replaceAll = (from: string, to: string) => {
+      if (!from || !to || from === to) return
+      out = out.split(`"${from}"`).join(`"${to}"`).split(from).join(to)
+    }
+    replaceAll(baseTask.path, task.path)
+    replaceAll(baseTask.fileDst, task.fileDst)
+    return out
+  }
+
   return {
     status,
     planSnapshot,
@@ -275,6 +345,7 @@ export const usePlanStore = defineStore("plan", () => {
     activeTaskId,
     inspectedTask,
     currentSpeed,
+    pendingStale,
     overallPercent,
     executedTasks,
     executedDuration,
@@ -291,6 +362,8 @@ export const usePlanStore = defineStore("plan", () => {
     restoreSelectionByPaths,
     setPlan,
     markStale,
+    applyPendingStale,
+    previewCmdFor,
     toggleTask,
     toggleAll,
     selectAll,

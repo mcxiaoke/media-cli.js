@@ -427,9 +427,9 @@ function createFromArgv(argv) {
         preset.suffix = argv.suffix
     }
     // 视频编码器（来自 ffargs 的 vc/vcodec 或 --video-codec）：
-    // T4 起不再写入 videoArgs（Phase 2 已移除含 -c:v 的 videoArgs，写入会被整体忽略 + warn），
-    // 编码器由 userArgs.videoCodec 携带着穿透到 buildEncoderArgs（forcedEncoder）。
-    // 这样显式 encoder 时探测命令用同一编码器，且不会触发"旧式 videoArgs 被忽略"的警告。
+    // 编码器由 userArgs.videoCodec 承载并穿透到 buildEncoderArgs（forcedEncoder）。
+    // 这样显式 encoder 时探测命令与真实命令用同一编码器。
+    // （旧式 preset.videoArgs 槽位已彻底移除，不再存在"写入被忽略 + warn"的路径。）
     if (typeof argv.videoCodec === "string" && argv.videoCodec.length > 0) {
         preset.userArgs.videoCodec = argv.videoCodec
         if (argv.videoCodec === "copy") {
@@ -462,9 +462,9 @@ function createFromArgv(argv) {
     }
     // 视频流复制，用户指定，优先级最高
     if (argv.videoCopy) {
-        // T4 修复：不再写 videoArgs="-c:v copy"（Phase 2 起含 -c:v 的 videoArgs 被整体忽略 + warn，
-        // 导致 --video-copy 静默失效、输出 libx264）。copy 语义改由 userArgs.videoCodec="copy"
-        // 承载，buildVideoArgsFromPlan 读到 copy 时直接输出 ["-c:v","copy"]。
+        // copy 语义由 userArgs.videoCodec="copy" 承载，buildVideoArgsFromPlan 读到 copy
+        // 时直接输出 ["-c:v","copy"]。（旧式 videoArgs="-c:v copy" 写法会因 videoArgs
+        // 槽位不存在而静默失效、退回 libx264 —— 这正是本分支存在的原因。）
         preset.userArgs.videoCodec = "copy"
         preset.userArgs.videoCopy = true
         // copy not compatible with filters

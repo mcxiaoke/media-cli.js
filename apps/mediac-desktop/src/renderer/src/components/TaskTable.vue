@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, onMounted, onUnmounted } from "vue"
+import { computed, ref, onMounted, onUnmounted, nextTick } from "vue"
 import { usePlanStore } from "../stores/plan"
 import { useConfigStore } from "../stores/config"
 import { useLogStore } from "../stores/log"
@@ -212,18 +212,8 @@ async function copyPathFromMenu() {
 async function copyCmdFromMenu() {
   const t = contextMenu.value.task
   if (t) {
-    const baseCmd = planStore.planSnapshot?.previewCmd
-    let cmd = ""
-    const firstTask = planStore.tasks[0]
-    if (baseCmd && firstTask) {
-      cmd = baseCmd
-        .split(`"${firstTask.path}"`).join(`"${t.path}"`)
-        .split(firstTask.path).join(t.path)
-        .split(`"${firstTask.fileDst}"`).join(`"${t.fileDst}"`)
-        .split(firstTask.fileDst).join(t.fileDst)
-    } else {
-      cmd = `ffmpeg -i "${t.path}" "${t.fileDst || 'output.mp4'}"`
-    }
+    // 统一走 store：按 path 反查 previewCmd 的真实基准任务，避免行号偏移导致替换失配
+    const cmd = planStore.previewCmdFor(t)
     if (window.api?.copyText) {
       await window.api.copyText(cmd)
     } else {
@@ -267,21 +257,30 @@ function removeTaskFromMenu() {
   closeContextMenu()
 }
 
-function removeSelectedFromMenu() {
-  // 运行中禁止移除：引擎仍会写盘，移除后进度事件静默失配，用户失去可见性
+/**
+ * 批量移除所选任务的唯一实现（底栏按钮与右键菜单共用）。
+ * 三处状态必须同步，缺一即产生用户可见的不一致：
+ *   1) planStore  —— 表格行与勾选集合；
+ *   2) configStore.inputs —— 左侧输入清单，否则已移除的文件仍显示在 chip 列表里；
+ *   3) 主进程 stagedEntries —— 否则同一文件再次导入会被去重逻辑判为重复并静默丢弃。
+ * 运行中禁止移除：引擎仍会写盘，移除后该任务进度/结果事件静默失配。
+ */
+function removeSelectedTasks() {
   if (isPlanBusy()) return
-  // removeSelectedTasks 会清空 selectedIds，先捕获路径再同步剔除 inputs 与主进程 staged
   const paths = planStore.tasks
     .filter((t) => planStore.selectedIds.has(t.id))
     .map((t) => t.path)
     .filter((p): p is string => Boolean(p))
+  if (paths.length === 0) return
   planStore.removeSelectedTasks()
-  if (paths.length > 0) {
-    configStore.removeInputs(paths)
-    if (window.api?.removeStagedInputs) {
-      void window.api.removeStagedInputs(paths)
-    }
+  configStore.removeInputs(paths)
+  if (window.api?.removeStagedInputs) {
+    void window.api.removeStagedInputs(paths)
   }
+}
+
+function removeSelectedFromMenu() {
+  removeSelectedTasks()
   closeContextMenu()
 }
 
@@ -315,7 +314,40 @@ async function clearAllTasksFromMenu() {
 function handleGlobalKeydown(e: KeyboardEvent) {
   if (e.key === "Escape" && contextMenu.value.visible) {
     closeContextMenu()
+    return
   }
+  // 键盘呼出右键菜单（无障碍要求：Shift+F10 / ContextMenu 键），
+  // 定位到当前激活行；无激活行则退回首行，仍无任务则不打开。
+  if ((e.shiftKey && e.key === "F10") || e.key === "ContextMenu") {
+    const task =
+      planStore.tasks.find((t) => t.id === planStore.activeTaskId) || planStore.tasks[0] || null
+    if (!task) return
+    e.preventDefault()
+    planStore.activeTaskId = task.id
+    const row = document.querySelector<HTMLElement>(
+      `tr[data-task-id="${CSS.escape(task.id)}"]`
+    )
+    const rect = row?.getBoundingClientRect()
+    const x = rect ? Math.max(10, Math.min(rect.left + 24, window.innerWidth - 230)) : 40
+    const y = rect ? Math.max(10, Math.min(rect.top + 20, window.innerHeight - 350)) : 40
+    contextMenu.value = { visible: true, x, y, task }
+    void nextTick(() => {
+      const first = document.querySelector<HTMLElement>(".ctx-menu .ctx-item")
+      first?.focus()
+    })
+  }
+}
+
+/**
+ * 菜单内键盘激活：ctx-item 是 div（非原生 button），Enter / Space 不会自动触发 click。
+ * 焦点可达 + 容器级转发即可让全键盘完成菜单操作，无需把 10 个项都改成 button。
+ */
+function handleMenuKeydown(e: KeyboardEvent) {
+  if (e.key !== "Enter" && e.key !== " ") return
+  const target = e.target as HTMLElement | null
+  if (!target?.classList?.contains("ctx-item")) return
+  e.preventDefault()
+  target.click()
 }
 
 onMounted(() => {
@@ -627,9 +659,9 @@ const selectedTaskPreview = computed(() => {
           <button
             class="btn btn-sm btn-secondary"
             data-testid="btn-remove-selected"
-            :disabled="planStore.selectedIds.size === 0"
+            :disabled="planStore.selectedIds.size === 0 || isPlanBusy()"
             title="从列表中移除当前所有已勾选项"
-            @click="planStore.removeSelectedTasks()"
+            @click="removeSelectedTasks"
           >
             <svg class="i sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <line x1="18" y1="6" x2="6" y2="18" />
@@ -729,9 +761,17 @@ const selectedTaskPreview = computed(() => {
       class="ctx-menu"
       :style="{ top: `${contextMenu.y}px`, left: `${contextMenu.x}px` }"
       data-testid="task-context-menu"
+      role="menu"
       @click.stop
+      @keydown="handleMenuKeydown"
     >
-      <div class="ctx-item" data-testid="ctx-play-src" @click="contextMenu.task && playSource(contextMenu.task)">
+      <div
+        class="ctx-item"
+        role="menuitem"
+        tabindex="0"
+        data-testid="ctx-play-src"
+        @click="contextMenu.task && playSource(contextMenu.task)"
+      >
         <svg class="i sm" viewBox="0 0 24 24" fill="currentColor">
           <polygon points="6 4 18 12 6 20 6 4" />
         </svg>
@@ -740,6 +780,8 @@ const selectedTaskPreview = computed(() => {
       <div
         v-if="contextMenu.task.status === 'success'"
         class="ctx-item"
+        role="menuitem"
+        tabindex="0"
         data-testid="ctx-play-dst"
         @click="playOutput(contextMenu.task)"
       >
@@ -749,7 +791,7 @@ const selectedTaskPreview = computed(() => {
         </svg>
         <span>播放转码产物</span>
       </div>
-      <div class="ctx-item" data-testid="ctx-inspect" @click="inspectFromMenu">
+      <div class="ctx-item" role="menuitem" tabindex="0" data-testid="ctx-inspect" @click="inspectFromMenu">
         <svg class="i sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <circle cx="12" cy="12" r="10" />
           <line x1="12" y1="16" x2="12" y2="12" />
@@ -758,20 +800,20 @@ const selectedTaskPreview = computed(() => {
         <span>查看媒体信息 (ffprobe)</span>
         <span class="ctx-hint">双击</span>
       </div>
-      <div class="ctx-item" data-testid="ctx-show-folder" @click="openInFolderFromMenu">
+      <div class="ctx-item" role="menuitem" tabindex="0" data-testid="ctx-show-folder" @click="openInFolderFromMenu">
         <svg class="i sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
         </svg>
         <span>在文件管理器中定位</span>
       </div>
-      <div class="ctx-item" data-testid="ctx-copy-path" @click="copyPathFromMenu">
+      <div class="ctx-item" role="menuitem" tabindex="0" data-testid="ctx-copy-path" @click="copyPathFromMenu">
         <svg class="i sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
           <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
         </svg>
         <span>复制文件全路径</span>
       </div>
-      <div class="ctx-item" data-testid="ctx-copy-cmd" @click="copyCmdFromMenu">
+      <div class="ctx-item" role="menuitem" tabindex="0" data-testid="ctx-copy-cmd" @click="copyCmdFromMenu">
         <svg class="i sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <polyline points="4 17 10 11 4 5" />
           <line x1="12" y1="19" x2="20" y2="19" />
@@ -781,27 +823,27 @@ const selectedTaskPreview = computed(() => {
 
       <div class="ctx-divider"></div>
 
-      <div class="ctx-item" data-testid="ctx-toggle-check" @click="toggleTaskFromMenu">
+      <div class="ctx-item" role="menuitem" tabindex="0" data-testid="ctx-toggle-check" @click="toggleTaskFromMenu">
         <svg class="i sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <polyline points="9 11 12 14 22 4" />
           <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
         </svg>
         <span>{{ isSelected(contextMenu.task.id) ? '取消勾选此项' : '勾选此项' }}</span>
       </div>
-      <div class="ctx-item" data-testid="ctx-select-all" @click="selectAllFromMenu">
+      <div class="ctx-item" role="menuitem" tabindex="0" data-testid="ctx-select-all" @click="selectAllFromMenu">
         <svg class="i sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <polyline points="9 11 12 14 22 4" />
           <polyline points="5 7 8 10 14 4" />
         </svg>
         <span>全选所有任务</span>
       </div>
-      <div class="ctx-item" data-testid="ctx-invert-select" @click="invertSelectionFromMenu">
+      <div class="ctx-item" role="menuitem" tabindex="0" data-testid="ctx-invert-select" @click="invertSelectionFromMenu">
         <svg class="i sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
         </svg>
         <span>反向选择勾选</span>
       </div>
-      <div class="ctx-item" data-testid="ctx-clear-select" @click="clearSelectionFromMenu">
+      <div class="ctx-item" role="menuitem" tabindex="0" data-testid="ctx-clear-select" @click="clearSelectionFromMenu">
         <svg class="i sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
         </svg>
@@ -810,7 +852,7 @@ const selectedTaskPreview = computed(() => {
 
       <div class="ctx-divider"></div>
 
-      <div class="ctx-item ctx-danger" data-testid="ctx-remove-task" @click="removeTaskFromMenu">
+      <div class="ctx-item ctx-danger" role="menuitem" tabindex="0" data-testid="ctx-remove-task" @click="removeTaskFromMenu">
         <svg class="i sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <line x1="18" y1="6" x2="6" y2="18" />
           <line x1="6" y1="6" x2="18" y2="18" />
@@ -820,6 +862,8 @@ const selectedTaskPreview = computed(() => {
       <div
         v-if="planStore.selectedIds.size > 0"
         class="ctx-item ctx-danger"
+        role="menuitem"
+        tabindex="0"
         data-testid="ctx-remove-selected"
         @click="removeSelectedFromMenu"
       >
@@ -829,7 +873,7 @@ const selectedTaskPreview = computed(() => {
         </svg>
         <span>移除所有勾选项 ({{ planStore.selectedIds.size }})</span>
       </div>
-      <div class="ctx-item ctx-danger" data-testid="ctx-clear-all" @click="clearAllTasksFromMenu">
+      <div class="ctx-item ctx-danger" role="menuitem" tabindex="0" data-testid="ctx-clear-all" @click="clearAllTasksFromMenu">
         <svg class="i sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M3 6h18m-2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
         </svg>
@@ -1488,6 +1532,14 @@ tbody tr.checked {
 }
 
 .ctx-item:hover {
+  background: var(--bg-hover);
+  color: var(--primary-text);
+}
+
+/* 键盘焦点可见（Shift+F10 / ContextMenu 呼出后 Tab/方向键移动） */
+.ctx-item:focus-visible {
+  outline: 1px solid var(--primary);
+  outline-offset: -1px;
   background: var(--bg-hover);
   color: var(--primary-text);
 }

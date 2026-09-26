@@ -225,12 +225,12 @@ function buildVideoArgsFromPlan(entry, hwPlan, tempPreset) {
     //   preset → 出「输出 codec 族 + 质量/码率」，不关心硬件实现
     //
     // 所以这里是两段拼接：tier 的编码器参数 + preset 的质量参数。
-    // 不能再「整段替换」，否则 preset.videoArgs 里的质量参数会被丢弃。
+    // 不能再「整段替换」，否则 preset 声明的质量值（videoQuality）与码率会被丢弃。
     const codecFamily = codecFamilyOfPreset(tempPreset)
     const quality = tempPreset.videoQuality || entry.preset?.videoQuality || 24
     // 目标码率：一律用 bps 纯数字（dstVideoBitrate=calculateDstArgs 算出的目标，已按分辨率 scale）。
     // 带 K 的模板字段（videoBitrateK/audioBitrateK）是**字符串**，仅供文件名/模板
-    //（audioArgs `-b:a {audioBitrateK}`、suffix `_{audioBitrateK}`）注入使用，不参与码率计算。
+    //（suffix `_{audioBitrateK}`）注入使用，不参与码率计算。
     const bitrate = tempPreset.dstVideoBitrate || undefined
     // 峰值码率（bps）：calculateDstArgs 已按分辨率 scale；缺省 0 → buildEncoderArgs 用 ×1.5 兜底
     const maxBitrate = tempPreset.dstMaxBitrate || undefined
@@ -510,11 +510,12 @@ function buildFilterArgs(entry, tempPreset, hwPlan) {
 /**
  * 构建视频编码参数（S-4 硬件分层块唯一来源）
  *
- * ⚠️ 不再有「planVideoArgs 为 null 时回退 tempPreset.videoArgs 原样」的退路：
- *    该退路会让旧式 `-c:v libx264` 在 GPU 层原样输出，产生
- *    「CPU 滤镜 + GPU 编码器」畸形组合（实测根因，见方案 §3.1）。
- *    videoArgs 槽位已并入 buildVideoArgsFromPlan（无 -c:v 时作为额外参数附加），
- *    编码器参数一律由分层决定。
+ * ⚠️ 编码器参数**全部**由 buildVideoArgsFromPlan → buildEncoderArgs 产出：
+ *    - 无 hwPlan.tier 时返回 null（不输出任何 -c:v，由调用方与 ffmpeg 默认行为决定）；
+ *    - 旧式 `preset.videoArgs` 槽位已在 S-4 重构中彻底移除（schema 不再放行该字段），
+ *      因此不存在「旧式 `-c:v libx264` 在 GPU 层原样输出」的退路 —— 那会产生
+ *      「CPU 滤镜 + GPU 编码器」畸形组合（实测根因，见方案 §3.1）。
+ *    - 换编码器一律走 preset.userArgs.videoCodec（--video-codec / ffargs vc=）。
  *
  * @returns {string[]} 视频参数数组
  */
@@ -544,11 +545,9 @@ function buildAudioArgs(entry, tempPreset, caps) {
     let shouldCopy = false
 
     // 1. 判断是否应执行音频流复制 (copy)
-    if (
-        tempPreset.userArgs?.audioCopy ||
-        tempPreset.audioCodec === "copy" ||
-        tempPreset.audioArgs === "-c:a copy"
-    ) {
+    // 注：旧版 `audioArgs === "-c:a copy"` 入口已随 --audio-args 一并移除
+    //     （preset_schema 不再放行 audioArgs，FFmpegPreset 构造器也不消费它）。
+    if (tempPreset.userArgs?.audioCopy || tempPreset.audioCodec === "copy") {
         // 流复制前必须过容器兼容闸（与下方智能 copy 分支同一道闸）：
         // 此前 copy 直接放行，vorbis 等源 copy 进 m4a/mp4 在 muxer 阶段硬失败
         //（实测 "Could not find tag for codec vorbis"）。不兼容时降级为重编码。
@@ -613,32 +612,16 @@ function buildAudioArgs(entry, tempPreset, caps) {
     if (codec === "copy") {
         codec = "aac"
     }
-    if (tempPreset.audioArgs && !tempPreset.audioCodec) {
-        const m = String(tempPreset.audioArgs).match(/-c:a(?::\d+)?\s+(\S+)/)
-        if (m) {
-            codec = m[1]
-        }
-    }
     codec = fallbackAudioEncoder(codec, caps?.encoders, strict)
 
     const middleArgs = ["-c:a", codec]
 
     // 4. 码率 / 质量参数
-    let bitrate =
+    const bitrate =
         tempPreset.userArgs?.audioBitrate ||
         tempPreset.dstAudioBitrate ||
         tempPreset.audioBitrate ||
         0
-    if (bitrate === 0 && tempPreset.audioArgs) {
-        const bm = String(tempPreset.audioArgs).match(/-b:a\s+(\S+)/)
-        if (bm) {
-            try {
-                bitrate = helper.parseBitrate(bm[1])
-            } catch {
-                // ignore
-            }
-        }
-    }
 
     if (bitrate > 0) {
         middleArgs.push("-b:a", `${Math.round(bitrate / 1000)}k`)

@@ -86,9 +86,12 @@ Key points that reflect the current implementation:
 - **Presets are YAML, layered & inheritable.** Built-in single source is `presets/default.yaml`
   (h264 / hevc / av1 / vp9 / audio families); user layers live in `~/.mediac/presets.yaml` and
   `./presets.yaml`. Overriding a built-in name requires an explicit `_override: true`.
-- **Append-style overrides.** `--video-args` / `--audio-args` / `--filters` are *appended* to the
-  preset's blocks (later ffmpeg option wins) instead of replacing them; `--video-args` must not
-  contain `-c:v` (change the encoder with `--video-codec` or `--ffargs "vc=..."`).
+- **Filters and extra encoder parameters live in the preset YAML, not on the command line.**
+  The `--video-args` / `--audio-args` / `--filters` options were removed in the S-4 refactor;
+  use the preset fields instead: `filters` (with the `{scaleFilter}` placeholder),
+  `pre_filters` / `post_filters` (three-segment filter chain), `inputArgs` / `streamArgs` /
+  `outputArgs`. To change the encoder use `--video-codec` or `--ffargs "vc=..."` — injecting
+  `-c:v` yourself is what the layering exists to prevent.
 - **Dedicated `--metadata` channel** whose values may contain spaces; `--ffargs` uses `;` `:` `#`
   as key/value separators (not commas).
 - **Built-in safety rails.** Smart bitrate (never exceeds source, never upscales), temp-file writes

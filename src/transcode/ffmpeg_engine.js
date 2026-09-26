@@ -157,6 +157,14 @@ export function createFFmpegEngine({ runTask, onEvent } = {}) {
                             if (preparedTask) {
                                 Object.assign(currentTask, preparedTask)
                             }
+                            // 重试前的重建可能判定该任务应当跳过（目标已出现、源时长不足、
+                            // 格式非法等）。此时必须尊重该判定并结束本任务：
+                            // 此前会继续执行 ffmpeg，成功后 toRunResult 又优先读到合并进来的
+                            // status="skipped"，把「已成功产出」计成 skipped（统计与 UI 双错）。
+                            if (currentTask.status === "skipped" || currentTask.skipped === true) {
+                                result = toRunResult(currentTask)
+                                break
+                            }
                         }
 
                         emit(ENGINE_EVENT.TASK_ATTEMPT_STARTED, {

@@ -81,7 +81,7 @@ mediac ffmpeg ./video.mp4 --preset audio_extract --doit
 | `--suffix` | `-S` | string | 输出文件名后缀，支持模板变量 |
 | `--override` | `-O` | boolean | 目标已存在时覆盖（默认跳过并打印 `Skip[Dst]`） |
 
-模板变量（`prefix`/`suffix`/预设字段可用）：`{preset}` `{width}` `{height}` `{dimension}` `{speed}` `{videoQuality}` `{audioQuality}` `{framerate}` `{videoBitrateK}` `{audioBitrateK}` 等，由当前文件的计算结果填充。`{videoBitrateK}`/`{audioBitrateK}` 是带 `K` 的字符串，仅用于文件名/audioArgs 等模板注入。
+模板变量（`prefix`/`suffix`/预设字段可用）：`{preset}` `{width}` `{height}` `{dimension}` `{speed}` `{videoQuality}` `{audioQuality}` `{framerate}` `{videoBitrateK}` `{audioBitrateK}` 等，由当前文件的计算结果填充。`{videoBitrateK}`/`{audioBitrateK}` 是带 `K` 的字符串，仅用于文件名/后缀等模板注入。
 
 #### 3.3 预设
 
@@ -101,7 +101,10 @@ mediac ffmpeg ./video.mp4 --preset audio_extract --doit
 | `--video-bitrate` | `-vb` | string | 视频码率：裸数字=bps，或带 `k/m/g`（如 `233k`、`3M`），见 §9.18 |
 | `--video-quality` | `-vq` | number | 视频质量（CRF 基准，见 §5） |
 | `--video-copy` | — | boolean | 视频流直拷不重编码（会清空滤镜） |
-| `--video-args` | `-va` | string | **追加**视频编码参数到编码器块末尾（禁止含 `-c:v`） |
+
+> ⚠️ 旧版 `--video-args`（`-va`）已在 S-4 重构中移除。视频侧的额外参数请写进预设 YAML
+> 的 `filters` / `pre_filters` / `post_filters`（滤镜）或 `outputArgs`（输出参数）；
+> 换编码器用 `--video-codec` / `--ffargs "vc=..."`。
 
 #### 3.5 音频控制
 
@@ -110,16 +113,20 @@ mediac ffmpeg ./video.mp4 --preset audio_extract --doit
 | `--audio-bitrate` | `-ab` | string | 音频码率：裸数字=bps，或带 `k/m/g`（如 `128k`、`3M`） |
 | `--audio-quality` | `-aq` | number | 音频质量（VBR 等级） |
 | `--audio-copy` | — | boolean | 音频流直拷不重编码 |
-| `--audio-args` | `-aa` | string | **追加**音频编码参数到音频块末尾（不影响内置 copy/降级判断） |
 
-#### 3.6 滤镜与元数据
+> ⚠️ 旧版 `--audio-args`（`-aa`）已在 S-4 重构中移除。音频编码器与码率分别由
+> `--audio-codec`（或 `--ffargs "ac=..."`）与 `--audio-bitrate` 表达。
+
+#### 3.6 元数据
 
 | 选项 | 别名 | 类型 | 说明 |
 | ---- | ---- | ---- | ---- |
-| `--filters` | `-fs` | string | **追加**到 `-vf` 链末尾（缩放后段），保留预设 `{scaleFilter}` 占位符 |
-| `--filter-complex` | `-fc` | string | 设置复杂滤镜 `-filter_complex` |
 | `--metadata` | — | string | 输出元数据专用通道，`;` 分隔多组 `key=value`，**值可含空格** |
 | `--ffargs` | — | string | 复合字符串参数（别名见 §6.1） |
+
+> ⚠️ 旧版 `--filters`（`-fs`）与 `--filter-complex`（`-fc`）已在 S-4 重构中移除。
+> 滤镜一律由预设 YAML 声明：`filters`（`{scaleFilter}` 占位符，缩放由 tier 层替换）、
+> `pre_filters`（缩放前）、`post_filters`（缩放后）。
 
 #### 3.7 硬件加速与执行控制
 
@@ -285,7 +292,7 @@ mediac ffmpeg ./v.mp4 --preset hevc_2k --ffargs "vq=23;vb=4000;ab=128;sp=1.5" --
 
 ### 7. 元数据 `--metadata`
 
-元数据是独立追加通道，专门用来保住**含空格的取值**（`--video-args`/`--audio-args` 的追加串会按空白切 token，装不下空格值）。
+元数据是独立追加通道，专门用来保住**含空格的取值**（其它参数通道会按空白切 token，装不下空格值）。
 
 ```bash
 mediac ffmpeg ./v.mp4 --preset hevc_2k \
@@ -304,14 +311,14 @@ mediac ffmpeg ./v.mp4 --preset hevc_2k \
 # 缩到 1080p、CRF 26，覆盖已存在产物
 mediac ffmpeg ./Movies -o ./Out --preset hevc_2k --dimension 1920 --video-quality 26 -O --doit
 
-# 1.5 倍速（音视频同步变速），追加锐化滤镜
-mediac ffmpeg ./clip.mp4 --preset hevc_2k --speed 1.5 --filters "unsharp=5:5:0.8" --doit
+# 1.5 倍速（音视频同步变速）
+mediac ffmpeg ./clip.mp4 --preset hevc_2k --speed 1.5 --doit
 
 # 视频流直拷、仅重压音频为 128k AAC
 mediac ffmpeg ./v.mp4 --preset hevc_2k --video-copy --audio-bitrate 128 --doit
 
-# 强制用 NVENC hevc，追加编码参数（不含 -c:v）
-mediac ffmpeg ./v.mp4 --preset hevc_2k --video-codec hevc_nvenc --video-args "-rc vbr -b:v 0" --doit
+# 强制用 NVENC hevc
+mediac ffmpeg ./v.mp4 --preset hevc_2k --video-codec hevc_nvenc --doit
 
 # 纯 CPU 转码（不用任何硬件），失败也不降级重试
 mediac ffmpeg ./v.mp4 --preset hevc_2k --decode-mode cpu --strict --doit
@@ -332,10 +339,19 @@ mediac ffmpeg . --filelist samples.txt --preset vp9_2k --doit
 
 **9.2 `--preset` 必填且无默认值。** 缺失或名字不存在会直接报错退出。列名字用 `--show-presets`。
 
-**9.3 `--video-args` / `--audio-args` / `--filters` 是"追加"不是"替换"。** 它们拼到对应参数块**末尾**，依赖 ffmpeg "后写覆盖" 取得最高优先级，同时**保留预设自带的基线参数**。旧版整体替换预设的语义已废弃。
-- `--video-args` **禁止出现 `-c:v`**，命中即硬报错——换编码器请用 `--video-codec` 或 `--ffargs "vc=..."`。这是为了防止产生"CPU 滤镜 + GPU 编码器"的畸形组合。
-- `--video-args` 中如包含**编码器专属**参数（`-tune` / `-cq` / `-qp` / `-preset` / `-pix_fmt` / `-global_quality` / `-b_ref_mode` 等），会追加到最终编码器参数块末尾；切换硬件层后可能不兼容，应优先通过 `--ffargs` 或 `--video-codec` 表达转码参数。
-   - **`-pix_fmt` 尤其要小心**：在 cuda / qsv 帧留在显存的链路上手动加 `-pix_fmt yuv420p` 会把帧拉出显存、破坏 0 拷贝路径，探测直接 rc≠0 → auto 静默降级到 swdec/cpu（实测错误文案 `Impossible to convert between the formats supported by the filter`）。位深对齐**本已由分层自动完成**（cuda/qsv 走 `scale_*:format=nv12`；swdec 层自动补 `-pix_fmt yuv420p`），无需用户再手写。
+**9.3 滤镜与额外编码参数一律写在预设 YAML 里，命令行不提供注入通道。**
+S-4 重构移除了 `--video-args` / `--audio-args` / `--filters` / `--filter-complex`，原因是
+"往编码器块追加参数"会与硬件分层矩阵冲突（同一参数在不同层语义不同，甚至直接
+`Unrecognized option` 导致整层探测失败、静默降级到 CPU）。请改用：
+
+- `filters` / `pre_filters` / `post_filters` —— 三段式滤镜链，`{scaleFilter}` 由 tier 层替换；
+- `inputArgs` / `streamArgs` / `outputArgs` —— 输入侧、流映射、输出侧参数串；
+- `--video-codec` / `--ffargs "vc=..."` —— 显式指定编码器（穿透 ENCODER_MATRIX）。
+
+**`-pix_fmt` 尤其不要手写**：在 cuda / qsv 帧留在显存的链路上手动加 `-pix_fmt yuv420p` 会把帧
+拉出显存、破坏 0 拷贝路径，探测直接 rc≠0 → auto 静默降级到 swdec/cpu（实测错误文案
+`Impossible to convert between the formats supported by the filter`）。位深对齐**本已由分层
+自动完成**（cuda/qsv 走 `scale_*:format=nv12`；swdec 层自动补 `-pix_fmt yuv420p`），无需用户干预。
 
 **9.4 编码器由"硬件层 + 预设 codec 族"共同决定，不由输入位深决定。** `--hwaccel`/`--decode-mode` 改的是解码通路和所选层，具体编码器名由该层的编码器矩阵按输出族挑选。
 

@@ -25,6 +25,8 @@ export class FfmpegEnvironment {
   private ffprobePath: string | null = null
   private customFfmpegPath: string | null = null
   private customFfprobePath: string | null = null
+  /** 用户显式指定的 mediainfo（ffprobe 失败时的兜底探测工具）；null = 用 PATH 中的 mediainfo */
+  private customMediainfoPath: string | null = null
   private hardware: any = null
   private readonly getAppPath: () => string
 
@@ -37,14 +39,28 @@ export class FfmpegEnvironment {
     return this.ffprobePath
   }
 
+  /**
+   * 用户显式指定的 mediainfo 路径（未指定时为 null）。
+   * 供媒体探测作为 ffprobe 失败后的兜底工具使用 —— 此前该设置只被渲染层收集和持久化，
+   * 主进程完全不消费，是纯粹的「死控件」。
+   */
+  get resolvedMediainfoPath(): string | null {
+    return this.customMediainfoPath
+  }
+
   /** 已解析到的 ffmpeg 路径（未解析时为 null），供「关于」等只读展示使用 */
   getFfmpegPath(): string | null {
     return this.ffmpegPath
   }
 
-  async setCustomToolPaths(paths: { ffmpeg?: string; ffprobe?: string }): Promise<EnvironmentSummary> {
+  async setCustomToolPaths(paths: {
+    ffmpeg?: string
+    ffprobe?: string
+    mediainfo?: string
+  }): Promise<EnvironmentSummary> {
     const rawFfmpeg = typeof paths?.ffmpeg === "string" ? paths.ffmpeg.trim() : ""
     const rawFfprobe = typeof paths?.ffprobe === "string" ? paths.ffprobe.trim() : ""
+    const rawMediainfo = typeof paths?.mediainfo === "string" ? paths.mediainfo.trim() : ""
 
     let changed = false
 
@@ -73,6 +89,15 @@ export class FfmpegEnvironment {
       this.customFfprobePath = null
       this.ffprobePath = null
       changed = true
+    }
+
+    // mediainfo 只作 ffprobe 失败后的兜底探测，不参与能力探测，故不置 changed
+    if (rawMediainfo) {
+      if (existsSync(rawMediainfo)) {
+        this.customMediainfoPath = rawMediainfo
+      }
+    } else if (this.customMediainfoPath) {
+      this.customMediainfoPath = null
     }
 
     if (changed || !this.ffmpegPath) {
@@ -168,6 +193,7 @@ export class FfmpegEnvironment {
     return {
       ffmpegPath: this.ffmpegPath,
       ffprobePath: this.ffprobePath,
+      mediainfoPath: this.customMediainfoPath,
       presets: presets.getAllNames().map((name: string) => {
         const preset = presets.getPreset(name)
         return {

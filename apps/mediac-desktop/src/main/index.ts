@@ -21,6 +21,29 @@ function sendMenuAction(window: BrowserWindow, action: (typeof MENU_ACTIONS)[key
   window.webContents.send(MENU_ACTION_CHANNEL, action)
 }
 
+/**
+ * 转码执行中禁止 reload / forceReload。
+ *
+ * reload 会重建渲染层 store（任务表清空、状态回 IDLE），而主进程引擎仍在跑：
+ * 后续 task.progress / task.done 事件因 taskId 找不到任务被静默丢弃，
+ * 此时终止按钮也失效（stopExecution 守卫只认 RUNNING/STOPPING），
+ * 会话结束时 session.summary 还会把空 store 置成 COMPLETED。
+ * 宁可明确提示，也不让界面状态与实际执行脱钩。
+ */
+function guardReload(window: BrowserWindow): boolean {
+  if (!transcodeService.isExecuting()) return true
+  dialog.showMessageBoxSync(window, {
+    type: "warning",
+    buttons: ["知道了"],
+    defaultId: 0,
+    cancelId: 0,
+    title: "无法重新加载",
+    message: "转码任务正在进行中，无法重新加载界面。",
+    detail: "重新加载会让界面与实际执行脱钩（进度丢失、无法终止）。请先「终止转码」或等待本批次完成。",
+  })
+  return false
+}
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 let mainWindow: BrowserWindow | null = null
@@ -178,8 +201,21 @@ function setupApplicationMenu(window: BrowserWindow) {
           },
         },
         { type: "separator" },
-        { role: "reload", label: "重新加载 (&R)" },
-        { role: "forceReload", label: "强制重新加载" },
+        {
+          // 不用 role: "reload"：role 无法拦截，运行中 reload 会让 UI 与引擎脱钩
+          label: "重新加载 (&R)",
+          accelerator: "CmdOrCtrl+R",
+          click: () => {
+            if (guardReload(window)) window.webContents.reload()
+          },
+        },
+        {
+          label: "强制重新加载",
+          accelerator: "CmdOrCtrl+Shift+R",
+          click: () => {
+            if (guardReload(window)) window.webContents.reloadIgnoringCache()
+          },
+        },
         { role: "toggleDevTools", label: "开发者工具 (&I)" },
         { type: "separator" },
         { role: "resetZoom", label: "实际大小" },

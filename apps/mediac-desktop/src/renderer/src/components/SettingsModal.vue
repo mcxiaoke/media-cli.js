@@ -95,6 +95,14 @@ async function saveSettings() {
   emit("close")
 }
 
+/**
+ * 普通开关（非高危项）的统一切换入口：鼠标点击与键盘（Space / Enter）共用。
+ * 这些开关是 role="switch" + tabindex=0，只有 @click 时键盘用户无法操作。
+ */
+function toggleAdvSwitch(key: "override" | "anime" | "strict") {
+  configStore.adv[key] = !configStore.adv[key]
+}
+
 function handleDeleteSourceToggle() {
   if (!configStore.adv.deleteSource) {
     const ok = window.confirm(
@@ -181,12 +189,15 @@ function handleDeleteSourceToggle() {
             </div>
 
             <div class="field" style="margin-top: 6px">
-              <label class="sub-lbl">并发任务数 <span class="hint">仅音频并行，视频始终串行</span></label>
+              <label class="sub-lbl">
+                并发任务数
+                <span class="hint">视频与音频均按此并发；1 = 串行（视频建议保持 1，避免多路硬编会话抢占）</span>
+              </label>
               <input
                 v-model.number="configStore.adv.jobs"
                 type="number"
                 min="1"
-                max="4"
+                max="8"
                 class="input num"
                 data-testid="input-jobs"
               />
@@ -202,7 +213,9 @@ function handleDeleteSourceToggle() {
                   :aria-checked="configStore.adv.override"
                   data-testid="sw-override"
                   tabindex="0"
-                  @click="configStore.adv.override = !configStore.adv.override"
+                  @click="toggleAdvSwitch('override')"
+                  @keydown.space.prevent="toggleAdvSwitch('override')"
+                  @keydown.enter.prevent="toggleAdvSwitch('override')"
                 ></span>
               </div>
 
@@ -217,7 +230,9 @@ function handleDeleteSourceToggle() {
                   :aria-checked="configStore.adv.anime"
                   data-testid="sw-anime"
                   tabindex="0"
-                  @click="configStore.adv.anime = !configStore.adv.anime"
+                  @click="toggleAdvSwitch('anime')"
+                  @keydown.space.prevent="toggleAdvSwitch('anime')"
+                  @keydown.enter.prevent="toggleAdvSwitch('anime')"
                 ></span>
               </div>
 
@@ -232,7 +247,9 @@ function handleDeleteSourceToggle() {
                   :aria-checked="configStore.adv.strict"
                   data-testid="sw-strict"
                   tabindex="0"
-                  @click="configStore.adv.strict = !configStore.adv.strict"
+                  @click="toggleAdvSwitch('strict')"
+                  @keydown.space.prevent="toggleAdvSwitch('strict')"
+                  @keydown.enter.prevent="toggleAdvSwitch('strict')"
                 ></span>
               </div>
 
@@ -248,6 +265,8 @@ function handleDeleteSourceToggle() {
                   data-testid="sw-delete-source"
                   tabindex="0"
                   @click="handleDeleteSourceToggle"
+                  @keydown.space.prevent="handleDeleteSourceToggle"
+                  @keydown.enter.prevent="handleDeleteSourceToggle"
                 ></span>
               </div>
             </div>
@@ -289,6 +308,9 @@ function handleDeleteSourceToggle() {
               />
               <button class="btn btn-sm btn-secondary" title="浏览文件" @click="pickToolPath('mediainfo')">浏览...</button>
               <button class="btn btn-sm" @click="customMediainfo = ''">重置</button>
+            </div>
+            <div class="tool-hint">
+              ffprobe 为主探测工具；mediainfo 仅在 ffprobe 失败时作为兜底（留空 = 使用系统 PATH）
             </div>
           </div>
         </div>
@@ -431,6 +453,12 @@ function handleDeleteSourceToggle() {
   font-size: 12px;
   font-family: var(--mono);
   color: var(--text-2);
+}
+
+.tool-hint {
+  font-size: 11px;
+  color: var(--text-3);
+  line-height: 1.5;
 }
 
 .input {

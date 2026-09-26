@@ -178,8 +178,15 @@ async function startExecution() {
     planStore.tasks.filter((t) => planStore.selectedIds.has(t.id)).map((t) => t.path)
   )
 
-  // 2. 若存在未推演输入或配置已变动 (STALE/hasStaged) 或尚未生成计划，隐式触发流水线推演
-  if (planStore.hasStaged || planStore.status === "STALE" || !planStore.planSnapshot) {
+  // 2. 若存在未推演输入或配置已变动 (STALE/hasStaged) 或尚未生成计划，隐式触发流水线推演。
+  //    pendingStale：运行期间被改动的配置（运行中不能立刻标 STALE），也必须触发重推演，
+  //    否则会复用主进程冻结的旧 argv，出现「配置已改、实际执行旧参数」。
+  if (
+    planStore.hasStaged ||
+    planStore.status === "STALE" ||
+    planStore.pendingStale ||
+    !planStore.planSnapshot
+  ) {
     try {
       await createPlanInternal()
       planStore.restoreSelectionByPaths(knownPreviousPaths, selectedPaths)
@@ -325,12 +332,26 @@ async function pickDirGlobal() {
 
 function openOutputDir() {
   const dir = configStore.outputDir || (planStore.tasks[0]?.fileDst ? planStore.tasks[0].fileDst.replace(/[/\\][^/\\]+$/, "") : "")
-  if (dir) {
-    if (window.api?.openPath) {
-      void window.api.openPath(dir)
-    } else if (window.api?.showInFolder) {
-      void window.api.showInFolder(dir)
-    }
+  if (!dir) {
+    logStore.append({
+      level: "WARN",
+      message: "尚未确定输出目录：请先生成计划，或在左侧指定输出目录",
+      timestamp: new Date().toLocaleTimeString(),
+    })
+    return
+  }
+  if (window.api?.openPath) {
+    // 主进程对 SYSTEM_OPEN_PATH 做路径白名单校验，未授权路径会 reject。
+    // 此前是 void 裸调用 → 用户看到「点了没反应」，控制台一条未处理拒绝。
+    void window.api.openPath(dir).catch((err: unknown) => {
+      logStore.append({
+        level: "WARN",
+        message: `打开输出目录失败: ${err instanceof Error ? err.message : String(err)}（${dir}）`,
+        timestamp: new Date().toLocaleTimeString(),
+      })
+    })
+  } else if (window.api?.showInFolder) {
+    void Promise.resolve(window.api.showInFolder(dir)).catch(() => undefined)
   }
 }
 
@@ -373,10 +394,15 @@ onMounted(async () => {
   // Restore and sync custom external tool paths if saved in localStorage
   const savedFfmpeg = localStorage.getItem("mediac_tool_ffmpeg") || ""
   const savedFfprobe = localStorage.getItem("mediac_tool_ffprobe") || ""
-  if (savedFfmpeg || savedFfprobe) {
+  const savedMediainfo = localStorage.getItem("mediac_tool_mediainfo") || ""
+  if (savedFfmpeg || savedFfprobe || savedMediainfo) {
     if (window.api?.setCustomToolPaths) {
       try {
-        await window.api.setCustomToolPaths({ ffmpeg: savedFfmpeg, ffprobe: savedFfprobe })
+        await window.api.setCustomToolPaths({
+          ffmpeg: savedFfmpeg,
+          ffprobe: savedFfprobe,
+          mediainfo: savedMediainfo,
+        })
       } catch (err) {
         console.error("Failed to restore custom tool paths:", err)
       }
@@ -463,11 +489,14 @@ onMounted(async () => {
     } else if (event.type === "session.summary") {
       const summary = event.summary as any
       const failedCount = typeof summary?.failed === "number" ? summary.failed : 0
+      const pendingStaleBefore = planStore.pendingStale
       planStore.status = summary?.isCancelled
         ? "STOPPED"
         : failedCount > 0
           ? "FAILED"
           : "COMPLETED"
+      // 运行期间修改过的配置在此刻兑现为 STALE：不能让它随终态一起被吞掉
+      planStore.applyPendingStale()
       const total = summary?.total || 0
       const succeeded = typeof summary?.success === "number" ? summary.success : 0
       logStore.append({
@@ -475,6 +504,13 @@ onMounted(async () => {
         message: `转码结束：共 ${total} 个任务，成功 ${succeeded} 个，失败 ${failedCount} 个，跳过 ${summary?.skipped || 0} 个，耗时 ${((summary?.elapsedMs || 0) / 1000).toFixed(1)} 秒`,
         timestamp: new Date().toLocaleTimeString(),
       })
+      if (pendingStaleBefore) {
+        logStore.append({
+          level: "WARN",
+          message: "运行期间修改过转码配置，当前计划已标记为待更新（下次「开始转码」将自动重新推演）",
+          timestamp: new Date().toLocaleTimeString(),
+        })
+      }
       if (window.api?.notify) {
         void window.api.notify(
           failedCount > 0 ? "转码任务结束（含失败）" : "转码任务完成",

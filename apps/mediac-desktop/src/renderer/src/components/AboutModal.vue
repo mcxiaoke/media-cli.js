@@ -35,7 +35,7 @@ const hwTier = computed(() => envStore.summary?.hardware.tier || "cpu")
       <div class="modal-head">
         <div class="title-with-badge">
           <h3>关于与系统信息</h3>
-          <span class="badge">v0.1.0</span>
+          <span class="badge">v{{ envStore.version }}</span>
         </div>
         <button class="icon-btn" title="关闭 (Esc)" data-testid="btn-close-about" @click="emit('close')">
           <svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -119,6 +119,12 @@ const hwTier = computed(() => envStore.summary?.hardware.tier || "cpu")
               <span>探测工具：</span>
               <b class="mono-path" :title="envStore.summary?.ffprobePath || ''">
                 {{ envStore.summary?.ffprobePath || "未检测到 ffprobe 二进制文件" }}
+              </b>
+            </div>
+            <div class="kv">
+              <span>兜底探测：</span>
+              <b class="mono-path" :title="envStore.summary?.mediainfoPath || ''">
+                {{ envStore.summary?.mediainfoPath || "mediainfo：使用系统 PATH（未自定义）" }}
               </b>
             </div>
             <div class="kv">

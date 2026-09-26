@@ -9,10 +9,10 @@
  *        · default.yaml 随包存在、模块相对路径可解析
  *        · `_base_*` 模板不外泄到已注册集
  *        · 每个预设能经 FFmpegPreset 构造器构造
- *        · 视频预设符合 S-4：videoArgs 无 -c:v、videoCodecFamily 显式声明、
+ *        · 视频预设符合 S-4：videoArgs 字段已彻底移除、videoCodecFamily 显式声明、
  *          无 complexFilter 时 filters === "{scaleFilter}"；有 complexFilter 时
  *          含 "{scaleFilter}" 模板且不含字面量 scale_cuda
- *        · 音频预设 audioArgs 保留 -c:a
+ *        · 音频预设经 audioCodec / audioBitrate 结构化声明（audioArgs 已废弃）
  *        · getAllNames 返回副本
  *
  * 隔离策略：不调用 initPresetsAsync 全链（避免命中真实 ~/.mediac），

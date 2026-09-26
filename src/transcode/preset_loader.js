@@ -76,13 +76,26 @@ function resolvePresetPath(customPath) {
     return fs.pathExistsSync(DEFAULT_PRESET_PATH) ? DEFAULT_PRESET_PATH : null
 }
 
-function resolveExtends(presets, presetName, resolved = new Set()) {
+/**
+ * 递归解析 `extends` 继承链。
+ *
+ * 查找域 = 本层 raw 预设 → 已加载的低优先级层（`base`）。
+ * ⚠️ `base` 是 P0-1 之后的必需参数：此前每层独立解析，用户层写
+ *    `extends: hevc_2k`（内置预设名）会直接抛 "Preset not found" 并整条丢弃，
+ *    而 presets.example.yaml 明确引导用户这样做。
+ *
+ * @param {Object} presets 当前层的 raw 预设表
+ * @param {string} presetName 待解析的预设名
+ * @param {Set<string>} resolved 环检测集合（跨递归共享）
+ * @param {Object} base 已加载的低优先级层预设表（已解析完成的成品）
+ */
+function resolveExtends(presets, presetName, resolved = new Set(), base = {}) {
     if (resolved.has(presetName)) {
         throw new Error(`Circular extends detected: ${presetName}`)
     }
     resolved.add(presetName)
 
-    const preset = presets[presetName]
+    const preset = presets[presetName] || base[presetName]
     if (!preset) {
         throw new Error(`Preset not found: ${presetName}`)
     }
@@ -92,7 +105,7 @@ function resolveExtends(presets, presetName, resolved = new Set()) {
     }
 
     const baseName = preset.extends
-    const basePreset = resolveExtends(presets, baseName, resolved)
+    const basePreset = resolveExtends(presets, baseName, resolved, base)
 
     const merged = { ...basePreset }
     for (const key of Object.keys(preset)) {
@@ -137,13 +150,13 @@ function validatePresetFields(name, preset) {
     return true
 }
 
-function processPresets(rawPresets) {
+function processPresets(rawPresets, base = {}) {
     const processed = {}
     const presetNames = Object.keys(rawPresets)
 
     for (const name of presetNames) {
         try {
-            const resolved = resolveExtends(rawPresets, name)
+            const resolved = resolveExtends(rawPresets, name, new Set(), base)
             if (!validatePresetFields(name, resolved)) {
                 continue
             }
@@ -160,9 +173,11 @@ function processPresets(rawPresets) {
  * 加载单个 YAML 预设文件。
  * customPath 缺失/无效时回退 resolvePresetPath（用户层 → 包内 default.yaml）。
  *
+ * @param {string|null} customPath 单文件路径（仅加载该文件）
+ * @param {Object} [base] 已加载的低优先级层预设表，供本层 `extends` 跨层继承
  * @returns {Promise<{path: string, presets: Object}|null>}
  */
-export async function loadPresetsFromYaml(customPath = null) {
+export async function loadPresetsFromYaml(customPath = null, base = {}) {
     const yaml = await loadYamlParser()
     if (!yaml) {
         return null
@@ -184,7 +199,7 @@ export async function loadPresetsFromYaml(customPath = null) {
             return null
         }
 
-        const processed = processPresets(rawPresets)
+        const processed = processPresets(rawPresets, base)
         const count = Object.keys(processed).filter((k) => !k.startsWith("_")).length
         log.logSuccess(LOG_TAG, `Loaded ${count} presets from YAML`)
 
@@ -216,13 +231,17 @@ export async function loadPresetLayers(customPath = null) {
     const paths = customPath
         ? [path.resolve(customPath)]
         : [DEFAULT_PRESET_PATH, ...USER_SEARCH_PATHS]
+    // 逐层累积 base：后加载层（优先级更高）的 `extends` 可以解析到先加载层
+    // （含内置 default.yaml 与 `_base_*` 继承基类）的预设名。
+    let base = {}
     for (const p of paths) {
         if (!fs.pathExistsSync(p)) {
             continue
         }
-        const layer = await loadPresetsFromYaml(p)
+        const layer = await loadPresetsFromYaml(p, base)
         if (layer) {
             layers.push(layer)
+            base = { ...base, ...layer.presets }
         }
     }
     return layers

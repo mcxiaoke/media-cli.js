@@ -21,7 +21,6 @@
 # S-4 字段约定（与 v2.0 硬编码时代的关键差异）:
 #   - videoCodecFamily : 只声明输出 codec 族 (h264|hevc|av1|vp9)，
 #                        具体编码器由 src/transcode/hwaccel.js 按 tier(解码层) 决定
-#   - videoArgs        : 只放硬件无关参数，**禁止 -c:v 硬编码编码器**
 #   - filters          : "{scaleFilter}" 占位符，缩放滤镜由 tier 层按
 #                        实际硬件（scale_cuda/scale_qsv/vpp_amf/scale）生成
 #   - pre_filters      : 缩放前滤镜（三段式，可选）

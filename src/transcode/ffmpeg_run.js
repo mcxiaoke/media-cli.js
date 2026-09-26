@@ -125,12 +125,19 @@ function installTempCleanupHooks() {
         return
     }
     tempCleanupHooked = true
-    for (const sig of ["SIGINT", "SIGTERM"]) {
-        process.on(sig, () => {
-            cleanupTempFiles(sig)
-            process.exit(130)
-        })
+    // ⚠️ 进程信号处理只在 CLI 场景注册。
+    //    本模块被 Electron 主进程复用（ffmpeg-service → runFFmpeg → runFFmpegCmd），
+    //    而 process.exit(130) 会直接杀掉整个 GUI 应用；GUI 的退出策略属于宿主
+    //    （main/index.ts 的 before-quit → transcodeService.dispose()），库不应代为决定。
+    if (!process.versions?.electron) {
+        for (const sig of ["SIGINT", "SIGTERM"]) {
+            process.on(sig, () => {
+                cleanupTempFiles(sig)
+                process.exit(130)
+            })
+        }
     }
+    // exit 钩子两端都安全：只做同步文件清理，不改变退出码/不阻断退出
     process.on("exit", () => cleanupTempFiles("exit"))
 }
 
@@ -421,8 +428,11 @@ async function runFFmpegCmd(
         // 却根本没写出临时文件。必须 return entry 并带上根因——
         // 此前只打日志不返回，调用方拿到 undefined，toRunResult 只能给出
         // "FFmpeg returned no result" 的无信息量失败。
-        // 注意不设 ffmpegFailed：那是 CPU 解码重试的触发标记，产物过小
-        // 属于输出质量问题而非解码失败，不应进重试链路。
+        // 注意不设 ffmpegFailed：该标记供其它路径（分层探测失败等）诊断使用。
+        // ⚠️ 重试闸门由宿主的 shouldRetry 决定（cmd_ffmpeg.js / ffmpeg-service.ts 都是
+        //    `result.status === "failed"`），因此本类「产物异常小/缺失」失败**会**获得
+        //    一次 CPU 重试机会。这与「输出质量问题不该走解码重试」的直觉不同，
+        //    但成本仅一次重转，且能覆盖"硬解路径静默产出坏文件"的情形，故保留现行为。
         entry.ffmpegError = `FFmpeg exited successfully but the output is ${
             (await fs.pathExists(entry.fileDstTemp)) ? "unexpectedly small" : "missing"
         } (source: ${helper.humanSize(entry.size)})`
@@ -540,35 +550,67 @@ function getCommentArgs(entry) {
 }
 
 /**
+ * Error 实例的自身属性（message/stack）不可枚举，`JSON.stringify(error)` 会得到 `{}`，
+ * 错误原因随之丢失。序列化前先摊平成普通对象。
+ */
+function serializeError(error) {
+    if (!error) return String(error)
+    if (error instanceof Error) {
+        return {
+            name: error.name,
+            message: error.message,
+            stack: error.stack || null,
+            ...(error.stderr ? { stderr: String(error.stderr) } : {}),
+        }
+    }
+    return error
+}
+
+/**
  * 在输出目录写入错误日志文件
+ *
+ * `--error-file` 支持三种取值：
+ *   - `json` / `text`：写入输出目录，文件名自动生成（`<name>_<preset>_error_<时间戳>.ext`）；
+ *   - 其它任意字符串：视为**显式文件路径**（相对路径基于输出目录解析），扩展名 `.json`
+ *     决定 JSON 格式，其余按文本；多个失败文件共用同一路径时**追加**而非覆盖，避免丢历史。
+ *
  * @param {Object} entry - 文件对象
  * @param {Error} error - 错误对象
  * @returns {Promise<void>}
  */
 async function writeErrorFile(entry, error) {
-    if (entry.errorFile) {
-        try {
-            const useJson = entry.errorFile === "json"
-            const fileExt = useJson ? ".json" : ".txt"
-            const nowStr = dayjs().format("YYYYMMDDHHmmss")
-            // 确保输出目录存在，避免写入错误日志失败
-            await fs.ensureDir(entry.fileDstDir)
-            const errorFile = path.join(
-                entry.fileDstDir,
-                `${path.parse(entry.name).name}_${entry.preset.name}_error_${nowStr}${fileExt}`,
-            )
-            const errorObj = {
-                ...entry,
-                error: error,
-                date: Date.now(),
-            }
+    if (!entry.errorFile) {
+        return
+    }
+    try {
+        const mode =
+            entry.errorFile === "json" || entry.errorFile === "text" ? entry.errorFile : null
+        const explicitPath = mode ? null : path.resolve(entry.fileDstDir || ".", entry.errorFile)
+        const useJson = mode ? mode === "json" : explicitPath.toLowerCase().endsWith(".json")
+        const nowStr = dayjs().format("YYYYMMDDHHmmss")
+        // 确保输出目录存在，避免写入错误日志失败
+        await fs.ensureDir(entry.fileDstDir)
+        const errorFile = explicitPath
+            ? explicitPath
+            : path.join(
+                  entry.fileDstDir,
+                  `${path.parse(entry.name).name}_${entry.preset.name}_error_${nowStr}${useJson ? ".json" : ".txt"}`,
+              )
+        const errorObj = {
+            ...entry,
+            error: serializeError(error),
+            date: Date.now(),
+        }
+        if (useJson) {
+            await fs.appendFile(errorFile, `${JSON.stringify(errorObj, null, 4)}\n`)
+        } else {
             const errData = Object.entries(errorObj)
                 .map(([key, value]) => `${key} =: ${value}`)
                 .join("\n")
-            await fs.writeFile(errorFile, useJson ? JSON.stringify(errorObj, null, 4) : errData)
-        } catch (e) {
-            log.error("writeErrorFile", "Failed to write error file", e.message)
+            await fs.appendFile(errorFile, `${errData}\n\n`)
         }
+    } catch (e) {
+        log.error("writeErrorFile", "Failed to write error file", e.message)
     }
 }
 
@@ -642,7 +684,12 @@ async function executeFFmpeg(args, entry, options = null) {
 
     // 解析进度信息
     let currentTime = 0
+    // 展示用速度串（ffmpeg -progress 输出形如 "1.5x"），进度条模板 {speed} 直接消费
     let currentSpeed = "0x"
+    // 数值化速度（1.5），供 onProgress 消费者（Electron 看板的实时速度/剩余时间）使用。
+    // ⚠️ 此前 onProgress 直接透传字符串 "1.5x"，而消费端按 typeof === "number" 判定，
+    //    导致桌面端「实时速度」「剩余时间」两项恒显示 "—"。
+    let currentSpeedValue = 0
 
     // 监听 stdout
     subprocess.stdout.on("data", (data) => {
@@ -655,6 +702,10 @@ async function executeFFmpeg(args, entry, options = null) {
                 const s = speedMatch[1].trim()
                 if (s && s !== "N/A") {
                     currentSpeed = s
+                    const parsed = Number.parseFloat(s)
+                    if (Number.isFinite(parsed) && parsed > 0) {
+                        currentSpeedValue = parsed
+                    }
                 }
             }
             // 解析 out_time= 字段（-progress 输出的是 out_time）
@@ -672,7 +723,8 @@ async function executeFFmpeg(args, entry, options = null) {
                     if (onProgress) {
                         onProgress({
                             percent: progress,
-                            speed: currentSpeed,
+                            speed: currentSpeedValue,
+                            speedText: currentSpeed,
                             currentTime,
                             srcDuration,
                             entry,
@@ -812,7 +864,7 @@ async function resolveHwPlan(entry, signal = null) {
     }
 
     // 输出 codec 族（决定探测时用什么编码器，必须与真实命令一致）
-    // T4 优先级：显式 encoder 解析出的族 > preset.videoCodecFamily > videoArgs 推断
+    // 优先级：显式 encoder（--video-codec / ffargs vc=）解析出的族 > preset.videoCodecFamily > h264
     const codecFamily = codecFamilyOfPreset(entry.preset)
 
     // 尺寸由 selectTier 内部按长边规则计算（禁止放大 + 偶数对齐）

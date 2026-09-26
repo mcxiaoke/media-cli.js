@@ -28,6 +28,8 @@ export interface SelectFileOptions {
 export interface EnvironmentSummary {
   ffmpegPath: string | null
   ffprobePath: string | null
+  /** 用户显式指定的 mediainfo（ffprobe 失败时的兜底探测工具）；null = 使用 PATH 中的 mediainfo */
+  mediainfoPath?: string | null
   presets: Array<{
     name: string
     type: string

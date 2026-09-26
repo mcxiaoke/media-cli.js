@@ -55,8 +55,8 @@ export const SPEED_MAX = 2.0
  * 编码器矩阵：[层][输出 codec 族] → 编码器名
  *
  * ⚠️ 关键设计（曾犯错，务必保留此说明）：
- *   输出编码器由 **preset 决定**（preset.videoArgs 里写的 `-c:v xxx`），
- *   与 **输入位深无关**。
+ *   输出编码器由 **preset 的 codec 族决定**（preset.videoCodecFamily / userArgs.videoCodec），
+ *   本矩阵再按「解码层 × 输出族」选出具体编码器名，与 **输入位深无关**。
  *
  *   输入位深只影响「哪一层能解码」——那是 probeLayer 的职责。
  *   `h264 + 10bit` 只是 NVENC **不能硬解**，换一层解码即可，
@@ -545,8 +545,13 @@ export function buildScaleFilter(tier, size, swFormat) {
  *   `-pix_fmt nv12`                     同样要求出显存 → 失败
  *   性能实测（4K→1080p h264_nvenc）：`:format=nv12` 16.5x ≈ 0 拷贝基准 16.3x，2 拷贝路径 6.92x。
  *
- * 适用范围：仅 cuda/qsv（硬件帧链路）。d3d/swdec/cpu 层帧本就在系统内存，由 `-pix_fmt` 对齐；
- * hevc 族编码器可直接吃 p010/p012，无需覆盖。
+ * 适用范围：仅 cuda/qsv（硬件帧链路），且仅在本函数生效。
+ * ⚠️ 已知局限（勿按注释臆断）：d3d / cpu 层同样会受"10bit 源 + h264 目标"影响，
+ *    但 buildEncoderArgs 的 `-pix_fmt yuv420p` 目前**只注入 swdec 层**：
+ *      - d3d 层：探测必然失败一次后降级（结果可接受，仅多耗一次探测）；
+ *      - cpu 层：libx264 会产出 High 10 profile（部分播放器兼容性差）。
+ *    需要覆盖这两层时请显式用 `--decode-mode cpu` + 8bit 源，或改用 hevc 族预设。
+ *    hevc 族编码器可直接吃 p010/p012，无需覆盖。
  *
  * @param {object} tier
  * @param {object} [src]
@@ -864,7 +869,7 @@ export function buildEncoderArgs(
     // 峰值上限 maxBitrate（也已在 calculateDstArgs 随分辨率 scale 过）：
     //   显式声明 → 直接用；缺省 → bitrate×1.5（保持既有行为，随 bitrate 缩放）。
     // 带 K 的模板字段（videoBitrateK/audioBitrateK）是**字符串**，仅供文件名/模板
-    // （audioArgs、suffix）注入使用，不参与这里的码率计算。
+    // （suffix 等）注入使用，不参与这里的码率计算。
     const kb = (v) => `${Math.round((v || 0) / 1000)}K`
     const b = bitrate || 0
     const m = maxBitrate && maxBitrate > 0 ? Math.round(maxBitrate) : Math.round(b * 1.5)
@@ -1124,6 +1129,13 @@ const probeCache = new Map()
  * ⚠️ speed/framerate 必须进键（T5 新增）：两者都会改变探测命令的滤镜链
  *    （setpts/atempo/fps），speed≠1 或 framerate 非空时滤镜不同，
  *    缺键会让「带滤镜」与「不带滤镜」的探测结果互相复用而误判。
+ *
+ * ⚠️ quality 进键：质量值直接参与探测命令的码控参数（-cq/-global_quality/-crf），
+ *    长驻进程（Electron）跨批次换 `--video-quality` 时若复用旧键，
+ *    探测结论与实际命令不再同构。
+ *    bitrate / maxBitrate **有意不进键**：它们是 calculateDstArgs 按**每个文件**的
+ *    分辨率缩放后的值，进键会让同批次每个文件都成为独立键、探测缓存彻底失效
+ *    （1000 文件 = 1000 次干跑/层）；而码率大小并不改变「该层能否打开这个文件」。
  */
 export function probeCacheKey({
     tierName,
@@ -1136,11 +1148,13 @@ export function probeCacheKey({
     speed,
     framerate,
     anime = false,
+    quality,
 }) {
     const speedKey = speed && speed !== 1 ? speed : ""
     const fpsKey = framerate && framerate > 0 ? framerate : ""
     const animeKey = anime ? "anime" : ""
-    return `${tierName}|${codec}|${codecFamily}|${pixFmt}|${dimension}|${bitDepth || ""}|${forcedEncoder || ""}|${speedKey}|${fpsKey}|${animeKey}`
+    const qualityKey = Number.isFinite(quality) ? quality : ""
+    return `${tierName}|${codec}|${codecFamily}|${pixFmt}|${dimension}|${bitDepth || ""}|${forcedEncoder || ""}|${speedKey}|${fpsKey}|${animeKey}|${qualityKey}`
 }
 
 /** 清空探测缓存（测试用） */
@@ -1199,6 +1213,7 @@ export async function probeLayer({
         speed,
         framerate,
         anime,
+        quality,
     })
     if (useCache && probeCache.has(key)) {
         return probeCache.get(key)

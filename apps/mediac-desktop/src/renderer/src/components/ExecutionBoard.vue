@@ -2,13 +2,21 @@
 import { computed } from "vue"
 import { usePlanStore } from "../stores/plan"
 import { useConfigStore } from "../stores/config"
+import { useLogStore } from "../stores/log"
 import { formatSize, formatDuration } from "../utils/format"
 
 const planStore = usePlanStore()
 const configStore = useConfigStore()
+const logStore = useLogStore()
 
 const isRunning = computed(() => planStore.status === "RUNNING" || planStore.status === "STOPPING")
-const isDone = computed(() => planStore.status === "COMPLETED" || planStore.status === "STOPPED")
+// FAILED 同样属于「本批次已结束」：失败后最需要去输出目录核对产物，此前该场景不显示按钮
+const isDone = computed(
+  () =>
+    planStore.status === "COMPLETED" ||
+    planStore.status === "STOPPED" ||
+    planStore.status === "FAILED"
+)
 
 const currentRunningTask = computed(() => {
   return planStore.tasks.find((t) => t.status === "running") || null
@@ -23,6 +31,9 @@ const activeFileName = computed(() => {
   }
   if (planStore.status === "STOPPED") {
     return "转码任务已终止"
+  }
+  if (planStore.status === "FAILED") {
+    return "本批次已结束（含失败任务，可查看日志或重试）"
   }
   if (planStore.tasks.length > 0) {
     return `计划已就绪 · 共 ${planStore.tasks.length} 个任务`
@@ -66,13 +77,23 @@ const etaStat = computed(() => {
 })
 
 function openOutputDir() {
-  const dir = configStore.outputDir || (planStore.tasks[0]?.fileDst ? planStore.tasks[0].fileDst.replace(/[/\\][^/\\]+$/, "") : "")
-  if (dir) {
-    if (window.api?.openPath) {
-      void window.api.openPath(dir)
-    } else if (window.api?.showInFolder) {
-      void window.api.showInFolder(dir)
-    }
+  const dir =
+    configStore.outputDir ||
+    (planStore.tasks[0]?.fileDst
+      ? planStore.tasks[0].fileDst.replace(/[/\\][^/\\]+$/, "")
+      : "")
+  if (!dir) return
+  if (window.api?.openPath) {
+    // 主进程白名单校验失败会 reject；裸 void 调用会让用户以为按钮坏了
+    void window.api.openPath(dir).catch((err: unknown) => {
+      logStore.append({
+        level: "WARN",
+        message: `打开输出目录失败: ${err instanceof Error ? err.message : String(err)}（${dir}）`,
+        timestamp: new Date().toLocaleTimeString(),
+      })
+    })
+  } else if (window.api?.showInFolder) {
+    void Promise.resolve(window.api.showInFolder(dir)).catch(() => undefined)
   }
 }
 </script>

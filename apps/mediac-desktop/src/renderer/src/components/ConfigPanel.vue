@@ -198,7 +198,9 @@ async function pickOutputDir() {
   try {
     const res = await window.api.selectFiles({ mode: "directory", multiple: false })
     if (res.paths.length > 0) {
-      config.outputDir = res.paths[0]
+      // 必须走 store 的 setCustomOutputDir：直接写 outputDir 会漏掉
+      // savedCustomOutputDir / outputBesideSource 的联动（TaskTable 的选择器用的是正确写法）
+      config.setCustomOutputDir(res.paths[0])
       logStore.append({
         level: "INFO",
         message: `输出目录已设置为: ${res.paths[0]}`,
@@ -418,10 +420,11 @@ const audioSummary = computed(() => {
           <label class="lbl">输出目录 <span class="hint">留空 = 源文件同目录</span></label>
           <div class="inline-row">
             <input
-              v-model="config.outputDir"
+              :value="config.outputDir"
               class="input grow"
               placeholder="选择或输入输出目录"
               data-testid="input-output-dir"
+              @input="config.setCustomOutputDir(($event.target as HTMLInputElement).value)"
             />
             <button class="btn btn-secondary" data-testid="btn-select-output-dir" @click="pickOutputDir">
               选择目录

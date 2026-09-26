@@ -26,10 +26,9 @@ const OPTION_KEYS = [
     "audioCopy",
     "audioCodec",
     "metadata",
-    "filters",
-    "filterComplex",
-    "videoArgs",
-    "audioArgs",
+    // 注：filters / filterComplex / videoArgs / audioArgs 已随 S-4 重构从选项面移除
+    //（滤镜与额外编码参数只经预设 YAML 的 filters/pre_filters/post_filters 表达），
+    // 保留在此只会让宿主传入后被静默忽略，故一并删除。
     "errorFile",
     "hwaccel",
     "decodeMode",

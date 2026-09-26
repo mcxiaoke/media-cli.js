@@ -390,6 +390,11 @@ export function normalizeVendor(raw) {
     if (v.includes("intel")) return "intel"
     if (
         v.includes("advanced micro devices") ||
+        // ⚠️ Windows 上 systeminformation 返回的是型号串（如 "AMD Radeon RX 7900 XTX"、
+        //    "AMD Radeon(TM) Graphics"），既不含厂商全称也不等于 "amd"，
+        //    缺 "radeon" 匹配时会被判为 other → amf/swdec 层永不入场，
+        //    A 卡用户静默失去硬件编码（候选链退化为 [d3d, cpu]）。
+        v.includes("radeon") ||
         v === "amd" ||
         /\bati\b/.test(v) ||
         /^ati/.test(v)

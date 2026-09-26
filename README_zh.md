@@ -83,9 +83,10 @@ mediac <命令> --help
 - **预设是 YAML、分层且可继承。** 内置单一来源为 `presets/default.yaml`（h264 / hevc / av1 / vp9 /
   音频族），用户层为 `~/.mediac/presets.yaml` 与 `./presets.yaml`；覆盖内置同名预设必须显式
   `_override: true`。
-- **追加式参数覆盖。** `--video-args` / `--audio-args` / `--filters` 是**追加**到预设参数块末尾
-  （靠 ffmpeg 后写覆盖），而非整体替换；`--video-args` 禁止含 `-c:v`（换编码器请用 `--video-codec`
-  或 `--ffargs "vc=..."`）。
+- **滤镜与额外编码参数写在预设 YAML 里，不走命令行。** `--video-args` / `--audio-args` /
+  `--filters` 三个选项已在 S-4 重构中移除；请改用预设字段：`filters`（含 `{scaleFilter}` 占位符）、
+  `pre_filters` / `post_filters`（三段式滤镜链）、`inputArgs` / `streamArgs` / `outputArgs`。
+  换编码器请用 `--video-codec` 或 `--ffargs "vc=..."`，不要自行注入 `-c:v`。
 - **`--metadata` 专用通道**，值可含空格；`--ffargs` 的键值分隔符是 `;` `:` `#`（不是逗号）。
 - **内置安全护栏。** 智能码率（不超源、不放大）、临时文件写入 + 中断清理、`--delete-source-files`
   仅在产物非空时把源文件移入回收站（dry-run 绝不删除）。

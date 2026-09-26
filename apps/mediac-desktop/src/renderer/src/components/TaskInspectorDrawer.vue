@@ -12,19 +12,21 @@ const copiedCmd = ref(false)
 const copiedRaw = ref(false)
 const showRawMeta = ref(false)
 
+/**
+ * 命令来源：
+ *  - "plan"     —— 主进程 createPlan 时生成的真实推演命令（含硬件分层与逐文件参数）；
+ *  - "estimate" —— 计划尚未生成时，本组件按预设名与当前微调参数粗略拼接的**估算**命令，
+ *                  与真实执行命令无关，必须在 UI 上明确区分（此前统一标为「完整推演」会误导）。
+ */
+const cmdSource = computed<"plan" | "estimate">(() =>
+  plan.planSnapshot?.previewCmd ? "plan" : "estimate"
+)
+
 const cmdString = computed(() => {
   if (!task.value) return ""
   if (plan.planSnapshot?.previewCmd) {
-    const base = plan.planSnapshot.previewCmd
-    const firstTask = plan.tasks[0]
-    if (firstTask && task.value.id !== firstTask.id) {
-      return base
-        .split(`"${firstTask.path}"`).join(`"${task.value.path}"`)
-        .split(firstTask.path).join(task.value.path)
-        .split(`"${firstTask.fileDst}"`).join(`"${task.value.fileDst}"`)
-        .split(firstTask.fileDst).join(task.value.fileDst)
-    }
-    return base
+    // 统一走 store：按 path 反查基准任务，避免移除过首行后替换失配
+    return plan.previewCmdFor(task.value)
   }
 
   // 动态根据当前配置与预设生成推演命令预览
@@ -259,7 +261,7 @@ function startResizing(e: MouseEvent) {
         <!-- FFmpeg 命令行推演卡片 -->
         <div class="insp-card">
           <div class="insp-card-title">
-            <span>FFmpeg 命令行（完整推演）</span>
+            <span>FFmpeg 命令行（{{ cmdSource === "plan" ? "计划推演" : "本地估算" }}）</span>
             <button class="btn btn-sm" data-testid="btn-copy-cmd" @click="copyCmd">
               <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
                 <rect x="9" y="9" width="13" height="13" rx="2" />
@@ -267,6 +269,10 @@ function startResizing(e: MouseEvent) {
               </svg>
               {{ copiedCmd ? '已复制 ✓' : '复制命令' }}
             </button>
+          </div>
+          <div v-if="cmdSource === 'estimate'" class="cmd-warn" data-testid="cmd-estimate-warn">
+            尚未生成计划：以下命令是按预设名与当前微调参数粗略拼接的估算值，**不代表真实执行命令**。
+            点击「生成计划」后会显示含硬件分层与逐文件参数的真实推演命令。
           </div>
           <div class="cmd-box" data-testid="insp-cmd-box" v-html="highlightedCmd"></div>
         </div>
@@ -482,6 +488,16 @@ function startResizing(e: MouseEvent) {
 .btn-icon {
   width: 12px;
   height: 12px;
+}
+
+.cmd-warn {
+  background: var(--warning-soft);
+  color: var(--warning);
+  border: 1px solid rgba(242, 201, 125, 0.35);
+  border-radius: var(--radius);
+  padding: 6px 8px;
+  font-size: 11px;
+  line-height: 1.5;
 }
 
 .cmd-box {
