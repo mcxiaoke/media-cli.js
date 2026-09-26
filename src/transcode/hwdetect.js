@@ -390,9 +390,19 @@ function describeGpus(gpus) {
         .join("/")
 }
 
-/** 清空缓存（测试用） */
+/**
+ * 清空硬件能力缓存
+ *
+ * ⚠️ 缓存本身**不带 ffmpegPath 键**（模块级单例），换用另一个 ffmpeg 二进制后
+ *    若不显式清空，会一直返回旧二进制探测出的能力（编码器集合/版本/代次）。
+ *    `ffmpeg_run.setFFmpegPath()` 在路径变化时调用本函数。
+ *
+ * 同时清掉 in-flight promise：否则一次正在进行的旧探测仍会在结束时
+ * 把旧结果写回 `cachedCapabilities`，让清空失效。
+ */
 export function clearHwCapabilitiesCache() {
     cachedCapabilities = null
+    capabilitiesPromise = null
 }
 
 /**

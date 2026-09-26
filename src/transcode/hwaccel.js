@@ -14,8 +14,7 @@
  *   验证脚本：research/hwtest/run_dimension_verify.py（231 项）
  *             research/hwtest/run_noup_fps_speed.py（34 项）
  *
- * 已接入 CLI/Electron 转码链路（由 ffmpeg_build / ffmpeg_plan / ffmpeg_run 消费）；
- * 文件末尾「对接说明」保留设计背景与未完成项。
+ * 已接入 CLI/Electron 转码链路（由 ffmpeg_build / ffmpeg_plan / ffmpeg_run 消费）。
  */
 
 import { execa } from "execa"
@@ -33,18 +32,6 @@ export const DecodeMode = {
     AUTO: "auto", // 按层级链逐层探测降级（默认）
     GPU: "gpu", // 只用显式指定的层，失败即硬失败
     CPU: "cpu", // 直接走 Tier 4，不探测
-}
-
-/** 显式指定的硬件加速器（对应 --hwaccel 参数） */
-export const HwAccel = {
-    CUDA: "cuda",
-    QSV: "qsv",
-    AMF: "amf",
-    D3D11VA: "d3d11va",
-    D3D12VA: "d3d12va",
-    DXVA2: "dxva2",
-    VULKAN: "vulkan",
-    AUTO: "auto",
 }
 
 /** speed 允许范围（产品决策：只允许 0.5–2.0） */
@@ -80,122 +67,6 @@ const ENCODER_MATRIX = {
 // swdec 层的字面量兜底行 = CPU 行（拿不到厂商信息时安全回退到原 cpu 层行为，不会更差）；
 // 真实取值由 resolveTiers 按主 GPU 厂商注入的 tier.encoderRow 覆盖。
 ENCODER_MATRIX.swdec = ENCODER_MATRIX.cpu
-
-/**
- * 质量值归一化偏移表（3 段阶梯）
- *
- * 以 x264/x265 的 CRF 为基准，各实现做阶梯偏移 —— 同一数值在三家**不等效**：
- * 实测同一 `-cq 28` 与 `-crf 28`，nvenc 产物是 x264 的 1.45 倍。
- *
- * 标定依据：495 次编码（8K 8bit / 4K 10bit / 1080p 8bit 真实素材，
- *          11 个质量点 × 3 轮取中位数），见
- *          docs/ENCODER-QUALITY-CALIBRATION-20260920.md
- *
- * 格式：[crf<=26, crf28-34, crf>=36]
- *
- * 逐点实测数据（备忘）：
- *   crf    avc_nvenc  avc_qsv  hevc_nvenc  hevc_qsv
- *   18     +5         +2       +6          +0
- *   20     +5         +2       +6          -1
- *   22     +5         +2       +6          -1
- *   24     +5         +2       +6          -1
- *   26     +5         +2       +6          -2
- *   28     +4         +3       +6          -1
- *   30     +4         +3       +8          -1
- *   32     +4         +3       +6          -1
- *   34     +3         +3       +4          -1
- *   36     +2         +2       +2          +0
- *   38     +0         +0       +0          -1
- *
- * 规律：低质量区偏移大（+5~+6），高质量区趋近 0（各编码器都接近视觉无损）。
- * 注意：HEVC 偏移普遍比 AVC 大 1~2 档（x265 的 CRF 语义比 x264 更严格）。
- *
- * ⚠️ 已知局限（标定数据得出，未进一步细分）：
- *   - 偏移随**内容复杂度**变化：实拍/高动态（bilibili 8K/4K）+6，
- *     简单动画（Big Buck Bunny 1080p）+4。表中取跨素材中位数，
- *     对简单内容会略微过度压缩（实测偏差 ~27%），对实拍内容准确。
- *   - AMF 未标定（本机无 A 卡），回退偏移 0。
- *   - 判据仅用产物字节数，未做 VMAF/PSNR 客观质量评估。
- *   - 如需更准，可按分辨率/复杂度分档，或改逐点查表（数据见上方备忘）。
- */
-const QUALITY_OFFSET = {
-    avc_nvenc: [5, 4, 1],
-    avc_qsv: [2, 3, 1],
-    hevc_nvenc: [6, 6, 1],
-    hevc_qsv: [-1, -1, 0],
-}
-
-/**
- * QSV 10bit 源质量钳制（已移除）
- *
- * 历史缺陷：hevc_qsv 在 10bit 4K 源上用 `-q:v`（qscale flag → CQP 码控）低值会
- * rate control 失效、产物暴涨 10 倍（-q:v 18 → 17.8MB，-q:v 28 → 1.7MB）。
- *
- * 实测（2026-09-20，ffmpeg N-125246，4K 10bit 源 @1080p 输出）：
- *   改用 -global_quality（ICQ 码控）后 18/20/24/28 严格单调、无暴涨
- *   （-q:v 18 → 13.6MB vs -global_quality 18 → 1.0MB）。
- * 该缺陷是 **CQP 模式专属**，ICQ 不存在，钳制随之不再需要；
- * 保留钳制反而会把 10bit 源的低质量值静默抬到 24，损害画质。
- */
-
-/**
- * 标定表键 → 层名的映射
- *
- * 标定是按「编码器实现」做的（nvenc/qsv/x264），而运行时的层名是
- * cuda/qsv/amf/d3d/cpu。这里做一次转换：
- *   cuda / d3d → nvenc（两者都用 NVENC 编码器）
- *   qsv        → qsv
- *   amf        → amf（未标定，回退 0）
- *   cpu        → x264/x265（基准，偏移 0）
- */
-const TIER_TO_CALIB_KEY = {
-    cuda: "nvenc",
-    d3d: "nvenc",
-    qsv: "qsv",
-    amf: "amf",
-    cpu: "x264", // 基准，表中无此键 → 偏移 0
-    // swdec 的编码器随厂商变化（nvenc/qsv/amf），不能在这里写死；
-    // buildEncoderArgs 改用「实际编码器名」换算（normalizeQualityForEncoder），
-    // 此处保留 x264 作为无厂商信息时的兜底（= 原 cpu 层行为）。
-    swdec: "x264",
-}
-
-/**
- * 计算某层某 codec 族的质量偏移
- *
- * ⚠️ 两处键名映射（都曾踩坑，导致偏移恒为 0）：
- *   1. codecFamily: "h264" → 标定表的 "avc"
- *   2. tierName:    "cuda"/"d3d" → 标定表的 "nvenc"
- *
- * @param {string} tierName cuda|qsv|amf|d3d|cpu
- * @param {"h264"|"hevc"} codecFamily
- * @param {number} crf 基准质量值（x264/x265 CRF 语义）
- * @returns {number}
- */
-export function qualityOffsetOf(tierName, codecFamily, crf) {
-    const fam = codecFamily === "h264" ? "avc" : codecFamily
-    const impl = TIER_TO_CALIB_KEY[tierName] || tierName
-    const key = `${fam}_${impl}`
-    const row = QUALITY_OFFSET[key]
-    if (!row) return 0
-    if (crf <= 26) return row[0]
-    if (crf <= 34) return row[1]
-    return row[2]
-}
-
-/**
- * 质量值归一化：把 preset 声明的 CRF 换算成该层的等效质量值
- *
- * @param {string} tierName
- * @param {"h264"|"hevc"} codecFamily
- * @param {number} crf
- * @param {string} [pixFmt] 源像素格式（10bit+qsv 钳制曾用；ICQ 已修复，保留签名兼容调用方）
- * @returns {number} 该层应使用的质量值
- */
-export function normalizeQuality(tierName, codecFamily, crf, _pixFmt) {
-    const q = Number(crf) + qualityOffsetOf(tierName, codecFamily, crf)
-    return Math.max(0, Math.min(51, Math.round(q)))
-}
 
 // ─────────────────────────────────────────────────────────────
 // VMAF 等值质量偏移（2026-09-23，纯查表，无 IO）
@@ -449,33 +320,6 @@ export function calcLongEdge(srcW, srcH, dimension) {
     return { w: toEven((srcW * target) / srcH), h: toEven(target) }
 }
 
-/**
- * 判断像素格式位深
- *
- * ⚠️ 两个 provider 的 pixelFormat 语义完全不同（实测）：
- *   ffprobe  : "yuv420p" / "yuv420p10le" / "yuv422p10le"  ← 位深**内嵌**在字符串里
- *   mediainfo: "YUV4:2:0" / "YUV4:2:2"                    ← 位深**不在**字符串里，
- *                                                            只在独立的 BitDepth 字段
- *
- * 因此只看 pixelFormat 字符串在 mediainfo 下会恒判 8bit（真实回归）：
- *   hevc 10bit 源 → pixelFormat="YUV4:2:0" → 误判 8bit → 选 h264_nvenc → 编码失败
- *
- * @param {string} pixFmt 像素格式串
- * @param {number|string} [explicitBitDepth] 显式位深（mediainfo 的 BitDepth 字段）
- * @returns {"8bit"|"10bit"}
- */
-export function bitDepthOf(pixFmt, explicitBitDepth) {
-    // 优先用显式位深（mediainfo 提供，ffprobe 通常没有）
-    const n = Number(explicitBitDepth)
-    if (Number.isFinite(n) && n > 0) {
-        return n >= 9 ? "10bit" : "8bit"
-    }
-    if (!pixFmt) return "8bit"
-    // 退回解析像素格式串（ffprobe 路径）
-    // yuv420p10le / yuv422p10le / p010le / gray12le / yuv444p16le 等
-    return /(p10|p12|p16|10le|12le|16le|10be|12be|16be)/i.test(pixFmt) ? "10bit" : "8bit"
-}
-
 // ---------------------------------------------------------------------------
 // 滤镜串生成
 // ---------------------------------------------------------------------------
@@ -697,38 +541,9 @@ export function buildAudioFilters(speed) {
     return sp === 1 ? "" : `atempo=${sp}`
 }
 
-/**
- * 是否需要 complexFilter
- * 当同时存在视频变速与音频变速时必须用 complexFilter 保证音画同步
- */
-export function needsComplexFilter({ speed, hasAudio }) {
-    return validateSpeed(speed) !== 1 && hasAudio
-}
-
 // ---------------------------------------------------------------------------
 // 参数组装
 // ---------------------------------------------------------------------------
-
-/**
- * 选择编码器
- *
- * ⚠️ 必须同时传入 pixelFormat 与 bitDepth：
- *   mediainfo 的 pixelFormat="YUV4:2:0" 不含位深信息，只有 bitDepth 字段可靠。
- *   只传 pixelFormat 会导致 10bit 源被误选为 h264 编码器。
- *
- * @param {string} tierName 层名
- * @param {string} pixFmt 源像素格式
- * @param {number|string} [bitDepth] 显式位深（mediainfo 的 BitDepth）
- */
-/**
- * @param {string} tierName 层名
- * @param {string} codecFamily 输出 codec 族
- * @param {object} [tier] 层对象（含 tier.encoderRow 时优先，用于 swdec 层的厂商编码器行）
- */
-export function pickEncoder(tierName, codecFamily = "h264", tier) {
-    const matrix = tier?.encoderRow || ENCODER_MATRIX[tierName] || ENCODER_MATRIX.cpu
-    return matrix[codecFamily] || matrix.h264
-}
 
 /**
  * 各 codec 族的编码器运行时回退候选（按偏好排序）。
@@ -991,22 +806,6 @@ export function buildEncoderArgs(
         args.push("-pix_fmt", "yuv420p")
     }
     return args
-}
-
-/** 层名 → 编码器实现（与 encoderCalibImpl 对齐；cuda/d3d 都走 NVENC） */
-/**
- * 依据层与位深选择编码器参数块
- * 10bit 源强制 hevc 编码器（h264 编码器对 10bit 全线失败）
- *
- * @param {string} tierName
- * @param {string} pixFmt
- * @param {object} opts
- * @returns {string[]}
- */
-export function buildEncoderArgsForSource(tierName, pixFmt, opts = {}) {
-    // ⚠️ pixFmt/bitDepth 不参与编码器选择，仅为保持调用签名兼容。
-    //    输出编码器族由 preset 决定，见 ENCODER_MATRIX 上方说明。
-    return buildEncoderArgs(tierName, opts)
 }
 
 /**
@@ -1313,11 +1112,6 @@ export function resolveTiers({ caps, decodeMode = DecodeMode.AUTO, hwaccel }) {
 }
 
 /**
- * 主入口：按层级链选择第一个可用的层
- *
- * @returns {Promise<{tier:object, degraded:boolean, tried:string[]}>}
- */
-/**
  * 基于 GPU 支持矩阵的解码预筛
  *
  * 当 detectHardwareCapabilities 探测到 NVIDIA 主 GPU（caps.gpuProbe）且
@@ -1537,70 +1331,8 @@ export async function selectTier({
     }
 }
 
-export default {
-    DecodeMode,
-    HwAccel,
-    TIERS,
-    SPEED_MIN,
-    SPEED_MAX,
-    calcLongEdge,
-    toEven,
-    bitDepthOf,
-    qualityOffsetOf,
-    normalizeQuality,
-    validateSpeed,
-    buildScaleFilter,
-    scaleFormatOverride,
-    buildVideoFilters,
-    buildAudioFilters,
-    needsComplexFilter,
-    pickEncoder,
-    buildHwaccelArgs,
-    buildLayerArgs,
-    buildProbeArgs,
-    probeLayer,
-    resolveTiers,
-    selectTier,
-    probeCacheKey,
-    clearProbeCache,
-}
-
 // ---------------------------------------------------------------------------
-// 对接说明（设计背景与未完成项）
+// 已知未完成项（保留给后续维护，勿按「未实现」重复开发）
 // ---------------------------------------------------------------------------
-// 历史背景：下列第 1-3 项描述的缺陷已在迁移中修复 —— canUseCUDADecoder 已移除、
-//   层选择由 selectTier 接管；preset 的 filters 已改为 `{scaleFilter}` 占位符；
-//   缩放经 buildVideoFilters 同源生成。原文保留作为设计依据。
-//
-// 1. cmd/cmd_ffmpeg.js 的 canUseCUDADecoder()（约 1957-2005 行）
-//    → 替换为 selectTier()。现有缺陷：
-//      a) 探测只覆盖解码，真实命令还含滤镜与编码器 → ffv1 漏判
-//      b) 失败判定只匹配两个错误串 → 其它错误串误判为可用
-//      c) 缓存按 inputPath → 1000 个文件 1000 次探测
-//
-// 2. lib/ffmpeg_presets.js 的 filters 字段
-//    → 改为 {scaleFilter} 占位符，由 buildScaleFilter() 生成。
-//    注意现有写法用了 force_original_aspect_ratio=decrease，
-//    该写法「会放大」且 scale_qsv 不支持，需一并替换。
-//
-// 3. 现有 PRESET_HEVC_SPEED 的 complexFilter（ffmpeg_presets.js:364）
-//    → 可改用 buildVideoFilters() + buildAudioFilters() 组合生成。
-//    注意其 scale_cuda 表达式同样需要改为预计算的显式尺寸。
-//
-// 4. 音频降级（libfdk_aac 缺失 → native aac）
-//    → 已落地：ffmpeg_build.js 的 fallbackAudioEncoder()（非 strict 模式静态降级为 aac），
-//      文案见 lib/i18n.js 的 ffmpeg.audio.* 键。
-//
-// 5. i18n：新增降级原因文案，需补 lib/i18n.js 键。
-//    → 已落地（编码器不可用/降级到 CPU/严格模式跳过等键均已补全）。
-//
-// 未完成项：
 //   - AMF 路径未实测（本机无 A 卡），参数来自 `-h filter=vpp_amf`
 //   - 探测超时值 15000ms 为经验值，未在长素材上压测
-// ---------------------------------------------------------------------------
-// 已落地（原文列于「未完成项」，勿再按缺失实现重复开发）：
-//   - vendor 检测：hwdetect.js 已从 GPU 探测结果归一化 vendor（nvidia/intel/amd/other），
-//     TIERS 每层带 vendor 字段，Tier1 三选一按此判定（另见 gpu.js gpuProbeList）。
-//   - hasAudio 检测：ffmpeg_build.js buildAudioFilters 从 entry.info?.audio ||
-//     entry.srcAudioCodec 判定；ffmpeg_run.js 探测链路同样携带 hasAudio。
-//   - 音频编码器降级：见上文第 4 项。

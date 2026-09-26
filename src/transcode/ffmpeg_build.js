@@ -129,20 +129,6 @@ function warnScalePlaceholderDisabled() {
 }
 
 /**
- * 依据 hwPlan 生成完整视频滤镜链（三段式）
- *
- * 组装（与 src/transcode/hwaccel.js buildVideoFilters 同一函数，探测=真实同源）：
- *   pre_filters → setpts（变速） → scale（按 tier 生成，替代 {scaleFilter}） → fps → post_filters
- *
- * 行为要点：
- *   - 用户滤镜（pre/post）不再被整段丢弃（修复 P1-1：--filters yadif 在有 hwPlan 时保留）；
- *   - 无 tier（兜底/预览异常）时输出用户滤镜原样，缩放段不可用并 warn；
- *   - scale 段生成条件：用户显式写了 {scaleFilter}、或任务确实需要缩放、或需改帧率
- *     （触发面与旧实现 buildVideoFilters 一致，避免"已达标文件被多一次同尺寸缩放"）。
- *
- * @returns {string} 如 "yadif=1,setpts=PTS/1.5,scale_cuda=w=1920:h=1080:interp_algo=lanczos,format=cuda,fps=25"
- */
-/**
  * 是否需要 10bit 源 + h264 目标的位深对齐（scale 的 format=nv12）
  *
  * 单独抽出来的原因：它**同时也决定了要不要输出 `-vf`**。
@@ -158,6 +144,20 @@ function depthAlignNeeded(entry, hwPlan, tempPreset) {
     })
 }
 
+/**
+ * 依据 hwPlan 生成完整视频滤镜链（三段式）
+ *
+ * 组装（与 src/transcode/hwaccel.js buildVideoFilters 同一函数，探测=真实同源）：
+ *   pre_filters → setpts（变速） → scale（按 tier 生成，替代 {scaleFilter}） → fps → post_filters
+ *
+ * 行为要点：
+ *   - 用户滤镜（pre/post）不再被整段丢弃（修复 P1-1：--filters yadif 在有 hwPlan 时保留）；
+ *   - 无 tier（兜底/预览异常）时输出用户滤镜原样，缩放段不可用并 warn；
+ *   - scale 段生成条件：用户显式写了 {scaleFilter}、或任务确实需要缩放、或需改帧率
+ *     （触发面与旧实现 buildVideoFilters 一致，避免"已达标文件被多一次同尺寸缩放"）。
+ *
+ * @returns {string} 如 "yadif=1,setpts=PTS/1.5,scale_cuda=w=1920:h=1080:interp_algo=lanczos,format=cuda,fps=25"
+ */
 function buildScaleFiltersFromPlan(entry, hwPlan, tempPreset) {
     const { pre, post, scaleRequested } = splitPresetFilterSegments(tempPreset)
     const tier = hwPlan?.tier

@@ -18,14 +18,26 @@ import { t } from "../../lib/i18n.js"
 import { createFFmpegArgs, flattenFFArgs, tierName } from "./ffmpeg_build.js"
 import { getEntryShowInfo } from "./ffmpeg_plan.js"
 import { SKIP_REASON, toRunResult } from "./ffmpeg_result.js"
-import { detectHardwareCapabilities } from "./hwdetect.js"
-import { DecodeMode, TIERS, codecFamilyOfPreset, selectTier } from "./hwaccel.js"
+import { clearHwCapabilitiesCache, detectHardwareCapabilities } from "./hwdetect.js"
+import { DecodeMode, TIERS, clearProbeCache, codecFamilyOfPreset, selectTier } from "./hwaccel.js"
 
 export const LOG_TAG = "FFConv"
 // ffmpeg 可执行文件路径（模块级缓存，供硬件探测复用）
 let ffmpegPath = null
+
+/**
+ * 设置 ffmpeg 二进制路径
+ *
+ * ⚠️ 换二进制必须同时失效两份进程内缓存，否则会沿用**旧二进制**的探测结论：
+ *   1. hwdetect 的硬件能力（模块级单例，缓存键不含 ffmpegPath）；
+ *   2. hwaccel 的各层文件探测（`probeCacheKey` 有意不含 ffmpegPath）。
+ * 桌面端「设置 → 工具路径」改 ffmpeg 后正是走这里；CLI 只在启动时调用一次，无副作用。
+ */
 export function setFFmpegPath(p) {
+    if (p === ffmpegPath) return
     ffmpegPath = p
+    clearHwCapabilitiesCache()
+    clearProbeCache()
 }
 
 /**
