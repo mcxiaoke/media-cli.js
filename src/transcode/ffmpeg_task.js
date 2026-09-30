@@ -17,99 +17,10 @@ import { t } from "../../lib/i18n.js"
 import * as helper from "../../lib/helper.js"
 
 /**
- * 构建一个 Desktop/共享任务层使用的媒体任务条目。
+ * 构建单个 CLI 媒体任务条目：探测媒体信息 → 计算目标参数 → 决定目标路径与字幕。
  *
- * 这是第一阶段的最小可测试 seam：只移动任务构建，不改变 CLI 的
- * prepareFFmpegCmd 业务。Engine 已在此基础上统一 CLI 与 Desktop 的执行编排。
- *
- * @param {object} input
- * @param {object} options
- * @returns {Promise<object|null>}
- */
-export async function buildTask(
-    input,
-    {
-        index,
-        total,
-        activePreset,
-        argv,
-        output = "",
-        fsApi = fs,
-        getMediaInfo: mediaInfo = getMediaInfo,
-        calculate = calculateDstArgs,
-        createBaseName = createDstBaseName,
-        chooseSubtitle = selectPreferredSubtitle,
-        textHash = helper.textHash,
-        signal = null,
-    },
-) {
-    const info = await mediaInfo(input.path, { signal })
-    const isAudio = activePreset.type === "audio"
-    const ivideo = info?.video
-    const iaudio = info?.audio
-    const duration = info?.duration || ivideo?.duration || iaudio?.duration || 0
-
-    const entry = {
-        index,
-        total,
-        path: input.path,
-        name: input.name,
-        size: input.size,
-        info,
-        preset: activePreset,
-        argv,
-        duration,
-    }
-
-    if (isAudio && !iaudio) {
-        return {
-            ...entry,
-            status: "skipped",
-            skipReason: SKIP_REASON.MISSING_AUDIO,
-        }
-    }
-    if (!isAudio && !ivideo) {
-        return {
-            ...entry,
-            status: "skipped",
-            skipReason: SKIP_REASON.MISSING_VIDEO,
-        }
-    }
-
-    entry.dstArgs = calculate(entry)
-
-    const srcDir = path.dirname(input.path)
-    const srcBase = path.parse(input.name).name
-    const dstDir = output ? path.resolve(output) : srcDir
-    const [fileDstBase] = createBaseName(entry)
-    const dstExt = activePreset.format || path.extname(input.name) || ".mp4"
-    const fileDst = path.join(dstDir, `${fileDstBase}${dstExt}`)
-    const fileDstTemp = path.join(
-        dstDir,
-        `${fileDstBase}_tmp@${textHash(input.path)}@tmp_${dstExt}`,
-    )
-
-    const subExts = [".ass", ".ssa", ".srt"]
-    const subtitles = []
-    for (const ext of subExts) {
-        const subPath = path.join(srcDir, `${srcBase}${ext}`)
-        if (await fsApi.pathExists(subPath)) subtitles.push(subPath)
-    }
-
-    return {
-        ...entry,
-        fileDstDir: dstDir,
-        fileDst,
-        fileDstTemp,
-        subtitles,
-        selectedSubtitle: chooseSubtitle(subtitles),
-        status: "pending",
-    }
-}
-
-/**
- * Build one CLI task. This is the injectable equivalent of the former
- * private prepareFFmpegCmd implementation in cmd/cmd_ffmpeg.js.
+ * 这是原 cmd/cmd_ffmpeg.js 私有 prepareFFmpegCmd 的可注入实现：planner 注入
+ * fs / 媒体探测 / 硬件探测 / 日志 / 翻译实现，测试与重试路径共用同一套业务。
  */
 export async function buildCliTask(entry, deps = {}) {
     const fsApi = deps.fs || fs

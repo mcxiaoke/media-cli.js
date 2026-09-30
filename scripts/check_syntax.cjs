@@ -18,19 +18,8 @@ const path = require("path")
 const ROOT = path.join(__dirname, "..")
 
 // 不参与检查的目录：node_modules(依赖)、temp(备份与中间产物)、
-// coverage(覆盖率)、.git、assets(二进制素材)、dist(构建产物)、
-// out/release/test-results(Electron 构建与测试产物)
-const SKIP_DIRS = new Set([
-    "node_modules",
-    "temp",
-    "coverage",
-    ".git",
-    "assets",
-    "dist",
-    "out",
-    "release",
-    "test-results",
-])
+// coverage(覆盖率)、.git、assets(二进制素材)、dist(打包产物)
+const SKIP_DIRS = new Set(["node_modules", "temp", "coverage", ".git", "assets", "dist"])
 
 const JS_EXT = [".js", ".cjs", ".mjs"]
 

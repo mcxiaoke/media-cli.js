@@ -28,8 +28,8 @@ export class FFmpegPlanError extends Error {
 }
 
 /**
- * Shared plan preparation for CLI, desktop (Electron) and future adapters.
- * UI-specific confirmation, logging and transport stay outside this module.
+ * Shared plan preparation for the CLI: entries + preset + argv → task list.
+ * Confirmation, logging and transport stay outside this module.
  */
 export async function buildFFmpegTasks({
     entries = [],
@@ -206,8 +206,7 @@ export function assertPlanCurrent(expected, current) {
 
 /**
  * Delete source files only after a successful output commit and only when the
- * caller supplied explicit confirmation. The same helper is used by CLI and
- * desktop (Electron); dry-run never enters the deletion path.
+ * caller supplied explicit confirmation. Dry-run never enters the deletion path.
  *
  * @param {object} [opts]
  * @param {object} [opts.plan] 执行计划（读取 argv.deleteSourceFiles 与 tasks）

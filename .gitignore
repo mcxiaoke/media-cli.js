@@ -115,7 +115,6 @@ Downloads/
 *.iws
 *.iml
 *.ipr
-/out/
 temp/
 tmp/
 

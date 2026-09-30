@@ -10,8 +10,6 @@ const TRANSCODE_FACADE = path.join(TRANSCODE_DIR, "index.js")
 const LIB_DIR = path.join(ROOT, "lib")
 const CMD_DIR = path.join(ROOT, "cmd")
 const SRC_DIR = path.join(ROOT, "src")
-const APPS_DIR = path.join(ROOT, "apps")
-const DESKTOP_SRC = path.join(APPS_DIR, "mediac-desktop", "src")
 const APP_EXTENSIONS = new Set([".js", ".mjs", ".cjs", ".ts", ".vue"])
 const ESM_EXTENSIONS = new Set([".js", ".mjs"])
 
@@ -89,7 +87,6 @@ function collectProtectedSources() {
     return [
         path.join(ROOT, "index.js"),
         ...walk(CMD_DIR, APP_EXTENSIONS),
-        ...walk(DESKTOP_SRC, APP_EXTENSIONS),
         ...walk(path.join(ROOT, "labs"), APP_EXTENSIONS),
         ...walk(path.join(ROOT, "scripts"), APP_EXTENSIONS),
         ...walk(path.join(ROOT, "tools"), APP_EXTENSIONS),
@@ -100,7 +97,20 @@ function relative(file) {
     return path.relative(ROOT, file).replaceAll("\\", "/")
 }
 
-test("CLI, desktop, labs, scripts, and tools only import transcode through its facade", () => {
+const FACADE_IMPORT_RE = /import\s*\{([^}]*)\}\s*from\s*["'][^"']*transcode\/index\.js["']/g
+
+/** 解析 import/export 花括号里的名字列表 */
+function parseImportedNames(list, useAlias) {
+    const names = []
+    for (const part of list.split(",")) {
+        const segments = part.trim().split(/\s+as\s+/)
+        const name = (useAlias ? segments.at(-1) : segments[0]).trim()
+        if (name) names.push(name)
+    }
+    return names
+}
+
+test("CLI, labs, scripts, and tools only import transcode through its facade", () => {
     const violations = []
     for (const file of collectProtectedSources()) {
         const source = fs.readFileSync(file, "utf8")
@@ -133,52 +143,27 @@ test("relative imports in root ESM sources resolve to real files", () => {
     assert.deepEqual(violations, [], `Unresolved relative imports found:\n${violations.join("\n")}`)
 })
 
-test("legacy lib never imports cmd, src or apps", () => {
-    const violations = findForbiddenImports(walk(LIB_DIR, ESM_EXTENSIONS), [
-        CMD_DIR,
-        SRC_DIR,
-        APPS_DIR,
-    ])
-    assert.deepEqual(violations, [], `lib/ upward imports found:\n${violations.join("\n")}`)
-})
+test("transcode facade exports nothing without a CLI consumer", () => {
+    const exported = new Set()
+    const facadeSource = fs.readFileSync(TRANSCODE_FACADE, "utf8")
+    for (const m of facadeSource.matchAll(/export\s*\{([^}]*)\}\s*from/g)) {
+        for (const name of parseImportedNames(m[1], true)) exported.add(name)
+    }
 
-test("electron main does not import CLI command modules", () => {
-    const violations = findForbiddenImports(walk(path.join(DESKTOP_SRC, "main"), APP_EXTENSIONS), [
-        CMD_DIR,
-    ])
-    assert.deepEqual(
-        violations,
-        [],
-        `Electron main to cmd/ imports found:\n${violations.join("\n")}`,
-    )
-})
-
-test("electron renderer and preload do not import root src, lib or cmd", () => {
-    const files = [
-        ...walk(path.join(DESKTOP_SRC, "renderer"), APP_EXTENSIONS),
-        ...walk(path.join(DESKTOP_SRC, "preload"), APP_EXTENSIONS),
-    ]
-    const violations = findForbiddenImports(files, [SRC_DIR, LIB_DIR, CMD_DIR])
-    assert.deepEqual(
-        violations,
-        [],
-        `Electron renderer/preload to root modules found:\n${violations.join("\n")}`,
-    )
-})
-
-test("electron main probes media info through the transcode facade", () => {
-    const forbidden = path.resolve(path.join(LIB_DIR, "mediainfo.js"))
-    const violations = []
-    for (const file of walk(path.join(DESKTOP_SRC, "main"), APP_EXTENSIONS)) {
-        for (const { line, specifier, target } of collectRelativeImports(file)) {
-            if (path.resolve(target) === forbidden) {
-                violations.push(`${relative(file)}:${line} -> ${specifier}`)
-            }
+    const used = new Set()
+    for (const file of collectProtectedSources()) {
+        const source = fs.readFileSync(file, "utf8")
+        for (const m of source.matchAll(FACADE_IMPORT_RE)) {
+            for (const name of parseImportedNames(m[1], false)) used.add(name)
         }
     }
-    assert.deepEqual(
-        violations,
-        [],
-        `Electron main direct lib/mediainfo imports found:\n${violations.join("\n")}`,
-    )
+
+    // 桌面端迁出后本仓库没有第二个消费方：无消费者的 facade 导出即外部调用方遗留
+    const orphans = [...exported].filter((name) => !used.has(name)).sort()
+    assert.deepEqual(orphans, [], `Facade exports without a CLI consumer:\n${orphans.join("\n")}`)
+})
+
+test("legacy lib never imports cmd or src", () => {
+    const violations = findForbiddenImports(walk(LIB_DIR, ESM_EXTENSIONS), [CMD_DIR, SRC_DIR])
+    assert.deepEqual(violations, [], `lib/ upward imports found:\n${violations.join("\n")}`)
 })

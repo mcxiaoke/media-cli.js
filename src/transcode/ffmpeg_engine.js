@@ -43,7 +43,7 @@ function taskIdOf(task, index) {
  *
  * Planning and task construction are supplied by the caller. This module owns
  * queueing, cancellation, status transitions, result normalization and events.
- * It deliberately does not know about CLI, HTTP or Electron transports.
+ * It deliberately does not know about the calling transport (CLI args, logs, prompts).
  */
 export function createFFmpegEngine({ runTask, onEvent } = {}) {
     if (typeof runTask !== "function") {

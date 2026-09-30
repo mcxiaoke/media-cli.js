@@ -47,7 +47,7 @@ if (!packed?.filename || !Array.isArray(packed.files)) {
 const files = packed.files.map((entry) => entry.path.replaceAll("\\", "/"))
 const requiredFiles = ["index.js", "src/transcode/index.js", "lib/debug.js", "presets/default.yaml"]
 const requiredDirectories = ["scripts", "src", "lib", "cmd", "assets", "presets"]
-const forbiddenDirectories = ["apps", "docs", "test", "labs", "release"]
+const forbiddenDirectories = ["docs", "test", "labs"]
 
 for (const required of requiredFiles) {
     if (!files.includes(required)) throw new Error(`Packed artifact is missing ${required}`)

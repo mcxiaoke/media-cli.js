@@ -15,7 +15,7 @@
 | 文件 | 职责 |
 | ---- | ---- |
 | `cmd/cmd_ffmpeg.js` | 命令入口：解析参数、校验、扫描文件、任务编排、确认、执行汇总 |
-| `src/transcode/index.js` | CLI/Electron 使用的转码领域 facade；外部调用方不直接导入内部模块 |
+| `src/transcode/index.js` | CLI 访问转码领域的唯一 facade；`cmd/`、`labs/`、`scripts/`、`tools/` 不直接导入内部模块 |
 | `presets/default.yaml` | **内置预设的唯一事实源**（随 npm 包发布） |
 | `src/transcode/preset_loader.js` | YAML 分层加载、`extends` 继承、`_override` 覆盖规则、字段校验 |
 | `src/transcode/ffmpeg_presets.js` | 预设对象模型、`--ffargs` 别名映射、`createFromArgv`（命令行覆盖预设） |

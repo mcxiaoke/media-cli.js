@@ -16,23 +16,19 @@
  */
 
 import fs from "fs-extra"
-import path from "node:path"
 import which from "which"
 
 /** 环境变量优先顺序（前者优先） */
 const FFMPEG_ENV_KEYS = ["FFMPEG_PATH", "FFMPEG_BINARY"]
-const FFPROBE_ENV_KEYS = ["FFPROBE_PATH", "FFPROBE_BINARY"]
 
 /**
  * 解析 ffmpeg 可执行文件路径
  *
- * 顺序：环境变量 -> 显式候选（如桌面端打包随附的 resources 目录）-> PATH。
- * 与预设文件的 resourcesPath 回退保持对称，避免「预设能找到、ffmpeg 找不到」。
+ * 顺序：环境变量 -> PATH。
  *
- * @param {{ extraCandidates?: string[] }} [options] 额外的候选绝对路径
  * @returns {Promise<string|null>} 可执行文件路径；未找到返回 null
  */
-export async function resolveFFmpegBinary(options = {}) {
+export async function resolveFFmpegBinary() {
     for (const key of FFMPEG_ENV_KEYS) {
         const raw = process.env[key]
         if (!raw) continue
@@ -47,45 +43,7 @@ export async function resolveFFmpegBinary(options = {}) {
             // 路径无效则继续尝试下一个来源
         }
     }
-    const extraCandidates = Array.isArray(options?.extraCandidates) ? options.extraCandidates : []
-    for (const candidate of extraCandidates) {
-        if (typeof candidate !== "string" || candidate.length === 0) continue
-        try {
-            if (await fs.pathExists(candidate)) {
-                return candidate
-            }
-        } catch {
-            // 继续尝试下一个候选
-        }
-    }
     return which("ffmpeg", { nothrow: true })
 }
 
-/**
- * Resolve ffprobe, preferring an explicit environment value and then the
- * sibling directory of the selected ffmpeg binary.
- * @param {string|null} [ffmpegPath]
- * @returns {Promise<string|null>}
- */
-export async function resolveFFprobeBinary(ffmpegPath = null) {
-    for (const key of FFPROBE_ENV_KEYS) {
-        const raw = process.env[key]
-        if (!raw) continue
-        const candidate = raw.trim()
-        if (candidate && (await fs.pathExists(candidate))) {
-            return candidate
-        }
-    }
-    if (ffmpegPath) {
-        const sibling = path.join(
-            path.dirname(ffmpegPath),
-            process.platform === "win32" ? "ffprobe.exe" : "ffprobe",
-        )
-        if (await fs.pathExists(sibling)) {
-            return sibling
-        }
-    }
-    return which("ffprobe", { nothrow: true })
-}
-
-export default { resolveFFmpegBinary, resolveFFprobeBinary }
+export default { resolveFFmpegBinary }

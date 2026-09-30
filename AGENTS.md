@@ -17,8 +17,11 @@ MediaCli（npm 包名 `mediac`，当前版本 2.0.0）是一个基于 Node.js �
 
 ### 开发命令
 - **语法检查**：`npm run check` - 使用 `scripts/check_syntax.cjs` 进行语法验证
-- **代码检查**：`npm run lint` - ESLint 代码质量检查（根配置扫 CLI/核心的 `.js`，并串联桌面端 `desktop:lint`）
-- **桌面端检查**：`npm run desktop:lint`（TS + Vue SFC，配置在 `apps/mediac-desktop/eslint.config.js`）、`npm run desktop:typecheck`
+- **代码检查**：`npm run lint` - ESLint 代码质量检查（根配置扫 CLI/核心的 `.js`）
+
+> 说明：桌面端（Electron）已于 2026-09-28 迁出本仓库，独立为 `C:\Home\Projects\ffconv-electron`；
+> 本仓库现在是纯 mediac CLI 项目，**没有第二个消费方**——`src/transcode/` 里不存在
+> 「给外部调用方预留」的导出，任何 facade 导出都必须有 CLI 内部消费者。
 
 ### 主要 CLI 命令
 
@@ -37,17 +40,16 @@ MediaCli（npm 包名 `mediac`，当前版本 2.0.0）是一个基于 Node.js �
 - `rename` / `fn` - 修复编码、正则替换、清理字符、繁体转简体中文
 - `zipu` - 智能解压，自动检测编码
 - `decode` / `dc` - 解码包含乱码或无效字符的文本
-- `ffmpeg` / `transcode`, `aconv`, `vconv`, `avconv` - 使用 ffmpeg 预设转换音频/视频文件（硬件分层、**默认 dry-run，需 `--doit` 才执行**，详见 `docs/FFMPEG-USAGE.md`）
+- `ffmpeg` / `transcode`, `aconv`, `vconv`, `avconv` - 使用 ffmpeg 预设转换音频/视频文件（硬件分层、**默认 dry-run，需 `--doit` 才执行**，详见 `docs/ffmpeg/FFMPEG-USAGE.md`）
 
 ## 开发规范
 
 ### 模块结构
 - ES 模块（import/export 语法）
 - 每个命令是独立的模块，导出 command、aliases、describe、builder、handler
-- `src/transcode/` 集中存放转码领域实现，CLI/Electron 统一从其 `index.js` facade 导入
+- `src/transcode/` 集中存放转码领域实现，CLI 统一从其 `index.js` facade 导入；facade 只导出 CLI 实际消费的符号，不做泛化公共 API
 - `lib/` 暂存其余共享工具，是 legacy 平铺层；不再承接新的跨领域职责
-- 依赖边界由 `test/test_architecture_boundaries.js` 强制守卫：`lib/` 不得 import `cmd/`、`src/`、`apps/`；Electron main 不得 import `cmd/`；Electron renderer/preload 不得 import 根 `src/`、`lib/`、`cmd/`；Electron main 的媒体元数据探测必须经 transcode facade（禁止直连 `lib/mediainfo.js`）
-- 桌面端统一从根项目调用：`npm run desktop:dev|typecheck|lint|build|test:e2e|package:win`
+- 依赖边界由 `test/test_architecture_boundaries.js` 强制守卫：`lib/` 不得 import `cmd/`、`src/`；`cmd/`、`labs/`、`scripts/`、`tools/` 只能经 facade 引用 transcode；facade 导出必须都有 CLI 消费者
 
 ### 命令模式
 ```javascript
@@ -110,7 +112,7 @@ const handler = async (argv) => {
   - `src/transcode/preset_loader.js` / `ffmpeg_presets.js`：预设加载与对象模型；`lib/arg_parser.js`：共享 `--ffargs` 解析
   - `src/transcode/hwaccel.js` / `hwdetect.js` / `gpu.js`：硬件分层与编码器矩阵 / 本机能力探测 / GPU 支持矩阵
   - `src/transcode/ffmpeg_plan.js` / `ffmpeg_build.js` / `ffmpeg_run.js` / `ffmpeg_bin.js`：目标参数计算 / 命令行拼装 / 单文件执行 / 二进制定位
-  - 完整参数与注意事项见 **`docs/FFMPEG-USAGE.md`**
+  - 完整参数与注意事项见 **`docs/ffmpeg/FFMPEG-USAGE.md`**
   - 改动 ffmpeg 编码/滤镜参数前，须用真机 `ffmpeg -h encoder=X` 与 1 帧 `-f null -` 逐选项核验，勿凭文档臆造调优项
 
 ### 添加依赖
@@ -123,7 +125,7 @@ const handler = async (argv) => {
 
 - Node.js **>= 22**（见 `package.json` 的 `engines`，ES 模块）
 - 外部工具：ffmpeg、ffprobe、exiftool（用于完整功能）
-- ffmpeg 二进制定位优先级：`FFMPEG_PATH` → `FFMPEG_BINARY` → `PATH`（`which`）；可用 `MEDIAC_AUTO_CONFIRM` 跳过交互确认
+- ffmpeg 二进制定位优先级：`FFMPEG_PATH` → `FFMPEG_BINARY` → `PATH`（`which`）；ffprobe 由 `lib/mediainfo.js` 自行定位；可用 `MEDIAC_AUTO_CONFIRM` 跳过交互确认
 - 开发机本机预装多版本 ffmpeg，位于 `C:\Home\Apps\ffmpeg`（每目录内含 `ffmpeg.exe`/`ffprobe.exe`）：
   - `bin` → **N-126733（master，2026-09-20）**：开发默认，PATH 中的 `ffmpeg` 即指向它；硬件/编码器参数本期全部基于它实测核准
   - `ff7` → n7.1.1；`ff8` → 8.1.2（gyan.dev）；`ff9` → 9.0.1（gyan.dev）

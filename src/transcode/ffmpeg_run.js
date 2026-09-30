@@ -142,17 +142,13 @@ function installTempCleanupHooks() {
         return
     }
     tempCleanupHooked = true
-    // ⚠️ 进程信号处理只在 CLI 场景注册。
-    //    本模块被 Electron 主进程复用（ffmpeg-service → runFFmpeg → runFFmpegCmd），
-    //    而 process.exit(130) 会直接杀掉整个 GUI 应用；GUI 的退出策略属于宿主
-    //    （main/index.ts 的 before-quit → transcodeService.dispose()），库不应代为决定。
-    if (!process.versions?.electron) {
-        for (const sig of ["SIGINT", "SIGTERM"]) {
-            process.on(sig, () => {
-                cleanupTempFiles(sig)
-                process.exit(130)
-            })
-        }
+    // 收到中断信号时清理临时文件后按 128+SIGINT 约定退出；
+    // 退出策略由本 CLI 独占，无需为其他宿主形态保留豁免分支。
+    for (const sig of ["SIGINT", "SIGTERM"]) {
+        process.on(sig, () => {
+            cleanupTempFiles(sig)
+            process.exit(130)
+        })
     }
     // exit 钩子两端都安全：只做同步文件清理，不改变退出码/不阻断退出
     process.on("exit", () => cleanupTempFiles("exit"))

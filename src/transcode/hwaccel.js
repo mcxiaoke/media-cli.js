@@ -182,7 +182,7 @@ const probeCache = new Map()
  *    缺键会让「带滤镜」与「不带滤镜」的探测结果互相复用而误判。
  *
  * ⚠️ quality 进键：质量值直接参与探测命令的码控参数（-cq/-global_quality/-crf），
- *    长驻进程（Electron）跨批次换 `--video-quality` 时若复用旧键，
+ *    长驻进程跨批次换 `--video-quality` 时若复用旧键，
  *    探测结论与实际命令不再同构。
  *    bitrate / maxBitrate **有意不进键**：它们是 calculateDstArgs 按**每个文件**的
  *    分辨率缩放后的值，进键会让同批次每个文件都成为独立键、探测缓存彻底失效

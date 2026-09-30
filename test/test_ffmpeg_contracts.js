@@ -1,22 +1,17 @@
 import assert from "assert"
 import test from "node:test"
-import {
-    normalizeCliOptions,
-    normalizeDesktopOptions,
-    toLegacyArgvOptions,
-} from "../src/transcode/ffmpeg_options.js"
+import { normalizeCliOptions, toLegacyArgvOptions } from "../src/transcode/ffmpeg_options.js"
 import { createEventFactory, ENGINE_EVENT } from "../src/transcode/ffmpeg_events.js"
-import {
-    createInternalExecutionPlan,
-    createPublicPlanSnapshot,
-} from "../src/transcode/ffmpeg_plan_snapshot.js"
+import { createInternalExecutionPlan } from "../src/transcode/ffmpeg_plan_snapshot.js"
 
-test("normalizeDesktopOptions creates the shared domain shape", () => {
-    const options = normalizeDesktopOptions({
-        inputs: ["C:/media/a.mp4", "C:/media/a.mp4"],
+test("normalizeCliOptions creates the shared domain shape", () => {
+    const options = normalizeCliOptions({
+        input: ["C:/media/a.mp4", "C:/media/a.mp4"],
         output: "C:/out",
         preset: "hevc_2k",
-        options: { fps: 30, audioCodec: "copy", strict: true },
+        fps: 30,
+        audioCodec: "copy",
+        strict: true,
     })
     assert.strictEqual(options.mode, "plan")
     assert.deepStrictEqual(options.inputs, ["C:/media/a.mp4"])
@@ -46,22 +41,13 @@ test("normalizeCliOptions applies injected ffargs and keeps doit as explicit mod
 })
 
 test("FFmpeg option validation rejects unsafe domains", () => {
-    assert.throws(
-        () => normalizeDesktopOptions({ inputs: ["a.mp4"], options: { speed: 3 } }),
-        /speed/,
-    )
-    assert.throws(
-        () => normalizeDesktopOptions({ inputs: ["a.mp4"], options: { jobs: 0 } }),
-        /jobs/,
-    )
-    assert.throws(
-        () => normalizeDesktopOptions({ inputs: ["a.mp4"], outputMode: "flat" }),
-        /outputMode/,
-    )
+    assert.throws(() => normalizeCliOptions({ input: "a.mp4", speed: 3 }), /speed/)
+    assert.throws(() => normalizeCliOptions({ input: "a.mp4", jobs: 0 }), /jobs/)
+    assert.throws(() => normalizeCliOptions({ input: "a.mp4", outputMode: "flat" }), /outputMode/)
 })
 
 test("legacy argv projection removes the shared envelope", () => {
-    const options = normalizeDesktopOptions({ inputs: ["a.mp4"], preset: "hevc_2k" })
+    const options = normalizeCliOptions({ input: "a.mp4", preset: "hevc_2k" })
     const legacy = toLegacyArgvOptions(options)
     assert.strictEqual(legacy.schemaVersion, undefined)
     assert.strictEqual(legacy.mode, undefined)
@@ -95,30 +81,27 @@ test("internal execution plan assigns stable task identities", () => {
     assert.strictEqual(plan.tasks[0].taskId, "task-0")
 })
 
-test("public plan snapshot excludes internal execution objects", () => {
-    const snapshot = createPublicPlanSnapshot({
+test("internal execution plan keeps runtime objects the engine needs", () => {
+    const plan = createInternalExecutionPlan({
         id: "plan-1",
         presetName: "hevc_2k",
         preset: { name: "hevc_2k" },
-        argv: { secret: true },
+        argv: { strict: true },
         tasks: [
             {
                 index: 0,
                 name: "a.mp4",
                 path: "C:/a.mp4",
-                size: 10,
-                duration: 2,
                 fileDst: "C:/out/a.mp4",
                 fileDstTemp: "C:/out/a_tmp.mp4",
                 hwPlan: { caps: { encoders: new Set(["h264_nvenc"]) } },
-                status: "pending",
             },
         ],
     })
-    assert.strictEqual(snapshot.tasks[0].id, "task-0")
-    assert.strictEqual(snapshot.tasks[0].fileDst, "C:/out/a.mp4")
-    assert.strictEqual(snapshot.preset, undefined)
-    assert.strictEqual(snapshot.argv, undefined)
-    assert.strictEqual(snapshot.tasks[0].fileDstTemp, undefined)
-    assert.strictEqual(snapshot.tasks[0].hwPlan, undefined)
+    assert.deepStrictEqual(plan.preset, { name: "hevc_2k" })
+    assert.deepStrictEqual(plan.argv, { strict: true })
+    assert.strictEqual(plan.tasks[0].fileDst, "C:/out/a.mp4")
+    assert.strictEqual(plan.tasks[0].fileDstTemp, "C:/out/a_tmp.mp4")
+    assert.ok(plan.tasks[0].hwPlan.caps.encoders.has("h264_nvenc"))
+    assert.strictEqual(plan.tasks[0].status, "pending")
 })

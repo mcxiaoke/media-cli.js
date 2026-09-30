@@ -180,31 +180,6 @@ export function normalizeCliOptions(argv = {}, deps = {}) {
 }
 
 /**
- * Normalize desktop (Electron) input into the shared FFmpeg option shape.
- */
-export function normalizeDesktopOptions(body = {}) {
-    const source = asObject(body, "body")
-    const options = asObject(source.options, "options")
-    return validateAndNormalize(
-        { ...options, ...pickTopLevelDesktopOptions(source) },
-        {
-            mode: source.mode || "plan",
-            inputs: source.inputs || source.input,
-            output: source.output,
-            preset: source.preset,
-        },
-    )
-}
-
-function pickTopLevelDesktopOptions(source) {
-    const result = {}
-    for (const key of [...OPTION_KEYS, "outputMode", "jobs", "strict", "override", "decodeMode"]) {
-        if (source[key] !== undefined) result[key] = source[key]
-    }
-    return result
-}
-
-/**
  * Remove envelope fields before passing normalized options to legacy argv consumers.
  */
 export function toLegacyArgvOptions(options = {}) {

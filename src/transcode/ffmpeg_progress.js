@@ -50,9 +50,8 @@ export function createProgressTracker({
     let currentTime = 0
     // 展示用速度串（ffmpeg -progress 输出形如 "1.5x"），进度条模板 {speed} 直接消费
     let currentSpeed = "0x"
-    // 数值化速度（1.5），供 onProgress 消费者（Electron 看板的实时速度/剩余时间）使用。
-    // ⚠️ 此前 onProgress 直接透传字符串 "1.5x"，而消费端按 typeof === "number" 判定，
-    //    导致桌面端「实时速度」「剩余时间」两项恒显示 "—"。
+    // 数值化速度（1.5），供 onProgress 消费者做速度/剩余时间计算。
+    // ⚠️ onProgress 必须拿到 number 而不是字符串 "1.5x"，否则消费端的数值运算恒为空。
     let currentSpeedValue = 0
 
     return {

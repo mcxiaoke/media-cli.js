@@ -14,18 +14,14 @@ import fsp from "fs/promises"
 import path from "path"
 import { after, before, describe, it } from "node:test"
 
-import { resolveFFmpegBinary, resolveFFprobeBinary } from "../src/transcode/ffmpeg_bin.js"
+import { resolveFFmpegBinary } from "../src/transcode/ffmpeg_bin.js"
 import { fallbackAudioEncoder } from "../src/transcode/ffmpeg_build.js"
 import { parseEncoders, parseFilters, parseVersionInfo } from "../src/transcode/hwdetect.js"
 
 const TMP_DIR = path.join("temp", "test_ffmpeg_bin")
 
-// 兄弟节点探测的 ffprobe 文件名需与 ffmpeg_bin.js 的平台分支一致
-// （win32 用 .exe，其余平台不带后缀），避免在非 Windows CI 上落空。
-const PROBE_SIBLING = process.platform === "win32" ? "ffprobe.exe" : "ffprobe"
-
 // 保存/恢复环境变量，避免污染其他用例或宿主环境
-const ENV_KEYS = ["FFMPEG_PATH", "FFMPEG_BINARY", "FFPROBE_PATH", "FFPROBE_BINARY"]
+const ENV_KEYS = ["FFMPEG_PATH", "FFMPEG_BINARY"]
 function saveEnv() {
     const saved = {}
     for (const k of ENV_KEYS) {
@@ -52,7 +48,6 @@ describe("ffmpeg binary resolution and capability probes", () => {
         await fsp.mkdir(TMP_DIR, { recursive: true })
         fakeBin = path.join(TMP_DIR, "ffmpeg_fake.exe")
         await fsp.writeFile(fakeBin, "fake")
-        await fsp.writeFile(path.join(TMP_DIR, PROBE_SIBLING), "fake-probe")
     })
 
     after(async () => {
@@ -74,33 +69,6 @@ describe("ffmpeg binary resolution and capability probes", () => {
             assert.strictEqual(await resolveFFmpegBinary(), fakeBin)
         })
 
-        it("uses explicit extra candidates (bundled resources) ahead of PATH", async () => {
-            delete process.env.FFMPEG_PATH
-            delete process.env.FFMPEG_BINARY
-            const bundled = path.join(TMP_DIR, "bundled", "ffmpeg.exe")
-            await fsp.mkdir(path.dirname(bundled), { recursive: true })
-            await fsp.writeFile(bundled, "fake-bundled")
-            assert.strictEqual(await resolveFFmpegBinary({ extraCandidates: [bundled] }), bundled)
-        })
-
-        it("keeps env vars ahead of extra candidates", async () => {
-            const bundled = path.join(TMP_DIR, "bundled", "ffmpeg.exe")
-            await fsp.mkdir(path.dirname(bundled), { recursive: true })
-            await fsp.writeFile(bundled, "fake-bundled")
-            process.env.FFMPEG_PATH = fakeBin
-            assert.strictEqual(await resolveFFmpegBinary({ extraCandidates: [bundled] }), fakeBin)
-        })
-
-        it("ignores missing or invalid extra candidates", async () => {
-            delete process.env.FFMPEG_PATH
-            delete process.env.FFMPEG_BINARY
-            const missing = path.join(TMP_DIR, "no-such-bundled.exe")
-            const resolved = await resolveFFmpegBinary({
-                extraCandidates: [missing, null, "", undefined],
-            })
-            assert.notStrictEqual(resolved, missing)
-        })
-
         it("returns null when no env var is set and ffmpeg is not on PATH", async () => {
             delete process.env.FFMPEG_PATH
             delete process.env.FFMPEG_BINARY
@@ -111,24 +79,6 @@ describe("ffmpeg binary resolution and capability probes", () => {
                 assert.notStrictEqual(resolved, fakeBin)
                 assert.ok(typeof resolved === "string" && resolved.length > 0)
             }
-        })
-    })
-
-    describe("resolveFFprobeBinary", () => {
-        it("prefers the sibling of the selected ffmpeg", async () => {
-            delete process.env.FFPROBE_PATH
-            delete process.env.FFPROBE_BINARY
-            assert.strictEqual(
-                await resolveFFprobeBinary(fakeBin),
-                path.join(TMP_DIR, PROBE_SIBLING),
-            )
-        })
-
-        it("prefers FFPROBE_PATH when explicitly configured", async () => {
-            const explicit = path.join(TMP_DIR, "explicit-probe.exe")
-            await fsp.writeFile(explicit, "explicit")
-            process.env.FFPROBE_PATH = explicit
-            assert.strictEqual(await resolveFFprobeBinary(fakeBin), explicit)
         })
     })
 
