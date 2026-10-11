@@ -7,7 +7,6 @@
 
 import assert from "assert"
 import fs from "fs-extra"
-import os from "os"
 import path from "path"
 import { fileURLToPath } from "url"
 import { describe, it, before, after } from "node:test"
@@ -181,15 +180,12 @@ describe("helper.js - File System Utilities", () => {
         assert.ok(!different)
     })
 
-    // 回归测试：回收站必须位于用户目录下。
-    // 旧实现是「源文件所在磁盘的根目录」（如 C:\Deleted_By_Mediac），
-    // 非管理员账户在盘根建目录会 EACCES，进而触发"删除失败却计成功"的静默数据残留。
-    it("should place safe-deleted dir under user home", () => {
+    // 回归测试：回收站应位于同磁盘文件系统的 .mediac/deleted 目录下
+    it("should place safe-deleted dir under volume root .mediac/deleted", () => {
         const dir = helper.getSafeDeletedDir(testFile1)
-        const home = path.resolve(os.homedir())
-        assert.ok(dir.startsWith(home), `expected under ${home}, got ${dir}`)
-        assert.ok(!path.parse(dir).root.includes("Deleted_By_Mediac"))
-        // 路径中不应再出现盘根式的 Deleted_By_Mediac
+        const { root } = path.parse(path.resolve(testFile1))
+        const expected = path.resolve(path.join(root, ".mediac", "deleted"))
+        assert.strictEqual(dir, expected)
         assert.ok(!dir.includes("Deleted_By_Mediac"))
     })
 

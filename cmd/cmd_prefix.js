@@ -23,6 +23,7 @@ import {
     cleanNameEx,
 } from "../lib/filename-rules.js"
 import { renameFiles } from "../lib/rename.js"
+import { createJournal } from "../lib/journal.js"
 
 const MODE_AUTO = "auto"
 const MODE_DIR = "dirname"
@@ -435,6 +436,16 @@ const handler = async function cmdPrefix(argv) {
     if (!root || !(await fs.pathExists(root))) {
         throw createError(ErrorTypes.INVALID_ARGUMENT, `Invalid Input: ${root}`)
     }
+
+    const journal = createJournal({
+        command: "prefix",
+        argv,
+        cwd: process.cwd(),
+        input: root,
+        output: argv.output,
+        dryRun: testMode,
+    })
+
     if (argv.output) {
         const outputDir = path.resolve(argv.output)
         if (!(await fs.pathExists(outputDir))) {
@@ -509,21 +520,46 @@ const handler = async function cmdPrefix(argv) {
     log.showYellow(logTag, `Total ${fCount - tCount} files are skipped.`)
     if (tasks.length > 0) {
         log.showGreen(logTag, `Total ${tasks.length} media files ready to rename`)
+        log.show(logTag, "Preview samples:")
+        tasks.slice(0, 10).forEach((t) => {
+            const out = t.outPath || path.join(path.dirname(t.path), t.outName)
+            log.show(logTag, `  ${helper.pathShort(t.path)} -> ${helper.pathShort(out)}`)
+        })
     } else {
         log.showYellow(logTag, t("common.nothing.to.do"))
         return
     }
     log.show(logTag, argv)
-    testMode && log.showYellow("++++++++++ TEST MODE (DRY RUN) ++++++++++")
+    testMode && log.showYellow("++++++++++ TEST MODE (DRY RUN) +++++++++=")
     const answer = await confirmDangerousAction(t("prefix.confirm.rename", { count: tasks.length }))
     if (answer) {
         if (testMode) {
-            log.showYellow(logTag, `${tasks.length} files, NO file renamed in TEST MODE.`)
+            log.showYellow(logTag, `${tasks.length} file(s) planned to rename [DRY RUN].`)
+            for (const task of tasks) {
+                const outPath = task.outPath || path.join(path.dirname(task.path), task.outName)
+                journal?.record({
+                    action: "RENAME",
+                    src: task.path,
+                    dst: outPath,
+                    size: task.stats?.size || 0,
+                    isDir: task.stats?.isDirectory?.() || false,
+                    status: "dryrun",
+                })
+            }
         } else {
-            const results = await renameFiles(tasks, false)
+            const results = await renameFiles(tasks, false, journal)
             log.showGreen(logTag, `All ${results.length} file were renamed.`)
         }
     } else {
         log.showYellow(logTag, t("operation.cancelled"))
+        await journal?.save("cancelled")
+        journal?.printSummary()
+        return
+    }
+
+    await journal?.save()
+    journal?.printSummary()
+    if (argv.output && (await fs.pathExists(path.resolve(argv.output)))) {
+        await journal?.copyTo(path.resolve(argv.output))
     }
 }

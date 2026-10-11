@@ -11,7 +11,6 @@
 
 import assert from "assert"
 import fsp from "fs/promises"
-import os from "os"
 import path from "path"
 import { describe, it, before, after } from "node:test"
 
@@ -118,13 +117,10 @@ describe("P2 regressions", () => {
     })
 
     describe("safe delete dir", () => {
-        it("lives under the user home, not the volume root", () => {
+        it("lives under the volume root .mediac/deleted, keeping volume-local semantics", () => {
             const dir = helper.getSafeDeletedDir("C:/some/where/file.jpg")
-            const home = os.homedir()
-            assert.ok(
-                dir.toLowerCase().startsWith(home.toLowerCase()),
-                `expected under ${home}, got ${dir}`,
-            )
+            const expected = path.resolve("C:/.mediac/deleted")
+            assert.strictEqual(dir.toLowerCase(), expected.toLowerCase())
             assert.ok(dir.includes("deleted"))
         })
     })

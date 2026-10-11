@@ -27,6 +27,7 @@ import { t } from "../lib/i18n.js"
 import { confirmDangerousAction, initAutoConfirm } from "../lib/command_utils.js"
 import { getMediaInfo, getVideoInfo } from "../lib/mediainfo.js"
 import { applyFileNameRules } from "../lib/rename.js"
+import { createJournal } from "../lib/journal.js"
 
 const LOG_TAG = "Remove"
 
@@ -578,13 +579,20 @@ async function planRemoveTasks(argv) {
     const testMode = !argv.doit
     const root = path.resolve(argv.input)
 
+    const journal = createJournal({
+        command: "remove",
+        argv,
+        cwd: process.cwd(),
+        input: root,
+        output: argv.output,
+        dryRun: testMode,
+    })
+
     const errorStats = {
         total: 0,
         byType: {},
         details: [],
     }
-
-    const operationLog = []
 
     if (!root || !(await fs.pathExists(root))) {
         throw createError(
@@ -891,16 +899,18 @@ async function planRemoveTasks(argv) {
 
     if (!answer) {
         log.logWarn(LOG_TAG, t("operation.cancelled"))
+        await journal.save("cancelled")
+        journal.printSummary()
         return null
     }
-    return { tasks, conditions, testMode, type, errorStats, operationLog }
+    return { tasks, conditions, testMode, type, errorStats, journal }
 }
 
 /**
  * 执行阶段：删除/移动文件、进度与汇总输出、操作日志落盘。
- * @param {{tasks: Object[], conditions: Object, testMode: boolean, type: string, errorStats: Object, operationLog: Object[]}} plan - planRemoveTasks 的产出
+ * @param {{tasks: Object[], conditions: Object, testMode: boolean, type: string, errorStats: Object, journal: Object}} plan - planRemoveTasks 的产出
  */
-async function runRemoveTasks({ tasks, conditions, testMode, type, errorStats, operationLog }) {
+async function runRemoveTasks({ tasks, conditions, testMode, type, errorStats, journal }) {
     const startMs = Date.now()
     log.logSuccess(LOG_TAG, "task startAt", dayjs().format())
     let removedCount = 0
@@ -917,6 +927,22 @@ async function runRemoveTasks({ tasks, conditions, testMode, type, errorStats, o
 
     if (testMode) {
         log.logWarn(LOG_TAG, t("common.test.mode.note", { count: tasks.length }))
+        log.logInfo(LOG_TAG, "Sample items planned for removal:")
+        tasks.slice(0, 10).forEach((t) => {
+            log.logInfo(
+                LOG_TAG,
+                `  [DRY RUN] ${t.isDir ? "[DIR]" : "[FILE]"} <${helper.pathShort(t.src)}> (${helper.humanSize(t.size)}) - ${t.desc || ""}`,
+            )
+        })
+        for (const task of tasks) {
+            journal?.record({
+                action: conditions.purge ? "DELETE" : conditions.output ? "MOVE" : "TRASH",
+                src: task.src,
+                size: task.size,
+                isDir: task.isDir,
+                status: "dryrun",
+            })
+        }
     } else {
         progressBar.start(tasks.length, 0, { file: "Starting..." })
 
@@ -928,20 +954,17 @@ async function runRemoveTasks({ tasks, conditions, testMode, type, errorStats, o
                 progressBar.update(index, { file: shortPath })
 
                 const originalPath = task.src
-                const timestamp = Date.now()
 
                 if (conditions.purge) {
-                    operationLog.push({
-                        type: "delete",
-                        path: originalPath,
-                        size: task.size,
-                        timestamp,
-                        flag,
-                    })
-
                     await fs.remove(task.src)
-                    // 逐文件日志只落 fileLog/operationLog，控制台统一由进度条呈现
-                    // （避免与 SingleBar 渲染交替导致混写）
+                    journal?.record({
+                        action: "DELETE",
+                        src: originalPath,
+                        size: task.size,
+                        isDir: task.isDir,
+                        status: "success",
+                        reversible: false,
+                    })
                     ++index
                     log.fileLog(
                         `${t("operation.delete")}: ${task.index} <${task.src}> ${helper.humanSize(task.size)} ${flag}`,
@@ -954,20 +977,18 @@ async function runRemoveTasks({ tasks, conditions, testMode, type, errorStats, o
                         conditions.output,
                         conditions.outputTree,
                     )
-                    // moveToOutputDir 失败时返回 null：源文件仍在原处，
-                    // 绝不能记入操作日志（会破坏"撤销"能力）也不能计入成功数。
                     if (!destPath) {
                         throw new Error(`MoveFailed: <${task.src}> => <${conditions.output}>`)
                     }
-                    operationLog.push({
-                        type: "move",
+                    journal?.record({
+                        action: "MOVE",
                         src: originalPath,
-                        dest: destPath,
+                        dst: destPath,
                         size: task.size,
-                        timestamp,
-                        flag,
+                        isDir: task.isDir,
+                        status: "success",
+                        reversible: true,
                     })
-                    // 逐文件日志只落 fileLog/operationLog，控制台统一由进度条呈现
                     ++index
                     log.fileLog(
                         `${t("operation.move")}: ${task.index} <${task.src}> ${helper.humanSize(task.size)} ${flag}`,
@@ -975,20 +996,18 @@ async function runRemoveTasks({ tasks, conditions, testMode, type, errorStats, o
                     )
                 } else {
                     const destPath = await helper.safeRemove(task.src)
-                    // safeRemove 失败（如权限不足）返回 null，源文件仍在原处。
-                    // 此前无条件 push 日志并 ++removedCount，导致"未删却计成功"。
                     if (!destPath) {
                         throw new Error(`SafeRemoveFailed: <${task.src}>`)
                     }
-                    operationLog.push({
-                        type: "move",
+                    journal?.record({
+                        action: "TRASH",
                         src: originalPath,
-                        dest: destPath,
+                        dst: destPath,
                         size: task.size,
-                        timestamp,
-                        flag,
+                        isDir: task.isDir,
+                        status: "success",
+                        reversible: true,
                     })
-                    // 逐文件日志只落 fileLog/operationLog，控制台统一由进度条呈现
                     ++index
                     log.fileLog(
                         `${t("operation.move")}: ${task.index} <${task.src}> ${helper.humanSize(task.size)} ${flag}`,
@@ -997,6 +1016,14 @@ async function runRemoveTasks({ tasks, conditions, testMode, type, errorStats, o
                 }
                 ++removedCount
             } catch (error) {
+                journal?.record({
+                    action: conditions.purge ? "DELETE" : conditions.output ? "MOVE" : "TRASH",
+                    src: task.src,
+                    size: task.size,
+                    isDir: task.isDir,
+                    status: "failed",
+                    error: error.message,
+                })
                 handleTaskError(error, task.src, errorStats)
                 log.logError(
                     LOG_TAG,
@@ -1034,15 +1061,19 @@ async function runRemoveTasks({ tasks, conditions, testMode, type, errorStats, o
         log.logWarn(LOG_TAG, `Detailed error log saved to: ${errorLogPath}`)
     }
 
-    if (operationLog.length > 0) {
-        const logPath = path.join(process.cwd(), `remove_operation_${Date.now()}.log`)
-        await fs.writeFile(logPath, JSON.stringify(operationLog, null, 2))
-        log.logSuccess(LOG_TAG, `Operation log saved to: ${logPath}`)
-        // mediac 没有 undo 命令；此前提示误导用户以为可自动回滚（B2）。
-        log.logWarn(
-            LOG_TAG,
-            `There is no automatic undo. Removed files were sent to the Recycle Bin by default — restore them from the system Recycle Bin (or from the --output dir if used). See the operation log for the full list.`,
-        )
+    await journal?.save()
+    journal?.printSummary()
+
+    // 复制副本（需求2）：若指定了 output 目录，或默认移到同盘 .mediac/deleted
+    const copyDestinations = []
+    if (conditions.output && (await fs.pathExists(path.resolve(conditions.output)))) {
+        copyDestinations.push(path.resolve(conditions.output))
+    }
+    if (!conditions.purge && !conditions.output && tasks.length > 0) {
+        copyDestinations.push(helper.getSafeDeletedDir(tasks[0].src))
+    }
+    if (copyDestinations.length > 0) {
+        await journal?.copyTo(copyDestinations)
     }
 
     log.logSuccess(LOG_TAG, "task endAt", dayjs().format())

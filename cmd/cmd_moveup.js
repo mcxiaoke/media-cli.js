@@ -18,6 +18,7 @@ import * as mf from "../lib/file.js"
 import * as helper from "../lib/helper.js"
 import { t } from "../lib/i18n.js"
 import { initAutoConfirm, isAutoConfirm } from "../lib/command_utils.js"
+import { createJournal } from "../lib/journal.js"
 
 export { aliases, builder, command, describe, handler }
 
@@ -165,6 +166,7 @@ async function processDirectory(
     outDirNames,
     testMode,
     keepDirList,
+    journal,
 ) {
     const logTag = "MoveUp"
     const subDirPath = path.join(root, subDirN)
@@ -243,7 +245,7 @@ async function processDirectory(
                 return false
             }
 
-            if (!flatMode) {
+            if (!flatMode && !testMode) {
                 await fs.ensureDir(path.dirname(fileDst))
             }
 
@@ -278,16 +280,41 @@ async function processDirectory(
 
             try {
                 if (testMode) {
-                    log.debug(logTag, "NotMoved:", fileSrc, "to", fileDst)
-                    return false
+                    log.show(
+                        logTag,
+                        `[DRY RUN] Will Move: <${helper.pathShort(fileSrc)}> => <${helper.pathShort(fileDst)}>`,
+                    )
+                    journal?.record({
+                        action: "MOVE",
+                        src: fileSrc,
+                        dst: fileDst,
+                        size: f.stats?.size || 0,
+                        status: "dryrun",
+                    })
+                    return true
                 } else {
                     await fs.move(fileSrc, fileDst)
                     log.info(logTag, "Moved:", fileSrc, "to", fileDst)
                     log.fileLog(`Moved: <${fileSrc}> => <${fileDst}>`, logTag)
+                    journal?.record({
+                        action: "MOVE",
+                        src: fileSrc,
+                        dst: fileDst,
+                        size: f.stats?.size || 0,
+                        status: "success",
+                    })
                     return true
                 }
             } catch (error) {
                 log.error(logTag, "Failed:", error, fileSrc, "to", fileDst)
+                journal?.record({
+                    action: "MOVE",
+                    src: fileSrc,
+                    dst: fileDst,
+                    size: f.stats?.size || 0,
+                    status: "failed",
+                    error: error.message,
+                })
                 await handleError(error, { operation: "moveFile", src: fileSrc, dst: fileDst })
                 return false
             }
@@ -295,15 +322,12 @@ async function processDirectory(
         { concurrency: 4 },
     ) // 控制并发数，避免系统资源过度使用
 
-    // 计算成功移动的文件数量
+    // 计算移动（或计划移动）的文件数量
     const movedCount = moveResults.filter(Boolean).length
 
-    // 汇总口径修正：此前用 totalCount（扫描到的文件数）而非实际移动成功数，
-    // 移动失败/跳过的文件也会被算进"已移动"，数字虚高
     log.showGreen(
         logTag,
-        `${movedCount}/${totalCount} files in ${helper.pathShort(subDirPath)} are moved.`,
-        testMode ? "[DRY RUN]" : "",
+        `${movedCount}/${totalCount} files in ${helper.pathShort(subDirPath)} ${testMode ? "will be moved [DRY RUN]" : "are moved"}.`,
     )
 
     return { moved: movedCount, total: totalCount }
@@ -317,7 +341,7 @@ async function processDirectory(
  * @param {boolean} autoConfirm - 是否自动确认
  * @returns {Promise<void>}
  */
-async function cleanupEmptyDirs(root, keepDirList, testMode, autoConfirm = false) {
+async function cleanupEmptyDirs(root, keepDirList, testMode, autoConfirm = false, journal = null) {
     const logTag = "MoveUp"
 
     keepDirList = new Set([...keepDirList].map((x) => path.resolve(x)))
@@ -326,9 +350,6 @@ async function cleanupEmptyDirs(root, keepDirList, testMode, autoConfirm = false
     subDirList = new Set([...subDirList].map((x) => path.resolve(x)))
     const toRemoveDirList = setDifference(subDirList, keepDirList)
 
-    // 删除前必须确认目录真的空了。此前仅凭「不在保留集合里」就整目录移入回收站：
-    // 移动失败的文件、以及未被扫描计入的非媒体文件（.txt/.nfo/.db 等）
-    // 会让非空目录被一并搬走，属静默数据丢失。
     const nonEmptyDirs = []
     const emptyDirList = new Set()
     for (const dir of toRemoveDirList) {
@@ -336,7 +357,6 @@ async function cleanupEmptyDirs(root, keepDirList, testMode, autoConfirm = false
         try {
             remaining = await fs.readdir(dir)
         } catch (error) {
-            // 读不了（权限/已消失）就保守保留，不删
             nonEmptyDirs.push(dir)
             log.showGray(logTag, `Skip[Unreadable]: <${helper.pathShort(dir)}>`)
             continue
@@ -365,7 +385,7 @@ async function cleanupEmptyDirs(root, keepDirList, testMode, autoConfirm = false
         return
     }
 
-    testMode && log.showYellow("++++++++++ TEST MODE (DRY RUN) ++++++++++")
+    testMode && log.showYellow("++++++++++ TEST MODE (DRY RUN) +++++++++=")
 
     const removeUnusedAnswer = await confirmOperation(
         `Are you sure to DELETE these unused folders?`,
@@ -382,27 +402,52 @@ async function cleanupEmptyDirs(root, keepDirList, testMode, autoConfirm = false
         async (td) => {
             if (!testMode) {
                 try {
-                    // safeRemove 失败返回 null：目录没被移走，不能计入 delCount
                     const dest = await helper.safeRemove(td)
                     if (!dest) {
                         log.error(logTag, "Failed to delete directory:", td)
+                        journal?.record({
+                            action: "TRASH",
+                            src: td,
+                            isDir: true,
+                            status: "failed",
+                            error: "safeRemove failed",
+                        })
                         return false
                     }
                     log.fileLog(`SafeDel: <${td}> => <${dest}>`, logTag)
+                    journal?.record({
+                        action: "TRASH",
+                        src: td,
+                        dst: dest,
+                        isDir: true,
+                        status: "success",
+                    })
                     return true
                 } catch (error) {
                     log.error(logTag, "Failed to delete directory:", error)
+                    journal?.record({
+                        action: "TRASH",
+                        src: td,
+                        isDir: true,
+                        status: "failed",
+                        error: error.message,
+                    })
                     await handleError(error, { operation: "safeRemove", path: td })
                     return false
                 }
             }
-            log.show(logTag, "SafeDel", helper.pathShort(td), testMode ? "[DRY RUN]" : "")
-            return false
+            log.show(logTag, "SafeDel", helper.pathShort(td), "[DRY RUN]")
+            journal?.record({
+                action: "TRASH",
+                src: td,
+                isDir: true,
+                status: "dryrun",
+            })
+            return true
         },
         { concurrency: 4 },
-    ) // 控制并发数
+    )
 
-    // 计算成功删除的目录数量
     const delCount = results.filter(Boolean).length
     log.showGreen(logTag, `${delCount} dirs were SAFE DELETED ${testMode ? "[DRY RUN]" : ""}`)
 }
@@ -428,6 +473,15 @@ const handler = async function cmdMoveUp(argv) {
     // 验证输入
     const root = await validateInput(argv.input)
 
+    const journal = createJournal({
+        command: "moveup",
+        argv,
+        cwd: process.cwd(),
+        input: root,
+        output: argv.output,
+        dryRun: testMode,
+    })
+
     if (!testMode) {
         log.fileLog(`Root: ${root}`, logTag)
         log.fileLog(`Argv: ${JSON.stringify(argv)}`, logTag)
@@ -436,7 +490,6 @@ const handler = async function cmdMoveUp(argv) {
     const toRoot = argv.topmost || false
     const flatMode = argv.flat || false
     const autoConfirm = argv.yes || false
-    // 读取顶级目录下所有的子目录
     const defaultDirName = "文件"
     const picDirName = argv.output || "图片"
     const videoDirName = "视频"
@@ -452,34 +505,27 @@ const handler = async function cmdMoveUp(argv) {
         otherDirName,
     ]
 
-    // 获取子目录列表
     const subDirs = await getSubDirs(root, outDirNames)
 
-    testMode && log.showYellow("++++++++++ TEST MODE (DRY RUN) ++++++++++")
+    testMode && log.showYellow("++++++++++ TEST MODE (DRY RUN) +++++++++=")
 
-    // 确认操作
     const confirmAnswer = await confirmOperation(
         `Are you sure to move all files to top sub folder?`,
         autoConfirm,
     )
     if (!confirmAnswer) {
         log.showYellow(logTag, "Will do nothing, aborted by user.")
+        await journal.save("cancelled")
+        journal.printSummary()
         return
     }
 
     let keepDirList = new Set()
     keepDirList.add(path.resolve(root))
 
-    // 移动深层子目录的文件到 子目录或根目录的 图片/视频 目录
     let movedCount = 0
     let totalCount = 0
 
-    // 按模式执行处理逻辑
-    //
-    // 说明：MODE_DIR / MODE_PREFIX / MODE_MEDIA / MODE_AUTO 此前是四个
-    // 逐字相同的分支（都调用同一个 processDirectory），即 --mode 除 clean
-    // 外无任何行为差异。此处合并为单一实现，避免"看起来有四种策略"的误导；
-    // 仅 MODE_CLEAN 保持独立语义（只清理空目录，不移动文件）。
     if (argv.mode === MODE_CLEAN) {
         log.show(logTag, "Using clean mode - only cleaning empty directories")
     } else {
@@ -493,6 +539,7 @@ const handler = async function cmdMoveUp(argv) {
                 outDirNames,
                 testMode,
                 keepDirList,
+                journal,
             )
             movedCount += result.moved
             totalCount += result.total
@@ -501,22 +548,34 @@ const handler = async function cmdMoveUp(argv) {
 
     log.showGreen(
         logTag,
-        `Total ${movedCount}/${totalCount} files moved.`,
-        testMode ? "[DRY RUN]" : "",
+        `Total ${movedCount}/${totalCount} files ${testMode ? "will be moved [DRY RUN]" : "moved"}.`,
     )
     log.showYellow(logTag, "There are some unused folders left after moving up operations.")
 
-    // 确认清理操作
+    let cleanedDirs = false
     const cleanupAnswer = await confirmOperation(
         `Do you want to cleanup these unused sub folders?`,
         autoConfirm,
     )
-    if (!cleanupAnswer) {
-        return
+    if (cleanupAnswer) {
+        await cleanupEmptyDirs(root, keepDirList, testMode, autoConfirm, journal)
+        cleanedDirs = true
     }
 
-    // 清理空目录
-    await cleanupEmptyDirs(root, keepDirList, testMode, autoConfirm)
+    await journal.save()
+    journal.printSummary()
+
+    // 复制副本（需求2）：若指定了 output 目录，或执行了删除目录到同盘 .mediac/deleted
+    const copyDestinations = []
+    if (argv.output && (await fs.pathExists(path.resolve(root, argv.output)))) {
+        copyDestinations.push(path.resolve(root, argv.output))
+    }
+    if (cleanedDirs) {
+        copyDestinations.push(helper.getSafeDeletedDir(root))
+    }
+    if (copyDestinations.length > 0) {
+        await journal.copyTo(copyDestinations)
+    }
 }
 
 /**

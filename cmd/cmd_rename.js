@@ -26,6 +26,7 @@ import { mergePath } from "../lib/path-merge.js"
 import { applyFileNameRules, renameFiles } from "../lib/rename.js"
 import { cleanFileName } from "../lib/filename-rules.js"
 import { confirmDangerousAction, initAutoConfirm } from "../lib/command_utils.js"
+import { createJournal } from "../lib/journal.js"
 
 const ENTRY_TYPES = ["a", "f", "d"]
 const RENAME_MODES = ["clean", "zhcn", "replace", "fixenc", "mergedir", "suffix", "prefix"]
@@ -296,6 +297,15 @@ async function cmdRename(argv) {
     const testMode = !argv.doit
     const logTag = "cmdRename"
     const root = await helper.validateInput(argv.input)
+
+    const journal = createJournal({
+        command: "rename",
+        argv,
+        cwd: process.cwd(),
+        input: root,
+        dryRun: testMode,
+    })
+
     if (!testMode) {
         log.fileLog(`Root: ${root}`, logTag)
         log.fileLog(`Argv: ${JSON.stringify(argv)}`, logTag)
@@ -481,7 +491,7 @@ async function cmdRename(argv) {
         return
     }
 
-    testMode && log.showYellow("++++++++++ TEST MODE (DRY RUN) ++++++++++")
+    testMode && log.showYellow("++++++++++ TEST MODE (DRY RUN) +++++++++=")
     const answer = await confirmDangerousAction(
         t("rename.confirm.rename", { count: tasks.length, type: entryType }),
     )
@@ -491,8 +501,19 @@ async function cmdRename(argv) {
                 logTag,
                 t("common.test.mode.note", { count: tasks.length, type: entryType }),
             )
+            for (const task of tasks) {
+                const outPath = task.outPath || path.join(path.dirname(task.path), task.outName)
+                journal?.record({
+                    action: "RENAME",
+                    src: task.path,
+                    dst: outPath,
+                    size: task.stats?.size || 0,
+                    isDir: task.stats?.isDirectory?.() || false,
+                    status: "dryrun",
+                })
+            }
         } else {
-            const results = await renameFiles(tasks, true)
+            const results = await renameFiles(tasks, true, journal)
             log.showGreen(
                 logTag,
                 t("rename.all.files.renamed", { count: results.length, type: entryType }),
@@ -500,6 +521,15 @@ async function cmdRename(argv) {
         }
     } else {
         log.showYellow(logTag, t("operation.cancelled"))
+        await journal?.save("cancelled")
+        journal?.printSummary()
+        return
+    }
+
+    await journal?.save()
+    journal?.printSummary()
+    if (argv.output && (await fs.pathExists(path.resolve(argv.output)))) {
+        await journal?.copyTo(path.resolve(argv.output))
     }
 }
 
