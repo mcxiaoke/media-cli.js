@@ -20,6 +20,11 @@ import * as log from "../lib/debug.js"
 import * as mf from "../lib/file.js"
 import * as helper from "../lib/helper.js"
 import { t } from "../lib/i18n.js"
+import {
+    IMAGE_DEFAULT_OPTS,
+    listPrimaryPresetNames,
+    resolveImagePreset,
+} from "../lib/image_presets.js"
 import { parseImageParams } from "../lib/query_parser.js"
 import { applyFileNameRules } from "../lib/rename.js"
 import { calculateScale, compressImage } from "../lib/media-compress.js"
@@ -33,20 +38,28 @@ import {
 import { withSleepLock } from "../lib/sleep_blocker.js"
 
 const LOG_TAG = "Compress"
-export { aliases, builder, command, describe, handler }
+export { aliases, builder, command, describe, handler, parseCompressOpts }
 
 const command = "compress <input> [output]"
 const aliases = ["cs", "cps"]
 const describe = t("compress.description")
 
-const QUALITY_DEFAULT = 85
-const SIZE_DEFAULT = 2048 // in kbytes
-const WIDTH_DEFAULT = 6000
-const SUFFIX_DEFAULT = "_Z4K"
-
 const builder = function addOptions(ya) {
     return (
         ya
+            // 预设配置模板
+            .option("preset", {
+                alias: "p",
+                type: "string",
+                description: `${t("compress.preset")} (${listPrimaryPresetNames().join(", ")})`,
+            })
+            // 输出格式
+            .option("format", {
+                alias: "F",
+                type: "string",
+                choices: ["jpeg", "jpg", "webp"],
+                description: t("compress.format"),
+            })
             // 核心压缩参数
             // 压缩后文件质量参数
             .option("quality", {
@@ -186,13 +199,44 @@ const handler = cmdCompress
  * @returns {Object} 归一化后的压缩配置对象
  */
 function parseCompressOpts(argv) {
+    let preset = null
+    if (argv.preset) {
+        preset = resolveImagePreset(argv.preset)
+        if (!preset) {
+            throw new Error(
+                `未知的预设: "${argv.preset}"，可选预设: ${listPrimaryPresetNames().join(", ")}`,
+            )
+        }
+    }
     const cfg = parseImageParams(argv.config)
+
+    let rawFormat = argv.format || cfg.format || preset?.format || IMAGE_DEFAULT_OPTS.format
+    if (rawFormat) {
+        rawFormat = rawFormat.toLowerCase()
+        if (rawFormat === "jpg") rawFormat = "jpeg"
+    }
+    if (rawFormat !== "jpeg" && rawFormat !== "webp") {
+        throw new Error(`不支持的输出格式: "${rawFormat}"，支持格式: jpeg, webp`)
+    }
+    const format = rawFormat
+
+    const quality = argv.quality || cfg.quality || preset?.quality || IMAGE_DEFAULT_OPTS.quality
+    const minSizeKb = argv.minSize || cfg.size || preset?.size || IMAGE_DEFAULT_OPTS.size
+    const maxWidth = argv.maxWidth || cfg.width || preset?.width || IMAGE_DEFAULT_OPTS.width
+    const defaultSuffix = format === "webp" ? "_W6K" : IMAGE_DEFAULT_OPTS.suffix
+    const suffix = argv.suffix || cfg.suffix || preset?.suffix || defaultSuffix
+
     return {
+        format,
+        quality,
+        minFileSize: minSizeKb * 1024,
+        maxWidth,
+        suffix,
+        effort: preset?.effort ?? 4,
+        smartSubsample: preset?.smartSubsample ?? true,
+        mozjpeg: preset?.mozjpeg ?? true,
+        presetName: argv.preset || null,
         overwrite: argv.overwrite || false,
-        quality: argv.quality || cfg.quality || QUALITY_DEFAULT,
-        minFileSize: (argv.minSize || cfg.size || SIZE_DEFAULT) * 1024,
-        maxWidth: argv.maxWidth || cfg.width || WIDTH_DEFAULT,
-        suffix: argv.suffix || cfg.suffix || SUFFIX_DEFAULT,
         purgeOnly: argv.purgeOnly || false,
         purgeSource: argv.purge || false,
         keepRoot: argv.keepRoot ?? true,
@@ -216,7 +260,9 @@ function parseCompressOpts(argv) {
  */
 async function walkImageFiles(root, opts) {
     const { minFileSize, force } = opts
-    const RE_THUMB = force ? /@_@/ : /Z4K|P4K|M4K|feature|web|thumb$/i
+    const RE_THUMB = force
+        ? /@_@/
+        : /Z4K|Z6K|W6K|W50|W75|W82|J65|J85|J90|P4K|M4K|feature|web|thumb$/i
     const walkOpts = {
         needStats: true,
         entryFilter: (f) =>
@@ -255,6 +301,11 @@ async function buildCompressTasks(files, opts) {
         output,
         total: files.length,
         index: i,
+        format: opts.format,
+        effort: opts.effort,
+        smartSubsample: opts.smartSubsample,
+        mozjpeg: opts.mozjpeg,
+        presetName: opts.presetName,
         suffix,
         quality,
         overwrite,
@@ -499,7 +550,7 @@ async function preCompress(f, onProgress = null) {
     const [fDir, base] = helper.pathSplit(fileSrc)
     // --suffix 直接拼进输出路径：若含 `../` 可把产物写到输出目录之外
     // （cmd_ffmpeg.js 对同类参数已做 filenameSafe，此处此前漏了）
-    const rawSuffix = f.suffix || "_Z4K"
+    const rawSuffix = f.suffix || (f.format === "webp" ? "_W6K" : "_Z6K")
     const suffix = helper.filenameSafe(rawSuffix)
     if (suffix !== rawSuffix) {
         log.logWarn(LOG_TAG, `Suffix sanitized: "${rawSuffix}" => "${suffix}"`)
@@ -508,8 +559,9 @@ async function preCompress(f, onProgress = null) {
 
     let fileDstDir = f.output ? helper.pathRewrite(f.root, fDir, f.output, f.keepRoot) : fDir
     const tempSuffix = `_tmp@${helper.textHash(fileSrc)}@tmp_`
-    const fileDstTmp = path.resolve(path.join(fileDstDir, `${base}${suffix}${tempSuffix}.jpg`))
-    let fileDst = path.join(fileDstDir, `${base}${suffix}.jpg`)
+    const ext = f.format === "webp" ? ".webp" : ".jpg"
+    const fileDstTmp = path.resolve(path.join(fileDstDir, `${base}${suffix}${tempSuffix}${ext}`))
+    let fileDst = path.join(fileDstDir, `${base}${suffix}${ext}`)
 
     fileDst = path.resolve(fileDst)
 
