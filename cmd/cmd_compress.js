@@ -38,7 +38,7 @@ import {
 import { withSleepLock } from "../lib/sleep_blocker.js"
 
 const LOG_TAG = "Compress"
-export { aliases, builder, command, describe, handler, parseCompressOpts }
+export { aliases, builder, command, describe, handler, formatCompressOpts, parseCompressOpts }
 
 const command = "compress <input> [output]"
 const aliases = ["cs", "cps"]
@@ -190,6 +190,36 @@ const builder = function addOptions(ya) {
 }
 
 const handler = cmdCompress
+
+/**
+ * 格式化当前**实际生效**的压缩参数摘要（每行 `key : value`）。
+ *
+ * 为什么需要它：用 `-p` 预设时用户只看得见预设名，看不见最终参数。而真正生效的值
+ * 是「默认底模 → 预设 → -c 查询串 → CLI 参数」四级合并后的结果，与预设表里写的
+ * 未必一致（例如 `-c q=65` 会覆盖预设的 quality，`-w` 会覆盖 width）。
+ * 这些覆盖在确认前完全不可见，用户只能「按了 y 才发现参数不对」，故在确认行之前打印。
+ *
+ * encoder 一行只列目标格式真正会被消费的编码参数：WebP 走 effort/smartSubsample，
+ * JPEG 走 mozjpeg（与 lib/media-compress.js 里 sharp 的两个分支保持一致）。
+ *
+ * @param {Object} opts parseCompressOpts 的产物
+ * @returns {string} 多行摘要文本
+ */
+function formatCompressOpts(opts) {
+    const encoder =
+        opts.format === "webp"
+            ? `effort=${opts.effort}, smartSubsample=${opts.smartSubsample}`
+            : `mozjpeg=${opts.mozjpeg}`
+    return [
+        `preset    : ${opts.presetName || "(none)"}`,
+        `format    : ${opts.format}`,
+        `quality   : Q${opts.quality}`,
+        `max-width : ${opts.maxWidth} px`,
+        `min-size  : ${Math.round(opts.minFileSize / 1024)} KB`,
+        `suffix    : ${opts.suffix}`,
+        `encoder   : ${encoder}`,
+    ].join("\n")
+}
 
 /**
  * 解析并归一化命令行参数为内部配置对象
@@ -437,6 +467,7 @@ async function cmdCompress(argv) {
         await updateConfig()
     }
 
+    log.logInfo(LOG_TAG, `${t("compress.effective.params")}:\n${formatCompressOpts(opts)}`)
     const confirmFiles = await confirmAction(t("common.continue.processing"))
     if (await abortIfCancelled(confirmFiles, LOG_TAG)) {
         return
