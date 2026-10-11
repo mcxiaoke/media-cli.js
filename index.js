@@ -77,6 +77,13 @@ const configCli = (argv) => {
     delete argv.$0
     // log.setName("MediaCli");
     log.setVerbose(argv.verbose)
+    if (
+        (process.env.MEDIAC_PREVENT_SLEEP === "0" ||
+            process.env.MEDIAC_PREVENT_SLEEP === "false") &&
+        argv.preventSleep === true
+    ) {
+        argv.preventSleep = false
+    }
     log.debug(argv)
 }
 
@@ -145,6 +152,12 @@ async function main() {
         .command(await import("./cmd/cmd_ffmpeg.js"))
         // 命令 回滚操作
         .command(await import("./cmd/cmd_rollback.js"))
+        .option("prevent-sleep", {
+            alias: "nosleep",
+            type: "boolean",
+            default: true,
+            describe: t("option.common.preventSleep"),
+        })
         .count("verbose")
         .alias("v", "verbose")
         .alias("h", "help")

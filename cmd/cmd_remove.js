@@ -28,6 +28,7 @@ import { confirmDangerousAction, initAutoConfirm } from "../lib/command_utils.js
 import { getMediaInfo, getVideoInfo } from "../lib/mediainfo.js"
 import { applyFileNameRules } from "../lib/rename.js"
 import { createJournal } from "../lib/journal.js"
+import { withSleepLock } from "../lib/sleep_blocker.js"
 
 const LOG_TAG = "Remove"
 
@@ -563,7 +564,10 @@ const handler = cmdRemove
 async function cmdRemove(argv) {
     const plan = await planRemoveTasks(argv)
     if (!plan) return
-    await runRemoveTasks(plan)
+    await withSleepLock(() => runRemoveTasks(plan), {
+        reason: "批量文件删除",
+        enabled: argv.preventSleep !== false,
+    })
 }
 
 /**

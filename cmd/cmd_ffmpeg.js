@@ -18,6 +18,7 @@ import * as helper from "../lib/helper.js"
 import { t } from "../lib/i18n.js"
 import { getMediaInfo } from "../lib/mediainfo.js"
 import { addEntryProps } from "../lib/rename.js"
+import { withSleepLock } from "../lib/sleep_blocker.js"
 import {
     LOG_TAG,
     SKIP_REASON,
@@ -377,7 +378,10 @@ const handler = cmdConvert
 async function cmdConvert(argv) {
     const plan = await planFFmpegTasks(argv)
     if (!plan) return
-    await runFFmpegTasks(plan)
+    await withSleepLock(() => runFFmpegTasks(plan), {
+        reason: "FFmpeg 媒体转码",
+        enabled: argv.preventSleep !== false,
+    })
 }
 
 /**

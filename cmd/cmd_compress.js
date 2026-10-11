@@ -30,6 +30,7 @@ import {
     shouldShowProgressBar,
     initAutoConfirm,
 } from "../lib/command_utils.js"
+import { withSleepLock } from "../lib/sleep_blocker.js"
 
 const LOG_TAG = "Compress"
 export { aliases, builder, command, describe, handler }
@@ -409,7 +410,10 @@ async function cmdCompress(argv) {
             return
         }
         log.logWarn(LOG_TAG, `+++++ PURGE ONLY (NO COMPRESS): ${purgeTargets.length} files +++++`)
-        await purgeSrcFiles(purgeTargets)
+        await withSleepLock(() => purgeSrcFiles(purgeTargets), {
+            reason: "清理源文件",
+            enabled: argv.preventSleep !== false,
+        })
         return
     }
 
@@ -455,16 +459,24 @@ async function cmdCompress(argv) {
     } else {
         const compressStartMs = Date.now()
         log.logSuccess(LOG_TAG, `startAt ${dayjs().format()}`)
-        const { tasks: doneTasks, failedTasks } = await runCompression(
-            tasks,
-            opts,
-            LOG_TAG,
-            compressStartMs,
+        await withSleepLock(
+            async () => {
+                const { tasks: doneTasks, failedTasks } = await runCompression(
+                    tasks,
+                    opts,
+                    LOG_TAG,
+                    compressStartMs,
+                )
+                await writeFailedLog(failedTasks, root)
+                if (purgeSource) {
+                    await purgeSrcFiles(doneTasks)
+                }
+            },
+            {
+                reason: "图片批量压缩",
+                enabled: argv.preventSleep !== false,
+            },
         )
-        await writeFailedLog(failedTasks, root)
-        if (purgeSource) {
-            await purgeSrcFiles(doneTasks)
-        }
     }
 }
 

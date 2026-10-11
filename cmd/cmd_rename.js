@@ -27,6 +27,7 @@ import { applyFileNameRules, renameFiles } from "../lib/rename.js"
 import { cleanFileName } from "../lib/filename-rules.js"
 import { confirmDangerousAction, initAutoConfirm } from "../lib/command_utils.js"
 import { createJournal } from "../lib/journal.js"
+import { withSleepLock } from "../lib/sleep_blocker.js"
 
 const ENTRY_TYPES = ["a", "f", "d"]
 const RENAME_MODES = ["clean", "zhcn", "replace", "fixenc", "mergedir", "suffix", "prefix"]
@@ -513,7 +514,10 @@ async function cmdRename(argv) {
                 })
             }
         } else {
-            const results = await renameFiles(tasks, true, journal)
+            const results = await withSleepLock(() => renameFiles(tasks, true, journal), {
+                reason: "批量文件重命名",
+                enabled: argv.preventSleep !== false,
+            })
             log.showGreen(
                 logTag,
                 t("rename.all.files.renamed", { count: results.length, type: entryType }),

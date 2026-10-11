@@ -23,6 +23,7 @@ import {
     abortIfCancelled,
     initAutoConfirm,
 } from "../lib/command_utils.js"
+import { withSleepLock } from "../lib/sleep_blocker.js"
 
 const LOG_TAG = "DcimR"
 
@@ -303,35 +304,43 @@ const handler = async function cmdRename(argv) {
             })
         } else {
             try {
-                if (argv["backup-dir"]) {
-                    const backupDir = path.resolve(argv["backup-dir"])
-                    log.logInfo(LOG_TAG, `Backing up files to: ${backupDir}`)
-                    operationLog.push({
-                        timestamp: new Date().toISOString(),
-                        action: "BACKUP_START",
-                        message: `开始备份文件到: ${backupDir}`,
-                        count: allFiles.length,
-                    })
+                await withSleepLock(
+                    async () => {
+                        if (argv["backup-dir"]) {
+                            const backupDir = path.resolve(argv["backup-dir"])
+                            log.logInfo(LOG_TAG, `Backing up files to: ${backupDir}`)
+                            operationLog.push({
+                                timestamp: new Date().toISOString(),
+                                action: "BACKUP_START",
+                                message: `开始备份文件到: ${backupDir}`,
+                                count: allFiles.length,
+                            })
 
-                    await backupFiles(allFiles, backupDir)
+                            await backupFiles(allFiles, backupDir)
 
-                    operationLog.push({
-                        timestamp: new Date().toISOString(),
-                        action: "BACKUP_COMPLETE",
-                        message: `文件备份完成`,
-                        directory: backupDir,
-                    })
-                }
+                            operationLog.push({
+                                timestamp: new Date().toISOString(),
+                                action: "BACKUP_COMPLETE",
+                                message: `文件备份完成`,
+                                directory: backupDir,
+                            })
+                        }
 
-                const results = await renameFiles(allFiles, false)
-                const renamedMsg = t("dcim.files.renamed", { count: results.length })
-                log.logSuccess(LOG_TAG, renamedMsg)
-                operationLog.push({
-                    timestamp: new Date().toISOString(),
-                    action: "RENAMED",
-                    message: renamedMsg,
-                    count: results.length,
-                })
+                        const results = await renameFiles(allFiles, false)
+                        const renamedMsg = t("dcim.files.renamed", { count: results.length })
+                        log.logSuccess(LOG_TAG, renamedMsg)
+                        operationLog.push({
+                            timestamp: new Date().toISOString(),
+                            action: "RENAMED",
+                            message: renamedMsg,
+                            count: results.length,
+                        })
+                    },
+                    {
+                        reason: "DCIM 照片重命名",
+                        enabled: argv.preventSleep !== false,
+                    },
+                )
             } catch (error) {
                 const errorMsg = `Error renaming files: ${error.message}`
                 log.logError(LOG_TAG, errorMsg)

@@ -18,6 +18,7 @@ import { ErrorTypes, createError } from "../lib/errors.js"
 import * as mf from "../lib/file.js"
 import * as helper from "../lib/helper.js"
 import { t } from "../lib/i18n.js"
+import { withSleepLock } from "../lib/sleep_blocker.js"
 
 import * as enc from "../lib/encoding.js"
 
@@ -208,7 +209,10 @@ async function cmdZipUnicode(argv) {
         log.showGreen(logTag, `Now unzipping ${files.length} files...}`)
         const startMs = Date.now()
         files.forEach((f) => (f.startMs = startMs))
-        let results = await asyncMap(files, UnzipOneFile)
+        let results = await withSleepLock(() => asyncMap(files, UnzipOneFile), {
+            reason: "批量解压 ZIP 文件",
+            enabled: argv.preventSleep !== false,
+        })
         const okResults = results.filter((r) => r && r.done)
         const skippedResults = results.filter((r) => r && r?.skipped)
         const failedResult = results.filter((r) => !r || !(r.skipped || r.done))

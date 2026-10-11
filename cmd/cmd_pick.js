@@ -66,6 +66,7 @@ import {
     computeImageFeaturesWithCache,
 } from "../lib/image_hash.js"
 import { confirmAction, initAutoConfirm } from "../lib/command_utils.js"
+import { withSleepLock } from "../lib/sleep_blocker.js"
 
 const LOG_TAG = "Pick"
 
@@ -673,7 +674,10 @@ async function copyPickedFiles(files, root, argv) {
         }
     }
 
-    const results = await pMap(files, mapper, { concurrency: cpus().length })
+    const results = await withSleepLock(() => pMap(files, mapper, { concurrency: cpus().length }), {
+        reason: "照片挑选与复制",
+        enabled: argv.preventSleep !== false,
+    })
 
     const count = results.filter((r) => r.status === "success").length
     const skipCount = results.filter((r) => r.status === "skipped").length
